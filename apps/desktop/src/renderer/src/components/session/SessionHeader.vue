@@ -1,6 +1,8 @@
 <script lang="ts" setup>
 /**
- * 本文件渲染 active coding thread 的顶部状态栏。
+ * SessionHeader.vue - 当前活跃会话的顶部状态栏组件。
+ *
+ * 展示会话标题、工作目录与状态，并适配右侧面板的折叠状态。
  */
 
 import { BaseIconButton } from '@renderer/components/base'
@@ -11,6 +13,7 @@ import { computed } from 'vue'
 const { session, panel } = useSessionContext()
 const workspaceSession = useWorkspaceSessionStore()
 
+/** 动态计算的头部样式，用于给右侧操作按钮预留空间。 */
 const styles = computed(() => {
   return {
     paddingRight: panel.value.open

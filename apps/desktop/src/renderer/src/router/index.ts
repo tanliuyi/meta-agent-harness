@@ -1,9 +1,16 @@
 /**
- * 本文件定义 renderer 路由。
+ * router/index.ts - renderer 路由配置。
+ *
+ * @description
+ * 定义应用路由表，使用 hash 模式，支持基于会话 ID 的动态工作区路由。
  */
 
 import { createRouter, createWebHashHistory } from 'vue-router'
 
+/**
+ * Vue Router 应用实例。
+ * 使用 hash 模式，默认重定向到 /new，动态会话路由对应 Workspace 视图。
+ */
 const router = createRouter({
   history: createWebHashHistory(),
   routes: [
@@ -19,4 +26,5 @@ const router = createRouter({
   ]
 })
 
+/** 导出路由实例，供 main.ts 注册。 */
 export default router

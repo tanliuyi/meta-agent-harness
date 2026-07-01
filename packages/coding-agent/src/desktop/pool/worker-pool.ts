@@ -10,18 +10,30 @@ import type { WorkerSnapshot } from "../protocol/snapshot.ts";
 import type { WorkerClient, WorkerClientFactory } from "../worker/client.ts";
 import type { WorkerLease } from "../worker/lease.ts";
 
+/**
+ * Worker 池配置选项。
+ */
 export interface WorkerPoolOptions {
+	/** 最大并发 worker 数量。 */
 	maxWorkers: number;
+	/** 创建 worker 客户端的工厂函数。 */
 	createWorker: WorkerClientFactory;
+	/** 可选时间戳函数，用于 lease 激活与空闲检测。 */
 	now?: () => number;
 }
 
+/**
+ * 等待获取 worker 的队列项。
+ */
 interface QueueItem {
 	input: StartThreadInput;
 	resolve: (lease: WorkerLease) => void;
 	reject: (error: Error) => void;
 }
 
+/**
+ * 管理 worker 生命周期与 thread 绑定的 worker 池。
+ */
 export class WorkerPool {
 	private readonly maxWorkers: number;
 	private readonly createWorker: WorkerClientFactory;
@@ -32,6 +44,10 @@ export class WorkerPool {
 	private active = 0;
 	private closed = false;
 
+	/**
+	 * 创建 worker 池实例。
+	 * @param options - 配置选项。
+	 */
 	constructor(options: WorkerPoolOptions) {
 		if (options.maxWorkers < 1) {
 			throw new Error("maxWorkers must be at least 1");
@@ -41,6 +57,11 @@ export class WorkerPool {
 		this.now = options.now ?? Date.now;
 	}
 
+	/**
+	 * 为指定 thread 请求分配一个 worker。
+	 * @param input - 启动 thread 的输入。
+	 * @returns 绑定 worker 的 lease。
+	 */
 	acquireThreadWorker(input: StartThreadInput): Promise<WorkerLease> {
 		this.assertOpen();
 		if (!input.threadId) {
@@ -55,6 +76,11 @@ export class WorkerPool {
 		});
 	}
 
+	/**
+	 * 释放 thread 占用的 worker。
+	 * @param threadId - 要释放的 thread ID。
+	 * @param reason - 释放原因。
+	 */
 	async releaseThreadWorker(threadId: ThreadId, reason: "idle" | "stop" | "archive" | "crash"): Promise<void> {
 		const lease = this.leases.get(threadId);
 		if (!lease) {
@@ -70,6 +96,12 @@ export class WorkerPool {
 		void this.drain();
 	}
 
+	/**
+	 * 向指定 thread 发送 worker 命令。
+	 * @param threadId - 目标 thread ID。
+	 * @param command - 要发送的命令。
+	 * @returns worker 响应 envelope。
+	 */
 	async send(threadId: ThreadId, command: WorkerCommand): Promise<WorkerResponseEnvelope> {
 		const lease = this.leases.get(threadId);
 		if (!lease) {
@@ -95,22 +127,43 @@ export class WorkerPool {
 		return worker.send(command);
 	}
 
+	/**
+	 * 获取指定 worker 的 snapshot。
+	 * @param workerId - worker ID。
+	 * @returns worker snapshot，不存在时返回 undefined。
+	 */
 	getWorker(workerId: WorkerId): WorkerSnapshot | undefined {
 		return this.workers.get(workerId)?.snapshot();
 	}
 
+	/**
+	 * 列出所有活跃 worker 的 snapshot。
+	 * @returns worker snapshot 数组。
+	 */
 	listWorkers(): WorkerSnapshot[] {
 		return [...this.workers.values()].map((worker) => worker.snapshot());
 	}
 
+	/**
+	 * 列出所有当前 lease。
+	 * @returns lease 数组。
+	 */
 	listLeases(): WorkerLease[] {
 		return [...this.leases.values()];
 	}
 
+	/**
+	 * 获取当前等待队列长度。
+	 * @returns 队列中请求数量。
+	 */
 	getQueuedCount(): number {
 		return this.queue.length;
 	}
 
+	/**
+	 * 标记指定 worker 已崩溃，并释放其占用的 lease。
+	 * @param workerId - 崩溃的 worker ID。
+	 */
 	async markWorkerCrashed(workerId: WorkerId): Promise<void> {
 		const worker = this.workers.get(workerId);
 		if (!worker) {
@@ -125,6 +178,9 @@ export class WorkerPool {
 		void this.drain();
 	}
 
+	/**
+	 * 关闭 worker 池，停止所有 worker 并清空队列。
+	 */
 	async shutdown(): Promise<void> {
 		this.closed = true;
 		const workers = [...this.workers.values()];
@@ -135,6 +191,9 @@ export class WorkerPool {
 		await Promise.all(workers.map((worker) => worker.stop("shutdown")));
 	}
 
+	/**
+	 * 消费等待队列，按需创建 worker 直到达到上限。
+	 */
 	private async drain(): Promise<void> {
 		while (!this.closed && this.active < this.maxWorkers && this.queue.length > 0) {
 			const item = this.queue.shift();
@@ -167,6 +226,10 @@ export class WorkerPool {
 		}
 	}
 
+	/**
+	 * 断言 worker 池未关闭。
+	 * @throws 当 pool 已关闭时。
+	 */
 	private assertOpen(): void {
 		if (this.closed) {
 			throw new Error("worker pool is closed");

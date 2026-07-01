@@ -8,7 +8,9 @@ import { RuntimeDesktopWorkerService } from "../worker/runtime-service.ts";
 import type { StartThreadInput } from "../protocol/thread.ts";
 import type { WorkerEventEnvelope } from "../protocol/envelope.ts";
 
+/** RuntimeDesktopWorkerService 测试套件。 */
 describe("RuntimeDesktopWorkerService", () => {
+	/** 验证 startThread 使用 factory 创建 Pi runtime。 */
 	it("startThread 使用 factory 创建 Pi runtime", async () => {
 		const calls: StartThreadInput[] = [];
 		const service = new RuntimeDesktopWorkerService(async (input) => {
@@ -26,6 +28,7 @@ describe("RuntimeDesktopWorkerService", () => {
 		expect(calls).toEqual([{ threadId: "thread-1", cwd: "H:/repo" }]);
 	});
 
+	/** 验证重复绑定同一个 worker 时 fail-first。 */
 	it("重复绑定同一个 worker 时 fail-first", async () => {
 		const service = new RuntimeDesktopWorkerService(async () => createRuntime());
 		await service.startThread({ threadId: "thread-1", cwd: "H:/repo" });
@@ -40,6 +43,7 @@ describe("RuntimeDesktopWorkerService", () => {
 		expect(response.error?.message).toContain("already has a bound thread");
 	});
 
+	/** 验证 stop 会释放 runtime。 */
 	it("stop 会释放 runtime", async () => {
 		let disposed = false;
 		const service = new RuntimeDesktopWorkerService(async () =>
@@ -62,6 +66,7 @@ describe("RuntimeDesktopWorkerService", () => {
 		expect(response.success).toBe(true);
 	});
 
+	/** 验证绑定 runtime 后转发 canonical event 并派生 projection event。 */
 	it("绑定 runtime 后转发 canonical event 并派生 projection event", async () => {
 		let listener: ((event: { type: "thinking_level_changed"; level: "high" }) => void) | undefined;
 		const events: WorkerEventEnvelope[] = [];

@@ -1,5 +1,5 @@
 /**
- * 本文件实现 Pi extension UI context 与 desktop transport event 的桥接。
+ * 实现 Pi extension UI context 与 desktop transport event 的桥接。
  */
 
 import type { ExtensionUIContext, ExtensionUIDialogOptions } from "../../core/extensions/index.ts";
@@ -7,22 +7,35 @@ import type { ExtensionUiRequest, ExtensionUiResponse } from "../protocol/extens
 import type { ThreadId } from "../protocol/identity.ts";
 import type { WorkerEventEnvelope } from "../protocol/envelope.ts";
 
+/** 等待中的 UI 请求。 */
 interface PendingUiRequest<T> {
 	resolve: (value: T) => void;
 	reject: (error: Error) => void;
 	timer?: ReturnType<typeof setTimeout>;
 }
 
+/**
+ * Extension UI 桥接，实现 ExtensionUIContext 并通过 transport 事件与 renderer 交互。
+ */
 export class ExtensionUiBridge {
 	private readonly threadId: ThreadId;
 	private readonly emit: (event: WorkerEventEnvelope) => void;
 	private readonly pending = new Map<string, PendingUiRequest<unknown>>();
 
+	/**
+	 * 创建 ExtensionUiBridge 实例。
+	 * @param threadId - 关联的 thread ID。
+	 * @param emit - 发送事件 envelope 的函数。
+	 */
 	constructor(threadId: ThreadId, emit: (event: WorkerEventEnvelope) => void) {
 		this.threadId = threadId;
 		this.emit = emit;
 	}
 
+	/**
+	 * 创建 Pi ExtensionUIContext 实例。
+	 * @returns ExtensionUIContext 对象。
+	 */
 	createContext(): ExtensionUIContext {
 		return {
 			select: (title, options, opts) =>
@@ -77,6 +90,10 @@ export class ExtensionUiBridge {
 		};
 	}
 
+	/**
+	 * 响应指定的 extension UI 请求。
+	 * @param response - UI 响应。
+	 */
 	respond(response: ExtensionUiResponse): void {
 		const pending = this.pending.get(response.id);
 		if (!pending) {

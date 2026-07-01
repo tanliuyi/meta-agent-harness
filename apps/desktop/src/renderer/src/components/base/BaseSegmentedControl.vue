@@ -1,17 +1,25 @@
 <script setup lang="ts" generic="T extends string">
 /**
- * 本文件提供基础分段控制组件。
+ * BaseSegmentedControl.vue - 基础分段控制组件。
+ *
+ * 提供一组互斥选项，支持受控模式切换。
  */
 
 defineProps<{
+  /** 控件标签，用于无障碍图例。 */
   label: string
+  /** 当前选中的值。 */
   modelValue: T
+  /** 选项列表。 */
   options: Array<{
+    /** 选项显示文本。 */
     label: string
+    /** 选项值。 */
     value: T
   }>
 }>()
 
+/** 更新选中值事件。 */
 defineEmits<{
   'update:modelValue': [value: T]
 }>()

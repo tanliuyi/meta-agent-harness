@@ -1,5 +1,5 @@
 /**
- * 本文件统一导出 renderer 基础 UI 组件。
+ * index.ts - 统一导出 renderer 基础 UI 组件。
  */
 
 export { default as BaseBadge } from './BaseBadge.vue'

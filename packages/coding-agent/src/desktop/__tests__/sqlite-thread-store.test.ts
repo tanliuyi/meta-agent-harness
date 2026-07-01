@@ -7,7 +7,9 @@ import { SqliteThreadStore } from "../storage/sqlite-thread-store.ts";
 import type { ThreadSnapshot } from "../protocol/snapshot.ts";
 import type { ThreadSummary } from "../protocol/thread.ts";
 
+/** SqliteThreadStore 测试套件。 */
 describe("SqliteThreadStore", () => {
+	/** 验证保存、读取、列出和删除 thread 索引的完整流程。 */
 	it("保存、读取、列出和删除 thread 索引", () => {
 		const store = new SqliteThreadStore(":memory:");
 		const summary: ThreadSummary = {

@@ -1,6 +1,8 @@
 <script setup lang="ts">
 /**
- * 本文件渲染 desktop workspace 的主布局。
+ * View.vue - Workspace 页面主布局组件。
+ *
+ * 组合左侧边栏、可拖拽分隔条与右侧内容区，管理整体布局网格。
  */
 
 import { useResizablePane } from '@renderer/composables/useResizablePane'
@@ -9,13 +11,19 @@ import { computed } from 'vue'
 import WorkspaceContent from './components/content/WorkspaceContent.vue'
 import Sidebar from './components/sidebar/Sidebar.vue'
 
+/** 分隔条宽度（像素）。 */
 const RESIZER_WIDTH = 1
 
 const workspaceUi = useWorkspaceUiStore()
+
+/** 当前工作区网格列模板。 */
 const workspaceGridColumns = computed(() => {
   return `${workspaceUi.sidebarWidth}px ${RESIZER_WIDTH}px minmax(0, 1fr)`
 })
 
+/**
+ * 创建左侧边栏可拖拽调整大小的行为。
+ */
 const { handleResizerKeydown, isResizing, startResize } = useResizablePane({
   getValue: computed(() => workspaceUi.sidebarWidth),
   setValue: workspaceUi.setSidebarWidth

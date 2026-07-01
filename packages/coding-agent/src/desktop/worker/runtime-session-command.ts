@@ -1,5 +1,5 @@
 /**
- * 本文件处理 Pi 同构 session lifecycle command。
+ * 处理 Pi 同构 session lifecycle command。
  */
 
 import { createDesktopError } from "../protocol/error.ts";
@@ -7,6 +7,13 @@ import { createWorkerErrorResponse, createWorkerResponse, type WorkerCommandEnve
 import type { CanonicalAgentCommand } from "../protocol/commands/canonical.ts";
 import { rebindIfNeeded, type RuntimeCommandHandlerHost } from "./runtime-command-host.ts";
 
+/**
+ * 处理 runtime session 生命周期命令。
+ * @param host - runtime 命令 host。
+ * @param envelope - 命令 envelope。
+ * @param command - canonical agent 命令。
+ * @returns worker 响应 envelope，或 undefined 表示不处理该命令。
+ */
 export async function handleRuntimeSessionCommand(
 	host: RuntimeCommandHandlerHost,
 	envelope: WorkerCommandEnvelope,

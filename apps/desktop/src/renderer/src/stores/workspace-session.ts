@@ -1,5 +1,5 @@
 /**
- * 本文件管理 renderer 中 coding thread 的状态与 IPC 调用。
+ * workspace-session.ts - 管理 renderer 中 coding thread 的状态与 IPC 调用。
  */
 
 import { defineStore } from 'pinia'
@@ -12,41 +12,81 @@ import type {
   ThreadSummary
 } from '../../../shared/coding-agent/types'
 
+/** 会话面板 UI 状态。 */
 type SessionUiState = {
+  /** 面板是否展开。 */
   panelOpen: boolean
+  /** 面板宽度。 */
   panelWidth: number
 }
 
+/** 工作区会话对象。 */
 type WorkspaceSession = ThreadSummary & {
+  /** 当前快照。 */
   snapshot?: ThreadSnapshot
+  /** UI 状态。 */
   ui: SessionUiState
 }
 
+/** 会话面板最小宽度。 */
 const minSessionPanelWidth = 220
+
+/** 会话面板最大宽度。 */
 const maxSessionPanelWidth = 460
 
+/**
+ * 创建默认会话 UI 状态。
+ * @returns 默认会话 UI 状态。
+ */
 const createUiState = (): SessionUiState => ({
   panelOpen: true,
   panelWidth: 300
 })
 
+/**
+ * Workspace Session Store。
+ * 负责加载、创建、管理 thread，处理 IPC 事件以及审批请求。
+ */
 export default defineStore('workspace-session', () => {
+  /** 当前活跃会话 ID。 */
   const activeSessionId = ref<string>()
+
+  /** 创建 thread 时输入的工作目录。 */
   const cwdInput = ref('')
+
+  /** 消息输入框的草稿内容。 */
   const draftMessage = ref('')
+
+  /** 错误提示信息。 */
   const errorMessage = ref<string>()
+
+  /** 是否正在加载。 */
   const loading = ref(false)
+
+  /** 所有会话数据。 */
   const sessions = reactive<Record<string, WorkspaceSession>>({})
+
+  /** 待处理的审批请求。 */
   const pendingApprovals = reactive<Record<string, ApprovalRequest>>({})
+
+  /** 最近接收到的 IPC 事件列表。 */
   const events = ref<CodingAgentIpcEvent[]>([])
 
+  /** 当前活跃会话对象。 */
   const activeSession = computed(() => {
     return activeSessionId.value ? sessions[activeSessionId.value] : undefined
   })
 
+  /** 当前活跃会话的快照。 */
   const activeSnapshot = computed(() => activeSession.value?.snapshot)
+
+  /** 会话列表。 */
   const sessionList = computed(() => Object.values(sessions))
 
+  /**
+   * 加载所有 thread 列表。
+   * 若不存在活跃会话，则默认选中第一个并刷新快照。
+   */
   const loadThreads = async (): Promise<void> => {
     loading.value = true
     errorMessage.value = undefined
@@ -69,6 +109,9 @@ export default defineStore('workspace-session', () => {
     }
   }
 
+  /**
+   * 根据输入的工作目录创建新 thread。
+   */
   const createThread = async (): Promise<void> => {
     const cwd = cwdInput.value.trim()
     if (!cwd) {
@@ -88,6 +131,10 @@ export default defineStore('workspace-session', () => {
     }
   }
 
+  /**
+   * 刷新指定 thread 的快照。
+   * @param threadId - 目标 thread ID，默认当前活跃会话。
+   */
   const refreshSnapshot = async (threadId = activeSessionId.value): Promise<void> => {
     if (!threadId) {
       return
@@ -101,6 +148,9 @@ export default defineStore('workspace-session', () => {
     }
   }
 
+  /**
+   * 向当前活跃会话发送 prompt。
+   */
   const sendPrompt = async (): Promise<void> => {
     const threadId = activeSessionId.value
     const message = draftMessage.value.trim()
@@ -117,6 +167,9 @@ export default defineStore('workspace-session', () => {
     }
   }
 
+  /**
+   * 中止当前活跃会话的执行。
+   */
   const abortActive = async (): Promise<void> => {
     if (!activeSessionId.value) {
       return
@@ -125,6 +178,11 @@ export default defineStore('workspace-session', () => {
     await refreshSnapshot(activeSessionId.value)
   }
 
+  /**
+   * 响应审批请求。
+   * @param approval - 审批请求对象。
+   * @param input - 用户响应内容（允许/拒绝、选择项、原因）。
+   */
   const respondApproval = async (
     approval: ApprovalRequest,
     input: Pick<ApprovalResponse, 'allow' | 'choice' | 'reason'>
@@ -142,6 +200,10 @@ export default defineStore('workspace-session', () => {
     delete pendingApprovals[approval.approvalId]
   }
 
+  /**
+   * 设置当前活跃会话 ID 并刷新快照。
+   * @param sessionId - 目标会话 ID。
+   */
   const setActiveSessionId = async (sessionId: string): Promise<void> => {
     if (sessions[sessionId]) {
       activeSessionId.value = sessionId
@@ -149,12 +211,20 @@ export default defineStore('workspace-session', () => {
     }
   }
 
+  /**
+   * 设置当前活跃会话面板的展开状态。
+   * @param open - 是否展开。
+   */
   const setActiveSessionPanelOpen = (open: boolean): void => {
     if (activeSession.value) {
       activeSession.value.ui.panelOpen = open
     }
   }
 
+  /**
+   * 设置当前活跃会话面板的宽度，并限制在最小/最大宽度范围内。
+   * @param width - 目标宽度。
+   */
   const setActiveSessionPanelWidth = (width: number): void => {
     if (!activeSession.value) {
       return
@@ -165,6 +235,11 @@ export default defineStore('workspace-session', () => {
     )
   }
 
+  /**
+   * 处理来自主进程的 coding agent 事件。
+   * 更新会话快照、状态以及待处理审批请求。
+   * @param event - IPC 事件。
+   */
   const handleEvent = (event: CodingAgentIpcEvent): void => {
     events.value.unshift(event)
     events.value = events.value.slice(0, 80)
@@ -186,6 +261,7 @@ export default defineStore('workspace-session', () => {
     }
   }
 
+  /** 订阅 IPC 事件并保存取消订阅函数。 */
   const unsubscribe = window.api.codingAgent.onEvent(handleEvent)
 
   return {
@@ -215,6 +291,11 @@ export default defineStore('workspace-session', () => {
   }
 })
 
+/**
+ * 将 ThreadSnapshot 转换为 WorkspaceSession。
+ * @param snapshot - Thread 快照。
+ * @returns 工作区会话对象。
+ */
 function snapshotToSession(snapshot: ThreadSnapshot): WorkspaceSession {
   return {
     ...snapshotToSummary(snapshot),
@@ -223,6 +304,11 @@ function snapshotToSession(snapshot: ThreadSnapshot): WorkspaceSession {
   }
 }
 
+/**
+ * 从 ThreadSnapshot 生成 ThreadSummary。
+ * @param snapshot - Thread 快照。
+ * @returns Thread 摘要。
+ */
 function snapshotToSummary(snapshot: ThreadSnapshot): ThreadSummary {
   return {
     threadId: snapshot.threadId,

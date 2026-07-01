@@ -11,13 +11,16 @@ import { buildSnapshotFromSession } from "../storage/session-snapshot.ts";
 
 const roots: string[] = [];
 
+/** 每个测试后清理临时目录。 */
 afterEach(() => {
 	for (const root of roots.splice(0)) {
 		rmSync(root, { recursive: true, force: true });
 	}
 });
 
+/** buildSnapshotFromSession 测试套件。 */
 describe("buildSnapshotFromSession", () => {
+	/** 验证使用 Pi SessionManager 读取 JSONL 并重建最小 snapshot。 */
 	it("使用 Pi SessionManager 读取 JSONL 并重建最小 snapshot", () => {
 		const root = mkdtempSync(join(tmpdir(), "desktop-session-"));
 		roots.push(root);

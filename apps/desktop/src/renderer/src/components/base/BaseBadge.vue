@@ -1,10 +1,13 @@
 <script setup lang="ts">
 /**
- * 本文件提供基础徽标组件。
+ * BaseBadge.vue - 基础徽标组件。
+ *
+ * 提供多种语调的标签徽标，用于展示状态或分类。
  */
 
 withDefaults(
   defineProps<{
+    /** 徽标语调。 */
     tone?: 'neutral' | 'success' | 'warning' | 'info'
   }>(),
   {

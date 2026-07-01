@@ -1,5 +1,25 @@
+<script setup lang="ts">
+/**
+ * PlusIcon.vue - 简单加号图标组件。
+ *
+ * 支持自定义尺寸与颜色。
+ */
+
+withDefaults(
+  defineProps<{
+    /** 图标尺寸（像素）。 */
+    size?: number
+    /** 图标描边颜色。 */
+    color?: string
+  }>(),
+  {
+    size: 24,
+    color: 'currentColor'
+  }
+)
+</script>
+
 <template>
-  <!-- 本文件提供简单加号图标组件。 -->
   <svg
     viewBox="0 0 24 24"
     fill="none"
@@ -13,16 +33,3 @@
     <path d="M12 5v14M5 12h14" />
   </svg>
 </template>
-
-<script setup lang="ts">
-withDefaults(
-  defineProps<{
-    size?: number
-    color?: string
-  }>(),
-  {
-    size: 24,
-    color: 'currentColor'
-  }
-)
-</script>

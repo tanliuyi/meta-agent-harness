@@ -1,15 +1,23 @@
 <script setup lang="ts">
 /**
- * 本文件提供基础表单字段组件。
+ * BaseField.vue - 基础表单字段组件。
+ *
+ * 提供带标签、占位符和提示文本的输入框。
  */
 
 withDefaults(
   defineProps<{
+    /** 输入框 ID。 */
     id: string
+    /** 字段标签。 */
     label: string
+    /** 输入框当前值。 */
     modelValue?: string
+    /** 占位符文本。 */
     placeholder?: string
+    /** 提示文本。 */
     hint?: string
+    /** 输入框原生类型。 */
     type?: 'text' | 'search' | 'email' | 'password'
   }>(),
   {
@@ -20,6 +28,7 @@ withDefaults(
   }
 )
 
+/** 更新 modelValue 事件。 */
 defineEmits<{
   'update:modelValue': [value: string]
 }>()

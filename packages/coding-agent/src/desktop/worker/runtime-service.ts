@@ -13,29 +13,51 @@ import { createRuntimeForThread } from "./runtime-factory.ts";
 import { ExtensionUiBridge } from "./extension-ui-bridge.ts";
 import { handleRuntimeCommand } from "./runtime-command-handler.ts";
 
+/** 创建 thread 对应的 AgentSessionRuntime 的工厂函数。 */
 export type CreateRuntimeForThread = (
 	input: StartThreadInput,
 	options: { approvalBridge: ApprovalBridge; hasUI: boolean },
 ) => Promise<AgentSessionRuntime>;
 
+/** 基于 AgentSessionRuntime 实现的 desktop worker service。 */
 export class RuntimeDesktopWorkerService implements DesktopWorkerService {
+	/** 当前 agent session runtime 实例。 */
 	private runtime: AgentSessionRuntime | undefined;
+	/** 创建 thread runtime 的工厂函数。 */
 	private readonly createRuntime: CreateRuntimeForThread;
+	/** 事件下沉回调，用于向外部发送 worker 事件。 */
 	private eventSink: ((event: WorkerEventEnvelope) => void) | undefined;
+	/** 取消会话事件订阅的函数。 */
 	private unsubscribeSession: (() => void) | undefined;
+	/** 审批桥接器实例。 */
 	private approvalBridge: ApprovalBridge | undefined;
+	/** UI 桥接器实例。 */
 	private uiBridge: ExtensionUiBridge | undefined;
+	/** 当前绑定的 thread 标识。 */
 	private threadId: ThreadId | undefined;
+	/** worker 是否已启动并绑定 thread。 */
 	private started = false;
 
+	/**
+	 * 构造 RuntimeDesktopWorkerService 实例。
+	 * @param createRuntime - 创建 thread runtime 的工厂函数，默认使用 createRuntimeForThread。
+	 */
 	constructor(createRuntime: CreateRuntimeForThread = createRuntimeForThread) {
 		this.createRuntime = createRuntime;
 	}
 
+	/**
+	 * 设置事件下沉回调。
+	 * @param sink - 用于接收 worker 事件的回调函数。
+	 */
 	setEventSink(sink: (event: WorkerEventEnvelope) => void): void {
 		this.eventSink = sink;
 	}
 
+	/**
+	 * 启动 thread 并初始化 runtime。
+	 * @param input - 启动 thread 的输入参数。
+	 */
 	async startThread(input: StartThreadInput): Promise<void> {
 		if (!input.threadId) {
 			throw new Error("threadId is required");
@@ -58,6 +80,11 @@ export class RuntimeDesktopWorkerService implements DesktopWorkerService {
 		});
 	}
 
+	/**
+	 * 处理 worker 命令信封。
+	 * @param envelope - 收到的命令信封。
+	 * @returns 命令响应信封。
+	 */
 	async handle(envelope: WorkerCommandEnvelope): Promise<WorkerResponseEnvelope> {
 		if (envelope.command.type === "worker.startThread") {
 			try {
@@ -131,6 +158,10 @@ export class RuntimeDesktopWorkerService implements DesktopWorkerService {
 		);
 	}
 
+	/**
+	 * 停止 worker 并释放相关资源。
+	 * @param _reason - 停止原因（当前未使用）。
+	 */
 	async stop(_reason: string): Promise<void> {
 		this.unsubscribeSession?.();
 		this.unsubscribeSession = undefined;
@@ -143,6 +174,10 @@ export class RuntimeDesktopWorkerService implements DesktopWorkerService {
 		this.started = false;
 	}
 
+	/**
+	 * 订阅会话事件并投影到 worker 事件下沉。
+	 * 会重新绑定订阅，覆盖之前的订阅。
+	 */
 	private bindSessionEvents(): void {
 		this.unsubscribeSession?.();
 		const threadId = this.threadId;

@@ -1,5 +1,5 @@
 /**
- * 本文件处理模型、thinking、压缩、重试和 bash 等 runtime control command。
+ * 处理模型、thinking、压缩、重试和 bash 等 runtime control command。
  */
 
 import { createDesktopError } from "../protocol/error.ts";
@@ -8,6 +8,13 @@ import type { CanonicalAgentCommand } from "../protocol/commands/canonical.ts";
 import type { RuntimeCommandHandlerHost } from "./runtime-command-host.ts";
 import { buildThinkingLevelCycleResult } from "./runtime-state.ts";
 
+/**
+ * 处理 runtime control 命令。
+ * @param host - runtime 命令 host。
+ * @param envelope - 命令 envelope。
+ * @param command - canonical agent 命令。
+ * @returns worker 响应 envelope，或 undefined 表示不处理该命令。
+ */
 export async function handleRuntimeControlCommand(
 	host: RuntimeCommandHandlerHost,
 	envelope: WorkerCommandEnvelope,

@@ -46,7 +46,9 @@ class FakeWorkerClient implements WorkerClient {
 	}
 }
 
+/** WorkerPool 测试套件。 */
 describe("WorkerPool", () => {
+	/** 验证限制并发并排队等待 release。 */
 	it("限制并发并排队等待 release", async () => {
 		let count = 0;
 		const workers: FakeWorkerClient[] = [];
@@ -76,6 +78,7 @@ describe("WorkerPool", () => {
 		expect(pool.listLeases()).toHaveLength(1);
 	});
 
+	/** 验证 send 在 thread 没有 lease 时 fail first。 */
 	it("send 在 thread 没有 lease 时 fail first", async () => {
 		const pool = new WorkerPool({
 			maxWorkers: 1,
@@ -88,6 +91,7 @@ describe("WorkerPool", () => {
 		expect(response.error?.code).toBe("thread_not_found");
 	});
 
+	/** 验证 worker crash 会清理 lease 并继续调度队列。 */
 	it("worker crash 会清理 lease 并继续调度队列", async () => {
 		let count = 0;
 		const pool = new WorkerPool({
@@ -105,6 +109,7 @@ describe("WorkerPool", () => {
 		expect(pool.listLeases().map((lease) => lease.threadId)).toEqual(["thread-2"]);
 	});
 
+	/** 验证 shutdown 停止全部 worker 并拒绝队列。 */
 	it("shutdown 停止全部 worker 并拒绝队列", async () => {
 		let count = 0;
 		const worker = new FakeWorkerClient("worker-1");
@@ -129,4 +134,3 @@ describe("WorkerPool", () => {
 		expect(rejected).toHaveBeenCalled();
 	});
 });
-

@@ -12,12 +12,23 @@ import { WorkerPool } from './worker-pool'
 import type { WorkerClient, WorkerEnvelope } from './worker-types'
 import type { CodingAgentIpcEvent } from '../../shared/coding-agent/types'
 
+/**
+ * Coding agent IPC 注册选项。
+ */
 export interface CodingAgentIpcOptions {
+  /** 可选的 CodingThreadManager 实例，用于复用现有管理器。 */
   manager?: CodingThreadManager
+  /** 创建 worker 客户端的工厂函数。 */
   createWorker?: () => Promise<WorkerClient>
+  /** 最大 worker 数量。 */
   maxWorkers?: number
 }
 
+/**
+ * 注册 desktop coding agent 后端 IPC 处理器。
+ * @param options - IPC 注册选项。
+ * @returns 创建的 CodingThreadManager 实例。
+ */
 export function registerCodingAgentIpc(options: CodingAgentIpcOptions = {}): CodingThreadManager {
   const subscribers = new Set<WebContents>()
   const store = new CodingThreadStore(join(app.getPath('userData'), 'meta-agent.db'))
@@ -115,6 +126,11 @@ export function registerCodingAgentIpc(options: CodingAgentIpcOptions = {}): Cod
   return manager
 }
 
+/**
+ * 将 worker 信封转换为 IPC 事件。
+ * @param event - worker 信封。
+ * @returns 对应的 IPC 事件；若无法转换则返回 undefined。
+ */
 function toIpcEvent(event: WorkerEnvelope): CodingAgentIpcEvent | undefined {
   if (event.kind !== 'event') {
     return undefined

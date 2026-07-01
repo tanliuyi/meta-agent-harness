@@ -12,7 +12,9 @@ export default defineConfig({
       rollupOptions: {
         input: {
           index: resolve('src/main/index.ts'),
-          'coding-agent-worker': resolve('../../packages/coding-agent/src/desktop/worker/worker-main.ts')
+          'coding-agent-worker': resolve(
+            '../../packages/coding-agent/src/desktop/worker/worker-main.ts'
+          )
         }
       }
     }

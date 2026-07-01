@@ -1,10 +1,15 @@
 /**
- * 本文件从 Pi session 资源汇总可调用 slash command。
+ * 从 Pi session 资源汇总可调用 slash command。
  */
 
 import type { AgentSession } from "../../core/agent-session.ts";
 import type { RpcSlashCommand } from "../../modes/rpc/rpc-types.ts";
 
+/**
+ * 获取当前 session 中可用的 slash command 列表。
+ * @param session - agent session 实例。
+ * @returns 可调用命令数组。
+ */
 export function getRuntimeCommands(session: AgentSession): RpcSlashCommand[] {
 	const commands: RpcSlashCommand[] = [];
 	for (const command of session.extensionRunner.getRegisteredCommands()) {

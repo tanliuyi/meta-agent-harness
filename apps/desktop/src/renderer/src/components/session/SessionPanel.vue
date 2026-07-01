@@ -1,6 +1,8 @@
 <script setup lang="ts">
 /**
- * 本文件渲染 active coding thread 的状态、事件和审批面板。
+ * SessionPanel.vue - 当前活跃会话的右侧面板组件。
+ *
+ * 展示会话状态、CWD、会话文件以及待处理的审批请求与最近事件。
  */
 
 import { BaseIconButton } from '@renderer/components/base'
@@ -8,10 +10,12 @@ import useWorkspaceSessionStore from '@renderer/stores/workspace-session'
 
 const workspaceSession = useWorkspaceSessionStore()
 
+/** 是否折叠面板。 */
 defineProps<{
   collapsed?: boolean
 }>()
 
+/** 切换面板折叠状态。 */
 defineEmits<{
   toggle: []
 }>()
@@ -21,7 +25,7 @@ defineEmits<{
   <section class="session-panel" :class="{ 'session-panel--collapsed': collapsed }">
     <header class="session-panel__header">
       <div class="session-panel__tabs">
-        <!-- session panel tabs -->
+        <!-- 会话面板标签栏占位 -->
       </div>
       <div class="session-panel__actions">
         <BaseIconButton
@@ -63,7 +67,10 @@ defineEmits<{
         </div>
       </dl>
 
-      <section v-if="Object.keys(workspaceSession.pendingApprovals).length > 0" class="approval-list">
+      <section
+        v-if="Object.keys(workspaceSession.pendingApprovals).length > 0"
+        class="approval-list"
+      >
         <article
           v-for="approval in workspaceSession.pendingApprovals"
           :key="approval.approvalId"

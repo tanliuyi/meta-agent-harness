@@ -7,6 +7,10 @@ import { electronAPI } from '@electron-toolkit/preload'
 import type { CodingAgentApi, CodingAgentIpcEvent } from '../shared/coding-agent/types'
 import { codingAgentChannels } from '../shared/coding-agent/channels'
 
+/**
+ * 暴露给渲染进程的 Coding Agent IPC API 实现。
+ * 通过 ipcRenderer.invoke/on 与 main 进程通信。
+ */
 const codingAgent: CodingAgentApi = {
   createThread: (input) => ipcRenderer.invoke(codingAgentChannels.createThread, input),
   stopThread: (threadId) => ipcRenderer.invoke(codingAgentChannels.stopThread, threadId),
@@ -52,6 +56,9 @@ const codingAgent: CodingAgentApi = {
   }
 }
 
+/**
+ * 注入到 window 的受控 API 集合。
+ */
 const api = { codingAgent }
 
 if (process.contextIsolated) {
@@ -62,8 +69,8 @@ if (process.contextIsolated) {
     console.error(error)
   }
 } else {
-  // @ts-ignore (define in dts)
+  // @ts-ignore（在 dts 中定义）
   window.electron = electronAPI
-  // @ts-ignore (define in dts)
+  // @ts-ignore（在 dts 中定义）
   window.api = api
 }

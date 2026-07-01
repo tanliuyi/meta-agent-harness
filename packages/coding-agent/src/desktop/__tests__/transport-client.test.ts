@@ -7,7 +7,9 @@ import { createWorkerResponse, type WorkerCommandEnvelope } from "../protocol/en
 import { MemoryTransport } from "../transport/memory-transport.ts";
 import { TransportWorkerClient } from "../worker/transport-client.ts";
 
+/** TransportWorkerClient 测试套件。 */
 describe("TransportWorkerClient", () => {
+	/** 验证按 request id 关联响应。 */
 	it("按 request id 关联响应", async () => {
 		const [clientTransport, workerTransport] = MemoryTransport.pair();
 		const client = new TransportWorkerClient({
@@ -26,6 +28,7 @@ describe("TransportWorkerClient", () => {
 		expect(response.data).toEqual({ ok: true });
 	});
 
+	/** 验证 startThread 成功后记录 threadId。 */
 	it("startThread 成功后记录 threadId", async () => {
 		const [clientTransport, workerTransport] = MemoryTransport.pair();
 		const client = new TransportWorkerClient({
@@ -43,6 +46,7 @@ describe("TransportWorkerClient", () => {
 		expect(client.snapshot().threadId).toBe("thread-1");
 	});
 
+	/** 验证请求超时会 reject。 */
 	it("请求超时会 reject", async () => {
 		vi.useFakeTimers();
 		const [clientTransport] = MemoryTransport.pair();
@@ -60,6 +64,7 @@ describe("TransportWorkerClient", () => {
 		vi.useRealTimers();
 	});
 
+	/** 验证 transport close 会 reject pending request。 */
 	it("transport close 会 reject pending request", async () => {
 		const [clientTransport] = MemoryTransport.pair();
 		const client = new TransportWorkerClient({
@@ -74,4 +79,3 @@ describe("TransportWorkerClient", () => {
 		await expect(request).rejects.toThrow("transport closed");
 	});
 });
-

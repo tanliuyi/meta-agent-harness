@@ -8,7 +8,9 @@ import { UnboundDesktopWorkerService } from "../worker/service.ts";
 import { bindWorkerServiceTransport } from "../worker/transport-server.ts";
 import { TransportWorkerClient } from "../worker/transport-client.ts";
 
+/** bindWorkerServiceTransport 测试套件。 */
 describe("bindWorkerServiceTransport", () => {
+	/** 验证通过 transport 驱动 worker service 的完整流程。 */
 	it("通过 transport 驱动 worker service", async () => {
 		const [clientTransport, serverTransport] = MemoryTransport.pair();
 		bindWorkerServiceTransport(new UnboundDesktopWorkerService(), serverTransport);
@@ -24,4 +26,3 @@ describe("bindWorkerServiceTransport", () => {
 		expect(response.success).toBe(true);
 	});
 });
-

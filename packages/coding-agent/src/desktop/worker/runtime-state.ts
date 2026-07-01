@@ -4,6 +4,11 @@
 
 import type { AgentSession } from "../../core/agent-session.ts";
 
+/**
+ * 根据 AgentSession 构建 desktop runtime 状态对象。
+ * @param session - 当前 agent session 实例。
+ * @returns 包含状态字段的 plain 对象。
+ */
 export function buildRuntimeState(session: AgentSession): Record<string, unknown> {
 	return {
 		model: session.model,
@@ -21,6 +26,11 @@ export function buildRuntimeState(session: AgentSession): Record<string, unknown
 	};
 }
 
+/**
+ * 根据 thinking level 构建 cycle 结果对象。
+ * @param level - session 的 thinking level，未设置时为 undefined。
+ * @returns 包含 level 的对象；若未设置则返回 null。
+ */
 export function buildThinkingLevelCycleResult(
 	level: AgentSession["thinkingLevel"] | undefined,
 ): { level: AgentSession["thinkingLevel"] } | null {
