@@ -10,6 +10,7 @@ import { fail, ok } from '../../shared/coding-agent/ipc-contract'
 import { CodingThreadManager } from './thread-manager'
 import { CodingThreadStore } from './thread-store'
 import { ProjectStore } from './project-store'
+import { ProjectTrustService } from './project-trust-service'
 import { createUtilityProcessWorkerClient } from './utility-process-worker-client-factory'
 import { ThreadWorkerRegistry } from './thread-worker-registry'
 import { indexWorkerEvent } from './event-indexer'
@@ -28,6 +29,7 @@ import type {
   PromptInput,
   RenameProjectInput,
   RenameThreadInput,
+  SetProjectTrustInput,
   SetModelInput,
   SetThinkingInput,
   SwitchSessionInput,
@@ -54,6 +56,7 @@ export function registerCodingAgentIpc(options: CodingAgentIpcOptions = {}): Cod
   const subscribers = new Set<WebContents>()
   const db = new DatabaseSync(join(app.getPath('userData'), 'meta-agent.db'))
   const projectStore = new ProjectStore(db, { ownsDb: false })
+  const projectTrustService = new ProjectTrustService()
   const store = new CodingThreadStore(db, { ownsDb: false })
   const manager =
     options.manager ??
@@ -74,7 +77,8 @@ export function registerCodingAgentIpc(options: CodingAgentIpcOptions = {}): Cod
         }
       }),
       store,
-      projectStore
+      projectStore,
+      projectTrustService
     )
 
   handle(manager, codingAgentChannels.createProject, async () => {
@@ -100,6 +104,14 @@ export function registerCodingAgentIpc(options: CodingAgentIpcOptions = {}): Cod
     manager.renameProject(input)
     const project = manager.getProject(input.projectId)
     publishCodingAgentEvent(subscribers, { type: 'project', event: { type: 'project.updated', project } })
+  })
+  handle(manager, codingAgentChannels.setProjectTrust, (input: SetProjectTrustInput) => {
+    const project = manager.setProjectTrust(input)
+    publishCodingAgentEvent(subscribers, {
+      type: 'project',
+      event: { type: 'project.trustChanged', project }
+    })
+    return project
   })
   handle(manager, codingAgentChannels.createThread, async (input: CreateThreadInput) => {
     const snapshot = await manager.createThread(input)

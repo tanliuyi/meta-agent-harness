@@ -2,11 +2,12 @@
  * 本文件测试 Project-first thread lifecycle。
  */
 
-import { mkdirSync, rmSync } from 'node:fs'
+import { mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { describe, expect, it } from 'vitest'
 import { ProjectStore } from '../project-store'
+import { ProjectTrustService } from '../project-trust-service'
 import { CodingThreadStore } from '../thread-store'
 import { CodingThreadManager } from '../thread-manager'
 import type { StartThreadInput, WorkerLease } from '../worker-types'
@@ -20,7 +21,12 @@ describe('CodingThreadManager lifecycle', () => {
     const projectStore = new ProjectStore(':memory:')
     const threadStore = new CodingThreadStore(':memory:')
     const registry = createRecordingRegistry()
-    const manager = new CodingThreadManager(registry as unknown as ThreadWorkerRegistry, threadStore, projectStore)
+    const manager = new CodingThreadManager(
+      registry as unknown as ThreadWorkerRegistry,
+      threadStore,
+      projectStore,
+      new ProjectTrustService(join(root, 'agent'))
+    )
     const project = manager.createProject({ path: projectPath })
 
     const snapshot = await manager.createThread({
@@ -45,6 +51,62 @@ describe('CodingThreadManager lifecycle', () => {
       threadId: 'thread-a',
       cwd: projectPath,
       title: 'Thread A'
+    })
+
+    threadStore.close()
+    projectStore.close()
+    rmSync(root, { recursive: true, force: true })
+  })
+
+  it('createThread 使用 Project trust 状态启动 worker，不在 Thread 创建时弹 trust approve', async () => {
+    const root = createTempDir()
+    const projectPath = join(root, 'repo')
+    mkdirSync(join(projectPath, '.pi'), { recursive: true })
+    writeFileSync(join(projectPath, '.pi', 'settings.json'), '{}')
+    const agentDir = join(root, 'agent')
+    const projectStore = new ProjectStore(':memory:')
+    const threadStore = new CodingThreadStore(':memory:')
+    const registry = createRecordingRegistry()
+    const manager = new CodingThreadManager(
+      registry as unknown as ThreadWorkerRegistry,
+      threadStore,
+      projectStore,
+      new ProjectTrustService(agentDir)
+    )
+    const project = manager.createProject({ path: projectPath })
+
+    expect(project.trust).toMatchObject({
+      state: 'unknown',
+      requiresTrust: true
+    })
+
+    await manager.createThread({
+      threadId: 'thread-untrusted',
+      projectId: project.projectId
+    })
+    expect(registry.acquires[0]).toMatchObject({
+      threadId: 'thread-untrusted',
+      cwd: projectPath,
+      projectTrustOverride: false
+    })
+
+    const trustedProject = manager.setProjectTrust({
+      projectId: project.projectId,
+      decision: 'trustProject'
+    })
+    expect(trustedProject.trust).toMatchObject({
+      state: 'trusted',
+      requiresTrust: true
+    })
+
+    await manager.createThread({
+      threadId: 'thread-trusted',
+      projectId: project.projectId
+    })
+    expect(registry.acquires[1]).toMatchObject({
+      threadId: 'thread-trusted',
+      cwd: projectPath,
+      projectTrustOverride: true
     })
 
     threadStore.close()

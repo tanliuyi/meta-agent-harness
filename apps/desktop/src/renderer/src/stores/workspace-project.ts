@@ -4,7 +4,10 @@
 
 import { defineStore } from 'pinia'
 import { computed, reactive, ref } from 'vue'
-import type { ProjectSummary } from '../../../shared/coding-agent/types'
+import type {
+  ProjectSummary,
+  ProjectTrustDecision
+} from '../../../shared/coding-agent/types'
 
 /**
  * Workspace Project Store。
@@ -97,6 +100,27 @@ export default defineStore('workspace-project', () => {
     }
   }
 
+  /**
+   * 设置 Project trust 决策。
+   * @param projectId - Project ID。
+   * @param decision - trust 决策。
+   */
+  const setProjectTrust = async (
+    projectId: string,
+    decision: ProjectTrustDecision
+  ): Promise<void> => {
+    loading.value = true
+    errorMessage.value = undefined
+    try {
+      const project = await window.api.codingAgent.setProjectTrust({ projectId, decision })
+      projects[project.projectId] = project
+    } catch (error) {
+      errorMessage.value = error instanceof Error ? error.message : String(error)
+    } finally {
+      loading.value = false
+    }
+  }
+
   return {
     createProject,
     errorMessage,
@@ -105,6 +129,7 @@ export default defineStore('workspace-project', () => {
     openProject,
     projectList,
     projects,
-    renameProject
+    renameProject,
+    setProjectTrust
   }
 })

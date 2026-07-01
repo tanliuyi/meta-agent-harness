@@ -7,6 +7,7 @@ import type { WorkerCommand, WorkerResponseEnvelope } from './worker-types'
 import type { ThreadWorkerRegistry } from './thread-worker-registry'
 import type { CodingThreadStore } from './thread-store'
 import type { ProjectStore } from './project-store'
+import type { ProjectTrustService } from './project-trust-service'
 import { buildSnapshotFromSession } from './session-snapshot'
 
 /**
@@ -21,16 +22,24 @@ export class ThreadManagerCore {
   private readonly store: CodingThreadStore | undefined
   /** Project registry。 */
   private readonly projectStore: ProjectStore | undefined
+  /** Project trust 服务。 */
+  private readonly projectTrustService: ProjectTrustService | undefined
 
   /**
    * 创建 ThreadManagerCore 实例。
    * @param workers - thread worker registry 实例。
    * @param store - 可选的线程 store，用于加载持久化线程。
    */
-  constructor(workers: ThreadWorkerRegistry, store?: CodingThreadStore, projectStore?: ProjectStore) {
+  constructor(
+    workers: ThreadWorkerRegistry,
+    store?: CodingThreadStore,
+    projectStore?: ProjectStore,
+    projectTrustService?: ProjectTrustService
+  ) {
     this.workers = workers
     this.store = store
     this.projectStore = projectStore
+    this.projectTrustService = projectTrustService
     for (const thread of store?.listThreads() ?? []) {
       this.threads.set(thread.threadId, thread)
     }
@@ -365,6 +374,27 @@ export class ThreadManagerCore {
   }
 
   /**
+   * 获取 ProjectTrustService。
+   * @returns ProjectTrustService。
+   * @throws 当未配置 ProjectTrustService 时。
+   */
+  getProjectTrustService(): ProjectTrustService {
+    if (!this.projectTrustService) {
+      throw new Error('project trust service is required')
+    }
+    return this.projectTrustService
+  }
+
+  /**
+   * 获取线程启动用的 Project trust 覆盖。
+   * @param cwd - Project cwd。
+   * @returns 是否加载 Project 本地资源。
+   */
+  getProjectTrustOverride(cwd: string): boolean {
+    return this.projectTrustService?.isProjectTrusted(cwd) ?? false
+  }
+
+  /**
    * 获取 thread 的运行时 cwd。
    * @param thread - Thread 摘要。
    * @returns Project 路径。
@@ -392,12 +422,14 @@ export class ThreadManagerCore {
     }
     const thread = this.requireThread(threadId)
     const statusAfterStart = thread.status === 'running' ? 'running' : 'idle'
+    const cwd = this.getThreadCwd(thread)
     this.updateThread(threadId, { status: 'starting' })
     await this.workers.acquireThreadWorker({
       threadId,
-      cwd: this.getThreadCwd(thread),
+      cwd,
       sessionFile: thread.sessionFile,
-      title: thread.title
+      title: thread.title,
+      projectTrustOverride: this.getProjectTrustOverride(cwd)
     })
     this.updateThread(threadId, { status: statusAfterStart })
   }

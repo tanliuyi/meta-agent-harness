@@ -82,6 +82,8 @@ export interface StartThreadInput {
   title?: string
   /** Agent 目录路径。 */
   agentDir?: string
+  /** Project trust 覆盖。 */
+  projectTrustOverride?: boolean
 }
 
 /**

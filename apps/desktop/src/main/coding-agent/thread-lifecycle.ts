@@ -43,7 +43,8 @@ export async function createThread(
       cwd: project.path,
       sessionFile: input.sessionFile,
       title: input.title,
-      agentDir: input.agentDir
+      agentDir: input.agentDir,
+      projectTrustOverride: core.getProjectTrustOverride(project.path)
     })
     core.updateThread(threadId, { status: 'idle' })
     return await core.getSnapshot(threadId)
@@ -85,11 +86,13 @@ export async function restartThread(
     await core.getWorkers().releaseThreadWorker(threadId, 'stop')
   }
   core.updateThread(threadId, { status: 'starting' })
+  const cwd = core.getThreadCwd(thread)
   await core.getWorkers().acquireThreadWorker({
     threadId,
-    cwd: core.getThreadCwd(thread),
+    cwd,
     sessionFile: thread.sessionFile,
-    title: thread.title
+    title: thread.title,
+    projectTrustOverride: core.getProjectTrustOverride(cwd)
   })
   core.updateThread(threadId, { status: 'idle' })
   return await core.getSnapshot(threadId)

@@ -27,6 +27,7 @@ const codingAgent: CodingAgentApi = {
   openProject: (projectId) => invokeCodingAgent(codingAgentChannels.openProject, projectId),
   getProject: (projectId) => invokeCodingAgent(codingAgentChannels.getProject, projectId),
   renameProject: (input) => invokeCodingAgent(codingAgentChannels.renameProject, input),
+  setProjectTrust: (input) => invokeCodingAgent(codingAgentChannels.setProjectTrust, input),
   createThread: (input) => invokeCodingAgent(codingAgentChannels.createThread, input),
   stopThread: (threadId) => invokeCodingAgent(codingAgentChannels.stopThread, threadId),
   restartThread: (threadId) => invokeCodingAgent(codingAgentChannels.restartThread, threadId),

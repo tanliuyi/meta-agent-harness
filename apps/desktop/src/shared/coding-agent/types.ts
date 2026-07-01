@@ -12,6 +12,26 @@ export type ThinkingLevel = 'off' | 'minimal' | 'low' | 'medium' | 'high' | 'xhi
 /** Project 可用状态。 */
 export type ProjectStatus = 'available' | 'missing' | 'permissionDenied' | 'invalid'
 
+/** Project trust 状态。 */
+export type ProjectTrustState = 'trusted' | 'untrusted' | 'unknown' | 'notRequired'
+
+/** Project trust 决策。 */
+export type ProjectTrustDecision = 'trustProject' | 'trustParent' | 'trustSession' | 'doNotTrust'
+
+/** Project trust 摘要。 */
+export interface ProjectTrustSummary {
+  /** 当前 trust 状态。 */
+  state: ProjectTrustState
+  /** 是否存在需要 trust 才加载的项目本地资源。 */
+  requiresTrust: boolean
+  /** 已保存决策命中的路径。 */
+  savedPath?: string
+  /** 可保存父目录 trust 的路径。 */
+  parentPath?: string
+  /** 是否为当前进程内的临时决策。 */
+  sessionOnly?: boolean
+}
+
 /** Project 摘要信息。 */
 export interface ProjectSummary {
   /** Project ID。 */
@@ -28,6 +48,8 @@ export interface ProjectSummary {
   updatedAt: string
   /** 最近打开时间（ISO 8601）。 */
   lastOpenedAt?: string
+  /** Project trust 状态。 */
+  trust?: ProjectTrustSummary
 }
 
 /** 创建 Project 的输入参数。 */
@@ -44,6 +66,14 @@ export interface RenameProjectInput {
   projectId: string
   /** 新名称。 */
   name: string
+}
+
+/** 设置 Project trust 的输入参数。 */
+export interface SetProjectTrustInput {
+  /** Project ID。 */
+  projectId: string
+  /** trust 决策。 */
+  decision: ProjectTrustDecision
 }
 
 /** 创建线程的输入参数。 */
@@ -374,6 +404,8 @@ export interface CodingAgentApi {
   getProject(projectId: string): Promise<ProjectSummary>
   /** 重命名 Project。 */
   renameProject(input: RenameProjectInput): Promise<void>
+  /** 设置 Project trust。 */
+  setProjectTrust(input: SetProjectTrustInput): Promise<ProjectSummary>
   /** 创建新线程。 */
   createThread(input: CreateThreadInput): Promise<ThreadSnapshot>
   /** 停止线程运行。 */

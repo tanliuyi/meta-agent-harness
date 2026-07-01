@@ -53,7 +53,7 @@ export async function createRuntimeForThread(
 			const cachedProjectTrust = projectTrustByCwd.get(cwd);
 			const shouldResolveProjectTrust = cachedProjectTrust === undefined && hasTrustRequiringResources;
 			const projectTrusted = shouldResolveProjectTrust
-				? false
+				? (input.projectTrustOverride ?? false)
 				: (cachedProjectTrust ?? (!hasTrustRequiringResources || trustStore.get(cwd) === true));
 			const settingsManager = SettingsManager.create(cwd, runtimeOptions.agentDir, { projectTrusted });
 			const projectTrustDiagnostics: Array<{ type: "warning"; message: string }> = [];
@@ -61,7 +61,7 @@ export async function createRuntimeForThread(
 				cwd,
 				agentDir: runtimeOptions.agentDir,
 				settingsManager,
-				resourceLoaderReloadOptions: shouldResolveProjectTrust
+				resourceLoaderReloadOptions: shouldResolveProjectTrust && input.projectTrustOverride === undefined
 					? {
 							resolveProjectTrust: async ({ extensionsResult }) => {
 								const trusted = await resolveProjectTrusted({

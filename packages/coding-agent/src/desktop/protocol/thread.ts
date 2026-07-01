@@ -19,6 +19,8 @@ export interface StartThreadInput {
 	title?: string;
 	/** Agent 目录路径（可选）。 */
 	agentDir?: string;
+	/** Project trust 覆盖；desktop host 已在 Project 层解析时传入。 */
+	projectTrustOverride?: boolean;
 }
 
 /** Thread 摘要。 */

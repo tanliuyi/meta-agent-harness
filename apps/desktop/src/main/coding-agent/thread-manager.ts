@@ -20,6 +20,7 @@ import type {
   ProjectSummary,
   RenameThreadInput,
   RenameProjectInput,
+  SetProjectTrustInput,
   SetModelInput,
   SetThinkingInput,
   SwitchSessionInput,
@@ -67,7 +68,7 @@ export class CodingThreadManager extends ThreadManagerCore {
    * @returns Project 摘要。
    */
   createProject(input: CreateProjectInput): ProjectSummary {
-    return this.getProjectStore().createProject(input)
+    return this.getProjectTrustService().decorateProject(this.getProjectStore().createProject(input))
   }
 
   /**
@@ -76,7 +77,7 @@ export class CodingThreadManager extends ThreadManagerCore {
    * @returns Project 摘要。
    */
   openProject(projectId: string): ProjectSummary {
-    return this.getProjectStore().openProject(projectId)
+    return this.getProjectTrustService().decorateProject(this.getProjectStore().openProject(projectId))
   }
 
   /**
@@ -85,7 +86,7 @@ export class CodingThreadManager extends ThreadManagerCore {
    * @returns Project 摘要。
    */
   getProject(projectId: string): ProjectSummary {
-    return this.getProjectStore().requireProject(projectId)
+    return this.getProjectTrustService().decorateProject(this.getProjectStore().requireProject(projectId))
   }
 
   /**
@@ -93,7 +94,7 @@ export class CodingThreadManager extends ThreadManagerCore {
    * @returns Project 摘要列表。
    */
   listProjects(): ProjectSummary[] {
-    return this.getProjectStore().listProjects()
+    return this.getProjectTrustService().decorateProjects(this.getProjectStore().listProjects())
   }
 
   /**
@@ -102,6 +103,17 @@ export class CodingThreadManager extends ThreadManagerCore {
    */
   renameProject(input: RenameProjectInput): void {
     this.getProjectStore().updateProject(input.projectId, { name: input.name })
+  }
+
+  /**
+   * 设置 Project trust 决策。
+   * @param input - trust 输入。
+   * @returns 更新后的 Project。
+   */
+  setProjectTrust(input: SetProjectTrustInput): ProjectSummary {
+    const project = this.getProjectStore().requireProject(input.projectId)
+    this.getProjectTrustService().setProjectTrust(project, input.decision)
+    return this.getProject(input.projectId)
   }
 
   /**

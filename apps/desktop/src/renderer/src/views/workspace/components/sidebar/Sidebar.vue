@@ -9,6 +9,10 @@ import { BaseIconButton } from '@renderer/components/base'
 import PlusIcon from '@renderer/components/icons/PlusIcon.vue'
 import useWorkspaceProjectStore from '@renderer/stores/workspace-project'
 import useWorkspaceSessionStore from '@renderer/stores/workspace-session'
+import type {
+  ProjectSummary,
+  ProjectTrustDecision
+} from '../../../../../../shared/coding-agent/types'
 
 const workspaceProject = useWorkspaceProjectStore()
 const workspaceSession = useWorkspaceSessionStore()
@@ -28,6 +32,46 @@ async function openProject(projectId: string): Promise<void> {
  */
 async function createThreadInProject(projectId: string): Promise<void> {
   await workspaceSession.createThread(projectId)
+}
+
+/**
+ * 设置 Project trust。
+ * @param projectId - Project ID。
+ * @param decision - trust 决策。
+ */
+async function setProjectTrust(
+  projectId: string,
+  decision: ProjectTrustDecision
+): Promise<void> {
+  await workspaceProject.setProjectTrust(projectId, decision)
+}
+
+/**
+ * 是否展示 Project trust 提示。
+ * @param project - Project。
+ * @returns 是否展示。
+ */
+function shouldShowTrustNotice(project: ProjectSummary): boolean {
+  return project.trust?.requiresTrust === true && project.trust.state !== 'trusted'
+}
+
+/**
+ * 获取 Project trust 状态标签。
+ * @param project - Project。
+ * @returns 状态标签。
+ */
+function getTrustLabel(project: ProjectSummary): string {
+  switch (project.trust?.state) {
+    case 'trusted':
+      return project.trust.sessionOnly ? 'trusted session' : 'trusted'
+    case 'untrusted':
+      return 'untrusted'
+    case 'unknown':
+      return 'trust needed'
+    case 'notRequired':
+    default:
+      return project.status
+  }
 }
 </script>
 
@@ -56,7 +100,7 @@ async function createThreadInProject(projectId: string): Promise<void> {
             @click="openProject(project.projectId)"
           >
             <span>{{ project.name }}</span>
-            <small>{{ project.status }}</small>
+            <small>{{ getTrustLabel(project) }}</small>
             <BaseIconButton
               label="创建 Thread"
               :disabled="project.status !== 'available'"
@@ -64,6 +108,28 @@ async function createThreadInProject(projectId: string): Promise<void> {
             >
               <PlusIcon />
             </BaseIconButton>
+          </div>
+
+          <div v-if="shouldShowTrustNotice(project)" class="project-trust">
+            <p>未信任，本地 agent 资源已禁用。</p>
+            <div class="project-trust__actions">
+              <button type="button" @click="setProjectTrust(project.projectId, 'trustProject')">
+                信任 Project
+              </button>
+              <button
+                v-if="project.trust?.parentPath"
+                type="button"
+                @click="setProjectTrust(project.projectId, 'trustParent')"
+              >
+                信任父目录
+              </button>
+              <button type="button" @click="setProjectTrust(project.projectId, 'trustSession')">
+                本次信任
+              </button>
+              <button type="button" @click="setProjectTrust(project.projectId, 'doNotTrust')">
+                不信任
+              </button>
+            </div>
           </div>
 
           <ul class="session-group">
@@ -200,6 +266,47 @@ async function createThreadInProject(projectId: string): Promise<void> {
 .session-group__item {
   grid-template-columns: minmax(0, 1fr) auto;
   min-height: 28px;
+}
+
+.project-trust {
+  display: grid;
+  gap: var(--space-2);
+  margin: var(--space-1) 0 var(--space-2);
+  padding: var(--space-2);
+  color: var(--color-text-muted);
+  background: var(--color-control-track);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+
+  p {
+    margin: 0;
+    font-size: 11px;
+    line-height: 1.45;
+  }
+}
+
+.project-trust__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+
+  button {
+    min-height: 24px;
+    padding: 0 var(--space-2);
+    color: var(--color-text-muted);
+    font: inherit;
+    font-size: 11px;
+    background: transparent;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-xs);
+    cursor: pointer;
+  }
+
+  button:hover {
+    color: var(--color-text);
+    background: var(--color-surface-raised);
+    border-color: var(--color-border-strong);
+  }
 }
 
 </style>

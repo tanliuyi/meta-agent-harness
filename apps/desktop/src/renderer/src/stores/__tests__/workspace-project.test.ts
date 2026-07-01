@@ -41,6 +41,34 @@ describe('workspace-project', () => {
     expect(store.projectList).toEqual([])
     expect(store.errorMessage).toBeUndefined()
   })
+
+  it('设置 Project trust 后更新 Project 状态', async () => {
+    const setProjectTrust = vi.fn().mockResolvedValue({
+      projectId: 'project-a',
+      name: 'Project A',
+      path: '/tmp/project-a',
+      status: 'available',
+      trust: {
+        state: 'trusted',
+        requiresTrust: true
+      },
+      createdAt: '2026-07-01T00:00:00.000Z',
+      updatedAt: '2026-07-01T00:00:00.000Z'
+    })
+    installCodingAgentApi({ setProjectTrust })
+    const store = useWorkspaceProjectStore()
+
+    await store.setProjectTrust('project-a', 'trustProject')
+
+    expect(setProjectTrust).toHaveBeenCalledWith({
+      projectId: 'project-a',
+      decision: 'trustProject'
+    })
+    expect(store.projects['project-a']?.trust).toMatchObject({
+      state: 'trusted',
+      requiresTrust: true
+    })
+  })
 })
 
 /**
@@ -56,6 +84,7 @@ function installCodingAgentApi(overrides: Record<string, unknown>): void {
         openProject: vi.fn(),
         getProject: vi.fn(),
         renameProject: vi.fn(),
+        setProjectTrust: vi.fn(),
         ...overrides
       }
     }
