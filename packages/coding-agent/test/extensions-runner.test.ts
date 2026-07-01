@@ -560,26 +560,6 @@ describe("ExtensionRunner", () => {
 		});
 	});
 
-	describe("message renderers", () => {
-		it("gets message renderer by type", async () => {
-			const extCode = `
-				export default function(pi) {
-					pi.registerMessageRenderer("my-type", (message, options, theme) => null);
-				}
-			`;
-			fs.writeFileSync(path.join(extensionsDir, "renderer.ts"), extCode);
-
-			const result = await discoverAndLoadExtensions([], tempDir, tempDir);
-			const runner = new ExtensionRunner(result.extensions, result.runtime, tempDir, sessionManager, modelRegistry);
-
-			const renderer = runner.getMessageRenderer("my-type");
-			expect(renderer).toBeDefined();
-
-			const missing = runner.getMessageRenderer("not-exists");
-			expect(missing).toBeUndefined();
-		});
-	});
-
 	describe("flags", () => {
 		it("collects flags from extensions", async () => {
 			const extCode = `

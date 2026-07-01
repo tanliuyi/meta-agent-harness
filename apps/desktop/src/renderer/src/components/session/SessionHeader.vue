@@ -1,9 +1,15 @@
 <script lang="ts" setup>
+/**
+ * 本文件渲染 active coding thread 的顶部状态栏。
+ */
+
 import { BaseIconButton } from '@renderer/components/base'
 import { useSessionContext } from '@renderer/composables/useSessionContext'
+import useWorkspaceSessionStore from '@renderer/stores/workspace-session'
 import { computed } from 'vue'
 
 const { session, panel } = useSessionContext()
+const workspaceSession = useWorkspaceSessionStore()
 
 const styles = computed(() => {
   return {
@@ -16,8 +22,12 @@ const styles = computed(() => {
 
 <template>
   <header class="session-header" :style="styles">
-    <strong>{{ session.title }}</strong>
+    <div class="session-header__title">
+      <strong>{{ session.title }}</strong>
+      <span>{{ workspaceSession.activeSession?.cwd ?? 'No thread' }}</span>
+    </div>
     <div class="session-header__actions">
+      <span>{{ session.status }}</span>
       <BaseIconButton label="查看会话信息">
         <svg
           viewBox="0 0 24 24"
@@ -52,6 +62,12 @@ const styles = computed(() => {
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+  }
+
+  .session-header__title {
+    display: grid;
+    gap: 2px;
+    min-width: 0;
   }
 
   .session-header__actions {

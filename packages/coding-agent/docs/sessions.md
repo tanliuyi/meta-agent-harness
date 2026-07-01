@@ -15,7 +15,7 @@ pi --session <path|id> # Use a specific session file or partial session ID
 pi --fork <path|id>    # Fork a session file or partial session ID into a new session
 ```
 
-Use `/session` in interactive mode to see the current session file, session ID, message count, tokens, and cost.
+Use the desktop thread metadata or `--session <id|path>` to inspect and resume saved sessions.
 
 For the JSONL file format and SessionManager API, see [Session Format](session-format.md).
 

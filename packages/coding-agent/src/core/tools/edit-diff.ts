@@ -513,7 +513,7 @@ export interface EditDiffError {
 
 /**
  * Compute the diff for one or more edit operations without applying them.
- * Used for preview rendering in the TUI before the tool executes.
+ * Used for preview rendering before the tool executes.
  */
 export async function computeEditsDiff(
 	path: string,

@@ -1,4 +1,8 @@
 <script setup lang="ts">
+/**
+ * 本文件提供基础面板组件。
+ */
+
 withDefaults(
   defineProps<{
     title?: string

@@ -1,4 +1,8 @@
 <script setup lang="ts" generic="T extends string">
+/**
+ * 本文件提供基础分段控制组件。
+ */
+
 defineProps<{
   label: string
   modelValue: T

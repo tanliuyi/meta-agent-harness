@@ -1,7 +1,12 @@
+/**
+ * 本文件提供 workspace session 上下文注入与读取能力。
+ */
+
 import { computed, inject, provide, toValue } from 'vue'
 import type { ComputedRef, InjectionKey, MaybeRefOrGetter } from 'vue'
+import type { ThreadStatus } from '../../../shared/coding-agent/types'
 
-export type SessionStatus = 'idle' | 'running' | 'completed' | 'failed'
+export type SessionStatus = ThreadStatus
 
 export type SessionInfo = {
   sessionId: string

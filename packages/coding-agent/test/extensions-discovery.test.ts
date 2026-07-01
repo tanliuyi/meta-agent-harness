@@ -335,23 +335,6 @@ describe("extensions discovery", () => {
 		expect(result.extensions[0].tools.has("parse_duration")).toBe(true);
 	});
 
-	it("registers message renderers", async () => {
-		const extCode = `
-			export default function(pi) {
-				pi.registerMessageRenderer("my-custom-type", (message, options, theme) => {
-					return null; // Use default rendering
-				});
-			}
-		`;
-		fs.writeFileSync(path.join(extensionsDir, "with-renderer.ts"), extCode);
-
-		const result = await discoverAndLoadExtensions([], tempDir, tempDir);
-
-		expect(result.errors).toHaveLength(0);
-		expect(result.extensions).toHaveLength(1);
-		expect(result.extensions[0].messageRenderers.has("my-custom-type")).toBe(true);
-	});
-
 	it("reports error when extension throws during initialization", async () => {
 		const extCode = `
 			export default function(pi) {

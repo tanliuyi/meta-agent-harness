@@ -15,7 +15,7 @@
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import { complete, type Message } from "@earendil-works/pi-ai/compat";
 import type { ExtensionAPI, SessionEntry } from "@earendil-works/pi-coding-agent";
-import { BorderedLoader, convertToLlm, serializeConversation } from "@earendil-works/pi-coding-agent";
+import { convertToLlm, serializeConversation } from "@earendil-works/pi-coding-agent";
 
 const SYSTEM_PROMPT = `You are a context transfer assistant. Given a conversation history and the user's goal for a new thread, generate a focused prompt that:
 
@@ -81,11 +81,6 @@ export default function (pi: ExtensionAPI) {
 	pi.registerCommand("handoff", {
 		description: "Transfer context to a new focused session",
 		handler: async (args, ctx) => {
-			if (ctx.mode !== "tui") {
-				ctx.ui.notify("handoff requires interactive mode", "error");
-				return;
-			}
-
 			if (!ctx.model) {
 				ctx.ui.notify("No model selected", "error");
 				return;
@@ -111,53 +106,46 @@ export default function (pi: ExtensionAPI) {
 			const conversationText = serializeConversation(llmMessages);
 			const currentSessionFile = ctx.sessionManager.getSessionFile();
 
-			// Generate the handoff prompt with loader UI
-			const result = await ctx.ui.custom<string | null>((tui, theme, _kb, done) => {
-				const loader = new BorderedLoader(tui, theme, `Generating handoff prompt...`);
-				loader.onAbort = () => done(null);
+			ctx.ui.setWorkingVisible(true);
+			ctx.ui.setWorkingMessage("Generating handoff prompt...");
+			let result: string | null;
+			try {
+				const auth = await ctx.modelRegistry.getApiKeyAndHeaders(ctx.model!);
+				if (!auth.ok || !auth.apiKey) {
+					throw new Error(auth.ok ? `No API key for ${ctx.model!.provider}` : auth.error);
+				}
 
-				const doGenerate = async () => {
-					const auth = await ctx.modelRegistry.getApiKeyAndHeaders(ctx.model!);
-					if (!auth.ok || !auth.apiKey) {
-						throw new Error(auth.ok ? `No API key for ${ctx.model!.provider}` : auth.error);
-					}
-
-					const userMessage: Message = {
-						role: "user",
-						content: [
-							{
-								type: "text",
-								text: `## Conversation History\n\n${conversationText}\n\n## User's Goal for New Thread\n\n${goal}`,
-							},
-						],
-						timestamp: Date.now(),
-					};
-
-					const response = await complete(
-						ctx.model!,
-						{ systemPrompt: SYSTEM_PROMPT, messages: [userMessage] },
-						{ apiKey: auth.apiKey, headers: auth.headers, env: auth.env, signal: loader.signal },
-					);
-
-					if (response.stopReason === "aborted") {
-						return null;
-					}
-
-					return response.content
-						.filter((c): c is { type: "text"; text: string } => c.type === "text")
-						.map((c) => c.text)
-						.join("\n");
+				const userMessage: Message = {
+					role: "user",
+					content: [
+						{
+							type: "text",
+							text: `## Conversation History\n\n${conversationText}\n\n## User's Goal for New Thread\n\n${goal}`,
+						},
+					],
+					timestamp: Date.now(),
 				};
 
-				doGenerate()
-					.then(done)
-					.catch((err) => {
-						console.error("Handoff generation failed:", err);
-						done(null);
-					});
+				const response = await complete(
+					ctx.model!,
+					{ systemPrompt: SYSTEM_PROMPT, messages: [userMessage] },
+					{ apiKey: auth.apiKey, headers: auth.headers, env: auth.env },
+				);
 
-				return loader;
-			});
+				result =
+					response.stopReason === "aborted"
+						? null
+						: response.content
+								.filter((c): c is { type: "text"; text: string } => c.type === "text")
+								.map((c) => c.text)
+								.join("\n");
+			} catch (error) {
+				console.error("Handoff generation failed:", error);
+				result = null;
+			} finally {
+				ctx.ui.setWorkingMessage();
+				ctx.ui.setWorkingVisible(false);
+			}
 
 			if (result === null) {
 				ctx.ui.notify("Cancelled", "info");

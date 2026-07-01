@@ -4,10 +4,8 @@
 
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import type { ImageContent, Model } from "@earendil-works/pi-ai";
-import type { KeyId } from "@earendil-works/pi-tui";
-import { type Theme, theme } from "../../modes/interactive/theme/theme.ts";
 import type { ResourceDiagnostic } from "../diagnostics.ts";
-import type { KeybindingsConfig } from "../keybindings.ts";
+import type { KeybindingsConfig, KeyId } from "../keybindings.ts";
 import type { ModelRegistry } from "../model-registry.ts";
 import type { SessionManager } from "../session-manager.ts";
 import type { BuildSystemPromptOptions } from "../system-prompt.ts";
@@ -38,7 +36,6 @@ import type {
 	LoadExtensionsResult,
 	MessageEndEvent,
 	MessageEndEventResult,
-	MessageRenderer,
 	ProjectTrustContext,
 	ProjectTrustEvent,
 	ProjectTrustEventResult,
@@ -77,11 +74,11 @@ const RESERVED_KEYBINDINGS_FOR_EXTENSION_CONFLICTS = [
 	"app.thinking.toggle",
 	"app.editor.external",
 	"app.message.followUp",
-	"tui.input.submit",
-	"tui.select.confirm",
-	"tui.select.cancel",
-	"tui.input.copy",
-	"tui.editor.deleteToLineEnd",
+	"desktop.input.submit",
+	"desktop.select.confirm",
+	"desktop.select.cancel",
+	"desktop.input.copy",
+	"desktop.editor.deleteToLineEnd",
 ] as const;
 
 type BuiltInKeyBindings = Partial<Record<KeyId, { keybinding: string; restrictOverride: boolean }>>;
@@ -231,30 +228,17 @@ const noOpUIContext: ExtensionUIContext = {
 	confirm: async () => false,
 	input: async () => undefined,
 	notify: () => {},
-	onTerminalInput: () => () => {},
 	setStatus: () => {},
 	setWorkingMessage: () => {},
 	setWorkingVisible: () => {},
 	setWorkingIndicator: () => {},
 	setHiddenThinkingLabel: () => {},
 	setWidget: () => {},
-	setFooter: () => {},
-	setHeader: () => {},
 	setTitle: () => {},
-	custom: async () => undefined as never,
 	pasteToEditor: () => {},
 	setEditorText: () => {},
 	getEditorText: () => "",
 	editor: async () => undefined,
-	addAutocompleteProvider: () => {},
-	setEditorComponent: () => {},
-	getEditorComponent: () => undefined,
-	get theme() {
-		return theme;
-	},
-	getAllThemes: () => [],
-	getTheme: () => undefined,
-	setTheme: (_theme: string | Theme) => ({ success: false, error: "UI not available" }),
 	getToolsExpanded: () => false,
 	setToolsExpanded: () => {},
 };
@@ -541,16 +525,6 @@ export class ExtensionRunner {
 			}
 		}
 		return false;
-	}
-
-	getMessageRenderer(customType: string): MessageRenderer | undefined {
-		for (const ext of this.extensions) {
-			const renderer = ext.messageRenderers.get(customType);
-			if (renderer) {
-				return renderer;
-			}
-		}
-		return undefined;
 	}
 
 	private resolveRegisteredCommands(): ResolvedCommand[] {

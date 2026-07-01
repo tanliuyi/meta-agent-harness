@@ -1,6 +1,4 @@
-import { Markdown, type MarkdownTheme } from "@earendil-works/pi-tui";
 import chalk from "chalk";
-import { selectConfig } from "./cli/config-selector.ts";
 import { createProjectTrustContext } from "./cli/project-trust.ts";
 import {
 	APP_NAME,
@@ -31,23 +29,6 @@ import {
 export type PackageCommand = "install" | "remove" | "update" | "list";
 
 type UpdateTarget = { type: "all" } | { type: "self" } | { type: "extensions"; source?: string };
-
-const SELF_UPDATE_NOTE_MARKDOWN_THEME: MarkdownTheme = {
-	heading: (text) => chalk.bold(chalk.yellow(text)),
-	link: (text) => chalk.cyan(text),
-	linkUrl: (text) => chalk.dim(text),
-	code: (text) => chalk.yellow(text),
-	codeBlock: (text) => chalk.dim(text),
-	codeBlockBorder: (text) => chalk.dim(text),
-	quote: (text) => chalk.dim(text),
-	quoteBorder: (text) => chalk.dim(text),
-	hr: (text) => chalk.dim(text),
-	listBullet: (text) => chalk.yellow(text),
-	bold: (text) => chalk.bold(text),
-	italic: (text) => chalk.italic(text),
-	strikethrough: (text) => chalk.strikethrough(text),
-	underline: (text) => chalk.underline(text),
-};
 
 interface PackageCommandOptions {
 	command: PackageCommand;
@@ -380,15 +361,7 @@ function printSelfUpdateNote(note: string): void {
 
 	console.log();
 	console.log(chalk.bold(chalk.yellow("Update note")));
-	try {
-		const width = Math.max(20, process.stdout.columns ?? 80);
-		const renderedLines = new Markdown(trimmedNote, 0, 0, SELF_UPDATE_NOTE_MARKDOWN_THEME)
-			.render(width)
-			.map((line) => line.trimEnd());
-		console.log(renderedLines.join("\n"));
-	} catch {
-		console.log(trimmedNote);
-	}
+	console.log(trimmedNote);
 	console.log();
 }
 
@@ -483,7 +456,7 @@ interface CommandSettingsResult {
 }
 
 function getCommandAppMode(): AppMode {
-	return process.stdin.isTTY && process.stdout.isTTY ? "interactive" : "print";
+	return "print";
 }
 
 function reportProjectTrustWarnings(warnings: readonly string[]): void {
@@ -532,7 +505,7 @@ async function createCommandSettingsManager(options: {
 			cwd: options.cwd,
 			mode: appMode,
 			settingsManager,
-			hasUI: appMode === "interactive",
+			hasUI: false,
 		}),
 		onExtensionError: (message) => projectTrustWarnings.push(message),
 	});
@@ -561,12 +534,14 @@ export async function handleConfigCommand(
 	const packageManager = new DefaultPackageManager({ cwd, agentDir, settingsManager });
 	const resolvedPaths = await packageManager.resolve();
 
-	await selectConfig({
-		resolvedPaths,
-		settingsManager,
-		cwd,
-		agentDir,
-	});
+	console.log(chalk.bold("Resolved configuration"));
+	console.log(`cwd: ${cwd}`);
+	console.log(`agentDir: ${agentDir}`);
+	console.log(`projectTrusted: ${settingsManager.isProjectTrusted() ? "yes" : "no"}`);
+	console.log(`extensions: ${resolvedPaths.extensions.length}`);
+	console.log(`skills: ${resolvedPaths.skills.length}`);
+	console.log(`prompts: ${resolvedPaths.prompts.length}`);
+	console.log(`themes: ${resolvedPaths.themes.length}`);
 
 	process.exit(0);
 }

@@ -1,4 +1,5 @@
 <template>
+  <!-- 本文件提供简单加号图标组件。 -->
   <svg
     viewBox="0 0 24 24"
     fill="none"

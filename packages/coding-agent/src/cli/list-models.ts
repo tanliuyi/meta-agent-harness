@@ -3,10 +3,24 @@
  */
 
 import type { Api, Model } from "@earendil-works/pi-ai";
-import { fuzzyFilter } from "@earendil-works/pi-tui";
 import chalk from "chalk";
 import { formatNoModelsAvailableMessage } from "../core/auth-guidance.ts";
 import type { ModelRegistry } from "../core/model-registry.ts";
+
+function fuzzyIncludes(value: string, pattern: string): boolean {
+	let patternIndex = 0;
+	const normalizedValue = value.toLowerCase();
+	const normalizedPattern = pattern.toLowerCase();
+	for (const char of normalizedValue) {
+		if (char === normalizedPattern[patternIndex]) {
+			patternIndex++;
+			if (patternIndex === normalizedPattern.length) {
+				return true;
+			}
+		}
+	}
+	return normalizedPattern.length === 0;
+}
 
 /**
  * Format a number as human-readable (e.g., 200000 -> "200K", 1000000 -> "1M")
@@ -42,7 +56,7 @@ export async function listModels(modelRegistry: ModelRegistry, searchPattern?: s
 	// Apply fuzzy filter if search pattern provided
 	let filteredModels: Model<Api>[] = models;
 	if (searchPattern) {
-		filteredModels = fuzzyFilter(models, searchPattern, (m) => `${m.provider} ${m.id}`);
+		filteredModels = models.filter((model) => fuzzyIncludes(`${model.provider} ${model.id}`, searchPattern));
 	}
 
 	if (filteredModels.length === 0) {

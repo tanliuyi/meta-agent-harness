@@ -124,7 +124,7 @@ export interface SessionInfoEntry extends SessionEntryBase {
  * The content is converted to a user message in buildSessionContext().
  * Use details for extension-specific metadata (not sent to LLM).
  *
- * display controls TUI rendering:
+ * display controls whether hosts should surface the message:
  * - false: hidden entirely
  * - true: rendered with distinct styling (different from user messages)
  */
@@ -1059,7 +1059,7 @@ export class SessionManager {
 	 * Append a custom message entry (for extensions) that participates in LLM context.
 	 * @param customType Extension identifier for filtering on reload
 	 * @param content Message content (string or TextContent/ImageContent array)
-	 * @param display Whether to show in TUI (true = styled display, false = hidden)
+	 * @param display Whether hosts should surface the message
 	 * @param details Optional extension-specific metadata (not sent to LLM)
 	 * @returns Entry id
 	 */

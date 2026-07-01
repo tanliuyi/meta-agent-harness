@@ -600,7 +600,7 @@
       font-weight: bold;
     }
 
-    /* Compaction / Branch Summary - matches customMessage colors from TUI */
+    /* Compaction / Branch Summary */
     .compaction {
       background: var(--customMessageBg);
       border-radius: 4px;

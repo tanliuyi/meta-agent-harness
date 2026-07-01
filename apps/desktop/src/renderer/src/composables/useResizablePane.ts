@@ -1,3 +1,7 @@
+/**
+ * 本文件提供可拖拽调整面板尺寸的组合式状态。
+ */
+
 import { onBeforeUnmount, ref, toValue } from 'vue'
 import type { MaybeRefOrGetter, Ref } from 'vue'
 

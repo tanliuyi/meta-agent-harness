@@ -2,7 +2,7 @@
 
 本目录把 [Desktop Coding Agent 架构](../desktop-architecture.md) 拆成可实现、可验收的规格。
 
-第一期目标是完成后端能力、worker 池与 IPC，不包含 renderer 前端。所有 spec 都必须遵守一个总原则：Desktop 与 Pi 保持同构内核，session、event、config、resource、extension、tool 语义不走两条分支。
+第一期目标是完成后端能力、worker 池、IPC 与 renderer 数据层联调，并提供简单可用 UI。所有 spec 都必须遵守一个总原则：Desktop 与 Pi 保持同构内核，session、event、config、resource、extension、tool 语义不走两条分支。
 
 ## Specs
 
@@ -16,7 +16,7 @@
 ## 分层关系
 
 ```text
-Renderer，第一期不实现 UI
+Renderer，第一期接入数据层和简单 UI
   |
   | preload typed API
   v

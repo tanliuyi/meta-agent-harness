@@ -1,9 +1,13 @@
+/**
+ * 本文件负责加载核心资源，并为 desktop runtime 保持统一资源形状。
+ */
+
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join, resolve, sep } from "node:path";
 import chalk from "chalk";
 import { CONFIG_DIR_NAME } from "../config.ts";
-import { loadThemeFromPath, type Theme } from "../modes/interactive/theme/theme.ts";
 import type { ResourceDiagnostic } from "./diagnostics.ts";
+import { defaultExportTheme, type Theme } from "./export-theme.ts";
 
 export type { ResourceCollision, ResourceDiagnostic } from "./diagnostics.ts";
 
@@ -80,6 +84,20 @@ function loadContextFileFromDir(dir: string): { path: string; content: string } 
 		}
 	}
 	return null;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+	return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function loadExportThemeFromPath(filePath: string): Theme {
+	const parsed = JSON.parse(readFileSync(filePath, "utf-8")) as unknown;
+	const name = isRecord(parsed) && typeof parsed.name === "string" ? parsed.name : undefined;
+	return {
+		...defaultExportTheme,
+		name,
+		sourcePath: filePath,
+	};
 }
 
 export function loadProjectContextFiles(options: {
@@ -882,7 +900,7 @@ export class DefaultResourceLoader implements ResourceLoader {
 
 	private loadThemeFromFile(filePath: string, themes: Theme[], diagnostics: ResourceDiagnostic[]): void {
 		try {
-			themes.push(loadThemeFromPath(filePath));
+			themes.push(loadExportThemeFromPath(filePath));
 		} catch (error) {
 			const message = error instanceof Error ? error.message : "failed to load theme";
 			diagnostics.push({ type: "warning", message, path: filePath });

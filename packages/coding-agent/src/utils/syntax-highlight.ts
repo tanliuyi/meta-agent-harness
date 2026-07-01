@@ -1,4 +1,4 @@
-import hljs from "highlight.js/lib/index.js";
+import { createRequire } from "node:module";
 import { decodeHtmlEntityAt } from "./html.ts";
 
 export type HighlightFormatter = (text: string) => string;
@@ -13,6 +13,23 @@ export interface HighlightOptions {
 
 const SPAN_CLOSE = "</span>";
 const HIGHLIGHT_CLASS_PREFIX = "hljs-";
+const require = createRequire(import.meta.url);
+
+interface HighlightJsApi {
+	highlight(code: string, options: { language: string; ignoreIllegals?: boolean }): { value: string };
+	highlightAuto(code: string, languageSubset?: string[]): { value: string };
+	getLanguage(name: string): unknown;
+}
+
+let highlightJs: HighlightJsApi | undefined;
+
+function getHighlightJs(): HighlightJsApi {
+	if (!highlightJs) {
+		const mod = require("highlight.js/lib/index.js") as { default?: HighlightJsApi } & HighlightJsApi;
+		highlightJs = mod.default ?? mod;
+	}
+	return highlightJs;
+}
 
 function getScopeFromSpanTag(tag: string): string | undefined {
 	const match = /\sclass\s*=\s*(?:"([^"]*)"|'([^']*)')/.exec(tag);
@@ -132,6 +149,7 @@ export function renderHighlightedHtml(html: string, theme: HighlightTheme = {}):
 }
 
 export function highlight(code: string, options: HighlightOptions = {}): string {
+	const hljs = getHighlightJs();
 	const html = options.language
 		? hljs.highlight(code, {
 				language: options.language,
@@ -142,5 +160,5 @@ export function highlight(code: string, options: HighlightOptions = {}): string 
 }
 
 export function supportsLanguage(name: string): boolean {
-	return hljs.getLanguage(name) !== undefined;
+	return getHighlightJs().getLanguage(name) !== undefined;
 }

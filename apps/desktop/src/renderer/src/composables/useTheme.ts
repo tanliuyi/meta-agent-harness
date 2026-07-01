@@ -1,3 +1,7 @@
+/**
+ * 本文件负责初始化 renderer 主题。
+ */
+
 import { computed, onBeforeUnmount, readonly, ref, watch } from 'vue'
 
 export type ThemeMode = 'light' | 'dark' | 'system'

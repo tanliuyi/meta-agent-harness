@@ -2,7 +2,7 @@
 
 ## 目标
 
-定义 renderer 与 Electron main 之间的后端 API。第一期不实现 renderer UI，但必须完成 typed preload API 和 main IPC handlers。
+定义 renderer 与 Electron main 之间的受控 API。第一期必须完成 typed preload API、main IPC handlers、renderer 数据层联调和简单 UI。
 
 ## 分层
 
@@ -133,6 +133,8 @@ preload 不暴露：
 
 - renderer 可以通过 preload 创建 thread、发送 prompt、收到 streaming events。
 - renderer 可以取消事件订阅。
+- renderer store 使用真实 `window.api.codingAgent`，不使用 mock。
+- renderer 可以展示 active snapshot、基础事件列表和 pending approval，并能回传 approval response。
 - renderer 无法直接访问 worker process 和 credential。
 - main 能按 thread/window 路由事件。
 - IPC error 结构化且无 secret 泄漏。

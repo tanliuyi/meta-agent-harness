@@ -88,7 +88,7 @@ export default function (pi: ExtensionAPI) {
 
 	const applyIndicator = (ctx: ExtensionContext) => {
 		ctx.ui.setWorkingIndicator(getIndicator(mode));
-		ctx.ui.setStatus("working-indicator", ctx.ui.theme.fg("dim", `Indicator: ${describeMode(mode)}`));
+		ctx.ui.setStatus("working-indicator", `Indicator: ${describeMode(mode)}`);
 	};
 
 	pi.on("session_start", async (_event, ctx) => {

@@ -29,17 +29,16 @@ import {
 	cleanupSessionResources,
 	getSupportedThinkingLevels,
 	isContextOverflow,
-	isRetryableAssistantError,
 	modelsAreEqual,
 	resetApiProviders,
 	streamSimple,
 } from "@earendil-works/pi-ai/compat";
-import { getThemeByName, theme } from "../modes/interactive/theme/theme.ts";
 import { stripFrontmatter } from "../utils/frontmatter.ts";
 import { resolvePath } from "../utils/paths.ts";
 import { sleep } from "../utils/sleep.ts";
 import { formatNoApiKeyFoundMessage, formatNoModelSelectedMessage } from "./auth-guidance.ts";
 import { type BashResult, executeBashWithOperations } from "./bash-executor.ts";
+import { isRetryableAssistantError } from "./retryable-assistant-error.ts";
 import {
 	type CompactionResult,
 	calculateContextTokens,
@@ -52,8 +51,8 @@ import {
 	shouldCompact,
 } from "./compaction/index.ts";
 import { DEFAULT_THINKING_LEVEL } from "./defaults.ts";
-import { exportSessionToHtml, type ToolHtmlRenderer } from "./export-html/index.ts";
-import { createToolHtmlRenderer } from "./export-html/tool-renderer.ts";
+import { exportSessionToHtml } from "./export-html/index.ts";
+import { getExportThemeByName } from "./export-theme.ts";
 import {
 	type ContextUsage,
 	type ExtensionCommandContextActions,
@@ -3027,19 +3026,12 @@ export class AgentSession {
 	 */
 	async exportToHtml(outputPath?: string): Promise<string> {
 		const configuredThemeName = this.settingsManager.getTheme();
-		const themeName = configuredThemeName && getThemeByName(configuredThemeName) ? configuredThemeName : undefined;
-
-		// Create tool renderer if we have an extension runner (for custom tool HTML rendering)
-		const toolRenderer: ToolHtmlRenderer = createToolHtmlRenderer({
-			getToolDefinition: (name) => this.getToolDefinition(name),
-			theme,
-			cwd: this.sessionManager.getCwd(),
-		});
+		const themeName =
+			configuredThemeName && getExportThemeByName(configuredThemeName) ? configuredThemeName : undefined;
 
 		return await exportSessionToHtml(this.sessionManager, this.state, {
 			outputPath,
 			themeName,
-			toolRenderer,
 		});
 	}
 

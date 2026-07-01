@@ -2,28 +2,9 @@ import type { AgentState } from "@earendil-works/pi-agent-core";
 import { existsSync, readFileSync, writeFileSync } from "fs";
 import { basename, join } from "path";
 import { APP_NAME, getExportTemplateDir } from "../../config.ts";
-import { getResolvedThemeColors, getThemeExportColors } from "../../modes/interactive/theme/theme.ts";
+import { getExportThemeColors, getResolvedExportThemeColors } from "../export-theme.ts";
 import { normalizePath, resolvePath } from "../../utils/paths.ts";
-import type { ToolDefinition } from "../extensions/types.ts";
-import type { SessionEntry } from "../session-manager.ts";
 import { SessionManager } from "../session-manager.ts";
-
-/**
- * Interface for rendering custom tools to HTML.
- * Used by agent-session to pre-render extension tool output.
- */
-export interface ToolHtmlRenderer {
-	/** Render a tool call to HTML. Returns undefined if tool has no custom renderer. */
-	renderCall(toolCallId: string, toolName: string, args: unknown): string | undefined;
-	/** Render a tool result to HTML. Returns collapsed/expanded or undefined if tool has no custom renderer. */
-	renderResult(
-		toolCallId: string,
-		toolName: string,
-		result: Array<{ type: string; text?: string; data?: string; mimeType?: string }>,
-		details: unknown,
-		isError: boolean,
-	): { collapsed?: string; expanded?: string } | undefined;
-}
 
 /** Pre-rendered HTML for a custom tool call and result */
 interface RenderedToolHtml {
@@ -35,8 +16,6 @@ interface RenderedToolHtml {
 export interface ExportOptions {
 	outputPath?: string;
 	themeName?: string;
-	/** Optional tool renderer for custom tools */
-	toolRenderer?: ToolHtmlRenderer;
 }
 
 /** Parse a color string to RGB values. Supports hex (#RRGGBB) and rgb(r,g,b) formats. */
@@ -109,14 +88,14 @@ function deriveExportColors(baseColor: string): { pageBg: string; cardBg: string
  * Generate CSS custom property declarations from theme colors.
  */
 function generateThemeVars(themeName?: string): string {
-	const colors = getResolvedThemeColors(themeName);
+	const colors = getResolvedExportThemeColors(themeName);
 	const lines: string[] = [];
 	for (const [key, value] of Object.entries(colors)) {
 		lines.push(`--${key}: ${value};`);
 	}
 
 	// Use explicit theme export colors if available, otherwise derive from userMessageBg
-	const themeExport = getThemeExportColors(themeName);
+	const themeExport = getExportThemeColors(themeName);
 	const userMessageBg = colors.userMessageBg || "#343541";
 	const derivedColors = deriveExportColors(userMessageBg);
 
@@ -132,7 +111,7 @@ interface SessionData {
 	entries: ReturnType<SessionManager["getEntries"]>;
 	leafId: string | null;
 	systemPrompt?: string;
-	tools?: Array<Pick<ToolDefinition, "name" | "description" | "parameters">>;
+	tools?: Array<{ name: string; description?: string; parameters?: unknown }>;
 	/** Pre-rendered HTML for custom tool calls/results, keyed by tool call ID */
 	renderedTools?: Record<string, RenderedToolHtml>;
 }
@@ -149,8 +128,8 @@ function generateHtml(sessionData: SessionData, themeName?: string): string {
 	const hljsJs = readFileSync(join(templateDir, "vendor", "highlight.min.js"), "utf-8");
 
 	const themeVars = generateThemeVars(themeName);
-	const colors = getResolvedThemeColors(themeName);
-	const themeExport = getThemeExportColors(themeName);
+	const colors = getResolvedExportThemeColors(themeName);
+	const themeExport = getExportThemeColors(themeName);
 	const derivedExportColors = deriveExportColors(colors.userMessageBg || "#343541");
 	const bodyBg = themeExport.pageBg ?? derivedExportColors.pageBg;
 	const containerBg = themeExport.cardBg ?? derivedExportColors.cardBg;
@@ -174,64 +153,8 @@ function generateHtml(sessionData: SessionData, themeName?: string): string {
 		.replace("{{HIGHLIGHT_JS}}", hljsJs);
 }
 
-/** Tools rendered directly by the HTML template (not pre-rendered via TUI→ANSI→HTML pipeline) */
-const TEMPLATE_RENDERED_TOOLS = new Set(["bash", "read", "write", "edit", "ls"]);
-
-/**
- * Pre-render custom tools to HTML using their TUI renderers.
- */
-function preRenderCustomTools(
-	entries: SessionEntry[],
-	toolRenderer: ToolHtmlRenderer,
-): Record<string, RenderedToolHtml> {
-	const renderedTools: Record<string, RenderedToolHtml> = {};
-
-	for (const entry of entries) {
-		if (entry.type !== "message") continue;
-		const msg = entry.message;
-
-		// Find tool calls in assistant messages
-		if (msg.role === "assistant" && Array.isArray(msg.content)) {
-			for (const block of msg.content) {
-				if (block.type === "toolCall" && !TEMPLATE_RENDERED_TOOLS.has(block.name)) {
-					const callHtml = toolRenderer.renderCall(block.id, block.name, block.arguments);
-					if (callHtml) {
-						renderedTools[block.id] = { callHtml };
-					}
-				}
-			}
-		}
-
-		// Find tool results
-		if (msg.role === "toolResult" && msg.toolCallId) {
-			const toolName = msg.toolName || "";
-			// Only render if we have a pre-rendered call OR it's not template-rendered
-			const existing = renderedTools[msg.toolCallId];
-			if (existing || !TEMPLATE_RENDERED_TOOLS.has(toolName)) {
-				const rendered = toolRenderer.renderResult(
-					msg.toolCallId,
-					toolName,
-					msg.content,
-					msg.details,
-					msg.isError || false,
-				);
-				if (rendered) {
-					renderedTools[msg.toolCallId] = {
-						...existing,
-						resultHtmlCollapsed: rendered.collapsed,
-						resultHtmlExpanded: rendered.expanded,
-					};
-				}
-			}
-		}
-	}
-
-	return renderedTools;
-}
-
 /**
  * Export session to HTML using SessionManager and AgentState.
- * Used by TUI's /export command.
  */
 export async function exportSessionToHtml(
 	sm: SessionManager,
@@ -250,23 +173,12 @@ export async function exportSessionToHtml(
 
 	const entries = sm.getEntries();
 
-	// Pre-render custom tools if a tool renderer is provided
-	let renderedTools: Record<string, RenderedToolHtml> | undefined;
-	if (opts.toolRenderer) {
-		renderedTools = preRenderCustomTools(entries, opts.toolRenderer);
-		// Only include if we actually rendered something
-		if (Object.keys(renderedTools).length === 0) {
-			renderedTools = undefined;
-		}
-	}
-
 	const sessionData: SessionData = {
 		header: sm.getHeader(),
 		entries,
 		leafId: sm.getLeafId(),
 		systemPrompt: state?.systemPrompt,
 		tools: state?.tools?.map((t) => ({ name: t.name, description: t.description, parameters: t.parameters })),
-		renderedTools,
 	};
 
 	const html = generateHtml(sessionData, opts.themeName);

@@ -1,4 +1,8 @@
 <script setup lang="ts">
+/**
+ * 本文件提供基础表单字段组件。
+ */
+
 withDefaults(
   defineProps<{
     id: string

@@ -1,3 +1,7 @@
+/**
+ * 本文件统一导出 renderer 基础 UI 组件。
+ */
+
 export { default as BaseBadge } from './BaseBadge.vue'
 export { default as BaseButton } from './BaseButton.vue'
 export { default as BaseField } from './BaseField.vue'

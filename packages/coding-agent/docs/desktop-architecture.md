@@ -136,21 +136,21 @@ apps/desktop
   Electron main thread manager
   preload API
   后端 IPC contract
-  Vue renderer UI，第一期不实现
-  产品状态、布局和交互设计，第一期只保留类型和接口边界
+  Vue renderer 数据层联调和简单 UI
+  产品状态、布局和交互设计，后续继续重构 UI
 ```
 
 desktop renderer 通过 preload IPC 和 Electron main 通信。Electron main 持有
 coding agent workers。worker 负责执行工具、调用模型、修改文件和持久化
 session。
 
-第一期范围不包含 renderer 前端实现。第一期交付目标是完成所有后端能力、worker
-池与 IPC：
+第一期范围以后端能力、worker 池与 IPC 为主，同时接入 renderer 数据层并提供简单
+可用 UI，确保后续 UI 重构基于真实 API 而不是 mock：
 
 - `packages/coding-agent` 提供 desktop worker、RPC protocol、typed client 和核心能力适配。
 - `apps/desktop` 的 Electron main 提供 thread manager、worker pool、worker lifecycle、IPC handlers。
 - `apps/desktop` 的 preload 暴露 typed API 和事件订阅能力。
-- renderer 只需要能在之后基于稳定 API 接入 UI，不在第一期实现具体界面。
+- renderer 通过 Pinia store 消费 preload API、订阅实时事件、驱动 prompt/abort/approval 等核心操作。
 
 ```text
 Vue renderer
@@ -264,8 +264,8 @@ type WorkerPool = {
 
 ## 第一期交付范围
 
-第一期不包含 renderer 前端开发。第一期必须完成 worker、Electron main 和 preload
-IPC 的后端闭环，并覆盖 Pi 核心能力在协议层的位置。
+第一期必须完成 worker、Electron main、preload IPC 与 renderer 数据层闭环，并覆盖
+Pi 核心能力在协议层的位置。UI 层只做简单实现，后续可以重构视觉和交互。
 
 必须交付：
 
@@ -288,10 +288,11 @@ IPC 的后端闭环，并覆盖 Pi 核心能力在协议层的位置。
 - Approval bridge：危险操作、workspace trust、一次性/线程/workspace 决策。
 - File change reporting：从 tool results 产生结构化 file change event。
 - Preload API：renderer 可调用的 typed command API 和 event subscription API。
+- Renderer 数据层：thread list、active snapshot、事件订阅、prompt、abort、approval response。
+- Renderer 简单 UI：可创建 thread、切换 thread、发送 prompt、查看基础状态和处理审批。
 
 第一期不交付：
 
-- Vue renderer 页面、组件、布局和交互。
 - 聊天 timeline 的视觉设计。
 - diff viewer 的视觉实现。
 - 设置页、模型选择页、session browser 的前端实现。
@@ -307,7 +308,7 @@ IPC 的后端闭环，并覆盖 Pi 核心能力在协议层的位置。
 - 可以新建、恢复、fork、clone、导入、导出 session 的后端流程。
 - worker 崩溃或退出时 main 能发出 thread error/exited 事件并清理资源。
 - worker pool 能限制并发、排队启动 thread、释放 idle worker，并能在 app 退出时停止全部 worker。
-- renderer 前端即使未实现，也能依赖稳定类型接入。
+- renderer 数据层使用真实 preload API，不使用 mock 或直接访问 worker/credential/filesystem。
 
 ## Desktop 协议形态
 
@@ -560,7 +561,7 @@ Worker：
 
 从 desktop 默认产品面中移除或隔离，但不丢失底层能力：
 
-- `modes/interactive/*`：TUI 呈现层隔离为 legacy/compat，不作为 desktop UI 基础。
+- 旧终端交互呈现层已移除，不作为 desktop-only runtime 的组成部分。
 - terminal UI components 和 themes：不进入 desktop runtime contract。
 - CLI startup flows 和 selectors：能力迁移到 desktop onboarding/settings/session UI。
 - package-manager CLI 行为：扩展/技能/模板管理能力可保留，但入口应 desktop 化。
@@ -626,7 +627,7 @@ approval object 应标识：
 具体实现规格见 [Desktop Specs](desktop-specs/README.md)。架构文档定义方向和约束，
 spec 文档定义第一期可实现、可验收的后端拆分。
 
-Phase 1：后端能力与 IPC
+Phase 1：后端能力、IPC 与 renderer 数据层联调
 
 - 保持复制来的实现可运行
 - 增加 desktop architecture docs 和 protocol drafts
@@ -637,13 +638,14 @@ Phase 1：后端能力与 IPC
 - 增加 worker pool，支持 lease、并发限制、排队、idle 回收和 crash cleanup
 - 支持多 thread 的 prompt、abort、snapshot 和 streaming events
 - 增加 Electron main thread manager 和 preload typed IPC
+- 接入 renderer Pinia store 和简单 UI，验证 thread/prompt/event/approval 主链路
 - 覆盖 session、model、tool、compaction、retry、settings、auth、resource、extension UI、approval 的后端接口
 - 确保 session/event/config/resource/extension/tool 语义与 Pi 同构，不引入 desktop-only 核心分支
 
-Phase 2：renderer 接入
+Phase 2：renderer 产品化重构
 
-- 基于第一期 IPC 实现 Vue UI
-- 渲染 thread list、timeline、tool calls、diffs、settings、session browser
+- 在第一期真实数据层上重构 Vue UI
+- 产品化 thread list、timeline、tool calls、diffs、settings、session browser
 
 Phase 3：归一化和产品化事件
 

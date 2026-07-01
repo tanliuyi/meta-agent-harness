@@ -2,7 +2,7 @@
 
 ## 目标
 
-第一期交付所有后端能力与 IPC，不包含 renderer 前端。验收以当前 worktree、命令输出、测试和可运行脚本为准。
+第一期交付所有后端能力、IPC、renderer 数据层联调和简单 UI。验收以当前 worktree、命令输出、测试和可运行脚本为准。
 
 ## 必须产物
 
@@ -26,6 +26,8 @@
 - IPC handlers
 - preload typed API
 - event subscription API
+- renderer Pinia store
+- renderer simple thread/chat/session UI
 - app shutdown cleanup
 
 状态层：
@@ -124,6 +126,16 @@ IPC：
 - event subscribe/unsubscribe
 - no raw worker/process/credential exposure
 
+Renderer：
+
+- create thread from cwd input
+- switch active thread
+- show active snapshot messages and basic runtime state
+- send prompt through real preload API
+- abort active run
+- collect projection/canonical events
+- show and respond to pending approvals
+
 ## 兼容验收
 
 - Pi session can be opened by desktop backend.
@@ -137,9 +149,8 @@ IPC：
 
 确认第一期没有交付：
 
-- Vue renderer 页面。
-- 聊天 timeline 视觉组件。
-- diff viewer 视觉组件。
+- 产品化聊天 timeline 视觉组件。
+- 产品化 diff viewer 视觉组件。
 - 设置页、模型选择页、session browser 前端。
 - 内置 IDE/code editor。
 
@@ -168,6 +179,7 @@ Electron main tests 或 smoke script：
 - IPC handler registration
 - create thread through main
 - shutdown cleanup
+- renderer build and typecheck
 
 Compatibility tests：
 
@@ -182,6 +194,6 @@ Compatibility tests：
 - 所有必须产物存在。
 - 功能验收有测试、smoke script 或明确运行证据。
 - 兼容验收有 fixture 或 parser 证据。
-- renderer 前端未实现不影响 typed API 使用。
+- renderer 数据层通过 typed preload API 联调，不直接访问 worker/process/credential。
 - worker pool 可观测、可关闭、崩溃可清理。
 - 没有引入 desktop-only canonical session/event/config 分支。

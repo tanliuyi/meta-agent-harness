@@ -1,0 +1,69 @@
+/**
+ * 本文件处理模型、thinking、压缩、重试和 bash 等 runtime control command。
+ */
+
+import { createDesktopError } from "../protocol/error.ts";
+import { createWorkerErrorResponse, createWorkerResponse, type WorkerCommandEnvelope, type WorkerResponseEnvelope } from "../protocol/envelope.ts";
+import type { CanonicalAgentCommand } from "../protocol/commands/canonical.ts";
+import type { RuntimeCommandHandlerHost } from "./runtime-command-host.ts";
+import { buildThinkingLevelCycleResult } from "./runtime-state.ts";
+
+export async function handleRuntimeControlCommand(
+	host: RuntimeCommandHandlerHost,
+	envelope: WorkerCommandEnvelope,
+	command: CanonicalAgentCommand,
+): Promise<WorkerResponseEnvelope | undefined> {
+	const session = host.runtime.session;
+	switch (command.type) {
+		case "set_model": {
+			const models = await session.modelRegistry.getAvailable();
+			const model = models.find((item) => item.provider === command.provider && item.id === command.modelId);
+			if (!model) {
+				return createWorkerErrorResponse(
+					envelope.id,
+					command.type,
+					createDesktopError("runtime_error", `Model not found: ${command.provider}/${command.modelId}`, true),
+				);
+			}
+			await session.setModel(model);
+			return createWorkerResponse(envelope.id, command.type, model);
+		}
+		case "cycle_model":
+			return createWorkerResponse(envelope.id, command.type, await session.cycleModel());
+		case "get_available_models":
+			return createWorkerResponse(envelope.id, command.type, { models: await session.modelRegistry.getAvailable() });
+		case "set_thinking_level":
+			session.setThinkingLevel(command.level);
+			return createWorkerResponse(envelope.id, command.type, undefined);
+		case "cycle_thinking_level":
+			return createWorkerResponse(envelope.id, command.type, buildThinkingLevelCycleResult(session.cycleThinkingLevel()));
+		case "set_steering_mode":
+			session.setSteeringMode(command.mode);
+			return createWorkerResponse(envelope.id, command.type, undefined);
+		case "set_follow_up_mode":
+			session.setFollowUpMode(command.mode);
+			return createWorkerResponse(envelope.id, command.type, undefined);
+		case "compact":
+			return createWorkerResponse(envelope.id, command.type, await session.compact(command.customInstructions));
+		case "set_auto_compaction":
+			session.setAutoCompactionEnabled(command.enabled);
+			return createWorkerResponse(envelope.id, command.type, undefined);
+		case "set_auto_retry":
+			session.setAutoRetryEnabled(command.enabled);
+			return createWorkerResponse(envelope.id, command.type, undefined);
+		case "abort_retry":
+			session.abortRetry();
+			return createWorkerResponse(envelope.id, command.type, undefined);
+		case "bash":
+			return createWorkerResponse(
+				envelope.id,
+				command.type,
+				await session.executeBash(command.command, undefined, { excludeFromContext: command.excludeFromContext }),
+			);
+		case "abort_bash":
+			session.abortBash();
+			return createWorkerResponse(envelope.id, command.type, undefined);
+		default:
+			return undefined;
+	}
+}

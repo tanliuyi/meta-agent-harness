@@ -1,5 +1,5 @@
 /**
- * RPC protocol types for headless operation.
+ * RPC protocol types for desktop operation.
  *
  * Commands are sent as JSON lines on stdin.
  * Responses and events are emitted as JSON lines on stdout.

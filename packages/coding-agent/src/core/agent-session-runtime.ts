@@ -122,9 +122,8 @@ export class AgentSessionRuntime {
 	 * Set a synchronous callback that runs after `session_shutdown` handlers finish
 	 * but before the current session is invalidated.
 	 *
-	 * This is for host-owned UI teardown that must not yield to the event loop,
-	 * such as detaching extension-provided TUI components before the old extension
-	 * context becomes stale.
+	 * This is for host-owned UI teardown that must not yield to the event loop
+	 * before the old extension context becomes stale.
 	 */
 	setBeforeSessionInvalidate(beforeSessionInvalidate?: () => void): void {
 		this.beforeSessionInvalidate = beforeSessionInvalidate;

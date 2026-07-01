@@ -9,7 +9,6 @@
 
 import { complete, type UserMessage } from "@earendil-works/pi-ai/compat";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { BorderedLoader } from "@earendil-works/pi-coding-agent";
 
 const SYSTEM_PROMPT = `You are a question extractor. Given text from a conversation, extract any questions that need answering and format them for the user to fill in.
 
@@ -31,11 +30,6 @@ export default function (pi: ExtensionAPI) {
 	pi.registerCommand("qna", {
 		description: "Extract questions from last assistant message into editor",
 		handler: async (_args, ctx) => {
-			if (ctx.mode !== "tui") {
-				ctx.ui.notify("qna requires interactive mode", "error");
-				return;
-			}
-
 			if (!ctx.model) {
 				ctx.ui.notify("No model selected", "error");
 				return;
@@ -70,45 +64,39 @@ export default function (pi: ExtensionAPI) {
 				return;
 			}
 
-			// Run extraction with loader UI
-			const result = await ctx.ui.custom<string | null>((tui, theme, _kb, done) => {
-				const loader = new BorderedLoader(tui, theme, `Extracting questions using ${ctx.model!.id}...`);
-				loader.onAbort = () => done(null);
-
-				// Do the work
-				const doExtract = async () => {
-					const auth = await ctx.modelRegistry.getApiKeyAndHeaders(ctx.model!);
-					if (!auth.ok || !auth.apiKey) {
-						throw new Error(auth.ok ? `No API key for ${ctx.model!.provider}` : auth.error);
-					}
-					const userMessage: UserMessage = {
-						role: "user",
-						content: [{ type: "text", text: lastAssistantText! }],
-						timestamp: Date.now(),
-					};
-
-					const response = await complete(
-						ctx.model!,
-						{ systemPrompt: SYSTEM_PROMPT, messages: [userMessage] },
-						{ apiKey: auth.apiKey, headers: auth.headers, env: auth.env, signal: loader.signal },
-					);
-
-					if (response.stopReason === "aborted") {
-						return null;
-					}
-
-					return response.content
-						.filter((c): c is { type: "text"; text: string } => c.type === "text")
-						.map((c) => c.text)
-						.join("\n");
+			ctx.ui.setWorkingVisible(true);
+			ctx.ui.setWorkingMessage(`Extracting questions using ${ctx.model.id}...`);
+			let result: string | null;
+			try {
+				const auth = await ctx.modelRegistry.getApiKeyAndHeaders(ctx.model);
+				if (!auth.ok || !auth.apiKey) {
+					throw new Error(auth.ok ? `No API key for ${ctx.model.provider}` : auth.error);
+				}
+				const userMessage: UserMessage = {
+					role: "user",
+					content: [{ type: "text", text: lastAssistantText }],
+					timestamp: Date.now(),
 				};
 
-				doExtract()
-					.then(done)
-					.catch(() => done(null));
+				const response = await complete(
+					ctx.model,
+					{ systemPrompt: SYSTEM_PROMPT, messages: [userMessage] },
+					{ apiKey: auth.apiKey, headers: auth.headers, env: auth.env },
+				);
 
-				return loader;
-			});
+				result =
+					response.stopReason === "aborted"
+						? null
+						: response.content
+								.filter((c): c is { type: "text"; text: string } => c.type === "text")
+								.map((c) => c.text)
+								.join("\n");
+			} catch {
+				result = null;
+			} finally {
+				ctx.ui.setWorkingMessage();
+				ctx.ui.setWorkingVisible(false);
+			}
 
 			if (result === null) {
 				ctx.ui.notify("Cancelled", "info");

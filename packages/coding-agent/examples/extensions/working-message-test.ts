@@ -7,7 +7,7 @@
  * Usage:
  *   pi --extension examples/extensions/working-message-test.ts
  *
- * Then send a few messages in interactive mode. The working message should
+ * Then send a few messages from the desktop host. The working message should
  * stay "Working... (custom)" with a brown dot indicator every time the
  * loader appears, not revert to the default gray "Working...".
  */

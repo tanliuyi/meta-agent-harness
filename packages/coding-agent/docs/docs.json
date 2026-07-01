@@ -61,10 +61,6 @@
           "path": "prompt-templates.md"
         },
         {
-          "title": "Themes",
-          "path": "themes.md"
-        },
-        {
           "title": "Pi Packages",
           "path": "packages.md"
         },
@@ -102,10 +98,6 @@
           "title": "JSON Event Stream Mode",
           "path": "json.md"
         },
-        {
-          "title": "TUI Components",
-          "path": "tui.md"
-        }
       ]
     },
     {

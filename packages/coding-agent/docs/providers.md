@@ -13,7 +13,7 @@ Pi supports subscription-based providers via OAuth and API key providers via env
 
 ## Subscriptions
 
-Use `/login` in interactive mode, then select a provider:
+Configure provider credentials through desktop auth UI or environment variables:
 
 - ChatGPT Plus/Pro (Codex)
 - Claude Pro/Max
@@ -39,7 +39,7 @@ Anthropic subscription auth is active for Claude Pro/Max accounts. Third-party h
 
 ### Environment Variables or Auth File
 
-Use `/login` in interactive mode and select a provider to store an API key in `auth.json`, or set credentials via environment variable:
+Store an API key in `auth.json` through desktop auth UI, or set credentials via environment variable:
 
 ```bash
 export ANTHROPIC_API_KEY=sk-ant-...

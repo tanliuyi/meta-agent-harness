@@ -38,7 +38,6 @@ I regularly publish my own `pi-mono` work sessions here:
 
 - [Quick Start](#quick-start)
 - [Providers & Models](#providers--models)
-- [Interactive Mode](#interactive-mode)
   - [Editor](#editor)
   - [Commands](#commands)
   - [Keyboard Shortcuts](#keyboard-shortcuts)
@@ -143,7 +142,6 @@ See [docs/providers.md](docs/providers.md) for detailed setup instructions.
 
 ## Interactive Mode
 
-<p align="center"><img src="docs/images/interactive-mode.png" alt="Interactive Mode" width="600"></p>
 
 The interface from top to bottom:
 
@@ -244,7 +242,7 @@ pi --session <path|id> # Use specific session file or ID
 pi --fork <path|id>    # Fork specific session file or ID into a new session
 ```
 
-Use `/session` in interactive mode to see the current session ID before reusing it with `--session <id>` or `--fork <id>`.
+Use `--session <id|path>` or `--fork <id|path>` to reuse or fork a saved session.
 
 ### Branching
 
@@ -297,7 +295,7 @@ If no extension or saved decision applies, `defaultProjectTrust` controls the fa
 
 `pi config` and package commands use the same project trust flow, except `pi update` never prompts. Pass `--approve` to trust project-local settings for one command or `--no-approve` to ignore them.
 
-Use `/trust` in interactive mode to save a project trust decision for future sessions, including trust for the immediate parent folder. It writes `~/.pi/agent/trust.json` only; the current session is not reloaded, so restart pi for changes to take effect.
+Use `--approve`/`--no-approve` for one run, or edit the trust store/settings used by the desktop host for saved project trust decisions.
 
 ### Telemetry and update checks
 
@@ -393,7 +391,7 @@ Place in `~/.pi/agent/extensions/`, `.pi/extensions/`, or a [pi package](#pi-pac
 
 Built-in: `dark`, `light`. Themes hot-reload: modify the active theme file and pi immediately applies changes.
 
-Place in `~/.pi/agent/themes/`, `.pi/themes/`, or a [pi package](#pi-packages) to share with others. See [docs/themes.md](docs/themes.md).
+Desktop visual themes are owned by the desktop renderer.
 
 ### Pi Packages
 
@@ -679,7 +677,6 @@ MIT
 
 - [@earendil-works/pi-ai](https://www.npmjs.com/package/@earendil-works/pi-ai): Core LLM toolkit
 - [@earendil-works/pi-agent-core](https://www.npmjs.com/package/@earendil-works/pi-agent-core): Agent framework
-- [@earendil-works/pi-tui](https://www.npmjs.com/package/@earendil-works/pi-tui): Terminal UI components
 
 <p align="center">
   <a href="https://pi.dev">pi.dev</a> domain graciously donated by

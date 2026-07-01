@@ -1,4 +1,8 @@
 <script setup lang="ts">
+/**
+ * 本文件渲染 desktop workspace 的主布局。
+ */
+
 import { useResizablePane } from '@renderer/composables/useResizablePane'
 import useWorkspaceUiStore from '@renderer/stores/workspace-ui'
 import { computed } from 'vue'

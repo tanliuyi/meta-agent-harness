@@ -135,7 +135,7 @@ interface CustomMessage {
   role: "custom";
   customType: string;            // Extension identifier
   content: string | (TextContent | ImageContent)[];
-  display: boolean;              // Show in TUI
+  display: boolean;              // Surface in host UI
   details?: any;                 // Extension-specific metadata
   timestamp: number;
 }
@@ -267,7 +267,7 @@ Extension-injected messages that DO participate in LLM context.
 
 Fields:
 - `content`: String or `(TextContent | ImageContent)[]` (same as UserMessage)
-- `display`: `true` = show in TUI with distinct styling, `false` = hidden
+- `display`: `true` = host should surface the message, `false` = hidden
 - `details`: Optional extension-specific metadata (not sent to LLM)
 
 ### LabelEntry

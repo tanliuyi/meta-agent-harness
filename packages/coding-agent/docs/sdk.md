@@ -389,7 +389,7 @@ const { session } = await createAgentSession({
   model: opus,
   thinkingLevel: "medium", // off, minimal, low, medium, high, xhigh
   
-  // Models for cycling (Ctrl+P in interactive mode)
+  // Models exposed to desktop/runtime model cycling
   scopedModels: [
     { model: opus, thinkingLevel: "high" },
     { model: haiku, thinkingLevel: "off" },
@@ -474,7 +474,7 @@ Specify which built-in tools to enable:
 - `noTools: "builtin"` disables default built-ins while keeping extension and custom tools enabled
 - `excludeTools` disables specific built-in, extension, or custom tool names after any `tools` allowlist is applied
 
-The `edit` tool returns `details.diff` for Pi's TUI display and `details.patch` as a standard unified patch for SDK consumers.
+The `edit` tool returns `details.diff` for host display and `details.patch` as a standard unified patch for SDK consumers.
 
 ```typescript
 import { createAgentSession } from "@earendil-works/pi-coding-agent";
@@ -958,46 +958,6 @@ await session.prompt("Get status and list files.");
 ## Run Modes
 
 The SDK exports run mode utilities for building custom interfaces on top of `createAgentSession()`:
-
-### InteractiveMode
-
-Full TUI interactive mode with editor, chat history, and all built-in commands:
-
-```typescript
-import {
-  type CreateAgentSessionRuntimeFactory,
-  createAgentSessionFromServices,
-  createAgentSessionRuntime,
-  createAgentSessionServices,
-  getAgentDir,
-  InteractiveMode,
-  SessionManager,
-} from "@earendil-works/pi-coding-agent";
-
-const createRuntime: CreateAgentSessionRuntimeFactory = async ({ cwd, sessionManager, sessionStartEvent }) => {
-  const services = await createAgentSessionServices({ cwd });
-  return {
-    ...(await createAgentSessionFromServices({ services, sessionManager, sessionStartEvent })),
-    services,
-    diagnostics: services.diagnostics,
-  };
-};
-const runtime = await createAgentSessionRuntime(createRuntime, {
-  cwd: process.cwd(),
-  agentDir: getAgentDir(),
-  sessionManager: SessionManager.create(process.cwd()),
-});
-
-const mode = new InteractiveMode(runtime, {
-  migratedProviders: [],
-  modelFallbackMessage: undefined,
-  initialMessage: "Hello",
-  initialImages: [],
-  initialMessages: [],
-});
-
-await mode.run();
-```
 
 ### runPrintMode
 

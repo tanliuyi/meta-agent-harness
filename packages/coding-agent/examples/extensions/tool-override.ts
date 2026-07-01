@@ -13,8 +13,7 @@
  * 2. Block access to sensitive paths (e.g., .env files)
  * 3. Delegate to the original read implementation for allowed files
  *
- * Since no custom renderCall/renderResult are provided, the built-in renderer
- * is used automatically (syntax highlighting, line numbers, truncation warnings).
+ * The desktop renderer decides how to display the structured result.
  *
  * Usage:
  *   pi -e ./tool-override.ts
@@ -124,8 +123,6 @@ export default function (pi: ExtensionAPI) {
 			}
 		},
 
-		// No renderCall/renderResult - uses built-in renderer automatically
-		// (syntax highlighting, line numbers, truncation warnings, etc.)
 	});
 
 	// Also register a command to view the access log

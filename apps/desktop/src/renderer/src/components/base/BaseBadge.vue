@@ -1,4 +1,8 @@
 <script setup lang="ts">
+/**
+ * 本文件提供基础徽标组件。
+ */
+
 withDefaults(
   defineProps<{
     tone?: 'neutral' | 'success' | 'warning' | 'info'

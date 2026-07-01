@@ -1,3 +1,7 @@
+/**
+ * 本文件定义 renderer 路由。
+ */
+
 import { createRouter, createWebHashHistory } from 'vue-router'
 
 const router = createRouter({

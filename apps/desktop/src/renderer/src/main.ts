@@ -1,3 +1,7 @@
+/**
+ * 本文件创建 Vue renderer 应用并挂载全局插件。
+ */
+
 import { createApp } from 'vue'
 import App from './App.vue'
 import router from './router'

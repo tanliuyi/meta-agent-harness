@@ -2,18 +2,18 @@
 
 This page collects day-to-day usage details that do not fit on the quickstart page.
 
-## Interactive Mode
+## Desktop Runtime
 
-<p align="center"><img src="images/interactive-mode.png" alt="Interactive Mode" width="600"></p>
+The desktop app owns the visual interface. The coding-agent package provides sessions, events, tools, extensions, resource loading, and structured UI requests over the desktop worker or RPC transport.
 
-The interface has four main areas:
+The host interface typically has four main areas:
 
 - **Startup header** - shortcuts, loaded context files, prompt templates, skills, and extensions
 - **Messages** - user messages, assistant responses, tool calls, tool results, notifications, errors, and extension UI
 - **Editor** - where you type; border color indicates the current thinking level
 - **Footer** - working directory, session name, token/cache usage, cost, context usage, and current model
 
-The editor can be replaced temporarily by built-in UI such as `/settings` or by custom extension UI.
+Renderer-specific UI belongs in the desktop app. Extensions request host UI through structured `ctx.ui` methods.
 
 ### Editor Features
 
@@ -22,7 +22,7 @@ The editor can be replaced temporarily by built-in UI such as `/settings` or by 
 | File reference | Type `@` to fuzzy-search project files |
 | Path completion | Press Tab to complete paths |
 | Multi-line input | Shift+Enter, or Ctrl+Enter on Windows Terminal |
-| Images | Paste with Ctrl+V, Alt+V on Windows, or drag into the terminal |
+| Images | Paste with Ctrl+V, Alt+V on Windows, or drag into the host editor |
 | Shell command | `!command` runs and sends output to the model |
 | Hidden shell command | `!!command` runs without sending output to the model |
 | External editor | Ctrl+G opens `$VISUAL` or `$EDITOR` |
@@ -114,7 +114,7 @@ Append to the default prompt without replacing it with `APPEND_SYSTEM.md` in eit
 
 ### Project Trust
 
-On interactive startup, pi asks before trusting a project folder that contains project-local settings, resources, or project `.agents/skills` and has no saved decision for the folder or a parent folder in `~/.pi/agent/trust.json`. Trusting a project allows pi to load `.pi/settings.json` and `.pi` resources, install missing project packages, and execute project extensions.
+When UI is available, the host can ask before trusting a project folder that contains project-local settings, resources, or project `.agents/skills` and has no saved decision for the folder or a parent folder in `~/.pi/agent/trust.json`. Trusting a project allows pi to load `.pi/settings.json` and `.pi` resources, install missing project packages, and execute project extensions.
 
 Before the trust decision, pi loads only context files, user/global extensions, and CLI `-e` extensions so they can handle the `project_trust` event. Project-local extensions, project package-managed extensions, and project settings are loaded only after the project is trusted. This split also applies when switching to a session from a different cwd whose trust has not been resolved in the current process.
 
@@ -124,7 +124,7 @@ If no extension or saved decision applies, `defaultProjectTrust` controls the fa
 
 `pi config` and package commands use the same project trust flow, except `pi update` never prompts. Pass `--approve` to trust project-local settings for one command or `--no-approve` to ignore them.
 
-Use `/trust` in interactive mode to save a project trust decision for future sessions, including trust for the immediate parent folder. It writes `~/.pi/agent/trust.json` only; the current session is not reloaded, so restart pi for changes to take effect.
+Use `--approve`/`--no-approve` for one run, or edit the trust store/settings used by the desktop host for saved project trust decisions.
 
 
 ## Exporting and Sharing Sessions
@@ -164,7 +164,7 @@ See [Pi Packages](packages.md) for package sources and security notes.
 
 | Flag | Description |
 |------|-------------|
-| default | Interactive mode |
+| default | Print response and exit |
 | `-p`, `--print` | Print response and exit |
 | `--mode json` | Output all events as JSON lines; see [JSON mode](json.md) |
 | `--mode rpc` | RPC mode over stdin/stdout; see [RPC mode](rpc.md) |

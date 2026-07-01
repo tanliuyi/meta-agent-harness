@@ -1,4 +1,8 @@
 <script setup lang="ts">
+/**
+ * 本文件提供基础图标按钮组件。
+ */
+
 withDefaults(
   defineProps<{
     active?: boolean

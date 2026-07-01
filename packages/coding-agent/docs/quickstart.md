@@ -117,7 +117,7 @@ Images can be pasted with Ctrl+V (Alt+V on Windows) or dragged into supported te
 
 ### Run shell commands
 
-In interactive mode:
+In desktop usage:
 
 ```text
 !npm run lint
@@ -156,7 +156,7 @@ Use `--mode json` for JSON event output or `--mode rpc` for process integration.
 
 ## Next steps
 
-- [Using Pi](usage.md) - interactive mode, slash commands, sessions, context files, and CLI reference.
+- [Using Pi](usage.md) - desktop usage, sessions, context files, and CLI reference.
 - [Providers](providers.md) - authentication and model setup.
 - [Settings](settings.md) - global and project configuration.
 - [Keybindings](keybindings.md) - shortcuts and customization.

@@ -1,3 +1,7 @@
+/**
+ * 本文件声明 renderer 构建环境类型。
+ */
+
 /// <reference types="vite/client" />
 
 declare module '*.vue' {

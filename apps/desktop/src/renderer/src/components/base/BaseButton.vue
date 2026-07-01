@@ -1,4 +1,8 @@
 <script setup lang="ts">
+/**
+ * 本文件提供基础按钮组件。
+ */
+
 withDefaults(
   defineProps<{
     variant?: 'primary' | 'secondary' | 'ghost' | 'danger'

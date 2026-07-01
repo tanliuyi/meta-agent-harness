@@ -1,6 +1,6 @@
 # RPC Mode
 
-RPC mode enables headless operation of the coding agent via a JSON protocol over stdin/stdout. This is useful for embedding the agent in other applications, IDEs, or custom UIs.
+RPC mode exposes the desktop coding-agent runtime via a JSON protocol over stdin/stdout. It is useful for embedding the agent in other applications or custom hosts.
 
 **Note for Node.js/TypeScript users**: If you're building a Node.js application, consider using `AgentSession` directly from `@earendil-works/pi-coding-agent` instead of spawning a subprocess. See [`src/core/agent-session.ts`](../src/core/agent-session.ts) for the API. For a subprocess-based TypeScript client, see [`src/modes/rpc/rpc-client.ts`](../src/modes/rpc/rpc-client.ts).
 
@@ -739,7 +739,7 @@ Each command has:
   - `"path"`: Explicit path via CLI or settings
 - `path`: Absolute file path to the command source (optional)
 
-**Note**: Built-in TUI commands (`/settings`, `/hotkeys`, etc.) are not included. They are handled only in interactive mode and would not execute if sent via `prompt`.
+**Note**: Legacy interactive slash commands are not part of the desktop-only runtime.
 
 ## Events
 
@@ -997,17 +997,14 @@ There are two categories of extension UI methods:
 
 If a dialog method includes a `timeout` field, the agent-side will auto-resolve with a default value when the timeout expires. The client does not need to track timeouts.
 
-Some `ExtensionUIContext` methods are not supported or degraded in RPC mode because they require direct TUI access:
-- `custom()` returns `undefined`
-- `setWorkingMessage()`, `setWorkingIndicator()`, `setFooter()`, `setHeader()`, `setEditorComponent()`, `setToolsExpanded()` are no-ops
-- `getEditorText()` returns `""`
-- `getToolsExpanded()` returns `false`
-- `pasteToEditor()` delegates to `setEditorText()` (no paste/collapse handling)
-- `getAllThemes()` returns `[]`
-- `getTheme()` returns `undefined`
-- `setTheme()` returns `{ success: false, error: "..." }`
+RPC mode exposes the same desktop-only `ExtensionUIContext` shape as the desktop worker. Component factories, terminal renderers, custom editor components, and theme switching are not part of this runtime surface.
 
-Note: `ctx.mode` is `"rpc"` and `ctx.hasUI` is `true` in RPC mode because the dialog and fire-and-forget methods are functional via the extension UI sub-protocol. Use `ctx.mode === "tui"` to guard TUI-specific features like `custom()` that require a real terminal.
+Some methods are host-state dependent:
+- `getEditorText()` returns the latest editor text known to the worker.
+- `getToolsExpanded()` returns the latest tool expansion state known to the worker.
+- `pasteToEditor()` is represented as a structured editor text request; the host decides how to present paste/collapse behavior.
+
+Note: `ctx.mode` is `"rpc"` and `ctx.hasUI` is `true` in RPC mode because dialog and fire-and-forget methods are functional via the extension UI sub-protocol.
 
 ### Extension UI Requests (stdout)
 

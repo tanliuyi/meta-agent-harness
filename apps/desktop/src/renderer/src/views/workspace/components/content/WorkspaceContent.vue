@@ -1,11 +1,15 @@
 <script setup lang="ts">
+/**
+ * 本文件承载 workspace 中间内容区域。
+ */
+
 import ChatView from '@renderer/components/chat/ChatView.vue'
 import SessionHeader from '@renderer/components/session/SessionHeader.vue'
 import SessionPanel from '@renderer/components/session/SessionPanel.vue'
 import { provideSessionContext } from '@renderer/composables/useSessionContext'
 import { useResizablePane } from '@renderer/composables/useResizablePane'
 import useWorkspaceSessionStore from '@renderer/stores/workspace-session'
-import { computed, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 
 const RESIZER_WIDTH = 1
 
@@ -15,8 +19,8 @@ const activeSession = computed(() => workspaceSession.activeSession)
 const sessionPanel = computed(() => ({
   maxWidth: workspaceSession.maxSessionPanelWidth,
   minWidth: workspaceSession.minSessionPanelWidth,
-  open: activeSession.value.ui.panelOpen,
-  width: activeSession.value.ui.panelWidth
+  open: activeSession.value?.ui.panelOpen ?? true,
+  width: activeSession.value?.ui.panelWidth ?? workspaceSession.minSessionPanelWidth
 }))
 
 const workspaceContentColumns = computed(() => {
@@ -30,12 +34,16 @@ const workspaceContentColumns = computed(() => {
 provideSessionContext({
   panel: sessionPanel,
   session: computed(() => ({
-    sessionId: activeSession.value.sessionId,
-    status: activeSession.value.status,
-    title: activeSession.value.title
+    sessionId: activeSession.value?.threadId ?? '',
+    status: activeSession.value?.status ?? 'new',
+    title: activeSession.value?.title ?? '未选择会话'
   })),
   setPanelOpen: workspaceSession.setActiveSessionPanelOpen,
   setPanelWidth: workspaceSession.setActiveSessionPanelWidth
+})
+
+onMounted(() => {
+  void workspaceSession.loadThreads()
 })
 
 const {

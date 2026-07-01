@@ -1,3 +1,7 @@
+/**
+ * 本文件管理 workspace 布局 UI 状态。
+ */
+
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
 

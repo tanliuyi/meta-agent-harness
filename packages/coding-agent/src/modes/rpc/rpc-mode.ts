@@ -26,7 +26,6 @@ import {
 	writeRawStdout,
 } from "../../core/output-guard.ts";
 import { killTrackedDetachedChildren } from "../../utils/shell.ts";
-import { type Theme, theme } from "../interactive/theme/theme.ts";
 import { attachJsonlLineReader, serializeJsonLine } from "./jsonl.ts";
 import type {
 	RpcCommand,
@@ -159,11 +158,6 @@ export async function runRpcMode(runtimeHost: AgentSessionRuntime): Promise<neve
 			} as RpcExtensionUIRequest);
 		},
 
-		onTerminalInput(): () => void {
-			// Raw terminal input not supported in RPC mode
-			return () => {};
-		},
-
 		setStatus(key: string, text: string | undefined): void {
 			// Fire and forget - no response needed
 			output({
@@ -176,19 +170,19 @@ export async function runRpcMode(runtimeHost: AgentSessionRuntime): Promise<neve
 		},
 
 		setWorkingMessage(_message?: string): void {
-			// Working message not supported in RPC mode - requires TUI loader access
+			// Working message is host-rendered in RPC mode.
 		},
 
 		setWorkingVisible(_visible: boolean): void {
-			// Working visibility not supported in RPC mode - requires TUI loader access
+			// Working visibility is host-rendered in RPC mode.
 		},
 
 		setWorkingIndicator(_options?: WorkingIndicatorOptions): void {
-			// Working indicator customization not supported in RPC mode - requires TUI loader access
+			// Working indicator customization is host-rendered in RPC mode.
 		},
 
 		setHiddenThinkingLabel(_label?: string): void {
-			// Hidden thinking label not supported in RPC mode - requires TUI message rendering access
+			// Hidden thinking label is host-rendered in RPC mode.
 		},
 
 		setWidget(key: string, content: unknown, options?: ExtensionWidgetOptions): void {
@@ -203,15 +197,7 @@ export async function runRpcMode(runtimeHost: AgentSessionRuntime): Promise<neve
 					widgetPlacement: options?.placement,
 				} as RpcExtensionUIRequest);
 			}
-			// Component factories are not supported in RPC mode - would need TUI access
-		},
-
-		setFooter(_factory: unknown): void {
-			// Custom footer not supported in RPC mode - requires TUI access
-		},
-
-		setHeader(_factory: unknown): void {
-			// Custom header not supported in RPC mode - requires TUI access
+			// Component factories are not part of the desktop-only extension UI surface.
 		},
 
 		setTitle(title: string): void {
@@ -222,11 +208,6 @@ export async function runRpcMode(runtimeHost: AgentSessionRuntime): Promise<neve
 				method: "setTitle",
 				title,
 			} as RpcExtensionUIRequest);
-		},
-
-		async custom() {
-			// Custom UI not supported in RPC mode
-			return undefined as never;
 		},
 
 		pasteToEditor(text: string): void {
@@ -269,43 +250,13 @@ export async function runRpcMode(runtimeHost: AgentSessionRuntime): Promise<neve
 			});
 		},
 
-		addAutocompleteProvider(): void {
-			// Autocomplete provider composition is not supported in RPC mode
-		},
-
-		setEditorComponent(): void {
-			// Custom editor components not supported in RPC mode
-		},
-
-		getEditorComponent() {
-			// Custom editor components not supported in RPC mode
-			return undefined;
-		},
-
-		get theme() {
-			return theme;
-		},
-
-		getAllThemes() {
-			return [];
-		},
-
-		getTheme(_name: string) {
-			return undefined;
-		},
-
-		setTheme(_theme: string | Theme) {
-			// Theme switching not supported in RPC mode
-			return { success: false, error: "Theme switching not supported in RPC mode" };
-		},
-
 		getToolsExpanded() {
-			// Tool expansion not supported in RPC mode - no TUI
+			// Tool expansion is tracked by the host.
 			return false;
 		},
 
 		setToolsExpanded(_expanded: boolean) {
-			// Tool expansion not supported in RPC mode - no TUI
+			// Tool expansion is tracked by the host.
 		},
 	});
 
