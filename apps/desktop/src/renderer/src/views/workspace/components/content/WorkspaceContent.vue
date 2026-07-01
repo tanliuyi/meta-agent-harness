@@ -1,0 +1,191 @@
+<script setup lang="ts">
+import ChatView from '@renderer/components/chat/ChatView.vue'
+import SessionHeader from '@renderer/components/session/SessionHeader.vue'
+import SessionPanel from '@renderer/components/session/SessionPanel.vue'
+import { provideSessionContext } from '@renderer/composables/useSessionContext'
+import { useResizablePane } from '@renderer/composables/useResizablePane'
+import useWorkspaceSessionStore from '@renderer/stores/workspace-session'
+import { computed, ref } from 'vue'
+
+const RESIZER_WIDTH = 1
+
+const workspaceSession = useWorkspaceSessionStore()
+const workspaceContentRef = ref<HTMLElement | null>(null)
+const activeSession = computed(() => workspaceSession.activeSession)
+const sessionPanel = computed(() => ({
+  maxWidth: workspaceSession.maxSessionPanelWidth,
+  minWidth: workspaceSession.minSessionPanelWidth,
+  open: activeSession.value.ui.panelOpen,
+  width: activeSession.value.ui.panelWidth
+}))
+
+const workspaceContentColumns = computed(() => {
+  if (!sessionPanel.value.open) {
+    return 'minmax(0, 1fr)'
+  }
+
+  return `minmax(0, 1fr) ${RESIZER_WIDTH}px ${sessionPanel.value.width}px`
+})
+
+provideSessionContext({
+  panel: sessionPanel,
+  session: computed(() => ({
+    sessionId: activeSession.value.sessionId,
+    status: activeSession.value.status,
+    title: activeSession.value.title
+  })),
+  setPanelOpen: workspaceSession.setActiveSessionPanelOpen,
+  setPanelWidth: workspaceSession.setActiveSessionPanelWidth
+})
+
+const {
+  handleResizerKeydown: handleSessionPanelResizerKeydown,
+  isResizing: isSessionPanelResizing,
+  startResize: startSessionPanelResize
+} = useResizablePane({
+  getPointerValue: (event) => {
+    const contentRect = workspaceContentRef.value?.getBoundingClientRect()
+
+    if (!contentRect) {
+      return sessionPanel.value.width
+    }
+
+    return contentRect.right - event.clientX
+  },
+  getValue: computed(() => sessionPanel.value.width),
+  setValue: workspaceSession.setActiveSessionPanelWidth
+})
+</script>
+
+<template>
+  <section
+    ref="workspaceContentRef"
+    class="workspace-content"
+    :style="{ gridTemplateColumns: workspaceContentColumns }"
+  >
+    <div class="workspace-content__main-session">
+      <SessionHeader class="workspace-content__session-header" />
+      <ChatView class="workspace-content__chat" />
+    </div>
+
+    <div
+      v-if="sessionPanel.open"
+      class="workspace-content__session-panel-resizer"
+      :class="{ 'workspace-content__session-panel-resizer--active': isSessionPanelResizing }"
+      role="separator"
+      aria-label="调整会话面板宽度"
+      aria-orientation="vertical"
+      :aria-valuemin="sessionPanel.minWidth"
+      :aria-valuemax="sessionPanel.maxWidth"
+      :aria-valuenow="sessionPanel.width"
+      tabindex="0"
+      @pointerdown="startSessionPanelResize"
+      @keydown="handleSessionPanelResizerKeydown"
+    />
+
+    <SessionPanel
+      class="workspace-content__session-panel"
+      :class="{ 'workspace-content__session-panel--collapsed': !sessionPanel.open }"
+      :collapsed="!sessionPanel.open"
+      @toggle="workspaceSession.setActiveSessionPanelOpen(!sessionPanel.open)"
+    />
+  </section>
+</template>
+
+<style lang="scss" scoped>
+.workspace-content {
+  position: relative;
+  display: grid;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  background-color: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 12px 0 0 12px;
+}
+
+.workspace-content__main-session {
+  display: grid;
+  grid-template-rows: var(--session-header-height) minmax(0, 1fr);
+  gap: var(--space-3);
+  min-width: 0;
+  min-height: 0;
+}
+
+.workspace-content__session-header {
+  min-width: 0;
+  min-height: 0;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.workspace-content__chat,
+.workspace-content__session-panel {
+  min-width: 0;
+  min-height: 0;
+}
+
+.workspace-content__session-panel--collapsed {
+  position: absolute;
+  top: 0;
+  right: 0;
+  display: flex;
+  flex-direction: row;
+  justify-content: center;
+  align-items: center;
+  width: auto;
+  height: var(--session-header-height);
+  pointer-events: none;
+}
+
+.workspace-content__session-panel-resizer {
+  position: relative;
+  cursor: col-resize;
+  touch-action: none;
+
+  &::before {
+    position: absolute;
+    inset: 0 auto 0 0;
+    width: 1px;
+    background: var(--color-border);
+    content: '';
+    transition:
+      background-color var(--duration-fast) var(--ease-standard),
+      box-shadow var(--duration-fast) var(--ease-standard);
+    transition-delay: 180ms;
+  }
+
+  &::after {
+    position: absolute;
+    inset: 0 -4px;
+    content: '';
+  }
+
+  &:hover::before,
+  &:focus-visible::before,
+  &--active::before {
+    background: var(--color-primary);
+    box-shadow: 0 0 0 1px rgb(105 210 160 / 16%);
+  }
+
+  &:focus-visible {
+    outline: none;
+  }
+
+  &:focus-visible::before,
+  &--active::before {
+    transition-delay: 0ms;
+  }
+}
+
+@media (width <= 820px) {
+  .workspace-content {
+    grid-template-columns: 1fr;
+    padding: var(--space-5);
+  }
+
+  .workspace-content__session-panel-resizer,
+  .workspace-content__session-panel {
+    display: none;
+  }
+}
+</style>
