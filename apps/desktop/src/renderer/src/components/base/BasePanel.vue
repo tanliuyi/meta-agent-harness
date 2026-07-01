@@ -1,11 +1,15 @@
 <script setup lang="ts">
 /**
- * 本文件提供基础面板组件。
+ * BasePanel.vue - 基础面板组件。
+ *
+ * 提供可选标题、眉题与操作区域的内容容器。
  */
 
 withDefaults(
   defineProps<{
+    /** 面板标题。 */
     title?: string
+    /** 面板眉题（标题上方小字）。 */
     eyebrow?: string
   }>(),
   {

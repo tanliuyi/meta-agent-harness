@@ -1,5 +1,5 @@
 /**
- * 本文件负责把 desktop thread 启动输入转换为 Pi 同构 AgentSessionRuntime。
+ * 负责把 desktop thread 启动输入转换为 Pi 同构 AgentSessionRuntime。
  */
 
 import {
@@ -17,12 +17,24 @@ import type { StartThreadInput } from "../protocol/thread.ts";
 import type { ApprovalBridge } from "./approval-bridge.ts";
 import { createDesktopProjectTrustContext } from "./project-trust-context.ts";
 
+/**
+ * 创建 runtime 的选项。
+ */
 export interface DesktopRuntimeFactoryOptions {
+	/** agent 目录路径。 */
 	agentDir?: string;
+	/** 审批桥接实例。 */
 	approvalBridge?: ApprovalBridge;
+	/** 是否拥有 UI。 */
 	hasUI?: boolean;
 }
 
+/**
+ * 为 thread 创建 Pi AgentSessionRuntime。
+ * @param input - 启动 thread 的输入。
+ * @param options - 创建选项。
+ * @returns AgentSessionRuntime 实例。
+ */
 export async function createRuntimeForThread(
 	input: StartThreadInput,
 	options: DesktopRuntimeFactoryOptions = {},
@@ -92,6 +104,11 @@ export async function createRuntimeForThread(
 	);
 }
 
+/**
+ * 确保存在 approval bridge，否则抛出错误。
+ * @param approvalBridge - 可选的 approval bridge。
+ * @returns 非空的 approval bridge。
+ */
 function requireApprovalBridge(approvalBridge: ApprovalBridge | undefined): ApprovalBridge {
 	if (!approvalBridge) {
 		throw new Error("desktop project trust requires approval bridge");
@@ -99,6 +116,11 @@ function requireApprovalBridge(approvalBridge: ApprovalBridge | undefined): Appr
 	return approvalBridge;
 }
 
+/**
+ * 根据输入创建或打开 session manager。
+ * @param input - 启动 thread 的输入。
+ * @returns SessionManager 实例。
+ */
 function createSessionManager(input: StartThreadInput): SessionManager {
 	if (input.sessionFile) {
 		return SessionManager.open(input.sessionFile, undefined, input.cwd);

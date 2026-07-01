@@ -6,7 +6,9 @@ import { describe, expect, it } from "vitest";
 import { ExtensionUiBridge } from "../worker/extension-ui-bridge.ts";
 import type { WorkerEventEnvelope } from "../protocol/envelope.ts";
 
+/** ExtensionUiBridge 测试套件。 */
 describe("ExtensionUiBridge", () => {
+	/** 验证 select 请求通过投影事件发出并可用 UI 响应解析结果。 */
 	it("select 通过 projection event 请求并用 ui response 解析结果", async () => {
 		const events: WorkerEventEnvelope[] = [];
 		const bridge = new ExtensionUiBridge("thread-1", (event) => events.push(event));
@@ -26,6 +28,7 @@ describe("ExtensionUiBridge", () => {
 		});
 	});
 
+	/** 验证对未知 response id 会 fail-first。 */
 	it("未知 response id fail-first", () => {
 		const bridge = new ExtensionUiBridge("thread-1", () => {});
 

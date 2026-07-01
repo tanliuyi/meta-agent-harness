@@ -1,6 +1,8 @@
 <script setup lang="ts">
 /**
- * 本文件渲染 coding thread 侧边栏并接入创建/切换能力。
+ * Sidebar.vue - Workspace 左侧边栏组件。
+ *
+ * 展示 thread 列表、提供创建新 thread 的输入框，并支持切换当前会话。
  */
 
 import { BaseIconButton } from '@renderer/components/base'

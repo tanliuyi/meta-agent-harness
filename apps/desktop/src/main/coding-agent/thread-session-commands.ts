@@ -14,6 +14,12 @@ import type {
 } from '../../shared/coding-agent/types'
 import type { ThreadManagerCore } from './thread-manager-core'
 
+/**
+ * 创建新会话。
+ * @param core - thread 管理核心。
+ * @param input - 新会话输入。
+ * @returns 线程快照。
+ */
 export async function newSession(
   core: ThreadManagerCore,
   input: NewSessionInput
@@ -22,6 +28,12 @@ export async function newSession(
   return await core.getSnapshot(input.threadId)
 }
 
+/**
+ * 切换到指定会话。
+ * @param core - thread 管理核心。
+ * @param input - 切换会话输入。
+ * @returns 线程快照。
+ */
 export async function switchSession(
   core: ThreadManagerCore,
   input: SwitchSessionInput
@@ -34,6 +46,12 @@ export async function switchSession(
   return await core.getSnapshot(input.threadId)
 }
 
+/**
+ * 导入会话文件。
+ * @param core - thread 管理核心。
+ * @param input - 导入会话输入。
+ * @returns 线程快照。
+ */
 export async function importSession(
   core: ThreadManagerCore,
   input: ImportSessionInput
@@ -46,6 +64,12 @@ export async function importSession(
   return await core.getSnapshot(input.threadId)
 }
 
+/**
+ * 导出会话为 HTML。
+ * @param core - thread 管理核心。
+ * @param input - 导出会话输入。
+ * @returns 导出结果。
+ */
 export async function exportSession(
   core: ThreadManagerCore,
   input: ExportSessionInput
@@ -56,6 +80,12 @@ export async function exportSession(
   })
 }
 
+/**
+ * 在指定 entry 处分叉会话。
+ * @param core - thread 管理核心。
+ * @param input - 分叉输入。
+ * @returns 线程快照。
+ */
 export async function fork(core: ThreadManagerCore, input: ForkInput): Promise<ThreadSnapshot> {
   await core.sendOk(input.threadId, {
     type: 'fork',
@@ -65,11 +95,22 @@ export async function fork(core: ThreadManagerCore, input: ForkInput): Promise<T
   return await core.getSnapshot(input.threadId)
 }
 
+/**
+ * 克隆当前会话。
+ * @param core - thread 管理核心。
+ * @param threadId - thread ID。
+ * @returns 线程快照。
+ */
 export async function clone(core: ThreadManagerCore, threadId: string): Promise<ThreadSnapshot> {
   await core.sendOk(threadId, { type: 'clone' })
   return await core.getSnapshot(threadId)
 }
 
+/**
+ * 重命名线程标题。
+ * @param core - thread 管理核心。
+ * @param input - 重命名输入。
+ */
 export async function renameThread(
   core: ThreadManagerCore,
   input: RenameThreadInput

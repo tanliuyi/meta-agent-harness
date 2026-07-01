@@ -1,5 +1,5 @@
 /**
- * 本文件分发 desktop worker command 到 Pi 同构 runtime/session handler。
+ * 分发 desktop worker command 到 Pi 同构 runtime/session handler。
  */
 
 import { createDesktopError } from "../protocol/error.ts";
@@ -14,6 +14,12 @@ import { buildRuntimeState } from "./runtime-state.ts";
 
 export type { RuntimeCommandHandlerHost } from "./runtime-command-host.ts";
 
+/**
+ * 处理 runtime 命令。
+ * @param host - runtime 命令 host。
+ * @param envelope - 命令 envelope。
+ * @returns worker 响应 envelope，或 undefined 表示非 runtime 命令。
+ */
 export async function handleRuntimeCommand(
 	host: RuntimeCommandHandlerHost,
 	envelope: WorkerCommandEnvelope,

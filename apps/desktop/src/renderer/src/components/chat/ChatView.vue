@@ -1,6 +1,6 @@
 <script setup lang="ts">
 /**
- * 本文件渲染 active coding thread 的消息流与输入区。
+ * ChatView.vue - 当前活跃会话的消息流与输入区组件。
  */
 
 import { computed } from 'vue'
@@ -8,7 +8,11 @@ import { BaseButton } from '@renderer/components/base'
 import useWorkspaceSessionStore from '@renderer/stores/workspace-session'
 
 const workspaceSession = useWorkspaceSessionStore()
+
+/** 当前会话的消息列表。 */
 const messages = computed(() => workspaceSession.activeSnapshot?.messages ?? [])
+
+/** 是否允许发送消息。 */
 const canSend = computed(() =>
   Boolean(workspaceSession.activeSessionId && workspaceSession.draftMessage.trim())
 )

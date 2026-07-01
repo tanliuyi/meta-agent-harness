@@ -6,7 +6,9 @@ import { describe, expect, it } from "vitest";
 import { ApprovalBridge } from "../worker/approval-bridge.ts";
 import type { WorkerEventEnvelope } from "../protocol/envelope.ts";
 
+/** ApprovalBridge 测试套件。 */
 describe("ApprovalBridge", () => {
+	/** 验证 bridge 发出审批投影事件后能正确解析响应。 */
 	it("发出 approval projection event 并解析 response", async () => {
 		const events: WorkerEventEnvelope[] = [];
 		const bridge = new ApprovalBridge("thread-1", (event) => events.push(event));
@@ -33,6 +35,7 @@ describe("ApprovalBridge", () => {
 		});
 	});
 
+	/** 验证对未知审批响应会 fail-first。 */
 	it("未知 approval response fail-first", () => {
 		const bridge = new ApprovalBridge("thread-1", () => {});
 

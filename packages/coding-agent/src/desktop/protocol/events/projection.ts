@@ -1,5 +1,5 @@
 /**
- * 本文件定义 desktop UI projection event。
+ * 定义 desktop UI projection event。
  */
 
 import type { ApprovalRequest } from "../approval.ts";
@@ -11,23 +11,161 @@ import type { ThreadSnapshot } from "../snapshot.ts";
 import type { DesktopFileChange, DesktopToolCall } from "../tool.ts";
 import type { ThreadRuntimeState } from "../thread.ts";
 
+/** Desktop UI projection 事件联合类型。 */
 export type DesktopProjectionEvent =
-	| { type: "thread.started"; threadId: ThreadId; snapshot: ThreadSnapshot }
-	| { type: "thread.stateChanged"; threadId: ThreadId; status: ThreadRuntimeState }
-	| { type: "thread.exited"; threadId: ThreadId; reason: string }
-	| { type: "thread.error"; threadId: ThreadId; diagnostic: DesktopDiagnostic }
-	| { type: "message.added"; threadId: ThreadId; messageId: string }
-	| { type: "message.delta"; threadId: ThreadId; messageId: string; delta: string }
-	| { type: "message.finished"; threadId: ThreadId; messageId: string }
-	| { type: "tool.started"; threadId: ThreadId; toolCall: DesktopToolCall }
-	| { type: "tool.updated"; threadId: ThreadId; toolCall: DesktopToolCall }
-	| { type: "tool.finished"; threadId: ThreadId; toolCall: DesktopToolCall }
-	| { type: "file.changed"; threadId: ThreadId; change: DesktopFileChange }
-	| { type: "approval.requested"; threadId: ThreadId; approval: ApprovalRequest }
-	| { type: "extensionUi.requested"; threadId: ThreadId; request: ExtensionUiRequest }
-	| { type: "compaction.started"; threadId: ThreadId; reason: "manual" | "threshold" | "overflow" }
-	| { type: "compaction.finished"; threadId: ThreadId; aborted: boolean }
-	| { type: "model.changed"; threadId: ThreadId; model?: ModelIdentity }
-	| { type: "thinking.changed"; threadId: ThreadId; level: DesktopThinkingLevel }
-	| { type: "queue.changed"; threadId: ThreadId; steering: string[]; followUp: string[] }
-	| { type: "snapshot.updated"; threadId: ThreadId; snapshot: ThreadSnapshot };
+	| {
+			/** 事件类型：线程已启动。 */
+			type: "thread.started";
+			/** 线程 ID。 */
+			threadId: ThreadId;
+			/** 线程初始快照。 */
+			snapshot: ThreadSnapshot;
+	  }
+	| {
+			/** 事件类型：线程状态变化。 */
+			type: "thread.stateChanged";
+			/** 线程 ID。 */
+			threadId: ThreadId;
+			/** 新的运行时状态。 */
+			status: ThreadRuntimeState;
+	  }
+	| {
+			/** 事件类型：线程已退出。 */
+			type: "thread.exited";
+			/** 线程 ID。 */
+			threadId: ThreadId;
+			/** 退出原因。 */
+			reason: string;
+	  }
+	| {
+			/** 事件类型：线程发生错误。 */
+			type: "thread.error";
+			/** 线程 ID。 */
+			threadId: ThreadId;
+			/** 诊断信息。 */
+			diagnostic: DesktopDiagnostic;
+	  }
+	| {
+			/** 事件类型：消息已添加。 */
+			type: "message.added";
+			/** 线程 ID。 */
+			threadId: ThreadId;
+			/** 消息 ID。 */
+			messageId: string;
+	  }
+	| {
+			/** 事件类型：消息增量更新。 */
+			type: "message.delta";
+			/** 线程 ID。 */
+			threadId: ThreadId;
+			/** 消息 ID。 */
+			messageId: string;
+			/** 增量文本内容。 */
+			delta: string;
+	  }
+	| {
+			/** 事件类型：消息已完成。 */
+			type: "message.finished";
+			/** 线程 ID。 */
+			threadId: ThreadId;
+			/** 消息 ID。 */
+			messageId: string;
+	  }
+	| {
+			/** 事件类型：工具调用已开始。 */
+			type: "tool.started";
+			/** 线程 ID。 */
+			threadId: ThreadId;
+			/** 工具调用信息。 */
+			toolCall: DesktopToolCall;
+	  }
+	| {
+			/** 事件类型：工具调用已更新。 */
+			type: "tool.updated";
+			/** 线程 ID。 */
+			threadId: ThreadId;
+			/** 工具调用信息。 */
+			toolCall: DesktopToolCall;
+	  }
+	| {
+			/** 事件类型：工具调用已完成。 */
+			type: "tool.finished";
+			/** 线程 ID。 */
+			threadId: ThreadId;
+			/** 工具调用信息。 */
+			toolCall: DesktopToolCall;
+	  }
+	| {
+			/** 事件类型：文件已变更。 */
+			type: "file.changed";
+			/** 线程 ID。 */
+			threadId: ThreadId;
+			/** 文件变更信息。 */
+			change: DesktopFileChange;
+	  }
+	| {
+			/** 事件类型：审批已请求。 */
+			type: "approval.requested";
+			/** 线程 ID。 */
+			threadId: ThreadId;
+			/** 审批请求。 */
+			approval: ApprovalRequest;
+	  }
+	| {
+			/** 事件类型：扩展 UI 已请求。 */
+			type: "extensionUi.requested";
+			/** 线程 ID。 */
+			threadId: ThreadId;
+			/** 扩展 UI 请求。 */
+			request: ExtensionUiRequest;
+	  }
+	| {
+			/** 事件类型：压缩已开始。 */
+			type: "compaction.started";
+			/** 线程 ID。 */
+			threadId: ThreadId;
+			/** 压缩原因：手动、阈值或溢出。 */
+			reason: "manual" | "threshold" | "overflow";
+	  }
+	| {
+			/** 事件类型：压缩已结束。 */
+			type: "compaction.finished";
+			/** 线程 ID。 */
+			threadId: ThreadId;
+			/** 是否被中止。 */
+			aborted: boolean;
+	  }
+	| {
+			/** 事件类型：模型已切换。 */
+			type: "model.changed";
+			/** 线程 ID。 */
+			threadId: ThreadId;
+			/** 新模型身份（未指定时为空）。 */
+			model?: ModelIdentity;
+	  }
+	| {
+			/** 事件类型：thinking 级别已切换。 */
+			type: "thinking.changed";
+			/** 线程 ID。 */
+			threadId: ThreadId;
+			/** 新的 thinking 级别。 */
+			level: DesktopThinkingLevel;
+	  }
+	| {
+			/** 事件类型：队列已变化。 */
+			type: "queue.changed";
+			/** 线程 ID。 */
+			threadId: ThreadId;
+			/** Steering 队列中的命令类型列表。 */
+			steering: string[];
+			/** Follow-up 队列中的命令类型列表。 */
+			followUp: string[];
+	  }
+	| {
+			/** 事件类型：快照已更新。 */
+			type: "snapshot.updated";
+			/** 线程 ID。 */
+			threadId: ThreadId;
+			/** 更新后的线程快照。 */
+			snapshot: ThreadSnapshot;
+	  };

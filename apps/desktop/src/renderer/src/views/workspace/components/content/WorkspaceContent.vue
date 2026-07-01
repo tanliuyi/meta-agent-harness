@@ -1,6 +1,8 @@
 <script setup lang="ts">
 /**
- * 本文件承载 workspace 中间内容区域。
+ * WorkspaceContent.vue - Workspace 中间内容区域组件。
+ *
+ * 承载会话头部、聊天视图与可拖拽的会话面板，并提供会话上下文。
  */
 
 import ChatView from '@renderer/components/chat/ChatView.vue'
@@ -11,11 +13,18 @@ import { useResizablePane } from '@renderer/composables/useResizablePane'
 import useWorkspaceSessionStore from '@renderer/stores/workspace-session'
 import { computed, onMounted, ref } from 'vue'
 
+/** 分隔条宽度（像素）。 */
 const RESIZER_WIDTH = 1
 
 const workspaceSession = useWorkspaceSessionStore()
+
+/** 内容区容器元素引用。 */
 const workspaceContentRef = ref<HTMLElement | null>(null)
+
+/** 当前活跃会话对象。 */
 const activeSession = computed(() => workspaceSession.activeSession)
+
+/** 当前会话面板状态。 */
 const sessionPanel = computed(() => ({
   maxWidth: workspaceSession.maxSessionPanelWidth,
   minWidth: workspaceSession.minSessionPanelWidth,
@@ -23,6 +32,7 @@ const sessionPanel = computed(() => ({
   width: activeSession.value?.ui.panelWidth ?? workspaceSession.minSessionPanelWidth
 }))
 
+/** 内容区网格列模板。 */
 const workspaceContentColumns = computed(() => {
   if (!sessionPanel.value.open) {
     return 'minmax(0, 1fr)'
@@ -31,6 +41,9 @@ const workspaceContentColumns = computed(() => {
   return `minmax(0, 1fr) ${RESIZER_WIDTH}px ${sessionPanel.value.width}px`
 })
 
+/**
+ * 向子组件提供会话上下文。
+ */
 provideSessionContext({
   panel: sessionPanel,
   session: computed(() => ({
@@ -42,10 +55,14 @@ provideSessionContext({
   setPanelWidth: workspaceSession.setActiveSessionPanelWidth
 })
 
+/** 组件挂载时加载所有 thread。 */
 onMounted(() => {
   void workspaceSession.loadThreads()
 })
 
+/**
+ * 创建会话面板可拖拽调整大小的行为。
+ */
 const {
   handleResizerKeydown: handleSessionPanelResizerKeydown,
   isResizing: isSessionPanelResizing,

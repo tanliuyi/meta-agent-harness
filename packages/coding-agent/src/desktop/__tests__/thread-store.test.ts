@@ -7,7 +7,9 @@ import { MemoryThreadStore } from "../storage/memory-thread-store.ts";
 import type { ThreadSnapshot } from "../protocol/snapshot.ts";
 import type { ThreadSummary } from "../protocol/thread.ts";
 
+/** MemoryThreadStore 测试套件。 */
 describe("MemoryThreadStore", () => {
+	/** 验证保存 thread summary 和 snapshot 后能正确读取。 */
 	it("保存 thread summary 和 snapshot", () => {
 		const store = new MemoryThreadStore();
 		const summary: ThreadSummary = {
@@ -38,6 +40,7 @@ describe("MemoryThreadStore", () => {
 		expect(store.listThreads()).toEqual([summary]);
 	});
 
+	/** 验证删除 thread 时同时删除 snapshot 索引。 */
 	it("删除 thread 时同时删除 snapshot 索引", () => {
 		const store = new MemoryThreadStore();
 		store.saveThread({
@@ -66,4 +69,3 @@ describe("MemoryThreadStore", () => {
 		expect(store.getSnapshot("thread-1")).toBeUndefined();
 	});
 });
-

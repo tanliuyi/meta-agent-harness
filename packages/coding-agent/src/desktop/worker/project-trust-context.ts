@@ -1,10 +1,15 @@
 /**
- * 本文件实现 desktop transport 驱动的 Pi project trust 上下文。
+ * 实现 desktop transport 驱动的 Pi project trust 上下文。
  */
 
 import type { ProjectTrustContext } from "../../core/extensions/index.ts";
 import type { ApprovalBridge } from "./approval-bridge.ts";
 
+/**
+ * 创建 desktop project trust 上下文。
+ * @param options - 创建选项。
+ * @returns ProjectTrustContext 实例。
+ */
 export function createDesktopProjectTrustContext(options: {
 	cwd: string;
 	approvalBridge: ApprovalBridge;

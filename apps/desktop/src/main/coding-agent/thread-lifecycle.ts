@@ -5,6 +5,13 @@
 import type { CreateThreadInput, ThreadSnapshot } from '../../shared/coding-agent/types'
 import type { ThreadManagerCore } from './thread-manager-core'
 
+/**
+ * 创建新线程并启动 worker。
+ * @param core - thread 管理核心。
+ * @param input - 创建线程输入。
+ * @returns 线程快照。
+ * @throws 若未提供 cwd 或线程已存在时抛出错误。
+ */
 export async function createThread(
   core: ThreadManagerCore,
   input: CreateThreadInput
@@ -42,6 +49,11 @@ export async function createThread(
   }
 }
 
+/**
+ * 停止指定线程的 worker。
+ * @param core - thread 管理核心。
+ * @param threadId - thread ID。
+ */
 export async function stopThread(core: ThreadManagerCore, threadId: string): Promise<void> {
   core.requireThread(threadId)
   core.updateThread(threadId, { status: 'stopping' })
@@ -49,6 +61,12 @@ export async function stopThread(core: ThreadManagerCore, threadId: string): Pro
   core.updateThread(threadId, { status: 'stopped' })
 }
 
+/**
+ * 重启指定线程的 worker。
+ * @param core - thread 管理核心。
+ * @param threadId - thread ID。
+ * @returns 线程快照。
+ */
 export async function restartThread(
   core: ThreadManagerCore,
   threadId: string
@@ -73,6 +91,11 @@ export async function restartThread(
   return await core.getSnapshot(threadId)
 }
 
+/**
+ * 归档线程并释放其 worker。
+ * @param core - thread 管理核心。
+ * @param threadId - thread ID。
+ */
 export async function archiveThread(core: ThreadManagerCore, threadId: string): Promise<void> {
   const thread = core.requireThread(threadId)
   if (

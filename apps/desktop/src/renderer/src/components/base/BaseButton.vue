@@ -1,13 +1,19 @@
 <script setup lang="ts">
 /**
- * 本文件提供基础按钮组件。
+ * BaseButton.vue - 基础按钮组件。
+ *
+ * 提供多种变体、尺寸与类型的按钮样式。
  */
 
 withDefaults(
   defineProps<{
+    /** 按钮视觉变体。 */
     variant?: 'primary' | 'secondary' | 'ghost' | 'danger'
+    /** 按钮尺寸。 */
     size?: 'sm' | 'md'
+    /** 按钮原生类型。 */
     type?: 'button' | 'submit' | 'reset'
+    /** 是否禁用。 */
     disabled?: boolean
   }>(),
   {

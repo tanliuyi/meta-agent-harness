@@ -6,7 +6,9 @@ import { describe, expect, it } from "vitest";
 import { handleRuntimeCommand, type RuntimeCommandHandlerHost } from "../worker/runtime-command-handler.ts";
 import type { WorkerCommandEnvelope } from "../protocol/envelope.ts";
 
+/** Runtime command handler 测试套件。 */
 describe("handleRuntimeCommand", () => {
+	/** 验证返回 Pi 同构的 session state。 */
 	it("返回 Pi 同构 session state", async () => {
 		const host = createHost();
 
@@ -21,6 +23,7 @@ describe("handleRuntimeCommand", () => {
 		});
 	});
 
+	/** 验证 set_session_name 拒绝空名称。 */
 	it("set_session_name 拒绝空名称", async () => {
 		const host = createHost();
 
@@ -30,6 +33,7 @@ describe("handleRuntimeCommand", () => {
 		expect(response?.error?.code).toBe("invalid_command");
 	});
 
+	/** 验证 clone 在无 leaf entry 时 fail-first。 */
 	it("clone 在没有 leaf entry 时 fail-first", async () => {
 		const host = createHost();
 
@@ -39,6 +43,7 @@ describe("handleRuntimeCommand", () => {
 		expect(response?.error?.code).toBe("invalid_state");
 	});
 
+	/** 验证 set_model 找不到模型时返回结构化错误。 */
 	it("set_model 找不到模型时返回结构化错误", async () => {
 		const host = createHost();
 
@@ -51,11 +56,11 @@ describe("handleRuntimeCommand", () => {
 		expect(response?.error?.message).toContain("Model not found");
 	});
 
+	/** 验证 get_commands 汇总 extension、prompt template 和 skill 命令。 */
 	it("get_commands 汇总 extension、prompt template 和 skill 命令", async () => {
 		const host = createHost();
 
 		const response = await handleRuntimeCommand(host, command("1", { type: "get_commands" }));
-
 		expect(response?.success).toBe(true);
 		expect(response?.data).toEqual({
 			commands: [
@@ -81,6 +86,7 @@ describe("handleRuntimeCommand", () => {
 		});
 	});
 
+	/** 验证 prompt 等待 preflight 成功后返回，不等待完整 agent run。 */
 	it("prompt 等待 preflight 成功后返回，不等待完整 agent run", async () => {
 		let finishPrompt: (() => void) | undefined;
 		const session = createSession({
@@ -100,6 +106,7 @@ describe("handleRuntimeCommand", () => {
 		finishPrompt?.();
 	});
 
+	/** 验证 prompt preflight 失败时返回 runtime_error。 */
 	it("prompt preflight 失败时返回 runtime_error", async () => {
 		const session = createSession({
 			prompt: async (_message: string, options: { preflightResult?: (success: boolean) => void }) => {
@@ -115,6 +122,7 @@ describe("handleRuntimeCommand", () => {
 		expect(response?.error?.message).toBe("no model");
 	});
 
+	/** 验证 cycle_thinking_level 在模型不支持 thinking 时返回 null。 */
 	it("cycle_thinking_level 不支持 thinking 时返回 null", async () => {
 		const host = createHost(createSession({ cycleThinkingLevel: () => undefined }));
 

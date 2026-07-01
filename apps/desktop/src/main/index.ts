@@ -9,6 +9,10 @@ import icon from '../../resources/icon.png?asset'
 import { registerCodingAgentIpc } from './coding-agent/ipc'
 import { installIpcLogger } from 'electron-ipc-logger'
 
+/**
+ * 创建并加载主渲染窗口。
+ * 配置窗口尺寸、菜单栏、preload 路径及外部链接打开行为。
+ */
 function createWindow(): void {
   const mainWindow = new BrowserWindow({
     width: 900,
@@ -44,14 +48,14 @@ app.whenReady().then(async () => {
     logSize: 1000
   })
 
-  // Set app user model id for windows
+  // 在 Windows 上设置应用用户模型 ID
   electronApp.setAppUserModelId('com.meta-agent.desktop')
 
   app.on('browser-window-created', (_, window) => {
     optimizer.watchWindowShortcuts(window)
   })
 
-  // IPC test
+  // IPC 测试
   ipcMain.on('ping', () => console.log('pong'))
   registerCodingAgentIpc()
 

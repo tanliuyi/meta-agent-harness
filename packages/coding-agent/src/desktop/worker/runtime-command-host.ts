@@ -1,14 +1,22 @@
 /**
- * 本文件定义 runtime command handler 共享的 host 契约。
+ * 定义 runtime command handler 共享的 host 契约。
  */
 
 import type { AgentSessionRuntime } from "../../core/agent-session-runtime.ts";
 
+/** Runtime 命令 handler 共享的 host。 */
 export interface RuntimeCommandHandlerHost {
+	/** 当前 agent session runtime 实例。 */
 	runtime: AgentSessionRuntime;
+	/** 重新绑定会话事件的回调（可选）。 */
 	rebindSession?: () => Promise<void>;
 }
 
+/**
+ * 如果操作未被取消，则重新绑定会话事件。
+ * @param host - runtime 命令 host。
+ * @param cancelled - 操作是否被取消。
+ */
 export async function rebindIfNeeded(host: RuntimeCommandHandlerHost, cancelled: boolean): Promise<void> {
 	if (!cancelled) {
 		await host.rebindSession?.();

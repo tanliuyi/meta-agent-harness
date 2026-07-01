@@ -1,12 +1,17 @@
 <script setup lang="ts">
 /**
- * 本文件提供基础图标按钮组件。
+ * BaseIconButton.vue - 基础图标按钮组件。
+ *
+ * 仅包含图标的按钮，支持激活状态与无障碍标签。
  */
 
 withDefaults(
   defineProps<{
+    /** 是否处于激活状态。 */
     active?: boolean
+    /** 按钮的无障碍标签。 */
     label: string
+    /** 按钮原生类型。 */
     type?: 'button' | 'submit' | 'reset'
   }>(),
   {
