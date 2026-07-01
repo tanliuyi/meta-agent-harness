@@ -9,9 +9,8 @@
 `packages/coding-agent`：
 
 - worker protocol types
-- worker entrypoint
-- typed worker client
-- transport abstraction
+- Electron utility worker entrypoint
+- utility process worker server
 - Pi-compatible canonical event forwarding
 - desktop projection event generation
 - snapshot builder
@@ -20,8 +19,10 @@
 
 `apps/desktop`：
 
+- Electron main ProjectStore
 - Electron main ThreadManager
-- WorkerPool
+- ThreadWorkerRegistry
+- utility process worker client/transport
 - worker lifecycle handling
 - IPC handlers
 - preload typed API
@@ -32,6 +33,7 @@
 
 状态层：
 
+- project registry
 - thread registry
 - session metadata index
 - worker run diagnostics
@@ -42,6 +44,7 @@
 
 Thread lifecycle：
 
+- create/open/list/archive project
 - create thread
 - stop thread
 - restart/resume thread
@@ -110,10 +113,12 @@ Bridges：
 - approval request/response
 - file change projection from tool results
 
-Worker pool：
+Thread worker registry：
 
-- max concurrency
-- queued thread state
+- worker starts through Electron `utilityProcess.fork()`
+- commands and events use `postMessage` / `process.parentPort`
+- parallel threads create independent utility workers immediately
+- no `maxWorkers` option or global worker queue
 - worker lease
 - idle release
 - crash cleanup
@@ -128,7 +133,8 @@ IPC：
 
 Renderer：
 
-- create thread from cwd input
+- create/open project
+- create thread from active project
 - switch active thread
 - show active snapshot messages and basic runtime state
 - send prompt through real preload API
@@ -171,7 +177,7 @@ Integration tests：
 - session resume/fork/clone
 - extension UI round trip
 - worker crash cleanup
-- worker pool concurrency queue
+- parallel thread worker creation
 
 Electron main tests 或 smoke script：
 
@@ -195,5 +201,6 @@ Compatibility tests：
 - 功能验收有测试、smoke script 或明确运行证据。
 - 兼容验收有 fixture 或 parser 证据。
 - renderer 数据层通过 typed preload API 联调，不直接访问 worker/process/credential。
-- worker pool 可观测、可关闭、崩溃可清理。
+- thread worker registry 可观测、可关闭、崩溃可清理，并且不设置 agent 并行上限。
 - 没有引入 desktop-only canonical session/event/config 分支。
+- 没有保留 renderer `createThread({ cwd })` 入口。

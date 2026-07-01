@@ -6,7 +6,9 @@ import type {
   CommandInfo,
   CompactInput,
   CompactionResult,
+  CreateProjectInput,
   CreateThreadInput,
+  DiagnosticsInput,
   ExportSessionInput,
   ExportSessionResult,
   ForkInput,
@@ -15,7 +17,9 @@ import type {
   ModelInfo,
   NewSessionInput,
   PromptInput,
+  ProjectSummary,
   RenameThreadInput,
+  RenameProjectInput,
   SetModelInput,
   SetThinkingInput,
   SwitchSessionInput,
@@ -57,6 +61,49 @@ import { ThreadManagerCore } from './thread-manager-core'
  * Desktop coding agent 线程管理器，提供线程生命周期、模型、会话、运行控制等操作。
  */
 export class CodingThreadManager extends ThreadManagerCore {
+  /**
+   * 创建 Project。
+   * @param input - 创建 Project 输入。
+   * @returns Project 摘要。
+   */
+  createProject(input: CreateProjectInput): ProjectSummary {
+    return this.getProjectStore().createProject(input)
+  }
+
+  /**
+   * 打开 Project。
+   * @param projectId - Project ID。
+   * @returns Project 摘要。
+   */
+  openProject(projectId: string): ProjectSummary {
+    return this.getProjectStore().openProject(projectId)
+  }
+
+  /**
+   * 获取 Project。
+   * @param projectId - Project ID。
+   * @returns Project 摘要。
+   */
+  getProject(projectId: string): ProjectSummary {
+    return this.getProjectStore().requireProject(projectId)
+  }
+
+  /**
+   * 列出 Project。
+   * @returns Project 摘要列表。
+   */
+  listProjects(): ProjectSummary[] {
+    return this.getProjectStore().listProjects()
+  }
+
+  /**
+   * 重命名 Project。
+   * @param input - 重命名输入。
+   */
+  renameProject(input: RenameProjectInput): void {
+    this.getProjectStore().updateProject(input.projectId, { name: input.name })
+  }
+
   /**
    * 创建新线程。
    * @param input - 创建线程输入参数。
@@ -295,9 +342,18 @@ export class CodingThreadManager extends ThreadManagerCore {
   }
 
   /**
+   * 列出 debug diagnostics。
+   * @param input - 查询输入。
+   * @returns diagnostics。
+   */
+  listDiagnostics(input: DiagnosticsInput = {}): unknown[] {
+    return this.getStore()?.listDiagnostics(input) ?? []
+  }
+
+  /**
    * 关闭管理器并释放所有 worker。
    */
   shutdown(): Promise<void> {
-    return this.getPool().shutdown()
+    return this.getWorkers().shutdown()
   }
 }

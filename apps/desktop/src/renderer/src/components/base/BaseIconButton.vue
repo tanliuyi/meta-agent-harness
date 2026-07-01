@@ -13,10 +13,13 @@ withDefaults(
     label: string
     /** 按钮原生类型。 */
     type?: 'button' | 'submit' | 'reset'
+    /** 是否禁用。 */
+    disabled?: boolean
   }>(),
   {
     active: false,
-    type: 'button'
+    type: 'button',
+    disabled: false
   }
 )
 </script>
@@ -26,6 +29,7 @@ withDefaults(
     class="base-icon-button"
     :class="{ 'is-active': active }"
     :type="type"
+    :disabled="disabled"
     :aria-label="label"
   >
     <slot />
@@ -54,6 +58,11 @@ withDefaults(
   &.is-active {
     color: var(--color-text);
     background: var(--color-surface-raised);
+  }
+
+  &:disabled {
+    cursor: not-allowed;
+    opacity: 0.48;
   }
 
   :deep(svg) {

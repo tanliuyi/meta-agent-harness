@@ -2,7 +2,7 @@
 
 ## 目标
 
-Desktop 后端必须完整兼容 Pi 的核心能力和数据模型。Desktop 可以增加 worker pool、transport、IPC、数据库索引和 UI projection，但不能创建与 Pi 不兼容的 session/event/config/resource/extension/tool 分支。
+Desktop 后端必须完整兼容 Pi 的核心能力和数据模型。Desktop 可以增加 thread worker registry、transport、IPC、数据库索引和 UI projection，但不能创建与 Pi 不兼容的 session/event/config/resource/extension/tool 分支。
 
 ## Canonical 与 Projection
 
@@ -22,7 +22,7 @@ Projection 层是 desktop adapter：
 - timeline item
 - file change summary
 - tool card metadata
-- worker pool state
+- worker lifecycle state
 - desktop IPC event
 - database index/cache
 

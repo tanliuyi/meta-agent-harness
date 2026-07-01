@@ -2,17 +2,19 @@
 
 ## 目标
 
-定义 Electron main 与 coding agent worker 之间的协议。协议必须 transport-agnostic，实时命令和事件走 transport，不走数据库。协议分为 canonical agent protocol 和 desktop control protocol。
+定义 Electron main 与 coding agent utility worker 之间的协议。实时命令和事件走
+Electron `utilityProcess` transport，不走数据库。协议分为 canonical agent protocol
+和 desktop control protocol。
 
 ## Transport
 
-第一期允许以下 transport：
+第一期 desktop worker transport 固定为 Electron `utilityProcess.fork()`：
 
-- stdio JSONL
-- Node IPC channel
-- Electron `utilityProcess` + `MessagePort`
-
-业务协议类型不绑定具体 transport。
+- main 侧使用 `utilityProcess.fork(workerEntry)` 启动 `coding-agent-utility-worker.js`。
+- main 侧通过 `UtilityProcess.postMessage(envelope)` 发送命令。
+- worker 入口通过 `process.parentPort.on("message")` 接收命令。
+- worker 通过 `process.parentPort.postMessage(envelope)` 发送响应和事件。
+- 传输对象是结构化 `WorkerEnvelope`，不是 stdin/stdout JSONL。
 
 ```ts
 type TransportEnvelope =
@@ -27,7 +29,8 @@ type TransportEnvelope =
 - 响应必须带对应 request id。
 - 异步事件不依赖 request id。
 - worker ready/error/exit 必须有明确 lifecycle event。
-- stderr/log 不能污染协议通道；stdio JSONL 模式下 stdout 只能输出协议消息。
+- stderr/stdout 只用于 diagnostics 捕获，不能作为协议通道。
+- desktop 不保留 stdio worker 兼容入口，也不通过 `child_process.spawn(process.execPath)` 启动 worker。
 
 ## Canonical Agent Commands
 
@@ -166,7 +169,7 @@ dialog 类 request 必须支持 response correlation 和 timeout。
 
 ## 验收
 
-- transport 替换不需要改变 command/event TypeScript 类型。
+- utility process transport 不需要改变 command/event TypeScript 类型。
 - prompt 可收到 accepted response，并继续收到 streaming canonical events。
 - worker crash 能发出 worker lifecycle event 或由 client 生成等价 event。
 - extension UI request 可以往返。

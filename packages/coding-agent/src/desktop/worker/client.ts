@@ -1,5 +1,5 @@
 /**
- * 本文件定义 worker pool 依赖的 worker client 契约。
+ * 本文件定义 thread worker registry 依赖的 worker client 契约。
  */
 
 import type { WorkerCommand, WorkerResponseEnvelope } from "../protocol/envelope.ts";
@@ -25,4 +25,3 @@ export interface WorkerClient {
 
 /** 创建 WorkerClient 实例的工厂函数。 */
 export type WorkerClientFactory = () => Promise<WorkerClient>;
-

@@ -1,5 +1,5 @@
 /**
- * 本文件定义 Electron main 内部 worker pool 需要的最小结构类型。
+ * 本文件定义 Electron main 内部 thread worker registry 需要的最小结构类型。
  */
 
 /**

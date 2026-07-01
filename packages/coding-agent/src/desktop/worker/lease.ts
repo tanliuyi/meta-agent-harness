@@ -1,10 +1,10 @@
 /**
- * 本文件定义 worker pool 分配给 thread 的 lease。
+ * 本文件定义 thread worker registry 分配给 thread 的 lease。
  */
 
 import type { CwdPath, SessionFile, ThreadId, WorkerId } from "../protocol/identity.ts";
 
-/** Worker pool 中分配给 thread 的 lease 信息。 */
+/** Thread worker registry 中分配给 thread 的 lease 信息。 */
 export interface WorkerLease {
 	/** 被租借的 worker 标识。 */
 	workerId: WorkerId;
@@ -19,4 +19,3 @@ export interface WorkerLease {
 	/** 最近一次活跃时间戳（毫秒）。 */
 	lastActiveAt: number;
 }
-

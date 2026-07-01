@@ -4,7 +4,6 @@
 
 export * from "./ipc/api.ts";
 export * from "./ipc/event.ts";
-export * from "./pool/worker-pool.ts";
 export * from "./protocol/approval.ts";
 export * from "./protocol/diagnostic.ts";
 export * from "./protocol/envelope.ts";
@@ -24,7 +23,6 @@ export * from "./storage/memory-thread-store.ts";
 export * from "./storage/session-snapshot.ts";
 export * from "./storage/sqlite-thread-store.ts";
 export * from "./storage/thread-store.ts";
-export * from "./transport/jsonl.ts";
 export * from "./transport/memory-transport.ts";
 export * from "./transport/transport.ts";
 export * from "./worker/client.ts";
@@ -40,6 +38,6 @@ export * from "./worker/runtime-prompt-command.ts";
 export * from "./worker/runtime-session-command.ts";
 export * from "./worker/runtime-state.ts";
 export * from "./worker/runtime-service.ts";
-export * from "./worker/stdio-server.ts";
+export * from "./worker/utility-server.ts";
 export * from "./worker/transport-server.ts";
 export * from "./worker/transport-client.ts";

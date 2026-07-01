@@ -7,11 +7,19 @@
 
 import { BaseIconButton } from '@renderer/components/base'
 import { useSessionContext } from '@renderer/composables/useSessionContext'
+import useWorkspaceProjectStore from '@renderer/stores/workspace-project'
 import useWorkspaceSessionStore from '@renderer/stores/workspace-session'
 import { computed } from 'vue'
 
 const { session, panel } = useSessionContext()
+const workspaceProject = useWorkspaceProjectStore()
 const workspaceSession = useWorkspaceSessionStore()
+
+/** 当前会话所属 Project。 */
+const project = computed(() => {
+  const projectId = workspaceSession.activeSession?.projectId
+  return projectId ? workspaceProject.projects[projectId] : undefined
+})
 
 /** 动态计算的头部样式，用于给右侧操作按钮预留空间。 */
 const styles = computed(() => {
@@ -27,7 +35,7 @@ const styles = computed(() => {
   <header class="session-header" :style="styles">
     <div class="session-header__title">
       <strong>{{ session.title }}</strong>
-      <span>{{ workspaceSession.activeSession?.cwd ?? 'No thread' }}</span>
+      <span>{{ project?.name ?? 'No project' }}</span>
     </div>
     <div class="session-header__actions">
       <span>{{ session.status }}</span>

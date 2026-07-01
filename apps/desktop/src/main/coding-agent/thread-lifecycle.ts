@@ -10,14 +10,18 @@ import type { ThreadManagerCore } from './thread-manager-core'
  * @param core - thread 管理核心。
  * @param input - 创建线程输入。
  * @returns 线程快照。
- * @throws 若未提供 cwd 或线程已存在时抛出错误。
+ * @throws 若未提供 projectId 或线程已存在时抛出错误。
  */
 export async function createThread(
   core: ThreadManagerCore,
   input: CreateThreadInput
 ): Promise<ThreadSnapshot> {
-  if (!input.cwd) {
-    throw new Error('cwd is required')
+  if (!input.projectId) {
+    throw new Error('projectId is required')
+  }
+  const project = core.getProjectStore().openProject(input.projectId)
+  if (project.status !== 'available') {
+    throw new Error(`project is not available: ${project.status}`)
   }
   const threadId = input.threadId ?? crypto.randomUUID()
   if (core.hasThread(threadId)) {
@@ -26,7 +30,7 @@ export async function createThread(
   const now = new Date().toISOString()
   core.saveThread({
     threadId,
-    cwd: input.cwd,
+    projectId: input.projectId,
     sessionFile: input.sessionFile,
     title: input.title,
     status: 'starting',
@@ -34,9 +38,9 @@ export async function createThread(
     updatedAt: now
   })
   try {
-    await core.getPool().acquireThreadWorker({
+    await core.getWorkers().acquireThreadWorker({
       threadId,
-      cwd: input.cwd,
+      cwd: project.path,
       sessionFile: input.sessionFile,
       title: input.title,
       agentDir: input.agentDir
@@ -57,7 +61,7 @@ export async function createThread(
 export async function stopThread(core: ThreadManagerCore, threadId: string): Promise<void> {
   core.requireThread(threadId)
   core.updateThread(threadId, { status: 'stopping' })
-  await core.getPool().releaseThreadWorker(threadId, 'stop')
+  await core.getWorkers().releaseThreadWorker(threadId, 'stop')
   core.updateThread(threadId, { status: 'stopped' })
 }
 
@@ -74,16 +78,16 @@ export async function restartThread(
   const thread = core.requireThread(threadId)
   if (
     core
-      .getPool()
+      .getWorkers()
       .listLeases()
       .some((lease) => lease.threadId === threadId)
   ) {
-    await core.getPool().releaseThreadWorker(threadId, 'stop')
+    await core.getWorkers().releaseThreadWorker(threadId, 'stop')
   }
   core.updateThread(threadId, { status: 'starting' })
-  await core.getPool().acquireThreadWorker({
+  await core.getWorkers().acquireThreadWorker({
     threadId,
-    cwd: thread.cwd,
+    cwd: core.getThreadCwd(thread),
     sessionFile: thread.sessionFile,
     title: thread.title
   })
@@ -100,11 +104,11 @@ export async function archiveThread(core: ThreadManagerCore, threadId: string): 
   const thread = core.requireThread(threadId)
   if (
     core
-      .getPool()
+      .getWorkers()
       .listLeases()
       .some((lease) => lease.threadId === threadId)
   ) {
-    await core.getPool().releaseThreadWorker(threadId, 'archive')
+    await core.getWorkers().releaseThreadWorker(threadId, 'archive')
   }
   core.saveThread({ ...thread, status: 'stopped', archivedAt: new Date().toISOString() })
 }

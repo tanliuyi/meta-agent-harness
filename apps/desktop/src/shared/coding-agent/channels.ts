@@ -3,6 +3,16 @@
  */
 
 export const codingAgentChannels = {
+  /** 创建 Project。 */
+  createProject: 'coding-agent:create-project',
+  /** 打开 Project。 */
+  openProject: 'coding-agent:open-project',
+  /** 获取 Project。 */
+  getProject: 'coding-agent:get-project',
+  /** 列出 Project。 */
+  listProjects: 'coding-agent:list-projects',
+  /** 重命名 Project。 */
+  renameProject: 'coding-agent:rename-project',
   /** 创建新线程。 */
   createThread: 'coding-agent:create-thread',
   /** 停止线程运行。 */
@@ -65,6 +75,8 @@ export const codingAgentChannels = {
   respondUi: 'coding-agent:respond-ui',
   /** 响应审批请求。 */
   respondApproval: 'coding-agent:respond-approval',
+  /** 获取 debug diagnostics。 */
+  listDiagnostics: 'coding-agent:list-diagnostics',
   /** 事件通道。 */
   event: 'coding-agent:event'
 } as const

@@ -17,7 +17,7 @@ Preload
   v
 Electron main
   |
-  | ThreadManager + WorkerPool
+  | ThreadManager + ThreadWorkerRegistry
   v
 Worker
 ```
@@ -28,10 +28,16 @@ Worker
 
 ```ts
 type CodingAgentApi = {
+  listProjects(): Promise<ProjectSummary[]>
+  createProject(): Promise<ProjectSummary | undefined>
+  openProject(projectId: string): Promise<ProjectSummary>
+  getProject(projectId: string): Promise<ProjectSummary>
+  renameProject(input: RenameProjectInput): Promise<void>
+
   createThread(input: CreateThreadInput): Promise<ThreadSnapshot>
   stopThread(threadId: string): Promise<void>
   restartThread(threadId: string): Promise<ThreadSnapshot>
-  listThreads(): Promise<ThreadSummary[]>
+  listThreads(input?: { projectId?: string }): Promise<ThreadSummary[]>
   getThread(threadId: string): Promise<ThreadSnapshot>
   getSnapshot(threadId: string): Promise<ThreadSnapshot>
 
@@ -95,9 +101,9 @@ Electron main 负责：
 - 参数校验。
 - 权限和路径边界检查。
 - 调用 ThreadManager。
-- 将 WorkerPool/worker events 转发给订阅窗口。
+- 将 worker lifecycle events 转发给订阅窗口。
 - 将 extension UI 和 approval request 转成 IPC event。
-- 在 app 退出时 shutdown pool。
+- 在 app 退出时 shutdown thread worker registry。
 
 ## 错误模型
 
@@ -132,6 +138,7 @@ preload 不暴露：
 ## 验收
 
 - renderer 可以通过 preload 创建 thread、发送 prompt、收到 streaming events。
+- renderer 可以通过 preload 创建/打开 project，并在 active project 下创建 thread。
 - renderer 可以取消事件订阅。
 - renderer store 使用真实 `window.api.codingAgent`，不使用 mock。
 - renderer 可以展示 active snapshot、基础事件列表和 pending approval，并能回传 approval response。

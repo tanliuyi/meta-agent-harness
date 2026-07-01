@@ -2,13 +2,22 @@
 /**
  * SessionPanel.vue - 当前活跃会话的右侧面板组件。
  *
- * 展示会话状态、CWD、会话文件以及待处理的审批请求与最近事件。
+ * 展示会话状态、Project、会话文件以及待处理的审批请求与最近事件。
  */
 
 import { BaseIconButton } from '@renderer/components/base'
+import useWorkspaceProjectStore from '@renderer/stores/workspace-project'
 import useWorkspaceSessionStore from '@renderer/stores/workspace-session'
+import { computed } from 'vue'
 
+const workspaceProject = useWorkspaceProjectStore()
 const workspaceSession = useWorkspaceSessionStore()
+
+/** 当前会话所属 Project。 */
+const sessionProject = computed(() => {
+  const projectId = workspaceSession.activeSession?.projectId
+  return projectId ? workspaceProject.projects[projectId] : undefined
+})
 
 /** 是否折叠面板。 */
 defineProps<{
@@ -58,8 +67,8 @@ defineEmits<{
           <dd>{{ workspaceSession.activeSession?.status ?? 'new' }}</dd>
         </div>
         <div>
-          <dt>CWD</dt>
-          <dd>{{ workspaceSession.activeSession?.cwd ?? '-' }}</dd>
+          <dt>Project</dt>
+          <dd>{{ sessionProject?.name ?? '-' }}</dd>
         </div>
         <div>
           <dt>Session</dt>
@@ -108,12 +117,12 @@ defineEmits<{
         </article>
       </section>
 
-      <section class="event-list">
+      <!-- <section class="event-list">
         <article v-for="event in workspaceSession.events.slice(0, 16)" :key="JSON.stringify(event)">
           <span>{{ event.type }}</span>
-          <code>{{ event.threadId }}</code>
+          <code>{{ eventThreadId(event) }}</code>
         </article>
-      </section>
+      </section> -->
     </div>
   </section>
 </template>
@@ -228,6 +237,7 @@ dd {
   display: grid;
   gap: var(--space-2);
   min-width: 0;
+  overflow-y: auto;
 }
 
 .approval-card {

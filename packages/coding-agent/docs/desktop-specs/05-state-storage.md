@@ -21,6 +21,7 @@ Pi-compatible JSONL session 是 canonical persistence。
 
 数据库适合存储：
 
+- project registry
 - thread registry
 - session metadata index
 - messages index
@@ -47,7 +48,7 @@ Pi-compatible JSONL session 是 canonical persistence。
 ```text
 threads
   thread_id
-  cwd
+  project_id
   session_file
   title
   status
@@ -117,6 +118,23 @@ diagnostics
 
 `pid_hash` 表示如需记录 pid，也应避免直接暴露给 renderer。
 
+Project / Workspace 第一阶段必须额外包含：
+
+```text
+projects
+  project_id
+  name
+  path
+  status
+  archived_at
+  created_at
+  updated_at
+  last_opened_at
+  summary_json
+```
+
+`threads.project_id` 是显式列；runtime `cwd` 从 `projects.path` 解析，不再作为 thread registry 的产品入口字段。
+
 ## 写入策略
 
 实时路径：
@@ -169,6 +187,8 @@ userData/
 ## 验收
 
 - 不启动 renderer UI，也可以通过 main/test 创建 thread 并在 DB 中看到 registry。
+- 可以创建 project，并在 DB 中看到 project registry。
+- thread registry 中每条记录都有 project_id。
 - worker streaming 不依赖 DB。
 - DB 删除后，可以从 JSONL session 重建最小 thread snapshot。
 - JSONL session 与 DB 索引冲突时，以 JSONL canonical session 为准。

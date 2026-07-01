@@ -2,52 +2,84 @@
 /**
  * Sidebar.vue - Workspace 左侧边栏组件。
  *
- * 展示 thread 列表、提供创建新 thread 的输入框，并支持切换当前会话。
+ * 展示 Project 与 thread 列表，并支持切换当前会话。
  */
 
 import { BaseIconButton } from '@renderer/components/base'
 import PlusIcon from '@renderer/components/icons/PlusIcon.vue'
+import useWorkspaceProjectStore from '@renderer/stores/workspace-project'
 import useWorkspaceSessionStore from '@renderer/stores/workspace-session'
 
+const workspaceProject = useWorkspaceProjectStore()
 const workspaceSession = useWorkspaceSessionStore()
+
+/**
+ * 打开 Project 并刷新所有 thread。
+ * @param projectId - Project ID。
+ */
+async function openProject(projectId: string): Promise<void> {
+  await workspaceProject.openProject(projectId)
+  await workspaceSession.loadThreads()
+}
+
+/**
+ * 在指定 Project 下创建 Thread。
+ * @param projectId - Project ID。
+ */
+async function createThreadInProject(projectId: string): Promise<void> {
+  await workspaceSession.createThread(projectId)
+}
 </script>
 
 <template>
   <aside class="workspace__sidebar">
     <div class="sidebar-section">
       <div class="sidebar-section__header">
-        <span>Threads</span>
-        <BaseIconButton label="创建 Thread" @click="workspaceSession.createThread">
+        <span>Projects</span>
+        <BaseIconButton label="打开 Project" @click="workspaceProject.createProject">
           <PlusIcon />
         </BaseIconButton>
       </div>
 
-      <label class="cwd-field">
-        <span>cwd</span>
-        <input
-          v-model="workspaceSession.cwdInput"
-          spellcheck="false"
-          placeholder="H:\\repo"
-          @keydown.enter="workspaceSession.createThread"
-        />
-      </label>
-
-      <p v-if="workspaceSession.errorMessage" class="sidebar-error">
-        {{ workspaceSession.errorMessage }}
+      <p v-if="workspaceProject.errorMessage || workspaceSession.errorMessage" class="sidebar-error">
+        {{ workspaceProject.errorMessage || workspaceSession.errorMessage }}
       </p>
 
-      <ul class="session-group">
+      <ul class="project-tree">
         <li
-          v-for="thread in workspaceSession.sessionList"
-          :key="thread.threadId"
-          class="session-group__item"
-          :class="{
-            'session-group__item--active': thread.threadId === workspaceSession.activeSessionId
-          }"
-          @click="workspaceSession.setActiveSessionId(thread.threadId)"
+          v-for="project in workspaceProject.projectList"
+          :key="project.projectId"
+          class="project-tree__item"
         >
-          <span>{{ thread.title || thread.cwd }}</span>
-          <small>{{ thread.status }}</small>
+          <div
+            class="project-tree__project"
+            @click="openProject(project.projectId)"
+          >
+            <span>{{ project.name }}</span>
+            <small>{{ project.status }}</small>
+            <BaseIconButton
+              label="创建 Thread"
+              :disabled="project.status !== 'available'"
+              @click.stop="createThreadInProject(project.projectId)"
+            >
+              <PlusIcon />
+            </BaseIconButton>
+          </div>
+
+          <ul class="session-group">
+            <li
+              v-for="thread in workspaceSession.sessionsByProject[project.projectId] ?? []"
+              :key="thread.threadId"
+              class="session-group__item"
+              :class="{
+                'session-group__item--active': thread.threadId === workspaceSession.activeSessionId
+              }"
+              @click="workspaceSession.setActiveSessionId(thread.threadId)"
+            >
+              <span>{{ thread.title || thread.threadId }}</span>
+              <small>{{ thread.status }}</small>
+            </li>
+          </ul>
         </li>
       </ul>
     </div>
@@ -101,39 +133,13 @@ const workspaceSession = useWorkspaceSessionStore()
   }
 }
 
-.cwd-field {
-  display: grid;
-  gap: 6px;
-  min-width: 0;
-
-  span {
-    color: var(--color-text-muted);
-    font-family: var(--font-mono);
-    font-size: 10px;
-    text-transform: uppercase;
-  }
-
-  input {
-    width: 100%;
-    min-width: 0;
-    height: 30px;
-    padding: 0 var(--space-2);
-    color: var(--color-text);
-    font-family: var(--font-mono);
-    font-size: 11px;
-    background: var(--color-surface-raised);
-    border: 1px solid var(--color-border);
-    border-radius: var(--radius-sm);
-    outline: none;
-  }
-}
-
 .sidebar-error {
   margin: 0;
   color: var(--color-danger, #ff7a7a);
   font-size: 11px;
 }
 
+.project-tree,
 .session-group {
   display: flex;
   flex-direction: column;
@@ -144,9 +150,17 @@ const workspaceSession = useWorkspaceSessionStore()
   list-style: none;
 }
 
+.project-tree__item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.project-tree__project,
 .session-group__item {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr) auto auto;
   align-items: center;
   gap: var(--space-2);
   min-width: 0;
@@ -178,4 +192,14 @@ const workspaceSession = useWorkspaceSessionStore()
     border-color: var(--color-border);
   }
 }
+
+.session-group {
+  padding-left: var(--space-3);
+}
+
+.session-group__item {
+  grid-template-columns: minmax(0, 1fr) auto;
+  min-height: 28px;
+}
+
 </style>

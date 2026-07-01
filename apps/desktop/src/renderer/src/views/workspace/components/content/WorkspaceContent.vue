@@ -10,6 +10,7 @@ import SessionHeader from '@renderer/components/session/SessionHeader.vue'
 import SessionPanel from '@renderer/components/session/SessionPanel.vue'
 import { provideSessionContext } from '@renderer/composables/useSessionContext'
 import { useResizablePane } from '@renderer/composables/useResizablePane'
+import useWorkspaceProjectStore from '@renderer/stores/workspace-project'
 import useWorkspaceSessionStore from '@renderer/stores/workspace-session'
 import { computed, onMounted, ref } from 'vue'
 
@@ -17,6 +18,7 @@ import { computed, onMounted, ref } from 'vue'
 const RESIZER_WIDTH = 1
 
 const workspaceSession = useWorkspaceSessionStore()
+const workspaceProject = useWorkspaceProjectStore()
 
 /** 内容区容器元素引用。 */
 const workspaceContentRef = ref<HTMLElement | null>(null)
@@ -55,9 +57,10 @@ provideSessionContext({
   setPanelWidth: workspaceSession.setActiveSessionPanelWidth
 })
 
-/** 组件挂载时加载所有 thread。 */
-onMounted(() => {
-  void workspaceSession.loadThreads()
+/** 组件挂载时加载 Project 与当前 Project 下的 thread。 */
+onMounted(async () => {
+  await workspaceProject.loadProjects()
+  await workspaceSession.loadThreads()
 })
 
 /**

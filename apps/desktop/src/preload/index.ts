@@ -3,47 +3,63 @@
  */
 
 import { contextBridge, ipcRenderer } from 'electron'
-import { electronAPI } from '@electron-toolkit/preload'
 import type { CodingAgentApi, CodingAgentIpcEvent } from '../shared/coding-agent/types'
 import { codingAgentChannels } from '../shared/coding-agent/channels'
+import { unwrapIpcResult } from '../shared/coding-agent/ipc-contract'
+
+/**
+ * 调用 main IPC 并解包结构化结果。
+ * @param channel - IPC channel。
+ * @param args - 参数。
+ * @returns 成功值。
+ */
+async function invokeCodingAgent<T>(channel: string, ...args: unknown[]): Promise<T> {
+  return unwrapIpcResult(await ipcRenderer.invoke(channel, ...args))
+}
 
 /**
  * 暴露给渲染进程的 Coding Agent IPC API 实现。
  * 通过 ipcRenderer.invoke/on 与 main 进程通信。
  */
 const codingAgent: CodingAgentApi = {
-  createThread: (input) => ipcRenderer.invoke(codingAgentChannels.createThread, input),
-  stopThread: (threadId) => ipcRenderer.invoke(codingAgentChannels.stopThread, threadId),
-  restartThread: (threadId) => ipcRenderer.invoke(codingAgentChannels.restartThread, threadId),
-  listThreads: () => ipcRenderer.invoke(codingAgentChannels.listThreads),
-  getThread: (threadId) => ipcRenderer.invoke(codingAgentChannels.getThread, threadId),
-  getSnapshot: (threadId) => ipcRenderer.invoke(codingAgentChannels.getSnapshot, threadId),
-  prompt: (input) => ipcRenderer.invoke(codingAgentChannels.prompt, input),
-  steer: (input) => ipcRenderer.invoke(codingAgentChannels.steer, input),
-  followUp: (input) => ipcRenderer.invoke(codingAgentChannels.followUp, input),
-  abort: (threadId) => ipcRenderer.invoke(codingAgentChannels.abort, threadId),
-  newSession: (input) => ipcRenderer.invoke(codingAgentChannels.newSession, input),
-  switchSession: (input) => ipcRenderer.invoke(codingAgentChannels.switchSession, input),
-  importSession: (input) => ipcRenderer.invoke(codingAgentChannels.importSession, input),
-  exportSession: (input) => ipcRenderer.invoke(codingAgentChannels.exportSession, input),
-  fork: (input) => ipcRenderer.invoke(codingAgentChannels.fork, input),
-  clone: (threadId) => ipcRenderer.invoke(codingAgentChannels.clone, threadId),
-  renameThread: (input) => ipcRenderer.invoke(codingAgentChannels.renameThread, input),
-  archiveThread: (threadId) => ipcRenderer.invoke(codingAgentChannels.archiveThread, threadId),
-  listModels: (threadId) => ipcRenderer.invoke(codingAgentChannels.listModels, threadId),
-  setModel: (input) => ipcRenderer.invoke(codingAgentChannels.setModel, input),
-  cycleModel: (threadId) => ipcRenderer.invoke(codingAgentChannels.cycleModel, threadId),
-  setThinkingLevel: (input) => ipcRenderer.invoke(codingAgentChannels.setThinkingLevel, input),
+  listProjects: () => invokeCodingAgent(codingAgentChannels.listProjects),
+  createProject: () => invokeCodingAgent(codingAgentChannels.createProject),
+  openProject: (projectId) => invokeCodingAgent(codingAgentChannels.openProject, projectId),
+  getProject: (projectId) => invokeCodingAgent(codingAgentChannels.getProject, projectId),
+  renameProject: (input) => invokeCodingAgent(codingAgentChannels.renameProject, input),
+  createThread: (input) => invokeCodingAgent(codingAgentChannels.createThread, input),
+  stopThread: (threadId) => invokeCodingAgent(codingAgentChannels.stopThread, threadId),
+  restartThread: (threadId) => invokeCodingAgent(codingAgentChannels.restartThread, threadId),
+  listThreads: (input) => invokeCodingAgent(codingAgentChannels.listThreads, input),
+  getThread: (threadId) => invokeCodingAgent(codingAgentChannels.getThread, threadId),
+  getSnapshot: (threadId) => invokeCodingAgent(codingAgentChannels.getSnapshot, threadId),
+  prompt: (input) => invokeCodingAgent(codingAgentChannels.prompt, input),
+  steer: (input) => invokeCodingAgent(codingAgentChannels.steer, input),
+  followUp: (input) => invokeCodingAgent(codingAgentChannels.followUp, input),
+  abort: (threadId) => invokeCodingAgent(codingAgentChannels.abort, threadId),
+  newSession: (input) => invokeCodingAgent(codingAgentChannels.newSession, input),
+  switchSession: (input) => invokeCodingAgent(codingAgentChannels.switchSession, input),
+  importSession: (input) => invokeCodingAgent(codingAgentChannels.importSession, input),
+  exportSession: (input) => invokeCodingAgent(codingAgentChannels.exportSession, input),
+  fork: (input) => invokeCodingAgent(codingAgentChannels.fork, input),
+  clone: (threadId) => invokeCodingAgent(codingAgentChannels.clone, threadId),
+  renameThread: (input) => invokeCodingAgent(codingAgentChannels.renameThread, input),
+  archiveThread: (threadId) => invokeCodingAgent(codingAgentChannels.archiveThread, threadId),
+  listModels: (threadId) => invokeCodingAgent(codingAgentChannels.listModels, threadId),
+  setModel: (input) => invokeCodingAgent(codingAgentChannels.setModel, input),
+  cycleModel: (threadId) => invokeCodingAgent(codingAgentChannels.cycleModel, threadId),
+  setThinkingLevel: (input) => invokeCodingAgent(codingAgentChannels.setThinkingLevel, input),
   cycleThinkingLevel: (threadId) =>
-    ipcRenderer.invoke(codingAgentChannels.cycleThinkingLevel, threadId),
-  compact: (input) => ipcRenderer.invoke(codingAgentChannels.compact, input),
-  setAutoCompaction: (input) => ipcRenderer.invoke(codingAgentChannels.setAutoCompaction, input),
-  setAutoRetry: (input) => ipcRenderer.invoke(codingAgentChannels.setAutoRetry, input),
-  abortRetry: (threadId) => ipcRenderer.invoke(codingAgentChannels.abortRetry, threadId),
-  getCommands: (threadId) => ipcRenderer.invoke(codingAgentChannels.getCommands, threadId),
-  runCommand: (input) => ipcRenderer.invoke(codingAgentChannels.runCommand, input),
-  respondUi: (input) => ipcRenderer.invoke(codingAgentChannels.respondUi, input),
-  respondApproval: (input) => ipcRenderer.invoke(codingAgentChannels.respondApproval, input),
+    invokeCodingAgent(codingAgentChannels.cycleThinkingLevel, threadId),
+  compact: (input) => invokeCodingAgent(codingAgentChannels.compact, input),
+  setAutoCompaction: (input) => invokeCodingAgent(codingAgentChannels.setAutoCompaction, input),
+  setAutoRetry: (input) => invokeCodingAgent(codingAgentChannels.setAutoRetry, input),
+  abortRetry: (threadId) => invokeCodingAgent(codingAgentChannels.abortRetry, threadId),
+  getCommands: (threadId) => invokeCodingAgent(codingAgentChannels.getCommands, threadId),
+  runCommand: (input) => invokeCodingAgent(codingAgentChannels.runCommand, input),
+  respondUi: (input) => invokeCodingAgent(codingAgentChannels.respondUi, input),
+  respondApproval: (input) => invokeCodingAgent(codingAgentChannels.respondApproval, input),
+  listDiagnostics: (input) => invokeCodingAgent(codingAgentChannels.listDiagnostics, input),
   onEvent: (listener) => {
     const handler = (_event: Electron.IpcRendererEvent, payload: CodingAgentIpcEvent): void =>
       listener(payload)
@@ -63,14 +79,11 @@ const api = { codingAgent }
 
 if (process.contextIsolated) {
   try {
-    contextBridge.exposeInMainWorld('electron', electronAPI)
     contextBridge.exposeInMainWorld('api', api)
   } catch (error) {
     console.error(error)
   }
 } else {
-  // @ts-ignore（在 dts 中定义）
-  window.electron = electronAPI
   // @ts-ignore（在 dts 中定义）
   window.api = api
 }

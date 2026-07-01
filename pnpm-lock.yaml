@@ -169,9 +169,6 @@ importers:
       '@earendil-works/pi-ai':
         specifier: ^0.80.2
         version: 0.80.3(ws@8.21.0)(zod@4.4.3)
-      '@earendil-works/pi-tui':
-        specifier: ^0.80.2
-        version: 0.80.3
       '@silvia-odwyer/photon-node':
         specifier: 0.3.4
         version: 0.3.4
@@ -491,10 +488,6 @@ packages:
     resolution: {integrity: sha512-jPZLMeGL5kkMSEAwAklfXTMHqZvfhsJtCCpKGIr5Duk7mc0n4skjB1dugk7y0z3z8ZHIUCmPAWHdyDqgUz5vdA==}
     engines: {node: '>=22.19.0'}
     hasBin: true
-
-  '@earendil-works/pi-tui@0.80.3':
-    resolution: {integrity: sha512-2BJI6qwRQfnM0Q7seL1+SbacU/jRRjBnN7Hu3n9BjAn7/s5FaBNnvdD1qBQYRsFTHfjqMaDsjYqanPyqwXj99w==}
-    engines: {node: '>=22.19.0'}
 
   '@electron-toolkit/eslint-config-prettier@3.0.0':
     resolution: {integrity: sha512-YapmIOVkbYdHLuTa+ad1SAVtcqYL9A/SJsc7cxQokmhcwAwonGevNom37jBf9slXegcZ/Slh01I/JARG1yhNFw==}
@@ -4265,11 +4258,6 @@ snapshots:
       - utf-8-validate
       - ws
       - zod
-
-  '@earendil-works/pi-tui@0.80.3':
-    dependencies:
-      get-east-asian-width: 1.6.0
-      marked: 18.0.5
 
   '@electron-toolkit/eslint-config-prettier@3.0.0(eslint@9.39.4(jiti@2.7.0))(prettier@3.9.4)':
     dependencies:

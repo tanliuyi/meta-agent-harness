@@ -1,23 +1,25 @@
-# 03. Worker Pool Spec
+# 03. Thread Worker Registry Spec
 
 ## 目标
 
-Worker pool 负责管理 coding agent worker process 的创建、复用、并发限制、排队、空闲回收和崩溃隔离。第一期不做 renderer UI，但必须提供后端能力和 IPC 可观测状态。
+Thread worker registry 负责管理 coding agent utility worker process 的创建、
+thread 绑定、命令路由、生命周期事件和关闭清理。它不是 worker pool，不限制 agent
+并行数量，也不维护 FIFO 启动队列。
 
 ## 所属层
 
-Worker pool 位于 Electron main。
+Thread worker registry 位于 Electron main。
 
 `packages/coding-agent` 提供：
 
 - worker entrypoint
 - protocol types
 - typed worker client
-- transport helpers
+- utility process transport helpers
 
 `apps/desktop` 提供：
 
-- pool lifecycle
+- thread worker registry
 - thread registry
 - app/window subscription routing
 - preload IPC handlers
@@ -27,7 +29,6 @@ Worker pool 位于 Electron main。
 ```ts
 type WorkerState =
   | 'starting'
-  | 'ready'
   | 'bound'
   | 'busy'
   | 'idle'
@@ -37,7 +38,6 @@ type WorkerState =
 
 type ThreadRuntimeState =
   | 'new'
-  | 'queued'
   | 'starting'
   | 'idle'
   | 'running'
@@ -55,15 +55,13 @@ type WorkerLease = {
 }
 ```
 
-## Pool 接口
+## Registry 接口
 
 ```ts
-type WorkerPool = {
+type ThreadWorkerRegistry = {
   acquireThreadWorker(input: StartThreadInput): Promise<WorkerLease>
   releaseThreadWorker(threadId: string, reason: 'idle' | 'stop' | 'archive' | 'crash'): Promise<void>
   send(threadId: string, command: WorkerCommand): Promise<WorkerResponse>
-  getWorker(workerId: string): WorkerSnapshot | undefined
-  listWorkers(): WorkerSnapshot[]
   listLeases(): WorkerLease[]
   shutdown(): Promise<void>
 }
@@ -75,19 +73,17 @@ type WorkerPool = {
 
 - running thread 独占 worker。
 - idle thread 不永久占用 worker，保留 session file、snapshot 和数据库索引。
-- resume idle thread 时重新 acquire worker。
-- 默认最大并发数保守设置，例如 `max(1, min(3, logicalCpuCount - 1))`。
-- 超出并发时进入 FIFO queue。
-- queue 状态通过 IPC 发送 `thread.stateChanged` projection event。
+- resume idle thread 时重新创建 utility worker。
+- 并行 thread 各自立即创建独立 utility worker。
+- 不提供 `maxWorkers`。
+- 不提供 worker pool queue，也不把 thread start/prompt 放入全局 pending queue。
 
 ## 复用策略
 
-优先级：
+第一期不跨 thread 复用 mutable agent runtime。停止、归档或释放 thread 时退出当前
+worker；再次运行该 thread 时创建新的 utility worker。
 
-1. 如果 worker reset 可以证明可靠，则允许复用。
-2. 如果 reset 语义不可靠，第一期使用 one-shot worker。
-
-复用前必须清理：
+必须避免保留或泄漏：
 
 - cwd
 - session manager
@@ -99,8 +95,6 @@ type WorkerPool = {
 - bash process
 - retry/compaction state
 - event subscriptions
-
-任何无法证明清理完成的 worker 必须退出重建。
 
 ## Crash / Exit
 
@@ -137,18 +131,9 @@ worker crash 时必须：
 renderer 不得访问：
 
 - worker pid
-- process handle
-- stdin/stdout
-- raw filesystem authority
-- credential data
+- utility process handle
+- filesystem absolute secret path
+- provider credentials
+- raw shell handle
 
-renderer 只能通过 preload API 观察 thread/worker 状态。
-
-## 验收
-
-- 同时创建超过 max concurrency 的 thread 时，多余 thread 进入 queue。
-- running thread 独占 worker。
-- idle release 后 worker 不再保留 thread runtime。
-- worker crash 会清理 lease 并通知订阅方。
-- app shutdown 会停止所有 worker。
-- renderer 无法直接操作 worker process。
+renderer 只能通过 preload API 和 IPC event 操作 thread。

@@ -9,12 +9,49 @@ export type ThreadStatus =
 /** 思考级别。 */
 export type ThinkingLevel = 'off' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh'
 
+/** Project 可用状态。 */
+export type ProjectStatus = 'available' | 'missing' | 'permissionDenied' | 'invalid'
+
+/** Project 摘要信息。 */
+export interface ProjectSummary {
+  /** Project ID。 */
+  projectId: string
+  /** Project 显示名称。 */
+  name: string
+  /** 本地项目路径。 */
+  path: string
+  /** 当前路径可用状态。 */
+  status: ProjectStatus
+  /** 创建时间（ISO 8601）。 */
+  createdAt: string
+  /** 更新时间（ISO 8601）。 */
+  updatedAt: string
+  /** 最近打开时间（ISO 8601）。 */
+  lastOpenedAt?: string
+}
+
+/** 创建 Project 的输入参数。 */
+export interface CreateProjectInput {
+  /** 本地项目路径。 */
+  path: string
+  /** 可选 Project 名称。 */
+  name?: string
+}
+
+/** 重命名 Project 的输入参数。 */
+export interface RenameProjectInput {
+  /** Project ID。 */
+  projectId: string
+  /** 新名称。 */
+  name: string
+}
+
 /** 创建线程的输入参数。 */
 export interface CreateThreadInput {
   /** 线程 ID；未提供时自动生成。 */
   threadId?: string
-  /** 工作目录。 */
-  cwd: string
+  /** 所属 Project ID。 */
+  projectId: string
   /** 会话文件路径。 */
   sessionFile?: string
   /** 线程标题。 */
@@ -27,8 +64,8 @@ export interface CreateThreadInput {
 export interface ThreadSummary {
   /** 线程 ID。 */
   threadId: string
-  /** 工作目录。 */
-  cwd: string
+  /** 所属 Project ID。 */
+  projectId: string
   /** 会话文件路径。 */
   sessionFile?: string
   /** 线程标题。 */
@@ -47,6 +84,8 @@ export interface ThreadSummary {
 export interface ThreadSnapshot {
   /** 线程 ID。 */
   threadId: string
+  /** 所属 Project ID。 */
+  projectId: string
   /** 工作目录。 */
   cwd: string
   /** 会话文件路径。 */
@@ -292,15 +331,49 @@ export interface ApprovalResponseInput {
   response: ApprovalResponse
 }
 
+/** IPC 结构化错误。 */
+export interface IpcError {
+  /** 错误代码。 */
+  code: string
+  /** 面向 renderer 的错误信息。 */
+  message: string
+  /** 是否可恢复。 */
+  recoverable: boolean
+  /** 结构化详情，不包含 raw stack。 */
+  details?: unknown
+}
+
+/** IPC 调用结果信封。 */
+export type IpcResult<T> = { ok: true; value: T } | { ok: false; error: IpcError }
+
+/** Debug diagnostics 查询输入。 */
+export interface DiagnosticsInput {
+  /** 可选线程 ID。 */
+  threadId?: string
+  /** 可选来源。 */
+  source?: string
+}
+
 /** Coding Agent IPC 事件联合类型。 */
 export type CodingAgentIpcEvent =
   | { type: 'canonical'; threadId: string; event: unknown }
   | { type: 'projection'; threadId: string; event: unknown }
+  | { type: 'project'; event: unknown }
   | { type: 'worker'; threadId?: string; event: unknown }
   | { type: 'threadSnapshot'; threadId: string; snapshot: ThreadSnapshot }
 
 /** Coding Agent 渲染进程与主进程之间的 API 契约。 */
 export interface CodingAgentApi {
+  /** 列出所有 Project。 */
+  listProjects(): Promise<ProjectSummary[]>
+  /** 打开目录选择器并创建 Project；用户取消时返回 undefined。 */
+  createProject(): Promise<ProjectSummary | undefined>
+  /** 打开 Project。 */
+  openProject(projectId: string): Promise<ProjectSummary>
+  /** 获取 Project。 */
+  getProject(projectId: string): Promise<ProjectSummary>
+  /** 重命名 Project。 */
+  renameProject(input: RenameProjectInput): Promise<void>
   /** 创建新线程。 */
   createThread(input: CreateThreadInput): Promise<ThreadSnapshot>
   /** 停止线程运行。 */
@@ -308,7 +381,7 @@ export interface CodingAgentApi {
   /** 重新启动线程。 */
   restartThread(threadId: string): Promise<ThreadSnapshot>
   /** 列出所有线程。 */
-  listThreads(): Promise<ThreadSummary[]>
+  listThreads(input?: { projectId?: string }): Promise<ThreadSummary[]>
   /** 获取线程详情。 */
   getThread(threadId: string): Promise<ThreadSnapshot>
   /** 获取线程快照。 */
@@ -363,6 +436,8 @@ export interface CodingAgentApi {
   respondUi(input: ExtensionUiResponseInput): Promise<void>
   /** 响应审批请求。 */
   respondApproval(input: ApprovalResponseInput): Promise<void>
+  /** 获取 debug diagnostics。 */
+  listDiagnostics(input?: DiagnosticsInput): Promise<unknown[]>
   /** 注册事件监听器，返回取消订阅函数。 */
   onEvent(listener: (event: CodingAgentIpcEvent) => void): () => void
 }
