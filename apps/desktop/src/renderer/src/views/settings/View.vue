@@ -2,6 +2,7 @@
 import ResizablePaneSeparator from '@renderer/components/ui/resizable-pane-separator/ResizablePaneSeparator.vue'
 import useWorkspaceUiStore from '@renderer/stores/workspace-ui'
 import { computed } from 'vue'
+import { RouterView } from 'vue-router'
 import Sidebar from './components/sidebar/Sidebar.vue'
 
 /** 分隔条宽度（像素）。 */
@@ -24,7 +25,11 @@ const workspaceGridColumns = computed(() => {
       :max="workspaceUi.maxSidebarWidth"
       @update:model-value="workspaceUi.setSidebarWidth"
     />
-    <section class="settings-content"></section>
+    <section class="settings-content">
+      <KeepAlive>
+        <RouterView />
+      </KeepAlive>
+    </section>
   </main>
 </template>
 

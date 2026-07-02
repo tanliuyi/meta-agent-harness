@@ -26,7 +26,106 @@ const router = createRouter({
     {
       path: '/settings',
       name: 'Settings',
-      component: () => import('../views/settings/View.vue')
+      component: () => import('../views/settings/View.vue'),
+      redirect: '/settings/models',
+      children: [
+        {
+          path: 'agent',
+          name: 'SettingsAgent',
+          component: () => import('../views/settings/agent/AgentSettingsView.vue'),
+          redirect: '/settings/agent/delivery',
+          children: [
+            {
+              path: 'delivery',
+              name: 'SettingsAgentDelivery',
+              component: () => import('../views/settings/agent/DeliveryView.vue')
+            },
+            {
+              path: 'runtime',
+              name: 'SettingsAgentRuntime',
+              component: () => import('../views/settings/agent/RuntimeView.vue')
+            },
+            {
+              path: 'display',
+              name: 'SettingsAgentDisplay',
+              component: () => import('../views/settings/agent/DisplayView.vue')
+            },
+            {
+              path: 'safety',
+              name: 'SettingsAgentSafety',
+              component: () => import('../views/settings/agent/SafetyView.vue')
+            },
+            {
+              path: 'media',
+              name: 'SettingsAgentMedia',
+              component: () => import('../views/settings/agent/MediaView.vue')
+            },
+            {
+              path: 'shell',
+              name: 'SettingsAgentShell',
+              component: () => import('../views/settings/agent/ShellView.vue')
+            },
+            {
+              path: 'resources',
+              name: 'SettingsAgentResources',
+              component: () => import('../views/settings/agent/ResourcesView.vue')
+            },
+            {
+              path: 'advanced',
+              name: 'SettingsAgentAdvanced',
+              component: () => import('../views/settings/agent/AdvancedView.vue')
+            },
+            {
+              path: 'status',
+              name: 'SettingsAgentStatus',
+              component: () => import('../views/settings/agent/StatusView.vue')
+            }
+          ]
+        },
+        {
+          path: 'models',
+          name: 'SettingsModels',
+          component: () => import('../views/settings/models/ModelsView.vue'),
+          redirect: '/settings/models/default',
+          children: [
+            {
+              path: 'default',
+              name: 'SettingsModelsDefault',
+              component: () => import('../views/settings/models/DefaultModelView.vue')
+            },
+            {
+              path: 'thinking',
+              name: 'SettingsModelsThinking',
+              component: () => import('../views/settings/models/ThinkingView.vue')
+            },
+            {
+              path: 'registry',
+              name: 'SettingsModelsRegistry',
+              component: () => import('../views/settings/models/RegistryView.vue')
+            },
+            {
+              path: 'tasks',
+              name: 'SettingsModelsTasks',
+              component: () => import('../views/settings/models/TaskModelsView.vue')
+            },
+            {
+              path: 'api-keys',
+              name: 'SettingsModelsApiKeys',
+              component: () => import('../views/settings/models/ApiKeysView.vue')
+            },
+            {
+              path: 'providers',
+              name: 'SettingsModelsProviders',
+              component: () => import('../views/settings/models/CustomProvidersView.vue')
+            },
+            {
+              path: 'diagnostics',
+              name: 'SettingsModelsDiagnostics',
+              component: () => import('../views/settings/models/DiagnosticsView.vue')
+            }
+          ]
+        }
+      ]
     }
   ]
 })
