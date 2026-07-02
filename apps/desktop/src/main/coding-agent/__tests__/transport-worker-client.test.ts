@@ -4,7 +4,12 @@
 
 import { describe, expect, it } from 'vitest'
 import { TransportWorkerClient } from '../transport-worker-client'
-import type { WorkerEnvelope, WorkerHangInfo, WorkerResponseEnvelope, WorkerTransport } from '../worker-types'
+import type {
+  WorkerEnvelope,
+  WorkerHangInfo,
+  WorkerResponseEnvelope,
+  WorkerTransport
+} from '../worker-types'
 
 describe('TransportWorkerClient', () => {
   it('请求超时后会 reject', async () => {
@@ -17,9 +22,9 @@ describe('TransportWorkerClient', () => {
       now: () => 0
     })
 
-    await expect(
-      client.send({ type: 'test.command' })
-    ).rejects.toThrow('request timed out: test.command')
+    await expect(client.send({ type: 'test.command' })).rejects.toThrow(
+      'request timed out: test.command'
+    )
   })
 
   it('启动线程成功时返回 resolved', async () => {
@@ -136,7 +141,11 @@ describe('TransportWorkerClient', () => {
     await client.startThread({ threadId: 'thread-a', cwd: '/tmp' })
     await waitMs(80)
     now = 80
-    transport.emitEvent({ kind: 'event', eventType: 'projection', event: { type: 'thread.stateChanged', status: 'running' } })
+    transport.emitEvent({
+      kind: 'event',
+      eventType: 'projection',
+      event: { type: 'thread.stateChanged', status: 'running' }
+    })
     await waitMs(80)
     now = 160
 

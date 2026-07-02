@@ -336,7 +336,11 @@ export class ThreadWorkerRegistry {
         if (event.kind === 'event') {
           const eventType = (event as { eventType?: string }).eventType
           const payload = (event as { event?: unknown }).event
-          if (eventType === 'projection' && isRecord(payload) && payload.type === 'thread.stateChanged') {
+          if (
+            eventType === 'projection' &&
+            isRecord(payload) &&
+            payload.type === 'thread.stateChanged'
+          ) {
             const status = (payload as { status?: WorkerLease['status'] }).status
             if (status) {
               lease.status = status

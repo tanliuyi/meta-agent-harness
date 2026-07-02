@@ -5,11 +5,7 @@
 import { accessSync, constants, mkdirSync, statSync } from 'node:fs'
 import { basename, dirname, resolve } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
-import type {
-  CreateProjectInput,
-  ProjectStatus,
-  ProjectSummary
-} from '@shared/coding-agent/types'
+import type { CreateProjectInput, ProjectStatus, ProjectSummary } from '@shared/coding-agent/types'
 
 /** 数据库 projects 表行。 */
 interface ProjectRow {

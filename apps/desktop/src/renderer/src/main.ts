@@ -10,6 +10,7 @@ import App from './App.vue'
 import router from './router'
 import pinia from './stores'
 import './styles/fonts.scss'
+import './styles/shadcn.css'
 import './styles/base.scss'
 
 /**

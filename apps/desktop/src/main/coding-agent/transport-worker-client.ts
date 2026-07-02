@@ -114,7 +114,10 @@ export class TransportWorkerClient implements WorkerClient {
         reject(new Error(`startThread timed out after ${this.startupTimeoutMs}ms`))
       }, this.startupTimeoutMs)
       // 如果启动成功，清理超时计时器
-      startPromise.then(() => clearTimeout(timer), () => clearTimeout(timer))
+      startPromise.then(
+        () => clearTimeout(timer),
+        () => clearTimeout(timer)
+      )
     })
     const response = await Promise.race([startPromise, timeoutPromise])
     if (!response.success) {
