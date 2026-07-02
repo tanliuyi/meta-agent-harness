@@ -131,6 +131,109 @@ describe("handleRuntimeCommand", () => {
 		expect(response?.success).toBe(true);
 		expect(response?.data).toBeNull();
 	});
+
+	/** 验证 switch_session 复用 Pi runtime 的 cwdOverride 与 Project trust context。 */
+	it("switch_session 透传 cwdOverride 与 Project trust context factory", async () => {
+		let received:
+			| {
+					sessionPath: string;
+					cwdOverride?: string;
+					contextCwd?: string;
+			  }
+			| undefined;
+		const host: RuntimeCommandHandlerHost = {
+			...createHost(),
+			projectTrustContextFactory: (cwd) => ({
+				cwd,
+				mode: "rpc",
+				hasUI: false,
+				ui: {
+					select: async () => undefined,
+					confirm: async () => false,
+					input: async () => undefined,
+					notify: () => {},
+				},
+			}),
+		};
+		host.runtime = {
+			...host.runtime,
+			switchSession: async (sessionPath: string, options?: Parameters<RuntimeCommandHandlerHost["runtime"]["switchSession"]>[1]) => {
+				received = {
+					sessionPath,
+					cwdOverride: options?.cwdOverride,
+					contextCwd: options?.projectTrustContextFactory?.("/tmp/next").cwd,
+				};
+				return { cancelled: false };
+			},
+		} as RuntimeCommandHandlerHost["runtime"];
+
+		const response = await handleRuntimeCommand(
+			host,
+			command("1", { type: "switch_session", sessionPath: "session.jsonl", cwdOverride: "/tmp/override" }),
+		);
+
+		expect(response?.success).toBe(true);
+		expect(received).toEqual({
+			sessionPath: "session.jsonl",
+			cwdOverride: "/tmp/override",
+			contextCwd: "/tmp/next",
+		});
+	});
+
+	/** 验证 import_session 复用 Pi runtime 的 cwdOverride 与 Project trust context。 */
+	it("import_session 透传 cwdOverride 与 Project trust context factory", async () => {
+		let received:
+			| {
+					inputPath: string;
+					cwdOverride?: string;
+					contextCwd?: string;
+			  }
+			| undefined;
+		const host: RuntimeCommandHandlerHost = {
+			...createHost(),
+			projectTrustContextFactory: (cwd) => ({
+				cwd,
+				mode: "rpc",
+				hasUI: false,
+				ui: {
+					select: async () => undefined,
+					confirm: async () => false,
+					input: async () => undefined,
+					notify: () => {},
+				},
+			}),
+		};
+		host.runtime = {
+			...host.runtime,
+			importFromJsonl: async (
+				inputPath: string,
+				options?: Parameters<RuntimeCommandHandlerHost["runtime"]["importFromJsonl"]>[1],
+			) => {
+				if (typeof options === "string") {
+					received = { inputPath, cwdOverride: options };
+				} else {
+					received = {
+						inputPath,
+						cwdOverride: options?.cwdOverride,
+						contextCwd: options?.projectTrustContextFactory?.("/tmp/imported").cwd,
+					};
+				}
+				return { cancelled: false };
+			},
+		} as RuntimeCommandHandlerHost["runtime"];
+
+		const response = await handleRuntimeCommand(
+			host,
+			command("1", { type: "import_session", inputPath: "import.jsonl", cwdOverride: "/tmp/override" }),
+		);
+
+		expect(response?.success).toBe(true);
+		expect(received).toEqual({
+			inputPath: "import.jsonl",
+			cwdOverride: "/tmp/override",
+			contextCwd: "/tmp/imported",
+		});
+	});
 });
 
 function command(id: string, value: WorkerCommandEnvelope["command"]): WorkerCommandEnvelope {
@@ -143,6 +246,7 @@ function createHost(session = createSession()): RuntimeCommandHandlerHost {
 			session,
 			newSession: async () => ({ cancelled: false }),
 			switchSession: async () => ({ cancelled: false }),
+			importFromJsonl: async () => ({ cancelled: false }),
 			fork: async () => ({ cancelled: false }),
 			dispose: async () => {},
 		} as RuntimeCommandHandlerHost["runtime"],
@@ -168,6 +272,7 @@ function createSession(overrides: Record<string, unknown> = {}): RuntimeCommandH
 			getAvailable: async () => [{ provider: "openai", id: "gpt-test" }],
 		},
 		sessionManager: {
+			getCwd: () => "/tmp/project",
 			getLeafId: () => null,
 		},
 		extensionRunner: {

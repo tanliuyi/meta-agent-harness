@@ -2,11 +2,11 @@
  * 本文件测试从 Pi canonical JSONL session 重建 desktop snapshot。
  */
 
-import { mkdtempSync, rmSync } from "node:fs";
+import { appendFileSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { SessionManager } from "../../core/session-manager.ts";
+import { resolveSessionCwd, SessionManager } from "../../core/session-manager.ts";
 import { buildSnapshotFromSession } from "../storage/session-snapshot.ts";
 
 const roots: string[] = [];
@@ -61,5 +61,28 @@ describe("buildSnapshotFromSession", () => {
 			{ role: "user", text: "hello" },
 			{ role: "assistant", text: "world" },
 		]);
+		expect(resolveSessionCwd(sessionFile, join(root, "fallback"))).toBe(cwd);
+		expect(resolveSessionCwd(sessionFile, join(root, "fallback"), join(root, "override"))).toBe(
+			join(root, "override"),
+		);
+	});
+
+	/** 验证 cwd 解析复用完整 JSONL parser，不依赖短读 header。 */
+	it("resolveSessionCwd 使用完整 JSONL header 解析", () => {
+		const root = mkdtempSync(join(tmpdir(), "desktop-session-"));
+		roots.push(root);
+		const cwd = join(root, "repo");
+		const sessionFile = join(root, "long-header.jsonl");
+		const header = {
+			type: "session",
+			version: 3,
+			id: "session-long-header",
+			timestamp: "2026-07-01T00:00:00.000Z",
+			cwd,
+			parentSession: "x".repeat(1024),
+		};
+		appendFileSync(sessionFile, `${JSON.stringify(header)}\n`);
+
+		expect(resolveSessionCwd(sessionFile, join(root, "fallback"))).toBe(cwd);
 	});
 });

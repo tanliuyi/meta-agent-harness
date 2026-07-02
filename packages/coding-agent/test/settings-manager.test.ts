@@ -413,4 +413,60 @@ describe("SettingsManager", () => {
 			expect(manager.getSessionDir()).toBe(join(homedir(), "sessions"));
 		});
 	});
+
+	describe("advanced global setters", () => {
+		it("should persist advanced global settings through SettingsManager", async () => {
+			const settingsPath = join(agentDir, "settings.json");
+			const manager = SettingsManager.create(projectDir, agentDir);
+
+			manager.setCompactionReserveTokens(12000);
+			manager.setCompactionKeepRecentTokens(8000);
+			manager.setBranchSummaryReserveTokens(9000);
+			manager.setBranchSummarySkipPrompt(true);
+			manager.setRetryMaxRetries(2);
+			manager.setRetryBaseDelayMs(500);
+			manager.setProviderRetryTimeoutMs(60000);
+			manager.setProviderRetryMaxRetries(1);
+			manager.setProviderRetryMaxRetryDelayMs(30000);
+			manager.setWebSocketConnectTimeoutMs(7000);
+			manager.setSessionDir("~/pi-sessions");
+			manager.setHttpProxy("http://127.0.0.1:7890");
+			manager.setThinkingBudgets({ minimal: 1024, low: 4096, medium: 8192, high: 16384 });
+			manager.setCodeBlockIndent("    ");
+			await manager.flush();
+
+			const savedSettings = JSON.parse(readFileSync(settingsPath, "utf-8"));
+			expect(savedSettings).toMatchObject({
+				compaction: {
+					reserveTokens: 12000,
+					keepRecentTokens: 8000,
+				},
+				branchSummary: {
+					reserveTokens: 9000,
+					skipPrompt: true,
+				},
+				retry: {
+					maxRetries: 2,
+					baseDelayMs: 500,
+					provider: {
+						timeoutMs: 60000,
+						maxRetries: 1,
+						maxRetryDelayMs: 30000,
+					},
+				},
+				websocketConnectTimeoutMs: 7000,
+				sessionDir: "~/pi-sessions",
+				httpProxy: "http://127.0.0.1:7890",
+				thinkingBudgets: {
+					minimal: 1024,
+					low: 4096,
+					medium: 8192,
+					high: 16384,
+				},
+				markdown: {
+					codeBlockIndent: "    ",
+				},
+			});
+		});
+	});
 });
