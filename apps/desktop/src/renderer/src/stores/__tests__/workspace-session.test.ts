@@ -7,7 +7,7 @@ import { createPinia, setActivePinia } from 'pinia'
 import { applyEventToSessions, type WorkspaceSession } from '../workspace-session'
 import useWorkspaceProjectStore from '../workspace-project'
 import useWorkspaceSessionStore from '../workspace-session'
-import type { ThreadSnapshot } from '../../../../shared/coding-agent/types'
+import type { ThreadSnapshot } from '@shared/coding-agent/types'
 
 beforeEach(() => {
   setActivePinia(createPinia())

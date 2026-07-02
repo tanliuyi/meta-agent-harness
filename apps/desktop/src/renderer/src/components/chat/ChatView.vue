@@ -6,7 +6,7 @@
 import { computed } from 'vue'
 import { BaseButton } from '@renderer/components/base'
 import useWorkspaceSessionStore from '@renderer/stores/workspace-session'
-import type { ThreadMessage } from '../../../../shared/coding-agent/types'
+import type { ThreadMessage } from '@shared/coding-agent/types'
 
 const workspaceSession = useWorkspaceSessionStore()
 

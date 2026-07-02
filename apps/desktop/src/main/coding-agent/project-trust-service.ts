@@ -9,7 +9,7 @@ import type {
   ProjectSummary,
   ProjectTrustDecision,
   ProjectTrustSummary
-} from '../../shared/coding-agent/types'
+} from '@shared/coding-agent/types'
 
 /** Project 配置目录名。 */
 const projectConfigDirName = '.pi'

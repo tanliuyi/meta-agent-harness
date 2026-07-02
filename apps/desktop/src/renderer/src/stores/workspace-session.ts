@@ -13,7 +13,7 @@ import type {
   ThreadMessage,
   ThreadSnapshot,
   ThreadSummary
-} from '../../../shared/coding-agent/types'
+} from '@shared/coding-agent/types'
 
 /** 会话面板 UI 状态。 */
 export type SessionUiState = {

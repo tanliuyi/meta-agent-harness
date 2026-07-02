@@ -7,7 +7,7 @@ import type {
   ModelInfo,
   SetModelInput,
   SetThinkingInput
-} from '../../shared/coding-agent/types'
+} from '@shared/coding-agent/types'
 import type { ThreadManagerCore } from './thread-manager-core'
 
 /**

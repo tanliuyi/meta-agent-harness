@@ -1,11 +1,13 @@
 <script setup lang="ts">
+import { computed } from 'vue'
+
 /**
  * BaseIconButton.vue - 基础图标按钮组件。
  *
  * 仅包含图标的按钮，支持激活状态与无障碍标签。
  */
 
-withDefaults(
+const props = withDefaults(
   defineProps<{
     /** 是否处于激活状态。 */
     active?: boolean
@@ -15,6 +17,7 @@ withDefaults(
     type?: 'button' | 'submit' | 'reset'
     /** 是否禁用。 */
     disabled?: boolean
+    size?: 'small' | 'medium' | 'large'
   }>(),
   {
     active: false,
@@ -22,16 +25,18 @@ withDefaults(
     disabled: false
   }
 )
+
+const buttonClasses = computed(() => {
+  return {
+    'base-icon-button': true,
+    'is-active': props.active,
+    [`is-${props.size}`]: true
+  }
+})
 </script>
 
 <template>
-  <button
-    class="base-icon-button"
-    :class="{ 'is-active': active }"
-    :type="type"
-    :disabled="disabled"
-    :aria-label="label"
-  >
+  <button :class="buttonClasses" :type="type" :disabled="disabled" :aria-label="label">
     <slot />
   </button>
 </template>
@@ -67,6 +72,19 @@ withDefaults(
 
   :deep(svg) {
     flex-shrink: 0;
+  }
+
+  &.is-small {
+    width: 20px;
+    height: 20px;
+  }
+  &.is-medium {
+    width: 24px;
+    height: 24px;
+  }
+  &.is-large {
+    width: 32px;
+    height: 32px;
   }
 }
 </style>

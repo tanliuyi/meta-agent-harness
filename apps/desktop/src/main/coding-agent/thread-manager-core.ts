@@ -2,7 +2,7 @@
  * 本文件提供 CodingThreadManager 共享的 thread registry 与 worker send 能力。
  */
 
-import type { ThreadSnapshot, ThreadSummary } from '../../shared/coding-agent/types'
+import type { ThreadSnapshot, ThreadSummary } from '@shared/coding-agent/types'
 import type { WorkerCommand, WorkerResponseEnvelope } from './worker-types'
 import type { ThreadWorkerRegistry } from './thread-worker-registry'
 import type { CodingThreadStore } from './thread-store'

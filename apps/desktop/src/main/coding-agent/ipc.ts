@@ -5,8 +5,8 @@
 import { app, dialog, ipcMain, type WebContents } from 'electron'
 import { join } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
-import { codingAgentChannels } from '../../shared/coding-agent/channels'
-import { fail, ok } from '../../shared/coding-agent/ipc-contract'
+import { codingAgentChannels } from '@shared/coding-agent/channels'
+import { fail, ok } from '@shared/coding-agent/ipc-contract'
 import { CodingThreadManager } from './thread-manager'
 import { CodingThreadStore } from './thread-store'
 import { ProjectStore } from './project-store'
@@ -35,7 +35,7 @@ import type {
   SwitchSessionInput,
   TextInput,
   ToggleInput
-} from '../../shared/coding-agent/types'
+} from '@shared/coding-agent/types'
 
 /**
  * Coding agent IPC 注册选项。

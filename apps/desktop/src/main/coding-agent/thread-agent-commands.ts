@@ -2,7 +2,7 @@
  * 本文件实现 prompt、steer、followUp 和 abort 操作。
  */
 
-import type { PromptInput, TextInput } from '../../shared/coding-agent/types'
+import type { PromptInput, TextInput } from '@shared/coding-agent/types'
 import type { ThreadManagerCore } from './thread-manager-core'
 
 /**

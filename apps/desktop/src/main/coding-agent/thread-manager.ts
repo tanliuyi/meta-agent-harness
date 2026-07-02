@@ -28,7 +28,7 @@ import type {
   ThinkingCycleResult,
   ThreadSnapshot,
   ToggleInput
-} from '../../shared/coding-agent/types'
+} from '@shared/coding-agent/types'
 import { abort, followUp, prompt, runCommand, steer } from './thread-agent-commands'
 import { archiveThread, createThread, restartThread, stopThread } from './thread-lifecycle'
 import {

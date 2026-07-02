@@ -10,7 +10,7 @@ import { describe, expect, it } from 'vitest'
 import { ProjectStore, getProjectStatus } from '../project-store'
 import { CodingThreadStore } from '../thread-store'
 import { ThreadManagerCore } from '../thread-manager-core'
-import type { ThreadSnapshot, ThreadSummary } from '../../../shared/coding-agent/types'
+import type { ThreadSnapshot, ThreadSummary } from '@shared/coding-agent/types'
 import type { ThreadWorkerRegistry } from '../thread-worker-registry'
 
 /** 创建临时目录。 */

@@ -2,7 +2,7 @@
  * 本文件实现 coding thread 生命周期操作。
  */
 
-import type { CreateThreadInput, ThreadSnapshot } from '../../shared/coding-agent/types'
+import type { CreateThreadInput, ThreadSnapshot } from '@shared/coding-agent/types'
 import type { ThreadManagerCore } from './thread-manager-core'
 
 /**

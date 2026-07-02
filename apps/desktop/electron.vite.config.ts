@@ -6,8 +6,15 @@ import { resolve } from 'path'
 import { defineConfig } from 'electron-vite'
 import vue from '@vitejs/plugin-vue'
 
+const sharedAlias = resolve('src/shared')
+
 export default defineConfig({
   main: {
+    resolve: {
+      alias: {
+        '@shared': sharedAlias
+      }
+    },
     build: {
       rollupOptions: {
         input: {
@@ -19,10 +26,17 @@ export default defineConfig({
       }
     }
   },
-  preload: {},
+  preload: {
+    resolve: {
+      alias: {
+        '@shared': sharedAlias
+      }
+    }
+  },
   renderer: {
     resolve: {
       alias: {
+        '@shared': sharedAlias,
         '@renderer': resolve('src/renderer/src')
       }
     },

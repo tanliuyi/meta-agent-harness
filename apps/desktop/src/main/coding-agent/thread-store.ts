@@ -5,7 +5,7 @@
 import { mkdirSync } from 'node:fs'
 import { dirname } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
-import type { ThreadSnapshot, ThreadSummary } from '../../shared/coding-agent/types'
+import type { ThreadSnapshot, ThreadSummary } from '@shared/coding-agent/types'
 
 /** 数据库 threads 表行。 */
 interface ThreadRow {

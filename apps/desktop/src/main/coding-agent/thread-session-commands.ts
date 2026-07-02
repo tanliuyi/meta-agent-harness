@@ -11,7 +11,7 @@ import type {
   RenameThreadInput,
   SwitchSessionInput,
   ThreadSnapshot
-} from '../../shared/coding-agent/types'
+} from '@shared/coding-agent/types'
 import type { ThreadManagerCore } from './thread-manager-core'
 
 /**

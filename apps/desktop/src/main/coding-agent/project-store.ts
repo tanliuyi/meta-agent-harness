@@ -9,7 +9,7 @@ import type {
   CreateProjectInput,
   ProjectStatus,
   ProjectSummary
-} from '../../shared/coding-agent/types'
+} from '@shared/coding-agent/types'
 
 /** 数据库 projects 表行。 */
 interface ProjectRow {

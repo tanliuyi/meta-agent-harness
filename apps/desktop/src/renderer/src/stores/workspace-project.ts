@@ -4,7 +4,7 @@
 
 import { defineStore } from 'pinia'
 import { computed, reactive, ref } from 'vue'
-import type { ProjectSummary, ProjectTrustDecision } from '../../../shared/coding-agent/types'
+import type { ProjectSummary, ProjectTrustDecision } from '@shared/coding-agent/types'
 
 /**
  * Workspace Project Store。

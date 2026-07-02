@@ -3,7 +3,7 @@
  */
 
 import { readFileSync } from 'node:fs'
-import type { ThreadMessage, ThreadSnapshot, ThreadSummary } from '../../shared/coding-agent/types'
+import type { ThreadMessage, ThreadSnapshot, ThreadSummary } from '@shared/coding-agent/types'
 
 /** 构建 snapshot 输入。 */
 export interface BuildSnapshotFromSessionInput {

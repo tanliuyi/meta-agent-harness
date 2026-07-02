@@ -3,9 +3,9 @@
  */
 
 import { describe, expect, it } from 'vitest'
-import { codingAgentChannels } from '../../../shared/coding-agent/channels'
+import { codingAgentChannels } from '@shared/coding-agent/channels'
 import { publishCodingAgentEvent, toCodingAgentIpcEvent } from '../ipc'
-import type { CodingAgentIpcEvent } from '../../../shared/coding-agent/types'
+import type { CodingAgentIpcEvent } from '@shared/coding-agent/types'
 
 describe('coding agent IPC events', () => {
   it('将 worker canonical/projection envelope 转成 renderer IPC event', () => {

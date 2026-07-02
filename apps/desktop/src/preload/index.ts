@@ -3,9 +3,9 @@
  */
 
 import { contextBridge, ipcRenderer } from 'electron'
-import type { CodingAgentApi, CodingAgentIpcEvent } from '../shared/coding-agent/types'
-import { codingAgentChannels } from '../shared/coding-agent/channels'
-import { unwrapIpcResult } from '../shared/coding-agent/ipc-contract'
+import type { CodingAgentApi, CodingAgentIpcEvent } from '@shared/coding-agent/types'
+import { codingAgentChannels } from '@shared/coding-agent/channels'
+import { unwrapIpcResult } from '@shared/coding-agent/ipc-contract'
 
 /**
  * 调用 main IPC 并解包结构化结果。

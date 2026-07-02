@@ -1,10 +1,4 @@
 <script setup lang="ts">
-/**
- * PlusIcon.vue - 简单加号图标组件。
- *
- * 支持自定义尺寸与颜色。
- */
-
 withDefaults(
   defineProps<{
     /** 图标尺寸（像素）。 */
@@ -13,7 +7,7 @@ withDefaults(
     color?: string
   }>(),
   {
-    size: 24,
+    size: 16,
     color: 'currentColor'
   }
 )

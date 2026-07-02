@@ -4,7 +4,7 @@
 
 import { computed, inject, provide, toValue } from 'vue'
 import type { ComputedRef, InjectionKey, MaybeRefOrGetter } from 'vue'
-import type { ThreadStatus } from '../../../shared/coding-agent/types'
+import type { ThreadStatus } from '@shared/coding-agent/types'
 
 /** 会话状态类型。 */
 export type SessionStatus = ThreadStatus

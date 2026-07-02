@@ -9,10 +9,7 @@ import { BaseIconButton } from '@renderer/components/base'
 import PlusIcon from '@renderer/components/icons/PlusIcon.vue'
 import useWorkspaceProjectStore from '@renderer/stores/workspace-project'
 import useWorkspaceSessionStore from '@renderer/stores/workspace-session'
-import type {
-  ProjectSummary,
-  ProjectTrustDecision
-} from '../../../../../../shared/coding-agent/types'
+import type { ProjectSummary, ProjectTrustDecision } from '@shared/coding-agent/types'
 
 const workspaceProject = useWorkspaceProjectStore()
 const workspaceSession = useWorkspaceSessionStore()
@@ -51,43 +48,28 @@ async function setProjectTrust(projectId: string, decision: ProjectTrustDecision
 function shouldShowTrustNotice(project: ProjectSummary): boolean {
   return project.trust?.requiresTrust === true && project.trust.state !== 'trusted'
 }
-
-/**
- * 获取 Project trust 状态标签。
- * @param project - Project。
- * @returns 状态标签。
- */
-function getTrustLabel(project: ProjectSummary): string {
-  switch (project.trust?.state) {
-    case 'trusted':
-      return project.trust.sessionOnly ? 'trusted session' : 'trusted'
-    case 'untrusted':
-      return 'untrusted'
-    case 'unknown':
-      return 'trust needed'
-    case 'notRequired':
-    default:
-      return project.status
-  }
-}
 </script>
 
 <template>
   <aside class="workspace__sidebar">
     <div class="sidebar-section">
       <div class="sidebar-section__header">
-        <span>Projects</span>
-        <BaseIconButton label="打开 Project" @click="workspaceProject.createProject">
-          <PlusIcon />
+        <span>项目</span>
+        <BaseIconButton
+          label="打开 Project"
+          size="small"
+          class="project-tree__add-btn"
+          @click="workspaceProject.createProject"
+        >
+          <PlusIcon :size="14" />
         </BaseIconButton>
       </div>
 
-      <p
-        v-if="workspaceProject.errorMessage || workspaceSession.errorMessage"
-        class="sidebar-error"
-      >
-        {{ workspaceProject.errorMessage || workspaceSession.errorMessage }}
-      </p>
+      <template v-if="workspaceProject.errorMessage || workspaceSession.errorMessage">
+        <p class="sidebar-error">
+          {{ workspaceProject.errorMessage || workspaceSession.errorMessage }}
+        </p>
+      </template>
 
       <ul class="project-tree">
         <li
@@ -97,13 +79,14 @@ function getTrustLabel(project: ProjectSummary): string {
         >
           <div class="project-tree__project" @click="openProject(project.projectId)">
             <span>{{ project.name }}</span>
-            <small>{{ getTrustLabel(project) }}</small>
             <BaseIconButton
               label="创建 Thread"
+              size="small"
               :disabled="project.status !== 'available'"
+              class="thread__add-btn"
               @click.stop="createThreadInProject(project.projectId)"
             >
-              <PlusIcon />
+              <PlusIcon :size="14" />
             </BaseIconButton>
           </div>
 
@@ -135,11 +118,11 @@ function getTrustLabel(project: ProjectSummary): string {
               :key="thread.threadId"
               class="session-group__item"
               :class="{
-                'session-group__item--active': thread.threadId === workspaceSession.activeSessionId
+                'is-active': thread.threadId === workspaceSession.activeSessionId
               }"
               @click="workspaceSession.setActiveSessionId(thread.threadId)"
             >
-              <span>{{ thread.title || thread.threadId }}</span>
+              <span class="session-group__item-title">{{ thread.title || '新会话' }}</span>
               <small>{{ thread.status }}</small>
             </li>
           </ul>
@@ -156,7 +139,6 @@ function getTrustLabel(project: ProjectSummary): string {
   flex-direction: column;
   min-width: 0;
   min-height: 0;
-  padding: var(--space-3) var(--space-2) var(--space-3) var(--space-3);
   overflow: hidden;
   color: var(--color-text);
   background:
@@ -169,10 +151,8 @@ function getTrustLabel(project: ProjectSummary): string {
   display: flex;
   flex: 1 1 auto;
   flex-direction: column;
-  gap: var(--space-3);
   min-width: 0;
   min-height: 0;
-  padding-right: var(--space-1);
   overflow-y: auto;
 }
 
@@ -182,8 +162,7 @@ function getTrustLabel(project: ProjectSummary): string {
   justify-content: space-between;
   gap: var(--space-2);
   min-height: 30px;
-  padding: 0 var(--space-1) var(--space-2);
-  border-bottom: 1px solid var(--color-border);
+  padding: 0 var(--space-2);
 
   span {
     min-width: 0;
@@ -193,6 +172,16 @@ function getTrustLabel(project: ProjectSummary): string {
     font-weight: 750;
     text-overflow: ellipsis;
     white-space: nowrap;
+  }
+
+  .project-tree__add-btn {
+    visibility: hidden;
+  }
+
+  &:hover {
+    .project-tree__add-btn {
+      visibility: visible;
+    }
   }
 }
 
@@ -220,19 +209,15 @@ function getTrustLabel(project: ProjectSummary): string {
   min-width: 0;
 }
 
-.project-tree__project,
-.session-group__item {
+.project-tree__project {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto auto;
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
   gap: var(--space-2);
   min-width: 0;
   min-height: 32px;
   padding: 0 var(--space-2);
   color: var(--color-text-muted);
-  border: 1px solid transparent;
-  border-radius: var(--radius-sm);
-  cursor: pointer;
 
   span {
     min-width: 0;
@@ -243,26 +228,45 @@ function getTrustLabel(project: ProjectSummary): string {
     white-space: nowrap;
   }
 
-  small {
-    font-family: var(--font-mono);
-    font-size: 10px;
+  .thread__add-btn {
+    visibility: hidden;
   }
 
-  &:hover,
-  &--active {
-    color: var(--color-text);
-    background: var(--color-surface-raised);
-    border-color: var(--color-border);
+  &:hover {
+    .thread__add-btn {
+      visibility: visible;
+    }
   }
-}
-
-.session-group {
-  padding-left: var(--space-3);
 }
 
 .session-group__item {
-  grid-template-columns: minmax(0, 1fr) auto;
-  min-height: 28px;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+  min-height: 32px;
+  margin: 0 var(--space-1);
+  padding: 0 var(--space-2) 0 var(--space-3);
+  border-radius: var(--radius-md);
+  color: var(--color-text-muted);
+
+  &:hover,
+  &.is-active {
+    color: var(--color-text);
+    background: var(--color-surface-raised);
+  }
+
+  &-title {
+    flex: 1;
+    min-width: 0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+}
+
+.session-group__item {
+  height: 28px;
 }
 
 .project-trust {
