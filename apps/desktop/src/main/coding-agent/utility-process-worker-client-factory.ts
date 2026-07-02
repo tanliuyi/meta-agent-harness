@@ -17,6 +17,8 @@ export interface UtilityProcessWorkerClientFactoryOptions {
   workerEntry?: string
   /** 请求超时毫秒数。 */
   requestTimeoutMs?: number
+  /** 无消息超时毫秒数，默认 2 分钟。 */
+  inactivityTimeoutMs?: number
 }
 
 /**
@@ -40,7 +42,8 @@ export async function createUtilityProcessWorkerClient(
   return new TransportWorkerClient({
     workerId: crypto.randomUUID(),
     transport: new UtilityProcessWorkerTransport(child),
-    requestTimeoutMs: options.requestTimeoutMs
+    requestTimeoutMs: options.requestTimeoutMs,
+    inactivityTimeoutMs: options.inactivityTimeoutMs ?? 120000
   })
 }
 

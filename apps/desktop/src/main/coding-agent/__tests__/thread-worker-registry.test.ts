@@ -8,6 +8,7 @@ import type {
   StartThreadInput,
   WorkerClient,
   WorkerCommand,
+  WorkerHangInfo,
   WorkerResponseEnvelope,
   WorkerSnapshot
 } from '../worker-types'
@@ -26,7 +27,12 @@ describe('ThreadWorkerRegistry', () => {
 
     expect(first.workerId).toBe('worker-1')
     expect(second.workerId).toBe('worker-2')
-    expect(registry.listLeases().map((lease) => lease.threadId).sort()).toEqual([
+    expect(
+      registry
+        .listLeases()
+        .map((lease) => lease.threadId)
+        .sort()
+    ).toEqual([
       'thread-a',
       'thread-b'
     ])
@@ -145,6 +151,139 @@ describe('ThreadWorkerRegistry', () => {
       }
     ])
   })
+
+  it('idle 超时时自动释放 worker，reason 为 idle', async () => {
+    let now = 0
+    const events: ThreadWorkerLifecycleEvent[] = []
+    const stopReasons: string[] = []
+    const registry = new ThreadWorkerRegistry({
+      now: () => now,
+      onLifecycle: (event) => events.push(event),
+      idleTimeoutMs: 1000,
+      idleCheckIntervalMs: 300,
+      createWorker: async () => ({
+        ...createFakeWorker('worker-a'),
+        stop: async (reason: string) => {
+          stopReasons.push(reason)
+        }
+      })
+    })
+
+    await registry.acquireThreadWorker({ threadId: 'thread-a', cwd: '/tmp/project-a' })
+    now = 500
+    await waitMs(400)
+    expect(registry.listLeases()).toHaveLength(1)
+
+    now = 1200
+    await waitMs(500)
+    expect(registry.listLeases()).toHaveLength(0)
+    expect(stopReasons).toEqual(['idle'])
+    expect(events).toContainEqual({
+      type: 'worker.run.finished',
+      workerId: 'worker-a',
+      threadId: 'thread-a',
+      reason: 'idle',
+      startedAt: 0,
+      exitedAt: 1200
+    })
+  })
+
+  it('running 状态线程即使 idle 超时也不被回收', async () => {
+    let now = 0
+    const stopReasons: string[] = []
+    const registry = new ThreadWorkerRegistry({
+      now: () => now,
+      idleTimeoutMs: 1000,
+      idleCheckIntervalMs: 300,
+      createWorker: async () => ({
+        ...createFakeWorker('worker-a'),
+        stop: async (reason: string) => {
+          stopReasons.push(reason)
+        }
+      })
+    })
+
+    await registry.acquireThreadWorker({ threadId: 'thread-a', cwd: '/tmp/project-a' })
+    await registry.send('thread-a', { type: 'control.setStatus', status: 'running' })
+    now = 1200
+    await waitMs(500)
+
+    expect(registry.listLeases()).toHaveLength(1)
+    expect(stopReasons).toHaveLength(0)
+  })
+
+  it('idle 扫描遇到已并发释放的 worker 时继续完成回收', async () => {
+    let now = 0
+    let count = 0
+    let registry: ThreadWorkerRegistry
+    const stopReasons: Array<{ workerId: string; reason: string }> = []
+    registry = new ThreadWorkerRegistry({
+      now: () => now,
+      idleTimeoutMs: 1000,
+      idleCheckIntervalMs: 50,
+      createWorker: async () => {
+        const workerId = `worker-${++count}`
+        return {
+          ...createFakeWorker(workerId),
+          stop: async (reason: string) => {
+            stopReasons.push({ workerId, reason })
+            if (workerId === 'worker-1' && registry.listLeases().some((lease) => lease.threadId === 'thread-b')) {
+              await registry.releaseThreadWorker('thread-b', 'stop')
+            }
+          }
+        }
+      }
+    })
+
+    await registry.acquireThreadWorker({ threadId: 'thread-a', cwd: '/tmp/project-a' })
+    await registry.acquireThreadWorker({ threadId: 'thread-b', cwd: '/tmp/project-b' })
+    now = 1200
+    await waitMs(100)
+
+    expect(registry.listLeases()).toHaveLength(0)
+    expect(stopReasons).toEqual([
+      { workerId: 'worker-1', reason: 'idle' },
+      { workerId: 'worker-2', reason: 'stop' }
+    ])
+  })
+
+  it('worker hang 时释放租约并记录 crash 生命周期', async () => {
+    let hangListener: ((info: WorkerHangInfo) => void) | undefined
+    let now = 0
+    const events: ThreadWorkerLifecycleEvent[] = []
+    const stopReasons: string[] = []
+    const registry = new ThreadWorkerRegistry({
+      now: () => now,
+      onLifecycle: (event) => events.push(event),
+      createWorker: async () => ({
+        ...createFakeWorker('worker-a'),
+        onHang: (listener) => {
+          hangListener = listener
+          return () => {
+            hangListener = undefined
+          }
+        },
+        stop: async (reason: string) => {
+          stopReasons.push(reason)
+        }
+      })
+    })
+
+    await registry.acquireThreadWorker({ threadId: 'thread-a', cwd: '/tmp/project-a' })
+    now = 200
+    hangListener?.({ workerId: 'worker-a', threadId: 'thread-a', silentMs: 1000 })
+    await waitUntil(() => registry.listLeases().length === 0)
+
+    expect(stopReasons).toEqual(['crash'])
+    expect(events).toContainEqual({
+      type: 'worker.run.finished',
+      workerId: 'worker-a',
+      threadId: 'thread-a',
+      reason: 'crash',
+      startedAt: 0,
+      exitedAt: 200
+    })
+  })
 })
 
 /**
@@ -188,4 +327,8 @@ async function waitUntil(predicate: () => boolean): Promise<void> {
     await new Promise((resolve) => setTimeout(resolve, 0))
   }
   throw new Error('condition was not met')
+}
+
+async function waitMs(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms))
 }

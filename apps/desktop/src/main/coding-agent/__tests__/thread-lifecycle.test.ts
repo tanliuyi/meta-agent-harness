@@ -166,13 +166,15 @@ function createRecordingRegistry(): {
       if (!input.threadId) {
         throw new Error('threadId is required')
       }
+      const time = acquires.length
       const lease: WorkerLease = {
         workerId: `worker-${acquires.length}`,
         threadId: input.threadId,
         cwd: input.cwd,
         sessionFile: input.sessionFile,
-        acquiredAt: acquires.length,
-        lastActiveAt: acquires.length
+        acquiredAt: time,
+        lastActiveAt: time,
+        lastEventAt: time
       }
       leases.set(input.threadId, lease)
       return lease
