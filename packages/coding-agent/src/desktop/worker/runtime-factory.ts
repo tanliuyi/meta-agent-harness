@@ -123,7 +123,7 @@ function requireApprovalBridge(approvalBridge: ApprovalBridge | undefined): Appr
  */
 function createSessionManager(input: StartThreadInput): SessionManager {
 	if (input.sessionFile) {
-		return SessionManager.open(input.sessionFile, undefined, input.cwd);
+		return SessionManager.open(input.sessionFile, undefined, input.cwdOverride);
 	}
 	return SessionManager.create(input.cwd);
 }

@@ -3,6 +3,7 @@
  */
 
 import type { CwdPath, IsoTime, SessionFile, ThreadId } from "./identity.ts";
+import type { RpcResponse, RpcSessionState } from "../../modes/rpc/rpc-types.ts";
 
 /** Thread 运行时状态。 */
 export type ThreadRuntimeState = "new" | "queued" | "starting" | "idle" | "running" | "stopping" | "stopped" | "error";
@@ -15,6 +16,8 @@ export interface StartThreadInput {
 	cwd: CwdPath;
 	/** Session 文件路径（可选）。 */
 	sessionFile?: SessionFile;
+	/** 可选 cwd 覆盖；未设置时 resume 使用 JSONL session header cwd。 */
+	cwdOverride?: CwdPath;
 	/** 线程标题。 */
 	title?: string;
 	/** Agent 目录路径（可选）。 */
@@ -40,3 +43,15 @@ export interface ThreadSummary {
 	/** 最后更新时间（ISO 8601）。 */
 	updatedAt: IsoTime;
 }
+
+/** 当前 AgentSession live runtime state：复用 Pi RPC get_state，只追加 desktop runtime cwd。 */
+export type ThreadLiveState = RpcSessionState & {
+	/** 当前 runtime cwd，resume 时来自 Pi session header 或 cwdOverride。 */
+	cwd: CwdPath;
+};
+
+/** get_messages 命令返回的 Pi live messages。 */
+export type ThreadMessagesResponse = Extract<
+	RpcResponse,
+	{ command: "get_messages"; success: true }
+>["data"];

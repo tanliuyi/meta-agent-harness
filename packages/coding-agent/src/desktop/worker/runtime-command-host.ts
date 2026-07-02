@@ -3,6 +3,7 @@
  */
 
 import type { AgentSessionRuntime } from "../../core/agent-session-runtime.ts";
+import type { ProjectTrustContext } from "../../core/extensions/index.ts";
 
 /** Runtime 命令 handler 共享的 host。 */
 export interface RuntimeCommandHandlerHost {
@@ -10,6 +11,8 @@ export interface RuntimeCommandHandlerHost {
 	runtime: AgentSessionRuntime;
 	/** 重新绑定会话事件的回调（可选）。 */
 	rebindSession?: () => Promise<void>;
+	/** 为 session replacement 后的新 cwd 创建 Project trust 上下文。 */
+	projectTrustContextFactory?: (cwd: string) => ProjectTrustContext;
 }
 
 /**

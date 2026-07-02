@@ -4,7 +4,8 @@
 
 import type { DesktopDiagnostic } from "./diagnostic.ts";
 import type { CwdPath, SessionFile, ThreadId, WorkerId } from "./identity.ts";
-import type { DesktopThinkingLevel, ModelIdentity } from "./model.ts";
+import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
+import type { ModelIdentity } from "./model.ts";
 import type { ApprovalRequest } from "./approval.ts";
 import type { DesktopFileChange, DesktopToolCall } from "./tool.ts";
 import type { ThreadRuntimeState } from "./thread.ts";
@@ -36,7 +37,7 @@ export interface ThreadSnapshot {
 	/** 当前模型身份（可选）。 */
 	model?: ModelIdentity;
 	/** 当前 thinking 级别。 */
-	thinkingLevel: DesktopThinkingLevel;
+	thinkingLevel: ThinkingLevel;
 	/** 消息列表。 */
 	messages: DesktopMessage[];
 	/** 工具调用列表。 */

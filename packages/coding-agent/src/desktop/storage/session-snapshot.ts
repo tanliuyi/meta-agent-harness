@@ -2,7 +2,6 @@
  * 从 Pi canonical JSONL session 重建 desktop 最小 snapshot。
  */
 
-import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import {
 	SessionManager,
 	type ModelChangeEntry,
@@ -10,9 +9,10 @@ import {
 	type SessionInfoEntry,
 	type ThinkingLevelChangeEntry,
 } from "../../core/session-manager.ts";
-import type { ThreadSnapshot, DesktopMessage } from "../protocol/snapshot.ts";
-import type { DesktopThinkingLevel } from "../protocol/model.ts";
+import type { ThreadSnapshot } from "../protocol/snapshot.ts";
+import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
 import type { ThreadSummary } from "../protocol/thread.ts";
+import { toDesktopMessages } from "../protocol/message.ts";
 
 /**
  * 从 session 文件构建 snapshot 所需的输入。
@@ -32,7 +32,7 @@ export interface BuildSnapshotFromSessionInput {
  * @returns 重建后的 thread snapshot。
  */
 export function buildSnapshotFromSession(input: BuildSnapshotFromSessionInput): ThreadSnapshot {
-	const manager = SessionManager.open(input.sessionFile, undefined, input.cwdOverride ?? input.thread.cwd);
+	const manager = SessionManager.open(input.sessionFile, undefined, input.cwdOverride);
 	const header = manager.getHeader();
 	const context = manager.buildSessionContext();
 	const entries = manager.getEntries();
@@ -47,7 +47,7 @@ export function buildSnapshotFromSession(input: BuildSnapshotFromSessionInput): 
 		status: input.thread.status,
 		model: modelEntry ? { provider: modelEntry.provider, id: modelEntry.modelId } : undefined,
 		thinkingLevel: normalizeThinkingLevel(thinkingEntry?.thinkingLevel ?? context.thinkingLevel),
-		messages: context.messages.map((message, index) => toDesktopMessage(message, index)),
+		messages: toDesktopMessages(context.messages),
 		toolCalls: [],
 		fileChanges: [],
 		approvals: [],
@@ -57,11 +57,11 @@ export function buildSnapshotFromSession(input: BuildSnapshotFromSessionInput): 
 }
 
 /**
- * 将字符串 thinking level 归一化为有效的 DesktopThinkingLevel。
+ * 将字符串 thinking level 归一化为 Pi ThinkingLevel。
  * @param value - 原始 thinking level 字符串。
  * @returns 归一化后的 thinking level。
  */
-function normalizeThinkingLevel(value: string | undefined): DesktopThinkingLevel {
+function normalizeThinkingLevel(value: string | undefined): ThinkingLevel {
 	switch (value) {
 		case "minimal":
 		case "low":
@@ -72,61 +72,6 @@ function normalizeThinkingLevel(value: string | undefined): DesktopThinkingLevel
 		default:
 			return "off";
 	}
-}
-
-/**
- * 将 AgentMessage 转换为 DesktopMessage。
- * @param message - 原始 agent 消息。
- * @param index - 消息索引，用于生成 ID。
- * @returns Desktop 消息对象。
- */
-function toDesktopMessage(message: AgentMessage, index: number): DesktopMessage {
-	return {
-		id: `message-${index}`,
-		role: mapRole(message.role),
-		text: hasContent(message) ? extractText(message.content) : undefined,
-		createdAt: typeof message.timestamp === "number" ? new Date(message.timestamp).toISOString() : undefined,
-	};
-}
-
-/**
- * 映射消息角色到 desktop 消息角色。
- * @param role - 原始角色。
- * @returns Desktop 消息角色。
- */
-function mapRole(role: AgentMessage["role"]): DesktopMessage["role"] {
-	if (role === "assistant") {
-		return role;
-	}
-	return "user";
-}
-
-/**
- * 判断消息是否包含 content 字段。
- * @param message - 原始消息。
- * @returns 是否包含 content。
- */
-function hasContent(message: AgentMessage): message is AgentMessage & { content: unknown } {
-	return "content" in message;
-}
-
-/**
- * 从消息内容中提取文本。
- * @param content - 消息内容。
- * @returns 提取的文本字符串，若不存在则返回 undefined。
- */
-function extractText(content: unknown): string | undefined {
-	if (typeof content === "string") {
-		return content;
-	}
-	if (!Array.isArray(content)) {
-		return undefined;
-	}
-	const text = content
-		.filter((part): part is { type: "text"; text: string } => part.type === "text" && typeof part.text === "string")
-		.map((part) => part.text)
-		.join("");
-	return text || undefined;
 }
 
 /**

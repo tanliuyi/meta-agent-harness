@@ -3,14 +3,16 @@
  */
 
 import type { AgentSession } from "../../core/agent-session.ts";
+import type { ThreadLiveState } from "../protocol/thread.ts";
 
 /**
  * 根据 AgentSession 构建 desktop runtime 状态对象。
  * @param session - 当前 agent session 实例。
  * @returns 包含状态字段的 plain 对象。
  */
-export function buildRuntimeState(session: AgentSession): Record<string, unknown> {
+export function buildRuntimeState(session: AgentSession): ThreadLiveState {
 	return {
+		cwd: session.sessionManager.getCwd(),
 		model: session.model,
 		thinkingLevel: session.thinkingLevel,
 		isStreaming: session.isStreaming,

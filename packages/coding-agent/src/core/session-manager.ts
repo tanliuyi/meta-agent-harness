@@ -526,6 +526,16 @@ function readSessionHeader(filePath: string): SessionHeader | null {
 	}
 }
 
+export function resolveSessionCwd(sessionFile: string, cwdFallback: string, cwdOverride?: string): string {
+	if (cwdOverride) {
+		return cwdOverride;
+	}
+	const header = loadEntriesFromFile(resolvePath(sessionFile)).find((entry) => entry.type === "session") as
+		| SessionHeader
+		| undefined;
+	return header?.cwd ?? cwdFallback;
+}
+
 function getSessionHeaderCwd(header: SessionHeader): string | undefined {
 	const cwd = (header as { cwd?: unknown }).cwd;
 	return typeof cwd === "string" ? cwd : undefined;

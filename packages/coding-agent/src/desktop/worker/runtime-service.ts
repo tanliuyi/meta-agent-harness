@@ -12,6 +12,7 @@ import { ApprovalBridge } from "./approval-bridge.ts";
 import { createRuntimeForThread } from "./runtime-factory.ts";
 import { ExtensionUiBridge } from "./extension-ui-bridge.ts";
 import { handleRuntimeCommand } from "./runtime-command-handler.ts";
+import { createDesktopProjectTrustContext } from "./project-trust-context.ts";
 
 /** 创建 thread 对应的 AgentSessionRuntime 的工厂函数。 */
 export type CreateRuntimeForThread = (
@@ -145,6 +146,12 @@ export class RuntimeDesktopWorkerService implements DesktopWorkerService {
 				rebindSession: async () => {
 					this.bindSessionEvents();
 				},
+				projectTrustContextFactory: (cwd) =>
+					createDesktopProjectTrustContext({
+						cwd,
+						approvalBridge: this.requireApprovalBridge(),
+						hasUI: true,
+					}),
 			},
 			envelope,
 		);
@@ -172,6 +179,13 @@ export class RuntimeDesktopWorkerService implements DesktopWorkerService {
 		this.uiBridge = undefined;
 		this.threadId = undefined;
 		this.started = false;
+	}
+
+	private requireApprovalBridge(): ApprovalBridge {
+		if (!this.approvalBridge) {
+			throw new Error("approval bridge is missing");
+		}
+		return this.approvalBridge;
 	}
 
 	/**

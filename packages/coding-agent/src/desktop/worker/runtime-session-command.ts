@@ -27,12 +27,18 @@ export async function handleRuntimeSessionCommand(
 			return createWorkerResponse(envelope.id, command.type, result);
 		}
 		case "switch_session": {
-			const result = await host.runtime.switchSession(command.sessionPath, { cwdOverride: command.cwdOverride });
+			const result = await host.runtime.switchSession(command.sessionPath, {
+				cwdOverride: command.cwdOverride,
+				projectTrustContextFactory: host.projectTrustContextFactory,
+			});
 			await rebindIfNeeded(host, result.cancelled);
 			return createWorkerResponse(envelope.id, command.type, result);
 		}
 		case "import_session": {
-			const result = await host.runtime.importFromJsonl(command.inputPath, command.cwdOverride);
+			const result = await host.runtime.importFromJsonl(command.inputPath, {
+				cwdOverride: command.cwdOverride,
+				projectTrustContextFactory: host.projectTrustContextFactory,
+			});
 			await rebindIfNeeded(host, result.cancelled);
 			return createWorkerResponse(envelope.id, command.type, result);
 		}

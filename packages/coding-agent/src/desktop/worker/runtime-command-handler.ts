@@ -5,6 +5,7 @@
 import { createDesktopError } from "../protocol/error.ts";
 import { createWorkerErrorResponse, createWorkerResponse, type WorkerCommandEnvelope, type WorkerResponseEnvelope } from "../protocol/envelope.ts";
 import type { CanonicalAgentCommand } from "../protocol/commands/canonical.ts";
+import type { ThreadMessagesResponse } from "../protocol/thread.ts";
 import { getRuntimeCommands } from "./runtime-command-list.ts";
 import { type RuntimeCommandHandlerHost } from "./runtime-command-host.ts";
 import { handleRuntimeControlCommand } from "./runtime-control-command.ts";
@@ -50,7 +51,7 @@ async function handleCanonicalCommand(
 		return createWorkerResponse(envelope.id, command.type, { path: await session.exportToHtml(command.outputPath) });
 	}
 	if (command.type === "get_messages") {
-		return createWorkerResponse(envelope.id, command.type, { messages: session.messages });
+		return createWorkerResponse<ThreadMessagesResponse>(envelope.id, command.type, { messages: session.messages });
 	}
 	if (command.type === "get_commands") {
 		return createWorkerResponse(envelope.id, command.type, { commands: getRuntimeCommands(session) });

@@ -666,6 +666,22 @@ export class SettingsManager {
 		return sessionDir ? normalizePath(sessionDir) : sessionDir;
 	}
 
+	setSessionDir(sessionDir: string | undefined): void {
+		this.globalSettings.sessionDir = sessionDir;
+		this.markModified("sessionDir");
+		this.save();
+	}
+
+	getHttpProxy(): string | undefined {
+		return this.settings.httpProxy;
+	}
+
+	setHttpProxy(httpProxy: string | undefined): void {
+		this.globalSettings.httpProxy = httpProxy;
+		this.markModified("httpProxy");
+		this.save();
+	}
+
 	getDefaultProvider(): string | undefined {
 		return this.settings.defaultProvider;
 	}
@@ -768,8 +784,32 @@ export class SettingsManager {
 		return this.settings.compaction?.reserveTokens ?? 16384;
 	}
 
+	setCompactionReserveTokens(tokens: number): void {
+		if (!Number.isFinite(tokens) || tokens < 0) {
+			throw new Error(`Invalid compaction.reserveTokens setting: ${String(tokens)}`);
+		}
+		if (!this.globalSettings.compaction) {
+			this.globalSettings.compaction = {};
+		}
+		this.globalSettings.compaction.reserveTokens = Math.floor(tokens);
+		this.markModified("compaction", "reserveTokens");
+		this.save();
+	}
+
 	getCompactionKeepRecentTokens(): number {
 		return this.settings.compaction?.keepRecentTokens ?? 20000;
+	}
+
+	setCompactionKeepRecentTokens(tokens: number): void {
+		if (!Number.isFinite(tokens) || tokens < 0) {
+			throw new Error(`Invalid compaction.keepRecentTokens setting: ${String(tokens)}`);
+		}
+		if (!this.globalSettings.compaction) {
+			this.globalSettings.compaction = {};
+		}
+		this.globalSettings.compaction.keepRecentTokens = Math.floor(tokens);
+		this.markModified("compaction", "keepRecentTokens");
+		this.save();
 	}
 
 	getCompactionSettings(): { enabled: boolean; reserveTokens: number; keepRecentTokens: number } {
@@ -787,8 +827,29 @@ export class SettingsManager {
 		};
 	}
 
+	setBranchSummaryReserveTokens(tokens: number): void {
+		if (!Number.isFinite(tokens) || tokens < 0) {
+			throw new Error(`Invalid branchSummary.reserveTokens setting: ${String(tokens)}`);
+		}
+		if (!this.globalSettings.branchSummary) {
+			this.globalSettings.branchSummary = {};
+		}
+		this.globalSettings.branchSummary.reserveTokens = Math.floor(tokens);
+		this.markModified("branchSummary", "reserveTokens");
+		this.save();
+	}
+
 	getBranchSummarySkipPrompt(): boolean {
 		return this.settings.branchSummary?.skipPrompt ?? false;
+	}
+
+	setBranchSummarySkipPrompt(skipPrompt: boolean): void {
+		if (!this.globalSettings.branchSummary) {
+			this.globalSettings.branchSummary = {};
+		}
+		this.globalSettings.branchSummary.skipPrompt = skipPrompt;
+		this.markModified("branchSummary", "skipPrompt");
+		this.save();
 	}
 
 	getRetryEnabled(): boolean {
@@ -812,6 +873,30 @@ export class SettingsManager {
 		};
 	}
 
+	setRetryMaxRetries(maxRetries: number): void {
+		if (!Number.isFinite(maxRetries) || maxRetries < 0) {
+			throw new Error(`Invalid retry.maxRetries setting: ${String(maxRetries)}`);
+		}
+		if (!this.globalSettings.retry) {
+			this.globalSettings.retry = {};
+		}
+		this.globalSettings.retry.maxRetries = Math.floor(maxRetries);
+		this.markModified("retry", "maxRetries");
+		this.save();
+	}
+
+	setRetryBaseDelayMs(baseDelayMs: number): void {
+		if (!Number.isFinite(baseDelayMs) || baseDelayMs < 0) {
+			throw new Error(`Invalid retry.baseDelayMs setting: ${String(baseDelayMs)}`);
+		}
+		if (!this.globalSettings.retry) {
+			this.globalSettings.retry = {};
+		}
+		this.globalSettings.retry.baseDelayMs = Math.floor(baseDelayMs);
+		this.markModified("retry", "baseDelayMs");
+		this.save();
+	}
+
 	getHttpIdleTimeoutMs(): number {
 		return parseTimeoutSetting(this.settings.httpIdleTimeoutMs, "httpIdleTimeoutMs") ?? DEFAULT_HTTP_IDLE_TIMEOUT_MS;
 	}
@@ -833,8 +918,65 @@ export class SettingsManager {
 		};
 	}
 
+	setProviderRetryTimeoutMs(timeoutMs: number | undefined): void {
+		if (timeoutMs !== undefined && (!Number.isFinite(timeoutMs) || timeoutMs < 0)) {
+			throw new Error(`Invalid retry.provider.timeoutMs setting: ${String(timeoutMs)}`);
+		}
+		if (!this.globalSettings.retry) {
+			this.globalSettings.retry = {};
+		}
+		if (!this.globalSettings.retry.provider) {
+			this.globalSettings.retry.provider = {};
+		}
+		this.globalSettings.retry.provider.timeoutMs =
+			timeoutMs === undefined ? undefined : Math.floor(timeoutMs);
+		this.markModified("retry", "provider");
+		this.save();
+	}
+
+	setProviderRetryMaxRetries(maxRetries: number | undefined): void {
+		if (maxRetries !== undefined && (!Number.isFinite(maxRetries) || maxRetries < 0)) {
+			throw new Error(`Invalid retry.provider.maxRetries setting: ${String(maxRetries)}`);
+		}
+		if (!this.globalSettings.retry) {
+			this.globalSettings.retry = {};
+		}
+		if (!this.globalSettings.retry.provider) {
+			this.globalSettings.retry.provider = {};
+		}
+		this.globalSettings.retry.provider.maxRetries =
+			maxRetries === undefined ? undefined : Math.floor(maxRetries);
+		this.markModified("retry", "provider");
+		this.save();
+	}
+
+	setProviderRetryMaxRetryDelayMs(maxRetryDelayMs: number): void {
+		if (!Number.isFinite(maxRetryDelayMs) || maxRetryDelayMs < 0) {
+			throw new Error(`Invalid retry.provider.maxRetryDelayMs setting: ${String(maxRetryDelayMs)}`);
+		}
+		if (!this.globalSettings.retry) {
+			this.globalSettings.retry = {};
+		}
+		if (!this.globalSettings.retry.provider) {
+			this.globalSettings.retry.provider = {};
+		}
+		this.globalSettings.retry.provider.maxRetryDelayMs = Math.floor(maxRetryDelayMs);
+		this.markModified("retry", "provider");
+		this.save();
+	}
+
 	getWebSocketConnectTimeoutMs(): number | undefined {
 		return parseTimeoutSetting(this.settings.websocketConnectTimeoutMs, "websocketConnectTimeoutMs");
+	}
+
+	setWebSocketConnectTimeoutMs(timeoutMs: number | undefined): void {
+		if (timeoutMs !== undefined && (!Number.isFinite(timeoutMs) || timeoutMs < 0)) {
+			throw new Error(`Invalid websocketConnectTimeoutMs setting: ${String(timeoutMs)}`);
+		}
+		this.globalSettings.websocketConnectTimeoutMs =
+			timeoutMs === undefined ? undefined : Math.floor(timeoutMs);
+		this.markModified("websocketConnectTimeoutMs");
+		this.save();
 	}
 
 	getHideThinkingBlock(): boolean {
@@ -1031,6 +1173,19 @@ export class SettingsManager {
 		return this.settings.thinkingBudgets;
 	}
 
+	setThinkingBudgets(budgets: ThinkingBudgetsSettings | undefined): void {
+		if (budgets) {
+			for (const [level, budget] of Object.entries(budgets)) {
+				if (budget !== undefined && (!Number.isFinite(budget) || budget < 0)) {
+					throw new Error(`Invalid thinkingBudgets.${level} setting: ${String(budget)}`);
+				}
+			}
+		}
+		this.globalSettings.thinkingBudgets = budgets ? { ...budgets } : undefined;
+		this.markModified("thinkingBudgets");
+		this.save();
+	}
+
 	getShowImages(): boolean {
 		return this.settings.terminal?.showImages ?? true;
 	}
@@ -1181,6 +1336,15 @@ export class SettingsManager {
 
 	getCodeBlockIndent(): string {
 		return this.settings.markdown?.codeBlockIndent ?? "  ";
+	}
+
+	setCodeBlockIndent(indent: string): void {
+		if (!this.globalSettings.markdown) {
+			this.globalSettings.markdown = {};
+		}
+		this.globalSettings.markdown.codeBlockIndent = indent;
+		this.markModified("markdown", "codeBlockIndent");
+		this.save();
 	}
 
 	getWarnings(): WarningSettings {

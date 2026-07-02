@@ -6,21 +6,12 @@ import type { ApprovalRequest } from "../approval.ts";
 import type { DesktopDiagnostic } from "../diagnostic.ts";
 import type { ExtensionUiRequest } from "../extension-ui.ts";
 import type { ThreadId } from "../identity.ts";
-import type { DesktopThinkingLevel, ModelIdentity } from "../model.ts";
-import type { ThreadSnapshot } from "../snapshot.ts";
+import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
 import type { DesktopFileChange, DesktopToolCall } from "../tool.ts";
 import type { ThreadRuntimeState } from "../thread.ts";
 
 /** Desktop UI projection 事件联合类型。 */
 export type DesktopProjectionEvent =
-	| {
-			/** 事件类型：线程已启动。 */
-			type: "thread.started";
-			/** 线程 ID。 */
-			threadId: ThreadId;
-			/** 线程初始快照。 */
-			snapshot: ThreadSnapshot;
-	  }
 	| {
 			/** 事件类型：线程状态变化。 */
 			type: "thread.stateChanged";
@@ -30,46 +21,12 @@ export type DesktopProjectionEvent =
 			status: ThreadRuntimeState;
 	  }
 	| {
-			/** 事件类型：线程已退出。 */
-			type: "thread.exited";
-			/** 线程 ID。 */
-			threadId: ThreadId;
-			/** 退出原因。 */
-			reason: string;
-	  }
-	| {
 			/** 事件类型：线程发生错误。 */
 			type: "thread.error";
 			/** 线程 ID。 */
 			threadId: ThreadId;
 			/** 诊断信息。 */
 			diagnostic: DesktopDiagnostic;
-	  }
-	| {
-			/** 事件类型：消息已添加。 */
-			type: "message.added";
-			/** 线程 ID。 */
-			threadId: ThreadId;
-			/** 消息 ID。 */
-			messageId: string;
-	  }
-	| {
-			/** 事件类型：消息增量更新。 */
-			type: "message.delta";
-			/** 线程 ID。 */
-			threadId: ThreadId;
-			/** 消息 ID。 */
-			messageId: string;
-			/** 增量文本内容。 */
-			delta: string;
-	  }
-	| {
-			/** 事件类型：消息已完成。 */
-			type: "message.finished";
-			/** 线程 ID。 */
-			threadId: ThreadId;
-			/** 消息 ID。 */
-			messageId: string;
 	  }
 	| {
 			/** 事件类型：工具调用已开始。 */
@@ -120,36 +77,12 @@ export type DesktopProjectionEvent =
 			request: ExtensionUiRequest;
 	  }
 	| {
-			/** 事件类型：压缩已开始。 */
-			type: "compaction.started";
-			/** 线程 ID。 */
-			threadId: ThreadId;
-			/** 压缩原因：手动、阈值或溢出。 */
-			reason: "manual" | "threshold" | "overflow";
-	  }
-	| {
-			/** 事件类型：压缩已结束。 */
-			type: "compaction.finished";
-			/** 线程 ID。 */
-			threadId: ThreadId;
-			/** 是否被中止。 */
-			aborted: boolean;
-	  }
-	| {
-			/** 事件类型：模型已切换。 */
-			type: "model.changed";
-			/** 线程 ID。 */
-			threadId: ThreadId;
-			/** 新模型身份（未指定时为空）。 */
-			model?: ModelIdentity;
-	  }
-	| {
 			/** 事件类型：thinking 级别已切换。 */
 			type: "thinking.changed";
 			/** 线程 ID。 */
 			threadId: ThreadId;
 			/** 新的 thinking 级别。 */
-			level: DesktopThinkingLevel;
+			level: ThinkingLevel;
 	  }
 	| {
 			/** 事件类型：队列已变化。 */
@@ -160,12 +93,4 @@ export type DesktopProjectionEvent =
 			steering: string[];
 			/** Follow-up 队列中的命令类型列表。 */
 			followUp: string[];
-	  }
-	| {
-			/** 事件类型：快照已更新。 */
-			type: "snapshot.updated";
-			/** 线程 ID。 */
-			threadId: ThreadId;
-			/** 更新后的线程快照。 */
-			snapshot: ThreadSnapshot;
 	  };

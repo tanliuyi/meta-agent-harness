@@ -6,7 +6,7 @@ import type { ApprovalResponse } from "../protocol/approval.ts";
 import type { WorkerCommand } from "../protocol/envelope.ts";
 import type { ExtensionUiResponse } from "../protocol/extension-ui.ts";
 import type { ThreadId } from "../protocol/identity.ts";
-import type { DesktopThinkingLevel } from "../protocol/model.ts";
+import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
 import type { ThreadSnapshot } from "../protocol/snapshot.ts";
 import type { StartThreadInput, ThreadSummary } from "../protocol/thread.ts";
 import type { DesktopIpcEvent } from "./event.ts";
@@ -27,7 +27,7 @@ export interface CodingAgentApi {
 	/** 向指定 thread 发送 worker 命令。 */
 	send(threadId: ThreadId, command: WorkerCommand): Promise<unknown>;
 	/** 设置指定 thread 的 thinking 级别。 */
-	setThinkingLevel(threadId: ThreadId, level: DesktopThinkingLevel): Promise<void>;
+	setThinkingLevel(threadId: ThreadId, level: ThinkingLevel): Promise<void>;
 	/** 响应 extension UI 请求。 */
 	respondUi(response: ExtensionUiResponse): Promise<void>;
 	/** 响应审批请求。 */

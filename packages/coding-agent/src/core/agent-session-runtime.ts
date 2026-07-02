@@ -349,7 +349,14 @@ export class AgentSessionRuntime {
 	 * @throws {SessionImportFileNotFoundError} When the input path does not exist.
 	 * @throws {MissingSessionCwdError} When the imported session cwd cannot be resolved and no override is provided.
 	 */
-	async importFromJsonl(inputPath: string, cwdOverride?: string): Promise<{ cancelled: boolean }> {
+	async importFromJsonl(
+		inputPath: string,
+		options?: string | {
+			cwdOverride?: string;
+			projectTrustContextFactory?: (cwd: string) => ProjectTrustContext;
+		},
+	): Promise<{ cancelled: boolean }> {
+		const cwdOverride = typeof options === "string" ? options : options?.cwdOverride;
 		const resolvedPath = resolvePath(inputPath);
 		if (!existsSync(resolvedPath)) {
 			throw new SessionImportFileNotFoundError(resolvedPath);
@@ -380,6 +387,7 @@ export class AgentSessionRuntime {
 				agentDir: this.services.agentDir,
 				sessionManager,
 				sessionStartEvent: { type: "session_start", reason: "resume", previousSessionFile },
+				projectTrustContext: typeof options === "string" ? undefined : options?.projectTrustContextFactory?.(sessionManager.getCwd()),
 			}),
 		);
 		await this.finishSessionReplacement();
