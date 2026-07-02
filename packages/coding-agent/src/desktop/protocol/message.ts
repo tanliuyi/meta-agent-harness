@@ -2,8 +2,13 @@
  * 定义 Pi AgentMessage 到 desktop message 的纯转换逻辑。
  */
 
+import type { CustomMessage } from "../../core/messages.ts";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import type { DesktopMessage } from "./snapshot.ts";
+import type { DesktopToolCall } from "./tool.ts";
+import type { ThreadId } from "./identity.ts";
+
+export type _DesktopMessageProtocolAugmentation = CustomMessage;
 
 /** 不含 ID 的 desktop message 内容。 */
 export type DesktopMessageContent = Omit<DesktopMessage, "id">;
@@ -18,9 +23,14 @@ export function toDesktopMessageContent(message: AgentMessage): DesktopMessageCo
 	if (!role) {
 		return undefined;
 	}
+	const text = hasContent(message) ? extractText(message.content) : undefined;
+	if (role === "assistant" && !text?.trim()) {
+		return undefined;
+	}
 	return {
 		role,
-		text: hasContent(message) ? extractText(message.content) : undefined,
+		text,
+		raw: message,
 		createdAt: hasTimestamp(message) ? normalizeTimestamp(message.timestamp) : undefined,
 	};
 }
@@ -46,6 +56,50 @@ export function toDesktopMessages(messages: AgentMessage[]): DesktopMessage[] {
 		const item = toDesktopMessage(message, `message-${index}`);
 		return item ? [item] : [];
 	});
+}
+
+/**
+ * 从 AgentMessage 列表派生 Desktop 工具调用。
+ * @param messages - Pi live/context messages。
+ * @param threadId - 关联线程 ID。
+ * @returns desktop 工具调用列表。
+ */
+export function toDesktopToolCalls(messages: AgentMessage[], threadId: ThreadId): DesktopToolCall[] {
+	const toolCalls = new Map<string, DesktopToolCall>();
+	for (const message of messages) {
+		if (message.role === "assistant" && hasContent(message) && Array.isArray(message.content)) {
+			for (const block of message.content) {
+				if (!isRecord(block) || block.type !== "toolCall" || typeof block.id !== "string") {
+					continue;
+				}
+				const existing = toolCalls.get(block.id);
+				toolCalls.set(block.id, {
+					...existing,
+					threadId,
+					toolCallId: block.id,
+					toolName: typeof block.name === "string" ? block.name : existing?.toolName ?? "tool",
+					status: existing?.status ?? "queued",
+					args: "arguments" in block ? block.arguments : existing?.args,
+				});
+			}
+			continue;
+		}
+		if (message.role === "toolResult" && typeof message.toolCallId === "string") {
+			const existing = toolCalls.get(message.toolCallId);
+			toolCalls.set(message.toolCallId, {
+				...existing,
+				threadId,
+				toolCallId: message.toolCallId,
+				toolName: typeof message.toolName === "string" ? message.toolName : existing?.toolName ?? "tool",
+				status: message.isError ? "failed" : "succeeded",
+				args: existing?.args,
+				result: message.content,
+				resultSummary: extractText(message.content),
+				finishedAt: hasTimestamp(message) ? normalizeTimestamp(message.timestamp) : existing?.finishedAt,
+			});
+		}
+	}
+	return [...toolCalls.values()];
 }
 
 /**
@@ -86,6 +140,15 @@ function hasContent(message: AgentMessage): message is AgentMessage & { content:
  */
 function hasTimestamp(message: AgentMessage): message is AgentMessage & { timestamp: unknown } {
 	return "timestamp" in message;
+}
+
+/**
+ * 判断普通对象。
+ * @param value - 值。
+ * @returns 是否普通对象。
+ */
+function isRecord(value: unknown): value is Record<string, unknown> {
+	return typeof value === "object" && value !== null;
 }
 
 /**

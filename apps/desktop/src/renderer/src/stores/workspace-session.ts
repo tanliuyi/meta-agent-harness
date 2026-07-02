@@ -10,8 +10,8 @@ import type {
   ApprovalRequest,
   ApprovalResponse,
   CodingAgentIpcEvent,
-  ThreadMessage,
   ThreadSnapshot,
+  ThreadMessage,
   ThreadSummary
 } from '@shared/coding-agent/types'
 
@@ -21,6 +21,14 @@ export type SessionUiState = {
   panelOpen: boolean
   /** 面板宽度。 */
   panelWidth: number
+}
+
+/** 消息渲染状态。 */
+export interface MessageRenderState {
+  /** 渲染版本号，流式更新时递增。 */
+  revision: number
+  /** 当前渲染状态。 */
+  renderState: 'streaming' | 'complete'
 }
 
 /** 工作区会话对象。 */
@@ -73,6 +81,126 @@ export default defineStore('workspace-session', () => {
 
   /** 最近接收到的 IPC 事件列表。 */
   const events = ref<CodingAgentIpcEvent[]>([])
+
+  /** 消息的渲染状态（版本号 + streaming/complete），key 为 threadId:messageId。 */
+  const messageRenderState = reactive<Record<string, MessageRenderState>>({})
+
+  /** 待提交的渲染版本更新。 */
+  const pendingRevisions = new Map<string, MessageRenderState>()
+  let revisionFlushId: number | null = null
+
+  /** 待提交的 canonical message 事件，按 thread + message 合并。 */
+  const pendingMessageEvents = new Map<string, CanonicalMessageIpcEvent>()
+  let messageEventFlushId: number | null = null
+
+  /**
+   * 将 pending 的版本更新 flush 到响应式状态。
+   */
+  function flushRevisionUpdates(): void {
+    revisionFlushId = null
+    for (const [id, state] of pendingRevisions) {
+      messageRenderState[id] = { ...state }
+    }
+    pendingRevisions.clear()
+  }
+
+  /**
+   * 递增指定消息的渲染版本号。
+   * 同一帧内多次更新会合并为一次响应式提交。
+   * @param messageId - 消息 ID。
+   * @param renderState - 当前渲染状态。
+   */
+  function getMessageRenderStateKey(threadId: string, messageId: string): string {
+    return `${threadId}:${messageId}`
+  }
+
+  function bumpMessageRevision(
+    threadId: string,
+    messageId: string,
+    renderState: 'streaming' | 'complete'
+  ): void {
+    const key = getMessageRenderStateKey(threadId, messageId)
+    const existing = pendingRevisions.get(key) ?? messageRenderState[key]
+    const next: MessageRenderState = {
+      revision: (existing?.revision ?? 0) + 1,
+      renderState
+    }
+    pendingRevisions.set(key, next)
+    if (revisionFlushId === null) {
+      revisionFlushId = requestAnimationFrame(flushRevisionUpdates)
+    }
+  }
+
+  /**
+   * 将 pending 的 canonical message 事件 flush 到 snapshot。
+   */
+  function flushPendingMessageEvents(): void {
+    messageEventFlushId = null
+    const events = [...pendingMessageEvents.values()]
+    pendingMessageEvents.clear()
+    for (const event of events) {
+      applyEventToSessions(sessions, event, (messageId, renderState) => {
+        bumpMessageRevision(event.threadId, messageId, renderState)
+      })
+    }
+  }
+
+  /**
+   * 合并 canonical message 事件到下一帧提交。
+   * @param event - canonical message IPC 事件。
+   */
+  function scheduleMessageEvent(event: CanonicalMessageIpcEvent): void {
+    const session = sessions[event.threadId]
+    const snapshot = session?.snapshot
+    const content = toDesktopMessageContent(event.event.message)
+    if (!snapshot || !content) {
+      applyEventToSessions(sessions, event, (messageId, renderState) => {
+        bumpMessageRevision(event.threadId, messageId, renderState)
+      })
+      return
+    }
+
+    const messageId = getPiMessageId(snapshot.messages, content)
+    pendingMessageEvents.set(getMessageRenderStateKey(event.threadId, messageId), event)
+    if (messageEventFlushId === null) {
+      messageEventFlushId = requestAnimationFrame(flushPendingMessageEvents)
+    }
+  }
+
+  /**
+   * 获取消息的渲染状态，未记录时返回初始状态。
+   * @param messageId - 消息 ID。
+   * @returns 渲染状态。
+   */
+  function getMessageRenderState(threadId: string, messageId: string): MessageRenderState {
+    return messageRenderState[getMessageRenderStateKey(threadId, messageId)] ?? {
+      revision: 1,
+      renderState: 'complete'
+    }
+  }
+
+  /**
+   * 从完整快照同步消息渲染状态。
+   * 所有消息标记为完成态；新消息初始化为版本 1。
+   * @param snapshot - 线程快照。
+   */
+  function syncRenderStateFromSnapshot(snapshot: ThreadSnapshot): void {
+    const keys = new Set(
+      snapshot.messages.map((message) => getMessageRenderStateKey(snapshot.threadId, message.id))
+    )
+    for (const key of Object.keys(messageRenderState)) {
+      if (key.startsWith(`${snapshot.threadId}:`) && !keys.has(key)) {
+        delete messageRenderState[key]
+      }
+    }
+    for (const message of snapshot.messages) {
+      const key = getMessageRenderStateKey(snapshot.threadId, message.id)
+      messageRenderState[key] = {
+        revision: messageRenderState[key]?.revision ?? 1,
+        renderState: 'complete'
+      }
+    }
+  }
 
   /** 当前活跃会话对象。 */
   const activeSession = computed(() => {
@@ -138,6 +266,7 @@ export default defineStore('workspace-session', () => {
     try {
       const snapshot = await window.api.codingAgent.createThread({ projectId })
       mergeSnapshot(sessions, snapshot)
+      syncRenderStateFromSnapshot(snapshot)
       activeSessionId.value = snapshot.threadId
     } catch (error) {
       errorMessage.value = error instanceof Error ? error.message : String(error)
@@ -161,6 +290,7 @@ export default defineStore('workspace-session', () => {
       snapshot,
       ui: sessions[threadId]?.ui ?? createUiState()
     })
+    syncRenderStateFromSnapshot(snapshot)
   }
 
   /**
@@ -265,10 +395,18 @@ export default defineStore('workspace-session', () => {
     if (event.type === 'threadSnapshot') {
       const existed = Boolean(sessions[event.threadId])
       mergeSnapshot(sessions, event.snapshot)
+      syncRenderStateFromSnapshot(event.snapshot)
       if (!existed || !activeSessionId.value || !sessions[activeSessionId.value]) {
         activeSessionId.value = event.threadId
       }
       return
+    }
+    if (event.type === 'canonical') {
+      const messageEvent = toCanonicalMessageIpcEvent(event)
+      if (messageEvent) {
+        scheduleMessageEvent(messageEvent)
+        return
+      }
     }
     if (event.type === 'project') {
       workspaceProject.projects[event.event.project.projectId] = event.event.project
@@ -281,7 +419,12 @@ export default defineStore('workspace-session', () => {
         pendingApprovals[event.event.approval.approvalId] = event.event.approval
       }
     }
-    applyEventToSessions(sessions, event)
+    const threadId = getEventThreadId(event)
+    applyEventToSessions(sessions, event, (messageId, renderState) => {
+      if (threadId) {
+        bumpMessageRevision(threadId, messageId, renderState)
+      }
+    })
   }
 
   /** 订阅 IPC 事件并保存取消订阅函数。 */
@@ -296,6 +439,7 @@ export default defineStore('workspace-session', () => {
     draftMessage,
     errorMessage,
     events,
+    getMessageRenderState,
     loadThreads,
     loading,
     maxSessionPanelWidth,
@@ -395,10 +539,12 @@ export function getEventThreadId(event: CodingAgentIpcEvent): string {
  * 将 IPC event 投影到 session snapshot。
  * @param sessions - session 映射。
  * @param event - IPC event。
+ * @param onMessageRevision - 消息更新时触发的回调。
  */
 export function applyEventToSessions(
   sessions: Record<string, WorkspaceSession>,
-  event: CodingAgentIpcEvent
+  event: CodingAgentIpcEvent,
+  onMessageRevision?: (messageId: string, renderState: 'streaming' | 'complete') => void
 ): void {
   if (event.type === 'threadSnapshot') {
     mergeSnapshot(sessions, event.snapshot)
@@ -412,8 +558,12 @@ export function applyEventToSessions(
     return
   }
   if (event.type === 'canonical') {
-    applyCanonicalEvent(session.snapshot, event.event)
+    const messageId = applyCanonicalEvent(session.snapshot, event.event)
     session.status = session.snapshot.status
+    if (messageId && onMessageRevision) {
+      const renderState = event.event.type === 'message_end' ? 'complete' : 'streaming'
+      onMessageRevision(messageId, renderState)
+    }
     return
   }
   applyProjectionEvent(session.snapshot, event.event)
@@ -422,46 +572,135 @@ export function applyEventToSessions(
 
 type CanonicalIpcEvent = Extract<CodingAgentIpcEvent, { type: 'canonical' }>['event']
 type ProjectionIpcEvent = Extract<CodingAgentIpcEvent, { type: 'projection' }>['event']
+type CanonicalMessageIpcEvent = Extract<CodingAgentIpcEvent, { type: 'canonical' }> & {
+  event: Extract<CanonicalIpcEvent, { type: 'message_start' | 'message_end' | 'message_update' }>
+}
+
+/**
+ * 将 canonical IPC event 转成 canonical message IPC event。
+ * @param event - canonical IPC event。
+ * @returns message event 或 undefined。
+ */
+function toCanonicalMessageIpcEvent(
+  event: Extract<CodingAgentIpcEvent, { type: 'canonical' }>
+): CanonicalMessageIpcEvent | undefined {
+  if (
+    event.event.type !== 'message_start' &&
+    event.event.type !== 'message_end' &&
+    event.event.type !== 'message_update'
+  ) {
+    return undefined
+  }
+  return event as CanonicalMessageIpcEvent
+}
 
 /**
  * 应用 canonical event。
  * @param snapshot - snapshot。
  * @param event - canonical event。
  */
-function applyCanonicalEvent(snapshot: ThreadSnapshot, event: CanonicalIpcEvent): void {
+function applyCanonicalEvent(snapshot: ThreadSnapshot, event: CanonicalIpcEvent): string | undefined {
   switch (event.type) {
     case 'agent_start':
     case 'turn_start':
       snapshot.status = 'running'
-      return
+      return undefined
     case 'turn_end':
       snapshot.status = 'idle'
-      return
+      return undefined
     case 'message_start':
     case 'message_end':
     case 'message_update':
-      upsertMessageEvent(snapshot, event)
-      return
+      return upsertMessageEvent(snapshot, event)
+    case 'tool_execution_start':
+    case 'tool_execution_update':
+    case 'tool_execution_end':
+      upsertToolExecutionEvent(snapshot, event)
+      return undefined
   }
+  return undefined
 }
 
 /**
  * 应用 canonical message event。
  * @param snapshot - snapshot。
  * @param event - canonical message event。
+ * @returns 被更新的消息 ID，若未更新则返回 undefined。
  */
 function upsertMessageEvent(
   snapshot: ThreadSnapshot,
   event: Extract<CanonicalIpcEvent, { type: 'message_start' | 'message_end' | 'message_update' }>
-): void {
+): string | undefined {
   const content = toDesktopMessageContent(event.message)
   if (!content) {
-    return
+    return undefined
   }
+  const id = getPiMessageId(snapshot.messages, content)
   upsertById(snapshot.messages, {
-    id: getPiMessageId(snapshot.messages, content),
+    id,
     ...content
   })
+  return id
+}
+
+/**
+ * 应用 canonical tool execution event，保留原始事件结构。
+ * @param snapshot - snapshot。
+ * @param event - canonical tool execution event。
+ */
+function upsertToolExecutionEvent(
+  snapshot: ThreadSnapshot,
+  event: Extract<
+    CanonicalIpcEvent,
+    { type: 'tool_execution_start' | 'tool_execution_update' | 'tool_execution_end' }
+  >
+): void {
+  const existing = snapshot.toolCalls.find((item) => item.toolCallId === event.toolCallId)
+  const base = {
+    threadId: snapshot.threadId,
+    toolCallId: event.toolCallId,
+    toolName: event.toolName,
+    args: 'args' in event ? event.args : existing?.args,
+    rawEvent: event
+  } satisfies Partial<ThreadSnapshot['toolCalls'][number]> & { rawEvent: typeof event }
+
+  if (event.type === 'tool_execution_start') {
+    upsertUnknown(
+      snapshot.toolCalls,
+      {
+        ...base,
+        status: 'running',
+        startedAt: existing?.startedAt ?? new Date().toISOString()
+      },
+      'toolCallId'
+    )
+    return
+  }
+
+  if (event.type === 'tool_execution_update') {
+    upsertUnknown(
+      snapshot.toolCalls,
+      {
+        ...base,
+        status: existing?.status ?? 'running',
+        partialResult: event.partialResult
+      },
+      'toolCallId'
+    )
+    return
+  }
+
+  upsertUnknown(
+    snapshot.toolCalls,
+    {
+      ...base,
+      status: event.isError ? 'failed' : 'succeeded',
+      result: event.result,
+      resultSummary: summarizeToolResult(event.result),
+      finishedAt: new Date().toISOString()
+    },
+    'toolCallId'
+  )
 }
 
 /**
@@ -489,7 +728,7 @@ function applyProjectionEvent(snapshot: ThreadSnapshot, event: ProjectionIpcEven
     case 'tool.started':
     case 'tool.updated':
     case 'tool.finished': {
-      upsertUnknown(snapshot.toolCalls, event.toolCall, 'toolCallId')
+      upsertUnknown(snapshot.toolCalls, { ...event.toolCall, rawEvent: event }, 'toolCallId')
       return
     }
     case 'file.changed': {
@@ -501,6 +740,33 @@ function applyProjectionEvent(snapshot: ThreadSnapshot, event: ProjectionIpcEven
       return
     }
   }
+}
+
+/**
+ * 生成工具结果简短文本，兼容现有 DesktopToolCall resultSummary。
+ * @param result - 原始工具结果。
+ * @returns 结果摘要。
+ */
+function summarizeToolResult(result: unknown): string | undefined {
+  if (typeof result === 'string') {
+    return result
+  }
+  if (!isRecord(result)) {
+    return undefined
+  }
+  const content = result.content
+  if (typeof content === 'string') {
+    return content
+  }
+  const text = result.text
+  if (typeof text === 'string') {
+    return text
+  }
+  const message = result.message
+  if (typeof message === 'string') {
+    return message
+  }
+  return undefined
 }
 
 /**

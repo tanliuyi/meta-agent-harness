@@ -135,7 +135,6 @@ const {
 .workspace-content__main-session {
   display: grid;
   grid-template-rows: var(--session-header-height) minmax(0, 1fr);
-  gap: var(--space-3);
   min-width: 0;
   min-height: 0;
 }
@@ -150,6 +149,12 @@ const {
 .workspace-content__session-panel {
   min-width: 0;
   min-height: 0;
+}
+
+.workspace-content__chat {
+  width: 100%;
+  // max-width: 768px;
+  margin: 0 auto;
 }
 
 .workspace-content__session-panel--collapsed {

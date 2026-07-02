@@ -122,6 +122,42 @@ describe('CodingThreadStore', () => {
     rmSync(root, { recursive: true, force: true })
   })
 
+  it('应用重启后不会把持久化的 running 状态恢复成活跃运行态', async () => {
+    const root = createTempDir()
+    const projectFile = join(root, 'projects.json')
+    const threadFile = join(root, 'threads.json')
+    const cwd = join(root, 'repo')
+    mkdirSync(cwd, { recursive: true })
+
+    const projectStore = new ProjectStore(projectFile)
+    const threadStore = new CodingThreadStore(threadFile)
+    const project = projectStore.createProject({ path: cwd })
+    threadStore.saveThread({
+      threadId: 'thread-running-before-restart',
+      projectId: project.projectId,
+      status: 'running',
+      createdAt: '2026-07-01T00:00:00.000Z',
+      updatedAt: '2026-07-01T00:00:00.000Z'
+    })
+    projectStore.close()
+    threadStore.close()
+
+    const reopenedProjectStore = new ProjectStore(projectFile)
+    const reopenedThreadStore = new CodingThreadStore(threadFile)
+    const manager = new ThreadManagerCore(
+      createIdleThreadWorkerRegistry(),
+      reopenedThreadStore,
+      reopenedProjectStore
+    )
+    const snapshot = await manager.getSnapshot('thread-running-before-restart')
+
+    expect(manager.listThreads()[0]?.status).toBe('idle')
+    expect(snapshot.status).toBe('idle')
+    reopenedProjectStore.close()
+    reopenedThreadStore.close()
+    rmSync(root, { recursive: true, force: true })
+  })
+
   it('保存和读取临时 projection 状态', () => {
     const store = new CodingThreadStore(':memory:')
 

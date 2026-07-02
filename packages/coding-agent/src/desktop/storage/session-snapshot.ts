@@ -12,7 +12,7 @@ import {
 import type { ThreadSnapshot } from "../protocol/snapshot.ts";
 import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
 import type { ThreadSummary } from "../protocol/thread.ts";
-import { toDesktopMessages } from "../protocol/message.ts";
+import { toDesktopMessages, toDesktopToolCalls } from "../protocol/message.ts";
 
 /**
  * 从 session 文件构建 snapshot 所需的输入。
@@ -48,7 +48,7 @@ export function buildSnapshotFromSession(input: BuildSnapshotFromSessionInput): 
 		model: modelEntry ? { provider: modelEntry.provider, id: modelEntry.modelId } : undefined,
 		thinkingLevel: normalizeThinkingLevel(thinkingEntry?.thinkingLevel ?? context.thinkingLevel),
 		messages: toDesktopMessages(context.messages),
-		toolCalls: [],
+		toolCalls: toDesktopToolCalls(context.messages, input.thread.threadId),
 		fileChanges: [],
 		approvals: [],
 		queue: { steering: [], followUp: [] },

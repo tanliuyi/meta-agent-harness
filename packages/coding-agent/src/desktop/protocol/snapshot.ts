@@ -4,7 +4,7 @@
 
 import type { DesktopDiagnostic } from "./diagnostic.ts";
 import type { CwdPath, SessionFile, ThreadId, WorkerId } from "./identity.ts";
-import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
+import type { AgentMessage, ThinkingLevel } from "@earendil-works/pi-agent-core";
 import type { ModelIdentity } from "./model.ts";
 import type { ApprovalRequest } from "./approval.ts";
 import type { DesktopFileChange, DesktopToolCall } from "./tool.ts";
@@ -16,8 +16,10 @@ export interface DesktopMessage {
 	id: string;
 	/** 消息角色。 */
 	role: "user" | "assistant" | "tool" | "system";
-	/** 消息文本内容。 */
+	/** 派生文本内容，仅供简化 UI 展示。 */
 	text?: string;
+	/** 原始 Agent message，供 renderer 消费非文本结构。 */
+	raw: AgentMessage;
 	/** 创建时间（ISO 8601）。 */
 	createdAt?: string;
 }

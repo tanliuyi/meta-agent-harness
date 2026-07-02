@@ -38,6 +38,7 @@ describe("desktop message conversion", () => {
 		expect(toDesktopMessageContent(messages[0]!)).toEqual({
 			role: "assistant",
 			text: "hello",
+			raw: messages[0],
 			createdAt: "2026-07-01T00:00:00.000Z",
 		});
 		expect(toDesktopMessages(messages)).toEqual([
@@ -45,14 +46,38 @@ describe("desktop message conversion", () => {
 				id: "message-0",
 				role: "assistant",
 				text: "hello",
+				raw: messages[0],
 				createdAt: "2026-07-01T00:00:00.000Z",
 			},
 			{
 				id: "message-1",
 				role: "tool",
 				text: "done",
+				raw: messages[1],
 				createdAt: undefined,
 			},
 		]);
+	});
+
+	it("跳过没有文本内容的 assistant 消息", () => {
+		const message: AgentMessage = {
+			role: "assistant",
+			content: [],
+			api: "responses",
+			provider: "openai",
+			model: "gpt-5",
+			usage: {
+				input: 1,
+				output: 0,
+				cacheRead: 0,
+				cacheWrite: 0,
+				totalTokens: 1,
+				cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+			},
+			stopReason: "tool_use",
+		};
+
+		expect(toDesktopMessageContent(message)).toBeUndefined();
+		expect(toDesktopMessages([message])).toEqual([]);
 	});
 });

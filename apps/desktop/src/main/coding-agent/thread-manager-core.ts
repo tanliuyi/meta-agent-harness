@@ -14,7 +14,7 @@ import type { ProjectStore } from './project-store'
 import type { ProjectTrustService } from './project-trust-service'
 import type { ModelSettingsService } from './model-settings-service'
 import type { AgentSettingsService } from './agent-settings-service'
-import { buildSnapshotFromSession, toThreadMessages } from './session-snapshot'
+import { buildSnapshotFromSession, toThreadMessages, toThreadToolCalls } from './session-snapshot'
 import { resolveSessionCwd } from '../../../../../packages/coding-agent/src/core/session-manager'
 
 /**
@@ -56,7 +56,7 @@ export class ThreadManagerCore {
     this.modelSettingsService = modelSettingsService
     this.agentSettingsService = agentSettingsService
     for (const thread of store?.listThreads() ?? []) {
-      this.threads.set(thread.threadId, thread)
+      this.threads.set(thread.threadId, normalizePersistedThread(thread))
     }
   }
 
@@ -128,17 +128,18 @@ export class ThreadManagerCore {
   async getSnapshot(threadId: string): Promise<ThreadSnapshot> {
     const thread = this.requireThread(threadId)
     if (!this.hasWorker(threadId)) {
-      return this.buildSnapshotFromSessionFile(thread) ?? this.buildSnapshot(thread)
+      const inactiveThread = normalizeInactiveThread(thread)
+      return this.buildSnapshotFromSessionFile(inactiveThread) ?? this.buildSnapshot(inactiveThread)
     }
     const response = await this.workers.send(threadId, { type: 'get_state' })
 
     if (response.success) {
-      const liveMessages = await this.getLiveMessages(threadId)
+      const liveProjection = await this.getLiveProjection(threadId)
       const liveState = response.data as Partial<ThreadLiveState>
       this.syncThreadMetadataFromLiveState(thread, liveState)
       const snapshot = this.buildSnapshot(thread, {
         ...liveState,
-        ...(liveMessages ? { messages: liveMessages } : {})
+        ...(liveProjection ?? {})
       })
       return snapshot
     }
@@ -177,11 +178,13 @@ export class ThreadManagerCore {
   }
 
   /**
-   * 从 Pi live runtime 读取完整 messages。
+   * 从 Pi live runtime 读取完整 message/tool call projection。
    * @param threadId - 线程 ID。
-   * @returns desktop messages 或 undefined。
+   * @returns desktop live projection 或 undefined。
    */
-  private async getLiveMessages(threadId: string): Promise<ThreadSnapshot['messages'] | undefined> {
+  private async getLiveProjection(
+    threadId: string
+  ): Promise<Pick<ThreadSnapshot, 'messages' | 'toolCalls'> | undefined> {
     const response = await this.workers.send(threadId, { type: 'get_messages' })
     if (!response.success) {
       if (isMissingWorkerResponse(response)) {
@@ -190,7 +193,12 @@ export class ThreadManagerCore {
       throwResponseError(response)
     }
     const data = response.data as ThreadMessagesResponse | undefined
-    return data ? toThreadMessages(data.messages) : undefined
+    return data
+      ? {
+          messages: toThreadMessages(data.messages),
+          toolCalls: toThreadToolCalls(data.messages, threadId)
+        }
+      : undefined
   }
 
   /**
@@ -231,7 +239,7 @@ export class ThreadManagerCore {
    */
   protected buildSnapshot(
     thread: ThreadSummary,
-    state: Partial<ThreadLiveState> & Partial<Pick<ThreadSnapshot, 'messages'>> = {}
+    state: Partial<ThreadLiveState> & Partial<Pick<ThreadSnapshot, 'messages' | 'toolCalls'>> = {}
   ): ThreadSnapshot {
     return {
       threadId: thread.threadId,
@@ -243,7 +251,7 @@ export class ThreadManagerCore {
       model: state.model,
       thinkingLevel: state.thinkingLevel ?? 'off',
       messages: state.messages ?? [],
-      toolCalls: [],
+      toolCalls: state.toolCalls ?? [],
       fileChanges: [],
       approvals: [],
       queue: {
@@ -446,4 +454,15 @@ function getThreadStatusFromLiveState(
     return 'idle'
   }
   return undefined
+}
+
+function normalizePersistedThread(thread: ThreadSummary): ThreadSummary {
+  return normalizeInactiveThread(thread)
+}
+
+function normalizeInactiveThread(thread: ThreadSummary): ThreadSummary {
+  if (thread.status === 'running' || thread.status === 'starting' || thread.status === 'stopping') {
+    return { ...thread, status: 'idle' }
+  }
+  return thread
 }

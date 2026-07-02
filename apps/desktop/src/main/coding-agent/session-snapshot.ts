@@ -4,7 +4,10 @@
  */
 
 import type { AgentMessage } from '@earendil-works/pi-agent-core'
-import { toDesktopMessages } from '../../../../../packages/coding-agent/src/desktop/protocol/message'
+import {
+  toDesktopMessages,
+  toDesktopToolCalls
+} from '../../../../../packages/coding-agent/src/desktop/protocol/message'
 import { buildSnapshotFromSession as buildPackageSnapshotFromSession } from '../../../../../packages/coding-agent/src/desktop/storage/session-snapshot'
 import type { ThreadMessage, ThreadSnapshot, ThreadSummary } from '@shared/coding-agent/types'
 
@@ -52,4 +55,17 @@ export function buildSnapshotFromSession(input: BuildSnapshotFromSessionInput): 
  */
 export function toThreadMessages(messages: AgentMessage[]): ThreadMessage[] {
   return toDesktopMessages(messages)
+}
+
+/**
+ * 将 Pi AgentMessage 列表转换为 desktop tool calls。
+ * @param messages - Pi live/context messages。
+ * @param threadId - 线程 ID。
+ * @returns desktop tool calls。
+ */
+export function toThreadToolCalls(
+  messages: AgentMessage[],
+  threadId: string
+): ThreadSnapshot['toolCalls'] {
+  return toDesktopToolCalls(messages, threadId)
 }

@@ -308,6 +308,7 @@ async function createProject(): Promise<void> {
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+    font-size: 13px;
   }
 
   &.is-empty {

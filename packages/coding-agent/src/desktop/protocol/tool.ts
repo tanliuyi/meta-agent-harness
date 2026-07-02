@@ -19,8 +19,14 @@ export interface DesktopToolCall {
 	status: DesktopToolStatus;
 	/** 调用参数。 */
 	args?: unknown;
+	/** 流式工具更新的局部结果。 */
+	partialResult?: unknown;
+	/** 原始工具结果。 */
+	result?: unknown;
 	/** 结果摘要。 */
 	resultSummary?: string;
+	/** 原始工具执行事件或投影事件。 */
+	rawEvent?: unknown;
 	/** 开始时间（ISO 8601）。 */
 	startedAt?: IsoTime;
 	/** 结束时间（ISO 8601）。 */

@@ -17,6 +17,9 @@
       }
     ],
     "paths": {
+      "@earendil-works/pi-agent-core": [
+        "../../node_modules/.pnpm/node_modules/@earendil-works/pi-agent-core/dist/index.d.ts"
+      ],
       "@/*": ["src/renderer/src/*"],
       "@shared/*": ["src/shared/*"],
       "@renderer/*": ["src/renderer/src/*"]

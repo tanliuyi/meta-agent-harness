@@ -35,11 +35,15 @@ describe('applyEventToSessions', () => {
       }
     })
 
-    expect(sessions['thread-a']?.snapshot?.messages).toEqual([
+    expect(sessions['thread-a']?.snapshot?.messages).toMatchObject([
       {
         id: 'assistant-2026-07-01T00:00:00.000Z',
         role: 'assistant',
         text: 'hello',
+        raw: {
+          role: 'assistant',
+          content: [{ type: 'text', text: 'hello' }]
+        },
         createdAt: '2026-07-01T00:00:00.000Z'
       }
     ])
@@ -91,14 +95,39 @@ describe('applyEventToSessions', () => {
       }
     })
 
-    expect(sessions['thread-a']?.snapshot?.messages).toEqual([
+    expect(sessions['thread-a']?.snapshot?.messages).toMatchObject([
       {
         id: 'assistant-2026-07-01T00:00:00.000Z',
         role: 'assistant',
         text: '你好。你想让我看代码、修 bug',
+        raw: {
+          role: 'assistant',
+          content: [{ type: 'text', text: '你好。你想让我看代码、修 bug' }]
+        },
         createdAt: '2026-07-01T00:00:00.000Z'
       }
     ])
+  })
+
+  it('忽略没有文本内容的 canonical assistant message_update', () => {
+    const sessions = createSessions()
+
+    applyEventToSessions(sessions, {
+      type: 'canonical',
+      threadId: 'thread-a',
+      event: {
+        type: 'message_update',
+        message: createAssistantMessage('', fixtureTimestamp),
+        assistantMessageEvent: {
+          type: 'text_delta',
+          contentIndex: 0,
+          delta: '',
+          partial: createAssistantMessage('', fixtureTimestamp)
+        }
+      }
+    })
+
+    expect(sessions['thread-a']?.snapshot?.messages).toEqual([])
   })
 
   it('将 canonical message_end 中的 user message 应用到用户消息气泡', () => {
@@ -117,12 +146,73 @@ describe('applyEventToSessions', () => {
       }
     })
 
-    expect(sessions['thread-a']?.snapshot?.messages).toEqual([
+    expect(sessions['thread-a']?.snapshot?.messages).toMatchObject([
       {
         id: 'user-2026-07-01T00:00:00.000Z',
         role: 'user',
         text: '你好',
+        raw: {
+          role: 'user',
+          content: [{ type: 'text', text: '你好' }]
+        },
         createdAt: '2026-07-01T00:00:00.000Z'
+      }
+    ])
+  })
+
+  it('保留 canonical tool execution event 的结构化字段', () => {
+    const sessions = createSessions()
+
+    applyEventToSessions(sessions, {
+      type: 'canonical',
+      threadId: 'thread-a',
+      event: {
+        type: 'tool_execution_start',
+        toolCallId: 'tool-a',
+        toolName: 'bash',
+        args: { command: 'pnpm test' }
+      }
+    })
+    applyEventToSessions(sessions, {
+      type: 'canonical',
+      threadId: 'thread-a',
+      event: {
+        type: 'tool_execution_update',
+        toolCallId: 'tool-a',
+        toolName: 'bash',
+        args: { command: 'pnpm test' },
+        partialResult: { stdout: 'running' }
+      }
+    })
+    applyEventToSessions(sessions, {
+      type: 'canonical',
+      threadId: 'thread-a',
+      event: {
+        type: 'tool_execution_end',
+        toolCallId: 'tool-a',
+        toolName: 'bash',
+        result: { content: 'ok' },
+        isError: false
+      }
+    })
+
+    expect(sessions['thread-a']?.snapshot?.toolCalls).toMatchObject([
+      {
+        threadId: 'thread-a',
+        toolCallId: 'tool-a',
+        toolName: 'bash',
+        args: { command: 'pnpm test' },
+        status: 'succeeded',
+        partialResult: { stdout: 'running' },
+        result: { content: 'ok' },
+        resultSummary: 'ok',
+        rawEvent: {
+          type: 'tool_execution_end',
+          toolCallId: 'tool-a',
+          toolName: 'bash',
+          result: { content: 'ok' },
+          isError: false
+        }
       }
     ])
   })

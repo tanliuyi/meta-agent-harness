@@ -10,12 +10,6 @@
   "editor.suggestOnTriggerCharacters": true,
   "editor.wordBasedSuggestions": "matchingDocuments",
   "editor.tabCompletion": "on",
-  "typescript.tsdk": "node_modules/typescript/lib",
-  "typescript.enablePromptUseWorkspaceTsdk": true,
-  "typescript.suggest.enabled": true,
-  "javascript.suggest.enabled": true,
-  "typescript.preferences.includePackageJsonAutoImports": "on",
-  "vue.server.hybridMode": true,
   "files.associations": {
     "*.vue": "vue"
   },
