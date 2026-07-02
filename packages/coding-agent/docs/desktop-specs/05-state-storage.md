@@ -1,12 +1,13 @@
-# 05. 状态存储与数据库 Spec
+# 05. 状态存储 Spec
 
 ## 目标
 
-定义 Desktop 后端状态层。数据库用于持久化、索引、恢复和查询，不用于实时通信。实时事件和命令必须走 transport。
+定义 Desktop 后端状态层。Desktop 不引入 SQLite 或其他本地数据库；live、
+持久化和恢复必须与 Pi 的 `AgentSession` / `SessionManager` 架构保持一致。
 
 ## Canonical Persistence
 
-Pi-compatible JSONL session 是 canonical persistence。
+Pi-compatible JSONL session 是唯一 canonical persistence。
 
 必须保持：
 
@@ -14,182 +15,114 @@ Pi-compatible JSONL session 是 canonical persistence。
 - branching 兼容。
 - import/export 兼容。
 - compaction/fork/clone 兼容。
+- `message_end` 后才写入 finalized message。
 
-数据库不能成为 session 的不兼容第二真相源。
+不得把 `message_update`、streaming token、tool output chunk 持久化为 canonical
+message。它们只属于 live event stream。
 
-## 数据库职责
+## 状态来源
 
-数据库适合存储：
+Desktop 状态分三类：
 
-- project registry
-- thread registry
-- session metadata index
-- messages index
-- tool call timeline
-- file changes
-- approvals
-- worker run records
-- crash/error diagnostics
-- model/settings snapshot
-- projection event log
-- normalized state cache
+- live state：worker 内的 `AgentSession.agent.state.messages` 和 runtime 状态。
+- canonical storage：Pi-compatible JSONL session。
+- desktop metadata：thread/project 列表、归档、展示名称等轻量宿主信息。
 
-数据库不负责：
+desktop metadata 可以用 JSON 文件或从 sessions 目录派生。它不保存 messages、
+provider payload、tool result 正文或 streaming delta，也不参与 agent context 恢复。
 
-- prompt/abort/steer/followUp 命令投递
-- streaming delta 实时传递
-- tool output 实时传递
-- heartbeat
-- worker lifecycle control
-- backpressure/cancel/timeout
-
-## 推荐表
-
-```text
-threads
-  thread_id
-  project_id
-  session_file
-  title
-  status
-  archived_at
-  created_at
-  updated_at
-
-thread_snapshots
-  thread_id
-  snapshot_json
-  updated_at
-
-message_index
-  thread_id
-  session_entry_id
-  role
-  summary
-  created_at
-
-tool_calls
-  thread_id
-  tool_call_id
-  tool_name
-  status
-  args_json
-  result_summary
-  started_at
-  finished_at
-
-file_changes
-  thread_id
-  tool_call_id
-  path
-  change_type
-  patch
-  created_at
-
-approvals
-  approval_id
-  thread_id
-  status
-  request_json
-  response_json
-  created_at
-  resolved_at
-
-worker_runs
-  worker_id
-  thread_id
-  status
-  pid_hash
-  started_at
-  exited_at
-  exit_code
-  signal
-  stderr_tail
-
-diagnostics
-  id
-  thread_id
-  source
-  severity
-  message
-  details_json
-  created_at
-```
-
-`pid_hash` 表示如需记录 pid，也应避免直接暴露给 renderer。
-
-Project / Workspace 第一阶段必须额外包含：
-
-```text
-projects
-  project_id
-  name
-  path
-  status
-  archived_at
-  created_at
-  updated_at
-  last_opened_at
-  summary_json
-```
-
-`threads.project_id` 是显式列；runtime `cwd` 从 `projects.path` 解析，不再作为 thread registry 的产品入口字段。
-
-## 写入策略
+## Live 路径
 
 实时路径：
 
 ```text
-Worker -> transport event -> Electron main -> preload IPC -> Renderer
-```
-
-持久化路径：
-
-```text
-Worker/Main -> normalize/index -> database
+Worker AgentSession
+  |
+  | canonical/projection transport event
+  v
+Electron main
+  |
+  | preload IPC event
+  v
+Renderer
 ```
 
 要求：
 
-- 数据库写入失败不应阻塞 canonical agent run，除非失败会破坏 session persistence。
-- 数据库错误必须进入 diagnostics。
-- session JSONL 写入失败是更高优先级错误，必须进入 thread error。
+- 实时事件和命令必须走 transport。
+- Electron main 可以维护当前窗口需要的内存 projection。
+- Renderer 通过 snapshot + streaming events 更新 UI。
+- 任何实时 UI 状态丢失后，都应能从 worker snapshot 或 JSONL session 重建。
+
+## 持久化路径
+
+持久化路径：
+
+```text
+AgentSession message_end/session operation
+  |
+  | SessionManager.append*
+  v
+Pi-compatible JSONL session
+```
+
+要求：
+
+- 普通 user/assistant/toolResult/custom message 使用 Pi 相同写入时机。
+- bash、compaction、branch summary、model/thinking/session info 使用 Pi 已有 entry 类型。
+- JSONL 写入失败是 session 级错误，必须进入 thread/runtime error。
+- metadata 写入失败不得破坏 canonical session；最多影响 thread list 的宿主展示。
 
 ## Snapshot 恢复
 
 恢复优先级：
 
-1. 如果 worker running，向 worker 请求 snapshot。
-2. 如果 worker idle/stopped，从 JSONL session + database index 构建 snapshot。
-3. 如果数据库缺索引，从 JSONL session 重建最小 snapshot，并补索引。
+1. 如果 worker running，向 worker 请求 snapshot；messages 来自 live `agent.state.messages`。
+2. 如果没有 worker，直接使用 Pi `SessionManager.open()` / `buildSessionContext()` 从 JSONL
+   session 离线重建最小 snapshot；conversation 不从 metadata 或 projection cache 读取。
+3. 当用户继续执行命令需要 live runtime 时，再启动 worker 并打开同一个 JSONL session。
+4. worker 启动前需要解析 cwd 时，复用与 `SessionManager.open()` 同源的 JSONL header 解析；
+   `cwdOverride` 优先，其次 session header cwd，最后才是宿主 fallback。
+5. 从 live runtime state 或离线 JSONL 重建结果派生 desktop snapshot。
+
+不得从独立数据库、event log 或 message index 恢复 conversation。
 
 ## Storage Paths
 
-Desktop 可以使用 Electron `app.getPath('userData')` 作为宿主根目录。路径可配置，但 Pi settings/resource/session 语义不能分叉。
+Desktop 默认使用 Pi 的 agentDir、sessionDir、settings/auth/models/resource 位置和
+文件格式。路径可以显式配置，但 Pi settings/resource/session/auth/model 语义不能分叉。
 
 建议：
 
 ```text
-userData/
-  meta-agent.db
+Pi agentDir/
+  settings.json
+  auth.json
+  models.json
   coding-agent/
     sessions/
+
+Electron userData/
+  coding-agent/
+    metadata/
     logs/
-    cache/
 ```
 
-如果需要兼容 `.pi`：
+Project 本地配置：
 
-- `.pi` 可以作为 project resource source。
+- `.pi` 是 Pi-compatible project resource source。
 - Pi session import/export 应显式支持。
-- 默认路径变化不能改变 Pi config 字段语义。
+- 默认路径、文件名、merge 顺序和 trust 边界不能改变 Pi config 字段语义。
+- Desktop metadata 不得保存 canonical settings、auth、models、resources 或 session messages。
 
 ## 验收
 
-- 不启动 renderer UI，也可以通过 main/test 创建 thread 并在 DB 中看到 registry。
-- 可以创建 project，并在 DB 中看到 project registry。
-- thread registry 中每条记录都有 project_id。
-- worker streaming 不依赖 DB。
-- DB 删除后，可以从 JSONL session 重建最小 thread snapshot。
-- JSONL session 与 DB 索引冲突时，以 JSONL canonical session 为准。
-- DB 中不保存明文 credential。
+- 不启动 renderer UI，也可以通过 main/test 创建 thread 并得到 JSONL session。
+- worker streaming 不依赖任何数据库。
+- `message_update` 不产生 durable message。
+- `message_end` 后 JSONL session 只写入 finalized message。
+- 删除 metadata 后，可以从 sessions 目录和 JSONL session 重建 thread 列表和最小 snapshot。
+- JSONL session 可以被 Pi-compatible session parser 读取。
+- 同一 agentDir/cwd/sessionFile 下，Pi 和 Desktop 解析出的 settings、auth、models、
+  resources 与 session context 一致。
+- metadata 中不保存明文 credential。

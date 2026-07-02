@@ -13,7 +13,7 @@
 - Project registry。
 - Project preload API 与 IPC handlers。
 - Thread 强制归属 Project。
-- SQLite schema 增加 `projects` 和 `threads.project_id`。
+- desktop metadata 增加 Project 与 Thread 归属信息。
 - Renderer Project store。
 - Sidebar 从 `cwd input` 改为 Project-first UI。
 - 不保留 desktop 旧 `createThread({ cwd })` API。
@@ -224,57 +224,26 @@ await acquireThreadWorker({
 3. 使用 `project.path` 作为 worker cwd。
 4. 不再从 thread summary 读取 cwd。
 
-## SQLite Schema
+## Metadata Registry
 
-第一阶段目标 schema：
+Desktop 不引入 SQLite。Project / Thread registry 使用轻量 metadata 文件，或从
+sessions 目录派生后写入宿主 metadata。metadata 只保存产品归属和展示信息，不保存
+conversation messages。
 
-```sql
-create table if not exists schema_meta (
-  key text primary key,
-  value text not null
-);
+建议 metadata 形态：
 
-create table if not exists projects (
-  project_id text primary key,
-  name text not null,
-  path text not null unique,
-  status text not null,
-  archived_at text,
-  created_at text not null,
-  updated_at text not null,
-  last_opened_at text,
-  summary_json text not null
-);
-
-create table if not exists threads (
-  thread_id text primary key,
-  project_id text not null,
-  summary_json text not null,
-  updated_at text not null,
-  foreign key(project_id) references projects(project_id)
-);
-
-create index if not exists idx_threads_project_id
-  on threads(project_id);
-
-create table if not exists thread_snapshots (
-  thread_id text primary key,
-  snapshot_json text not null,
-  updated_at text not null,
-  foreign key(thread_id) references threads(thread_id)
-);
-```
-
-Schema version：
-
-```text
-schema_meta.desktop_schema_version = 2
+```ts
+type DesktopMetadata = {
+  version: 1
+  projects: ProjectSummary[]
+  threads: ThreadSummary[]
+}
 ```
 
 开发期迁移策略：
 
 - 不保留旧 `cwd -> thread` desktop API。
-- 如果检测到无 `projects` 表或 `threads.project_id` 缺失，可以清空 desktop registry 并重建 schema。
+- 如果检测到旧 metadata 缺少 project 归属，可以丢弃 metadata 并从 JSONL session 目录重建最小 thread 列表。
 - JSONL session 文件不应因 registry 重建而删除。
 - 如需辅助开发，可提供一次性脚本从旧 thread `cwd` 生成 project/thread，但该脚本不是运行时兼容层。
 
@@ -392,8 +361,8 @@ Specs：
 
 1. 更新共享类型和 preload API。
 2. 新增 project IPC channels。
-3. 新增 `ProjectStore` 和 schema version。
-4. 修改 `CodingThreadStore`，让 thread registry 写入 `project_id`。
+3. 新增 `ProjectStore` 和 metadata version。
+4. 修改 thread registry metadata，让 thread summary 写入 `projectId`。
 5. 修改 `createThread`，从 `projectId` 解析 `Project.path`。
 6. 修改 `restartThread` 和 `ensureWorker`，从 project 解析 cwd。
 7. 修改 `listThreads` 支持 `{ projectId }` 过滤。
@@ -419,9 +388,9 @@ Specs：
 
 数据验收：
 
-- `projects` 表存在。
-- `threads.project_id` 是显式列。
-- 删除 desktop DB 后可以重建 registry。
+- metadata 包含 projects 和 threads。
+- `ThreadSummary.projectId` 是显式字段。
+- 删除 metadata 后可以从 JSONL session 目录重建 registry。
 - JSONL session 文件不是由 ProjectStore 管理或删除。
 
 Renderer 验收：

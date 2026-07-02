@@ -81,10 +81,10 @@ API 可分模块实现，但 preload 暴露面必须稳定、受控、typed。
 
 ```ts
 type CodingAgentIpcEvent =
-  | { type: 'canonical'; threadId: string; event: unknown }
-  | { type: 'projection'; threadId: string; event: DesktopProjectionEvent }
-  | { type: 'worker'; threadId?: string; event: WorkerLifecycleEvent }
+  | Exclude<DesktopIpcEvent, { type: 'threadSnapshot' }>
   | { type: 'threadSnapshot'; threadId: string; snapshot: ThreadSnapshot }
+  | { type: 'threadWorker'; threadId?: string; event: ThreadWorkerLifecycleIpcEvent }
+  | { type: 'project'; event: ProjectIpcEvent }
 ```
 
 事件订阅要求：

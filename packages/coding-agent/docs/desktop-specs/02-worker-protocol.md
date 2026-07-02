@@ -147,7 +147,7 @@ type WorkerSnapshot = {
 }
 ```
 
-Snapshot 通过 IPC 请求，不直接从 renderer 读取数据库。
+Snapshot 通过 IPC 请求，不直接从 renderer 读取 session 文件或宿主 metadata。
 
 ## Extension UI
 

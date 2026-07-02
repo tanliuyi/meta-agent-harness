@@ -35,9 +35,9 @@
 
 - project registry
 - thread registry
-- session metadata index
+- session metadata
 - worker run diagnostics
-- snapshot persistence/cache
+- snapshot from worker live state or JSONL session
 - JSONL session compatibility
 
 ## 功能验收

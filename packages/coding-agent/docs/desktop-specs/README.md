@@ -10,7 +10,7 @@
 - [02. Worker Protocol](02-worker-protocol.md)
 - [03. Thread Worker Registry](03-thread-worker-registry.md)
 - [04. Electron IPC 与 Preload API](04-electron-ipc.md)
-- [05. 状态存储与数据库](05-state-storage.md)
+- [05. 状态存储](05-state-storage.md)
 - [06. 第一期验收规格](06-phase-one-acceptance.md)
 - [07. Project / Workspace](07-project-workspace.md)
 
@@ -23,7 +23,7 @@ Renderer，第一期接入数据层和简单 UI
   v
 Electron main
   |
-  | ThreadManager + ThreadWorkerRegistry + 状态索引
+  | ThreadManager + ThreadWorkerRegistry + metadata
   v
 Coding agent worker
   |
@@ -34,8 +34,9 @@ AgentSession / SessionManager / Tools / Extensions / Settings
 
 ## 约束
 
-- 实时事件走 transport，不走数据库。
-- 数据库只做索引、缓存、恢复和查询。
-- JSONL session 是 canonical persistence。
+- 实时事件走 transport，不走宿主持久化层。
+- Desktop 不引入本地数据库；JSONL session 是唯一 canonical persistence。
+- Desktop 默认使用 Pi-compatible agentDir、sessionDir、settings/auth/models/resource
+  文件格式和解析语义。
 - projection event 和 desktop snapshot 不替代 Pi canonical event/session。
 - renderer 不直接获得 shell、filesystem、worker process 或 credential 权限。

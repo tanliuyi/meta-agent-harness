@@ -72,7 +72,7 @@ type ThreadWorkerRegistry = {
 第一期策略：
 
 - running thread 独占 worker。
-- idle thread 不永久占用 worker，保留 session file、snapshot 和数据库索引。
+- idle thread 不永久占用 worker，保留 session file 和轻量 thread metadata。
 - resume idle thread 时重新创建 utility worker。
 - 并行 thread 各自立即创建独立 utility worker。
 - 不提供 `maxWorkers`。
