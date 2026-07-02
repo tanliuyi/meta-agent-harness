@@ -23,6 +23,12 @@ export interface ThreadWorkerRegistryOptions {
   onLifecycle?: (event: ThreadWorkerLifecycleEvent) => void
   /** 获取当前时间戳的函数，用于测试注入。 */
   now?: () => number
+  /** 是否启用 idle 超时回收。 */
+  enableIdleTimeout?: boolean
+  /** idle 超时毫秒数，默认 10 分钟。 */
+  idleTimeoutMs?: number
+  /** idle 检查间隔毫秒数，默认 3 分钟。 */
+  idleCheckIntervalMs?: number
 }
 
 /** Thread worker 生命周期事件。 */
@@ -58,6 +64,14 @@ export class ThreadWorkerRegistry {
   private readonly pendingThreads = new Set<string>()
   /** 是否已关闭。 */
   private closed = false
+  /** 是否启用 idle 超时回收。 */
+  private readonly enableIdleTimeout: boolean
+  /** idle 超时毫秒数。 */
+  private readonly idleTimeoutMs: number
+  /** idle 检查间隔毫秒数。 */
+  private readonly idleCheckIntervalMs: number
+  /** idle 检查计时器。 */
+  private idleCheckTimer: ReturnType<typeof setTimeout> | undefined
 
   /**
    * 创建 ThreadWorkerRegistry 实例。
@@ -68,6 +82,55 @@ export class ThreadWorkerRegistry {
     this.onEvent = options.onEvent
     this.onLifecycle = options.onLifecycle
     this.now = options.now ?? Date.now
+    this.enableIdleTimeout = options.enableIdleTimeout ?? true
+    this.idleTimeoutMs = options.idleTimeoutMs ?? 600000
+    this.idleCheckIntervalMs = options.idleCheckIntervalMs ?? 180000
+  }
+
+  /**
+   * 启动 idle 检查计时器。
+   */
+  private startIdleCheck(): void {
+    if (this.idleCheckTimer || !this.enableIdleTimeout || this.closed) {
+      return
+    }
+    this.idleCheckTimer = setTimeout(() => {
+      this.idleCheckTimer = undefined
+      void this.checkIdleWorkers()
+    }, this.idleCheckIntervalMs)
+  }
+
+  /**
+   * 检查并回收 idle 超时的 worker。
+   */
+  private async checkIdleWorkers(): Promise<void> {
+    if (this.closed || this.leases.size === 0) {
+      return
+    }
+    const now = this.now()
+    const candidates: string[] = []
+    this.leases.forEach((lease, threadId) => {
+      if (lease.status === 'running') {
+        return
+      }
+      if (now - lease.lastActiveAt >= this.idleTimeoutMs) {
+        candidates.push(threadId)
+      }
+    })
+    for (const threadId of candidates) {
+      await this.releaseThreadWorker(threadId, 'idle')
+    }
+    this.startIdleCheck()
+  }
+
+  /**
+   * 停止 idle 检查计时器。
+   */
+  private stopIdleCheck(): void {
+    if (this.idleCheckTimer) {
+      clearTimeout(this.idleCheckTimer)
+      this.idleCheckTimer = undefined
+    }
   }
 
   /**
@@ -87,7 +150,7 @@ export class ThreadWorkerRegistry {
     this.pendingThreads.add(input.threadId)
     try {
       const worker = await this.createWorker()
-      worker.onEvent?.((event) => this.onEvent?.(event))
+      worker.onEvent?.((event) => this.onWorkerEvent(input.threadId, event))
       const time = this.now()
       const lease: WorkerLease = {
         workerId: worker.workerId,
@@ -95,11 +158,15 @@ export class ThreadWorkerRegistry {
         cwd: input.cwd,
         sessionFile: input.sessionFile,
         acquiredAt: time,
-        lastActiveAt: time
+        lastActiveAt: time,
+        lastEventAt: time,
+        status: 'starting'
       }
       this.workers.set(worker.workerId, worker)
       this.leases.set(input.threadId, lease)
+      this.startIdleCheck()
       await worker.startThread(input)
+      lease.status = 'idle'
       this.onLifecycle?.({
         type: 'worker.run.started',
         workerId: worker.workerId,
@@ -144,6 +211,9 @@ export class ThreadWorkerRegistry {
     }
     const worker = this.workers.get(lease.workerId)
     this.leases.delete(threadId)
+    if (this.leases.size === 0) {
+      this.stopIdleCheck()
+    }
     if (worker) {
       this.workers.delete(worker.workerId)
       await worker.stop(reason)
@@ -193,6 +263,12 @@ export class ThreadWorkerRegistry {
         }
       }
     }
+    if (command.type === 'control.setStatus' || command.type === 'worker.setStatus') {
+      const status = (command as { status?: WorkerLease['status'] }).status
+      if (status) {
+        lease.status = status
+      }
+    }
     lease.lastActiveAt = this.now()
     return worker.send(command)
   }
@@ -202,7 +278,7 @@ export class ThreadWorkerRegistry {
    * @returns worker 租约数组。
    */
   listLeases(): WorkerLease[] {
-    return [...this.leases.values()]
+    return Array.from(this.leases.values())
   }
 
   /**
@@ -210,14 +286,15 @@ export class ThreadWorkerRegistry {
    */
   async shutdown(): Promise<void> {
     this.closed = true
-    const workers = [...this.workers.values()]
-    const leases = [...this.leases.values()]
+    this.stopIdleCheck()
+    const workers = Array.from(this.workers.values())
+    const leases = Array.from(this.leases.values())
     this.workers.clear()
     this.leases.clear()
     this.pendingThreads.clear()
     await Promise.all(workers.map((worker) => worker.stop('shutdown')))
     const exitedAt = this.now()
-    for (const lease of leases) {
+    leases.forEach((lease) => {
       this.onLifecycle?.({
         type: 'worker.run.finished',
         workerId: lease.workerId,
@@ -226,7 +303,34 @@ export class ThreadWorkerRegistry {
         startedAt: lease.acquiredAt,
         exitedAt
       })
+    })
+  }
+
+  /**
+   * 处理 worker 事件，更新租约活跃时间并透传给上层。
+   * @param threadId - 所属线程 ID。
+   * @param event - worker 事件。
+   */
+  private onWorkerEvent(threadId: string | undefined, event: WorkerEnvelope): void {
+    if (threadId) {
+      const lease = this.leases.get(threadId)
+      if (lease) {
+        const time = this.now()
+        lease.lastActiveAt = time
+        lease.lastEventAt = time
+        if (event.kind === 'event') {
+          const eventType = (event as { eventType?: string }).eventType
+          const payload = (event as { event?: unknown }).event
+          if (eventType === 'projection' && isRecord(payload) && payload.type === 'thread.stateChanged') {
+            const status = (payload as { status?: WorkerLease['status'] }).status
+            if (status) {
+              lease.status = status
+            }
+          }
+        }
+      }
     }
+    this.onEvent?.(event)
   }
 
   /**
@@ -238,4 +342,13 @@ export class ThreadWorkerRegistry {
       throw new Error('worker registry is closed')
     }
   }
+}
+
+/**
+ * 判断是否为普通对象。
+ * @param value - 值。
+ * @returns 是否普通对象。
+ */
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null
 }

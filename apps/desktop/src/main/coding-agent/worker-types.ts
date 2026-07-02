@@ -180,4 +180,8 @@ export interface WorkerLease {
   acquiredAt: number
   /** 最近活跃时间戳。 */
   lastActiveAt: number
+  /** 最近收到事件时间戳。 */
+  lastEventAt: number
+  /** 线程状态。 */
+  status?: 'starting' | 'idle' | 'running' | 'stopping' | 'stopped' | 'error'
 }
