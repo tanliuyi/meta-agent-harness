@@ -5,11 +5,11 @@
 import { defineStore } from 'pinia'
 import { computed, reactive, ref } from 'vue'
 import useWorkspaceProjectStore from './workspace-project'
+import { toDesktopMessageContent } from '@shared/coding-agent/types'
 import type {
   ApprovalRequest,
   ApprovalResponse,
   CodingAgentIpcEvent,
-  ProjectSummary,
   ThreadMessage,
   ThreadSnapshot,
   ThreadSummary
@@ -270,27 +270,15 @@ export default defineStore('workspace-session', () => {
       }
       return
     }
-    if (event.type === 'project' && event.event && typeof event.event === 'object') {
-      const payload = event.event as {
-        type?: string
-        project?: ProjectSummary
-        projectId?: string
-      }
-      if (payload.project) {
-        workspaceProject.projects[payload.project.projectId] = payload.project
-      }
+    if (event.type === 'project') {
+      workspaceProject.projects[event.event.project.projectId] = event.event.project
     }
-    if (event.type === 'projection' && event.event && typeof event.event === 'object') {
-      const payload = event.event as {
-        type?: string
-        status?: ThreadSummary['status']
-        approval?: ApprovalRequest
+    if (event.type === 'projection') {
+      if (event.event.type === 'thread.stateChanged' && sessions[event.threadId]) {
+        sessions[event.threadId].status = event.event.status
       }
-      if (payload.type === 'thread.stateChanged' && payload.status && sessions[event.threadId]) {
-        sessions[event.threadId].status = payload.status
-      }
-      if (payload.type === 'approval.requested' && payload.approval) {
-        pendingApprovals[payload.approval.approvalId] = payload.approval
+      if (event.event.type === 'approval.requested') {
+        pendingApprovals[event.event.approval.approvalId] = event.event.approval
       }
     }
     applyEventToSessions(sessions, event)
@@ -420,25 +408,27 @@ export function applyEventToSessions(
     return
   }
   const session = sessions[event.threadId]
-  if (!session?.snapshot || !event.event || typeof event.event !== 'object') {
+  if (!session?.snapshot) {
     return
   }
-  const payload = event.event as Record<string, unknown>
   if (event.type === 'canonical') {
-    applyCanonicalEvent(session.snapshot, payload)
+    applyCanonicalEvent(session.snapshot, event.event)
     session.status = session.snapshot.status
     return
   }
-  applyProjectionEvent(session.snapshot, payload)
+  applyProjectionEvent(session.snapshot, event.event)
   session.status = session.snapshot.status
 }
+
+type CanonicalIpcEvent = Extract<CodingAgentIpcEvent, { type: 'canonical' }>['event']
+type ProjectionIpcEvent = Extract<CodingAgentIpcEvent, { type: 'projection' }>['event']
 
 /**
  * 应用 canonical event。
  * @param snapshot - snapshot。
  * @param event - canonical event。
  */
-function applyCanonicalEvent(snapshot: ThreadSnapshot, event: Record<string, unknown>): void {
+function applyCanonicalEvent(snapshot: ThreadSnapshot, event: CanonicalIpcEvent): void {
   switch (event.type) {
     case 'agent_start':
     case 'turn_start':
@@ -460,22 +450,17 @@ function applyCanonicalEvent(snapshot: ThreadSnapshot, event: Record<string, unk
  * @param snapshot - snapshot。
  * @param event - canonical message event。
  */
-function upsertMessageEvent(snapshot: ThreadSnapshot, event: Record<string, unknown>): void {
-  const message = extractMessagePayload(event)
-  const role = normalizeMessageRole(message?.role)
-  if (!role) {
+function upsertMessageEvent(
+  snapshot: ThreadSnapshot,
+  event: Extract<CanonicalIpcEvent, { type: 'message_start' | 'message_end' | 'message_update' }>
+): void {
+  const content = toDesktopMessageContent(event.message)
+  if (!content) {
     return
   }
-  const text =
-    extractText(message?.content) ??
-    getString(event.assistantMessage) ??
-    getString(event.delta) ??
-    extractText(event.delta)
   upsertById(snapshot.messages, {
-    id: getMessageEventId(snapshot.messages, event, role, text),
-    role,
-    text,
-    createdAt: normalizeTimestamp(event.timestamp ?? message?.timestamp)
+    id: getPiMessageId(snapshot.messages, content),
+    ...content
   })
 }
 
@@ -484,98 +469,53 @@ function upsertMessageEvent(snapshot: ThreadSnapshot, event: Record<string, unkn
  * @param snapshot - snapshot。
  * @param event - projection event。
  */
-function applyProjectionEvent(snapshot: ThreadSnapshot, event: Record<string, unknown>): void {
+function applyProjectionEvent(snapshot: ThreadSnapshot, event: ProjectionIpcEvent): void {
   switch (event.type) {
     case 'thread.stateChanged':
-      if (isThreadStatus(event.status)) {
-        snapshot.status = event.status
-      }
+      snapshot.status = event.status
       return
     case 'thinking.changed':
-      if (isThinkingLevel(event.level)) {
-        snapshot.thinkingLevel = event.level
-      }
+      snapshot.thinkingLevel = event.level
       return
     case 'queue.changed':
       snapshot.queue = {
-        steering: toStringArray(event.steering),
-        followUp: toStringArray(event.followUp)
+        steering: [...event.steering],
+        followUp: [...event.followUp]
       }
       return
     case 'approval.requested':
-      if (isRecord(event.approval)) {
-        upsertUnknown(snapshot.approvals, event.approval, 'approvalId')
-      }
+      upsertUnknown(snapshot.approvals, event.approval, 'approvalId')
       return
-    case 'approval.resolved':
-      removeUnknown(snapshot.approvals, getString(event.approvalId), 'approvalId')
-      return
-    case 'tool.call':
+    case 'tool.started':
     case 'tool.updated':
-      upsertUnknown(
-        snapshot.toolCalls,
-        isRecord(event.toolCall) ? event.toolCall : event,
-        'toolCallId'
-      )
+    case 'tool.finished': {
+      upsertUnknown(snapshot.toolCalls, event.toolCall, 'toolCallId')
       return
-    case 'file.changed':
-      snapshot.fileChanges.push(isRecord(event.fileChange) ? event.fileChange : event)
+    }
+    case 'file.changed': {
+      snapshot.fileChanges.push(event.change)
       return
-    case 'diagnostic':
-      snapshot.diagnostics.push(event)
+    }
+    case 'thread.error': {
+      snapshot.diagnostics.push(event.diagnostic)
       return
-  }
-}
-
-/**
- * 从 canonical event 读取消息载荷。
- * @param event - canonical event。
- * @returns 消息载荷。
- */
-function extractMessagePayload(
-  event: Record<string, unknown>
-): Record<string, unknown> | undefined {
-  if (isRecord(event.message)) {
-    return event.message
-  }
-  if (isRecord(event.userMessage)) {
-    return { ...event.userMessage, role: getString(event.userMessage.role) ?? 'user' }
-  }
-  if (isRecord(event.assistantMessage)) {
-    return {
-      ...event.assistantMessage,
-      role: getString(event.assistantMessage.role) ?? 'assistant'
     }
   }
-  if (typeof event.userMessage === 'string') {
-    return { role: 'user', content: event.userMessage }
-  }
-  if (typeof event.assistantMessage === 'string') {
-    return { role: 'assistant', content: event.assistantMessage }
-  }
-  return undefined
 }
 
 /**
- * 获取 canonical message event 的稳定 id。
+ * 获取 Pi message event 的 UI 稳定 id。
  * @param items - 现有消息。
- * @param event - canonical event。
+ * @param message - Pi message。
  * @param role - 消息角色。
  * @param text - 消息文本。
  * @returns 消息 id。
  */
-function getMessageEventId(
-  items: ThreadMessage[],
-  event: Record<string, unknown>,
-  role: ThreadMessage['role'],
-  text: string | undefined
-): string {
-  return (
-    getString(event.entryId) ??
-    getString(event.messageId) ??
-    getString(event.id) ??
-    getStreamingMessageId(items, role, text)
-  )
+function getPiMessageId(items: ThreadMessage[], message: Omit<ThreadMessage, 'id'>): string {
+  if (message.createdAt) {
+    return `${message.role}-${message.createdAt}`
+  }
+  return getStreamingMessageId(items, message.role, message.text)
 }
 
 /**
@@ -633,89 +573,29 @@ function isStreamingTextUpdate(
  * @param item - 对象。
  * @param key - key。
  */
-function upsertUnknown(items: unknown[], item: Record<string, unknown>, key: string): void {
-  const id = getString(item[key])
+function upsertUnknown<T extends object>(items: T[], item: T, key: string): void {
+  const id = getString(getObjectValue(item, key))
   if (!id) {
     items.push(item)
     return
   }
-  const index = items.findIndex((existing) => isRecord(existing) && existing[key] === id)
+  const index = items.findIndex((existing) => getObjectValue(existing, key) === id)
   if (index >= 0) {
-    items[index] = { ...(items[index] as Record<string, unknown>), ...item }
+    const existing = items[index]
+    items[index] = isRecord(existing) ? ({ ...existing, ...item } as T) : item
     return
   }
   items.push(item)
 }
 
 /**
- * 通过字段移除 unknown object。
- * @param items - 数组。
- * @param id - id。
+ * 从对象读取动态字段。
+ * @param value - 对象。
  * @param key - key。
+ * @returns 字段值。
  */
-function removeUnknown(items: unknown[], id: string | undefined, key: string): void {
-  if (!id) {
-    return
-  }
-  const index = items.findIndex((existing) => isRecord(existing) && existing[key] === id)
-  if (index >= 0) {
-    items.splice(index, 1)
-  }
-}
-
-/**
- * 归一化消息 role。
- * @param role - role。
- * @returns ThreadMessage role。
- */
-function normalizeMessageRole(role: unknown): ThreadMessage['role'] | undefined {
-  switch (role) {
-    case 'user':
-    case 'assistant':
-    case 'tool':
-    case 'system':
-      return role
-    case 'toolResult':
-      return 'tool'
-    default:
-      return undefined
-  }
-}
-
-/**
- * 提取文本。
- * @param value - 值。
- * @returns 文本。
- */
-function extractText(value: unknown): string | undefined {
-  if (typeof value === 'string') {
-    return value
-  }
-  if (!Array.isArray(value)) {
-    return undefined
-  }
-  const text = value
-    .filter((part): part is { type: string; text: string } => {
-      return isRecord(part) && part.type === 'text' && typeof part.text === 'string'
-    })
-    .map((part) => part.text)
-    .join('')
-  return text || undefined
-}
-
-/**
- * 归一化 timestamp。
- * @param value - timestamp。
- * @returns ISO 字符串。
- */
-function normalizeTimestamp(value: unknown): string | undefined {
-  if (typeof value === 'string') {
-    return value
-  }
-  if (typeof value === 'number') {
-    return new Date(value).toISOString()
-  }
-  return undefined
+function getObjectValue(value: object, key: string): unknown {
+  return (value as Record<string, unknown>)[key]
 }
 
 /**
@@ -723,46 +603,6 @@ function normalizeTimestamp(value: unknown): string | undefined {
  * @param value - 值。
  * @returns 是否线程状态。
  */
-function isThreadStatus(value: unknown): value is ThreadSummary['status'] {
-  return (
-    value === 'new' ||
-    value === 'queued' ||
-    value === 'starting' ||
-    value === 'idle' ||
-    value === 'running' ||
-    value === 'stopping' ||
-    value === 'stopped' ||
-    value === 'error'
-  )
-}
-
-/**
- * 是否 ThinkingLevel。
- * @param value - 值。
- * @returns 是否 thinking level。
- */
-function isThinkingLevel(value: unknown): value is ThreadSnapshot['thinkingLevel'] {
-  return (
-    value === 'off' ||
-    value === 'minimal' ||
-    value === 'low' ||
-    value === 'medium' ||
-    value === 'high' ||
-    value === 'xhigh'
-  )
-}
-
-/**
- * 转字符串数组。
- * @param value - 值。
- * @returns 字符串数组。
- */
-function toStringArray(value: unknown): string[] {
-  return Array.isArray(value)
-    ? value.filter((item): item is string => typeof item === 'string')
-    : []
-}
-
 /**
  * 读取字符串。
  * @param value - 值。

@@ -8,6 +8,9 @@ import { applyEventToSessions, type WorkspaceSession } from '../workspace-sessio
 import useWorkspaceProjectStore from '../workspace-project'
 import useWorkspaceSessionStore from '../workspace-session'
 import type { ThreadSnapshot } from '@shared/coding-agent/types'
+import type { AgentMessage } from '../../../../../../../packages/agent/src/types'
+
+const fixtureTimestamp = Date.parse('2026-07-01T00:00:00.000Z')
 
 beforeEach(() => {
   setActivePinia(createPinia())
@@ -22,18 +25,19 @@ describe('applyEventToSessions', () => {
       threadId: 'thread-a',
       event: {
         type: 'message_update',
-        entryId: 'entry-a',
-        timestamp: '2026-07-01T00:00:00.000Z',
-        message: {
-          role: 'assistant',
-          content: [{ type: 'text', text: 'hello' }]
+        message: createAssistantMessage('hello', fixtureTimestamp),
+        assistantMessageEvent: {
+          type: 'text_delta',
+          contentIndex: 0,
+          delta: 'hello',
+          partial: createAssistantMessage('hello', fixtureTimestamp)
         }
       }
     })
 
     expect(sessions['thread-a']?.snapshot?.messages).toEqual([
       {
-        id: 'entry-a',
+        id: 'assistant-2026-07-01T00:00:00.000Z',
         role: 'assistant',
         text: 'hello',
         createdAt: '2026-07-01T00:00:00.000Z'
@@ -49,9 +53,12 @@ describe('applyEventToSessions', () => {
       threadId: 'thread-a',
       event: {
         type: 'message_update',
-        message: {
-          role: 'assistant',
-          content: [{ type: 'text', text: '你好。' }]
+        message: createAssistantMessage('你好。', fixtureTimestamp),
+        assistantMessageEvent: {
+          type: 'text_delta',
+          contentIndex: 0,
+          delta: '你好。',
+          partial: createAssistantMessage('你好。', fixtureTimestamp)
         }
       }
     })
@@ -60,9 +67,12 @@ describe('applyEventToSessions', () => {
       threadId: 'thread-a',
       event: {
         type: 'message_update',
-        message: {
-          role: 'assistant',
-          content: [{ type: 'text', text: '你好。你想让我看代码' }]
+        message: createAssistantMessage('你好。你想让我看代码', fixtureTimestamp),
+        assistantMessageEvent: {
+          type: 'text_delta',
+          contentIndex: 0,
+          delta: '你好。你想让我看代码',
+          partial: createAssistantMessage('你好。你想让我看代码', fixtureTimestamp)
         }
       }
     })
@@ -71,24 +81,27 @@ describe('applyEventToSessions', () => {
       threadId: 'thread-a',
       event: {
         type: 'message_update',
-        message: {
-          role: 'assistant',
-          content: [{ type: 'text', text: '你好。你想让我看代码、修 bug' }]
+        message: createAssistantMessage('你好。你想让我看代码、修 bug', fixtureTimestamp),
+        assistantMessageEvent: {
+          type: 'text_delta',
+          contentIndex: 0,
+          delta: '你好。你想让我看代码、修 bug',
+          partial: createAssistantMessage('你好。你想让我看代码、修 bug', fixtureTimestamp)
         }
       }
     })
 
     expect(sessions['thread-a']?.snapshot?.messages).toEqual([
       {
-        id: 'message-0',
+        id: 'assistant-2026-07-01T00:00:00.000Z',
         role: 'assistant',
         text: '你好。你想让我看代码、修 bug',
-        createdAt: undefined
+        createdAt: '2026-07-01T00:00:00.000Z'
       }
     ])
   })
 
-  it('将 canonical message_end 中的 userMessage 应用到用户消息气泡', () => {
+  it('将 canonical message_end 中的 user message 应用到用户消息气泡', () => {
     const sessions = createSessions()
 
     applyEventToSessions(sessions, {
@@ -98,17 +111,18 @@ describe('applyEventToSessions', () => {
         type: 'message_end',
         message: {
           role: 'user',
-          content: [{ type: 'text', text: '你好' }]
+          content: [{ type: 'text', text: '你好' }],
+          timestamp: fixtureTimestamp
         }
       }
     })
 
     expect(sessions['thread-a']?.snapshot?.messages).toEqual([
       {
-        id: 'message-0',
+        id: 'user-2026-07-01T00:00:00.000Z',
         role: 'user',
         text: '你好',
-        createdAt: undefined
+        createdAt: '2026-07-01T00:00:00.000Z'
       }
     ])
   })
@@ -131,7 +145,9 @@ describe('applyEventToSessions', () => {
       type: 'canonical',
       threadId: 'thread-a',
       event: {
-        type: 'turn_end'
+        type: 'turn_end',
+        message: createAssistantMessage('done', fixtureTimestamp),
+        toolResults: []
       }
     })
 
@@ -147,6 +163,7 @@ describe('applyEventToSessions', () => {
       threadId: 'thread-a',
       event: {
         type: 'queue.changed',
+        threadId: 'thread-a',
         steering: ['interrupt'],
         followUp: ['next']
       }
@@ -156,6 +173,7 @@ describe('applyEventToSessions', () => {
       threadId: 'thread-a',
       event: {
         type: 'thinking.changed',
+        threadId: 'thread-a',
         level: 'high'
       }
     })
@@ -164,6 +182,7 @@ describe('applyEventToSessions', () => {
       threadId: 'thread-a',
       event: {
         type: 'approval.requested',
+        threadId: 'thread-a',
         approval: {
           approvalId: 'approval-a',
           threadId: 'thread-a',
@@ -179,8 +198,10 @@ describe('applyEventToSessions', () => {
       type: 'projection',
       threadId: 'thread-a',
       event: {
-        type: 'tool.call',
+        type: 'tool.started',
+        threadId: 'thread-a',
         toolCall: {
+          threadId: 'thread-a',
           toolCallId: 'tool-a',
           toolName: 'edit',
           status: 'running'
@@ -192,9 +213,12 @@ describe('applyEventToSessions', () => {
       threadId: 'thread-a',
       event: {
         type: 'file.changed',
-        fileChange: {
+        threadId: 'thread-a',
+        change: {
+          threadId: 'thread-a',
           path: 'README.md',
-          changeType: 'updated'
+          changeType: 'updated',
+          createdAt: '2026-07-01T00:00:01.000Z'
         }
       }
     })
@@ -202,10 +226,15 @@ describe('applyEventToSessions', () => {
       type: 'projection',
       threadId: 'thread-a',
       event: {
-        type: 'diagnostic',
-        source: 'worker',
-        severity: 'warning',
-        message: 'heads up'
+        type: 'thread.error',
+        threadId: 'thread-a',
+        diagnostic: {
+          id: 'diagnostic-a',
+          source: 'worker',
+          severity: 'warning',
+          message: 'heads up',
+          createdAt: '2026-07-01T00:00:02.000Z'
+        }
       }
     })
 
@@ -389,6 +418,41 @@ function createSnapshot(): ThreadSnapshot {
     approvals: [],
     queue: { steering: [], followUp: [] },
     diagnostics: []
+  }
+}
+
+/**
+ * 创建 Pi assistant message fixture。
+ * @param text - 文本。
+ * @param timestamp - 时间戳。
+ * @returns assistant message。
+ */
+function createAssistantMessage(
+  text: string,
+  timestamp: number
+): Extract<AgentMessage, { role: 'assistant' }> {
+  return {
+    role: 'assistant' as const,
+    content: [{ type: 'text' as const, text }],
+    api: 'responses' as const,
+    provider: 'openai',
+    model: 'gpt-5',
+    usage: {
+      input: 1,
+      output: 1,
+      cacheRead: 0,
+      cacheWrite: 0,
+      totalTokens: 2,
+      cost: {
+        input: 0,
+        output: 0,
+        cacheRead: 0,
+        cacheWrite: 0,
+        total: 0
+      }
+    },
+    stopReason: 'stop' as const,
+    timestamp
   }
 }
 
