@@ -1,11 +1,14 @@
 <script setup lang="ts">
+import ConfirmDialogProvider from './components/confirm/ConfirmDialogProvider.vue'
 import { useTheme } from './composables/useTheme'
 
 useTheme()
 </script>
 
 <template>
-  <RouterView />
+  <ConfirmDialogProvider>
+    <RouterView />
+  </ConfirmDialogProvider>
 </template>
 
 <style lang="scss">

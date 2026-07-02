@@ -1,19 +1,11 @@
 <script setup lang="ts">
-/**
- * View.vue - Workspace 页面主布局组件。
- *
- * 组合左侧边栏、可拖拽分隔条与右侧内容区，管理整体布局网格。
- */
-
 import ResizablePaneSeparator from '@renderer/components/ui/resizable-pane-separator/ResizablePaneSeparator.vue'
 import useWorkspaceUiStore from '@renderer/stores/workspace-ui'
 import { computed } from 'vue'
-import WorkspaceContent from './components/content/WorkspaceContent.vue'
 import Sidebar from './components/sidebar/Sidebar.vue'
 
 /** 分隔条宽度（像素）。 */
 const RESIZER_WIDTH = 1
-
 const workspaceUi = useWorkspaceUiStore()
 
 /** 当前工作区网格列模板。 */
@@ -23,48 +15,49 @@ const workspaceGridColumns = computed(() => {
 </script>
 
 <template>
-  <main class="workspace" :style="{ gridTemplateColumns: workspaceGridColumns }">
+  <main class="settings" :style="{ gridTemplateColumns: workspaceGridColumns }">
     <Sidebar />
-
     <ResizablePaneSeparator
-      class="workspace__resizer"
+      class="settings__resizer"
       :model-value="workspaceUi.sidebarWidth"
       :min="workspaceUi.minSidebarWidth"
       :max="workspaceUi.maxSidebarWidth"
       @update:model-value="workspaceUi.setSidebarWidth"
     />
-
-    <WorkspaceContent />
+    <section class="settings-content"></section>
   </main>
 </template>
 
 <style lang="scss" scoped>
-.workspace {
+.settings {
   display: grid;
   width: 100%;
   height: 100%;
   min-width: 0;
 }
 
+.settings-content {
+  position: relative;
+  display: grid;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  background-color: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 12px 0 0 12px;
+}
+
 @media (width <= 820px) {
-  .workspace {
+  .settings {
     grid-template-columns: 1fr;
   }
 
-  .workspace__sidebar {
+  .settings__sidebar {
     display: none;
   }
 
-  .workspace__resizer {
+  .settings__resizer {
     display: none;
-  }
-
-  .workspace__topbar {
-    display: grid;
-  }
-
-  .workspace__grid {
-    grid-template-columns: 1fr;
   }
 }
 </style>

@@ -37,4 +37,8 @@ export default defineStore('workspace-ui', () => {
     sidebarOpen,
     sidebarWidth
   }
+}, {
+  persist: {
+    pick: ['sidebarOpen', 'sidebarWidth']
+  }
 })

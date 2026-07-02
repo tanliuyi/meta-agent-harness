@@ -22,6 +22,11 @@ const router = createRouter({
       path: '/:sessionid',
       name: 'Workspace',
       component: () => import('../views/workspace/View.vue')
+    },
+    {
+      path: '/settings',
+      name: 'Settings',
+      component: () => import('../views/settings/View.vue')
     }
   ]
 })

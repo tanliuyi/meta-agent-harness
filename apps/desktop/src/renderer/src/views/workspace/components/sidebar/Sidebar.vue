@@ -1,15 +1,14 @@
 <script setup lang="ts">
-/**
- * Sidebar.vue - Workspace 左侧边栏组件。
- *
- * 展示 Project 与 thread 列表，并支持切换当前会话。
- */
-
 import { BaseIconButton } from '@renderer/components/base'
 import PlusIcon from '@renderer/components/icons/PlusIcon.vue'
+import FolderIcon from '@renderer/components/icons/FolderIcon.vue'
+import SettingIcon from '@renderer/components/icons/SettingIcon.vue'
+import { confirm } from '@renderer/composables/useConfirmDialog'
 import useWorkspaceProjectStore from '@renderer/stores/workspace-project'
 import useWorkspaceSessionStore from '@renderer/stores/workspace-session'
 import type { ProjectSummary, ProjectTrustDecision } from '@shared/coding-agent/types'
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
+import { RouterLink } from 'vue-router'
 
 const workspaceProject = useWorkspaceProjectStore()
 const workspaceSession = useWorkspaceSessionStore()
@@ -41,12 +40,58 @@ async function setProjectTrust(projectId: string, decision: ProjectTrustDecision
 }
 
 /**
- * 是否展示 Project trust 提示。
+ * 是否需要 Project trust 决策。
  * @param project - Project。
- * @returns 是否展示。
+ * @returns 是否需要。
  */
-function shouldShowTrustNotice(project: ProjectSummary): boolean {
+function shouldRequestProjectTrust(project: ProjectSummary): boolean {
   return project.trust?.requiresTrust === true && project.trust.state !== 'trusted'
+}
+
+/**
+ * 通过 Dialog 请求 Project trust 决策。
+ * @param project - Project。
+ */
+async function requestProjectTrust(project: ProjectSummary): Promise<void> {
+  if (!shouldRequestProjectTrust(project)) {
+    return
+  }
+
+  const actions: Array<{ label: string; value: ProjectTrustDecision }> = [
+    { label: '信任 Project', value: 'trustProject' },
+    { label: '本次信任', value: 'trustSession' },
+    { label: '不信任', value: 'doNotTrust' }
+  ]
+
+  if (project.trust?.parentPath) {
+    actions.splice(1, 0, { label: '信任父目录', value: 'trustParent' })
+  }
+
+  const result = await confirm({
+    actions,
+    cancelText: '稍后再说',
+    description: `Project 路径：${project.path}`,
+    id: `project-trust-${project.projectId}`,
+    title: '是否信任此 Project？',
+    tone: 'destructive'
+  })
+
+  if (!result.confirmed || !result.action) {
+    return
+  }
+
+  await setProjectTrust(project.projectId, result.action as ProjectTrustDecision)
+}
+
+/**
+ * 创建 Project，并在需要 trust 时弹出确认对话框。
+ */
+async function createProject(): Promise<void> {
+  const project = await workspaceProject.createProject()
+
+  if (project) {
+    await requestProjectTrust(project)
+  }
 }
 </script>
 
@@ -59,7 +104,7 @@ function shouldShowTrustNotice(project: ProjectSummary): boolean {
           label="打开 Project"
           size="small"
           class="project-tree__add-btn"
-          @click="workspaceProject.createProject"
+          @click="createProject"
         >
           <PlusIcon :size="14" />
         </BaseIconButton>
@@ -72,62 +117,60 @@ function shouldShowTrustNotice(project: ProjectSummary): boolean {
       </template>
 
       <ul class="project-tree">
-        <li
+        <Collapsible
           v-for="project in workspaceProject.projectList"
           :key="project.projectId"
+          default-open
           class="project-tree__item"
         >
-          <div class="project-tree__project" @click="openProject(project.projectId)">
-            <span>{{ project.name }}</span>
-            <BaseIconButton
-              label="创建 Thread"
-              size="small"
-              :disabled="project.status !== 'available'"
-              class="thread__add-btn"
-              @click.stop="createThreadInProject(project.projectId)"
-            >
-              <PlusIcon :size="14" />
-            </BaseIconButton>
-          </div>
-
-          <div v-if="shouldShowTrustNotice(project)" class="project-trust">
-            <p>未信任，本地 agent 资源已禁用。</p>
-            <div class="project-trust__actions">
-              <button type="button" @click="setProjectTrust(project.projectId, 'trustProject')">
-                信任 Project
-              </button>
-              <button
-                v-if="project.trust?.parentPath"
-                type="button"
-                @click="setProjectTrust(project.projectId, 'trustParent')"
+          <CollapsibleTrigger>
+            <div class="project-tree__project" @click="openProject(project.projectId)">
+              <FolderIcon :size="12" />
+              <span>{{ project.name }}</span>
+              <BaseIconButton
+                label="创建 Thread"
+                size="small"
+                :disabled="project.status !== 'available'"
+                class="thread__add-btn"
+                @click.stop="createThreadInProject(project.projectId)"
               >
-                信任父目录
-              </button>
-              <button type="button" @click="setProjectTrust(project.projectId, 'trustSession')">
-                本次信任
-              </button>
-              <button type="button" @click="setProjectTrust(project.projectId, 'doNotTrust')">
-                不信任
-              </button>
+                <PlusIcon :size="14" />
+              </BaseIconButton>
             </div>
-          </div>
+          </CollapsibleTrigger>
 
-          <ul class="session-group">
-            <li
-              v-for="thread in workspaceSession.sessionsByProject[project.projectId] ?? []"
-              :key="thread.threadId"
-              class="session-group__item"
-              :class="{
-                'is-active': thread.threadId === workspaceSession.activeSessionId
-              }"
-              @click="workspaceSession.setActiveSessionId(thread.threadId)"
-            >
-              <span class="session-group__item-title">{{ thread.title || '新会话' }}</span>
-              <small>{{ thread.status }}</small>
-            </li>
-          </ul>
-        </li>
+          <CollapsibleContent>
+            <ul class="session-group">
+              <template
+                v-if="(workspaceSession.sessionsByProject[project.projectId] ?? []).length === 0"
+              >
+                <li class="session-group__item is-empty">
+                  <span class="session-group__item-title">暂无会话</span>
+                </li>
+              </template>
+
+              <li
+                v-for="thread in workspaceSession.sessionsByProject[project.projectId] ?? []"
+                :key="thread.threadId"
+                class="session-group__item"
+                :class="{
+                  'is-active': thread.threadId === workspaceSession.activeSessionId
+                }"
+                @click="workspaceSession.setActiveSessionId(thread.threadId)"
+              >
+                <span class="session-group__item-title">{{ thread.title || '新会话' }}</span>
+                <small>{{ thread.status }}</small>
+              </li>
+            </ul>
+          </CollapsibleContent>
+        </Collapsible>
       </ul>
+    </div>
+    <div class="sidebar-section is-footer">
+      <RouterLink to="/settings" class="button-cell">
+        <SettingIcon :size="12" />
+        <span>设置</span>
+      </RouterLink>
     </div>
   </aside>
 </template>
@@ -141,8 +184,6 @@ function shouldShowTrustNotice(project: ProjectSummary): boolean {
   min-height: 0;
   overflow: hidden;
   color: var(--color-text);
-  background:
-    linear-gradient(180deg, rgb(255 255 255 / 4%), transparent 72px), var(--color-sidebar);
   border-right: 1px solid rgb(255 255 255 / 4%);
   backdrop-filter: blur(16px);
 }
@@ -154,6 +195,10 @@ function shouldShowTrustNotice(project: ProjectSummary): boolean {
   min-width: 0;
   min-height: 0;
   overflow-y: auto;
+
+  &.is-footer {
+    flex: 0 0 auto;
+  }
 }
 
 .sidebar-section__header {
@@ -161,8 +206,8 @@ function shouldShowTrustNotice(project: ProjectSummary): boolean {
   align-items: center;
   justify-content: space-between;
   gap: var(--space-2);
-  min-height: 30px;
-  padding: 0 var(--space-2);
+  height: 32px;
+  padding: 0 var(--space-3);
 
   span {
     min-width: 0;
@@ -176,6 +221,7 @@ function shouldShowTrustNotice(project: ProjectSummary): boolean {
 
   .project-tree__add-btn {
     visibility: hidden;
+    margin-left: auto;
   }
 
   &:hover {
@@ -210,13 +256,13 @@ function shouldShowTrustNotice(project: ProjectSummary): boolean {
 }
 
 .project-tree__project {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  display: flex;
+  flex-direction: row;
   align-items: center;
   gap: var(--space-2);
   min-width: 0;
-  min-height: 32px;
-  padding: 0 var(--space-2);
+  height: 28px;
+  padding: 0 var(--space-3);
   color: var(--color-text-muted);
 
   span {
@@ -230,6 +276,7 @@ function shouldShowTrustNotice(project: ProjectSummary): boolean {
 
   .thread__add-btn {
     visibility: hidden;
+    margin-left: auto;
   }
 
   &:hover {
@@ -244,13 +291,12 @@ function shouldShowTrustNotice(project: ProjectSummary): boolean {
   align-items: center;
   gap: var(--space-2);
   min-width: 0;
-  min-height: 32px;
-  margin: 0 var(--space-1);
-  padding: 0 var(--space-2) 0 var(--space-3);
+  margin: 0 var(--space-2);
+  padding: 0 var(--space-3) 0 var(--space-3);
   border-radius: var(--radius-md);
   color: var(--color-text-muted);
 
-  &:hover,
+  &:not(.is-empty):hover,
   &.is-active {
     color: var(--color-text);
     background: var(--color-surface-raised);
@@ -263,50 +309,30 @@ function shouldShowTrustNotice(project: ProjectSummary): boolean {
     overflow: hidden;
     text-overflow: ellipsis;
   }
+
+  &.is-empty {
+    font-size: 12px;
+    color: var(--color-text-muted);
+  }
 }
 
 .session-group__item {
   height: 28px;
 }
 
-.project-trust {
-  display: grid;
-  gap: var(--space-2);
-  margin: var(--space-1) 0 var(--space-2);
-  padding: var(--space-2);
-  color: var(--color-text-muted);
-  background: var(--color-control-track);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-sm);
-
-  p {
-    margin: 0;
-    font-size: 11px;
-    line-height: 1.45;
-  }
-}
-
-.project-trust__actions {
+.button-cell {
   display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-1);
+  flex-direction: row;
+  align-items: center;
+  gap: var(--space-2);
+  height: 28px;
+  margin: 0 var(--space-2) var(--space-2);
+  padding: 0 var(--space-3);
+  border-radius: var(--radius-md);
 
-  button {
-    min-height: 24px;
-    padding: 0 var(--space-2);
-    color: var(--color-text-muted);
-    font: inherit;
-    font-size: 11px;
-    background: transparent;
-    border: 1px solid var(--color-border);
-    border-radius: var(--radius-xs);
-    cursor: pointer;
-  }
-
-  button:hover {
+  &:hover {
     color: var(--color-text);
     background: var(--color-surface-raised);
-    border-color: var(--color-border-strong);
   }
 }
 </style>

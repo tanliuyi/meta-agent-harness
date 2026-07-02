@@ -18,3 +18,9 @@ declare module '*.vue' {
   const component: DefineComponent<object, object, unknown>
   export default component
 }
+
+interface Window {
+  api: {
+    codingAgent: import('@shared/coding-agent/types').CodingAgentApi
+  }
+}

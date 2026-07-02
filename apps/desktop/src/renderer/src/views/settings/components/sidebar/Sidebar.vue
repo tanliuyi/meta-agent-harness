@@ -1,0 +1,66 @@
+<script setup lang="ts">
+import BackIcon from '@/components/icons/BackIcon.vue'
+import { useRouter } from 'vue-router'
+
+const router = useRouter()
+
+const goBack = (): void => {
+  router.back()
+}
+</script>
+
+<template>
+  <aside class="settings__sidebar">
+    <div class="sidebar-section">
+      <button class="back-button" @click="goBack">
+        <BackIcon :size="12" />
+        <span>返回聊天</span>
+      </button>
+    </div>
+  </aside>
+</template>
+
+<style lang="scss" scoped>
+.settings__sidebar {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  padding: var(--space-2) 0;
+  overflow: hidden;
+  color: var(--color-text);
+  border-right: 1px solid rgb(255 255 255 / 4%);
+  backdrop-filter: blur(16px);
+}
+
+.sidebar-section {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  overflow-y: auto;
+
+  &.is-footer {
+    flex: 0 0 auto;
+  }
+}
+
+.back-button {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+  height: 28px;
+  margin: 0 var(--space-2);
+  padding: 0 var(--space-3);
+  border-radius: var(--radius-md);
+
+  &:hover {
+    color: var(--color-text);
+    background: var(--color-surface-raised);
+  }
+}
+</style>
