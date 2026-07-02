@@ -3,8 +3,8 @@
  */
 
 import { describe, expect, it } from 'vitest'
-import { TransportWorkerClient, type WorkerHangInfo } from '../transport-worker-client'
-import type { WorkerEnvelope, WorkerResponseEnvelope, WorkerTransport } from '../worker-types'
+import { TransportWorkerClient } from '../transport-worker-client'
+import type { WorkerEnvelope, WorkerHangInfo, WorkerResponseEnvelope, WorkerTransport } from '../worker-types'
 
 describe('TransportWorkerClient', () => {
   it('请求超时后会 reject', async () => {
@@ -36,6 +36,44 @@ describe('TransportWorkerClient', () => {
     const sendPromise = client.startThread({ threadId: 'thread-a', cwd: '/tmp' })
     await expect(sendPromise).resolves.toBeUndefined()
     expect(client.threadId).toBe('thread-a')
+  })
+
+  it('未配置无消息超时时不会因 idle 关闭 worker', async () => {
+    let now = 0
+    const transport = createFakeTransport()
+    const hangInfo: WorkerHangInfo[] = []
+    const client = new TransportWorkerClient({
+      workerId: 'worker-1',
+      transport,
+      requestTimeoutMs: 1000,
+      now: () => now,
+      onHang: (info) => hangInfo.push(info)
+    })
+
+    transport.respondTo('worker.startThread', { success: true })
+    await client.startThread({ threadId: 'thread-a', cwd: '/tmp' })
+    now = 60000
+    await waitMs(150)
+
+    expect(hangInfo).toHaveLength(0)
+    expect(transport.isClosed()).toBe(false)
+  })
+
+  it('传输层关闭后发送命令返回 worker_exited', async () => {
+    const transport = createFakeTransport()
+    const client = new TransportWorkerClient({
+      workerId: 'worker-1',
+      transport,
+      requestTimeoutMs: 1000,
+      now: () => 0
+    })
+
+    transport.close()
+
+    await expect(client.send({ type: 'test.command' })).resolves.toMatchObject({
+      success: false,
+      error: { code: 'worker_exited' }
+    })
   })
 
   it('启动线程超时时 reject', async () => {

@@ -101,6 +101,18 @@ export interface WorkerSnapshot {
 }
 
 /**
+ * worker hang 信息。
+ */
+export interface WorkerHangInfo {
+  /** worker ID。 */
+  workerId: string
+  /** 线程 ID，若未绑定则为 undefined。 */
+  threadId?: string
+  /** 无消息持续时间，毫秒。 */
+  silentMs: number
+}
+
+/**
  * worker 客户端抽象接口。
  */
 export interface WorkerClient {
@@ -125,6 +137,12 @@ export interface WorkerClient {
    * @returns 取消订阅函数。
    */
   onEvent?(listener: (event: WorkerEnvelope) => void): () => void
+  /**
+   * 注册 hang 监听器。
+   * @param listener - hang 监听器。
+   * @returns 取消订阅函数。
+   */
+  onHang?(listener: (info: WorkerHangInfo) => void): () => void
   /**
    * 获取 worker 快照。
    * @returns worker 快照。

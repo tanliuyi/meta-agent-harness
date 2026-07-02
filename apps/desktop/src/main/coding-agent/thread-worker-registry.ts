@@ -7,6 +7,7 @@ import type {
   WorkerClient,
   WorkerCommand,
   WorkerEnvelope,
+  WorkerHangInfo,
   WorkerLease,
   WorkerResponseEnvelope
 } from './worker-types'
@@ -107,20 +108,25 @@ export class ThreadWorkerRegistry {
     if (this.closed || this.leases.size === 0) {
       return
     }
-    const now = this.now()
-    const candidates: string[] = []
-    this.leases.forEach((lease, threadId) => {
-      if (lease.status === 'running') {
-        return
+    try {
+      const now = this.now()
+      const candidates: string[] = []
+      this.leases.forEach((lease, threadId) => {
+        if (lease.status === 'running') {
+          return
+        }
+        if (now - lease.lastActiveAt >= this.idleTimeoutMs) {
+          candidates.push(threadId)
+        }
+      })
+      for (const threadId of candidates) {
+        if (this.leases.has(threadId)) {
+          await this.releaseThreadWorker(threadId, 'idle')
+        }
       }
-      if (now - lease.lastActiveAt >= this.idleTimeoutMs) {
-        candidates.push(threadId)
-      }
-    })
-    for (const threadId of candidates) {
-      await this.releaseThreadWorker(threadId, 'idle')
+    } finally {
+      this.startIdleCheck()
     }
-    this.startIdleCheck()
   }
 
   /**
@@ -151,6 +157,9 @@ export class ThreadWorkerRegistry {
     try {
       const worker = await this.createWorker()
       worker.onEvent?.((event) => this.onWorkerEvent(input.threadId, event))
+      worker.onHang?.((info) => {
+        void this.releaseHungWorker(info)
+      })
       const time = this.now()
       const lease: WorkerLease = {
         workerId: worker.workerId,
@@ -331,6 +340,18 @@ export class ThreadWorkerRegistry {
       }
     }
     this.onEvent?.(event)
+  }
+
+  /**
+   * 释放 hang 的 worker 租约。
+   * @param info - hang 信息。
+   */
+  private async releaseHungWorker(info: WorkerHangInfo): Promise<void> {
+    const threadId = info.threadId
+    if (!threadId || !this.leases.has(threadId)) {
+      return
+    }
+    await this.releaseThreadWorker(threadId, 'crash')
   }
 
   /**

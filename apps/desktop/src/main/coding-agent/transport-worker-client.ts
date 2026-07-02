@@ -8,6 +8,7 @@ import type {
   WorkerCommand,
   WorkerCommandEnvelope,
   WorkerEnvelope,
+  WorkerHangInfo,
   WorkerResponseEnvelope,
   WorkerSnapshot,
   WorkerTransport
@@ -25,16 +26,6 @@ interface PendingRequest {
   timer: ReturnType<typeof setTimeout>
 }
 
-/** worker hang 回调信息。 */
-export interface WorkerHangInfo {
-  /** worker ID。 */
-  workerId: string
-  /** 线程 ID，若未绑定则为 undefined。 */
-  threadId?: string
-  /** 无消息持续时间，毫秒。 */
-  silentMs: number
-}
-
 /**
  * 基于传输层的 worker 客户端选项。
  */
@@ -45,7 +36,7 @@ export interface TransportWorkerClientOptions {
   transport: WorkerTransport
   /** 请求超时毫秒数。 */
   requestTimeoutMs?: number
-  /** 无消息超时毫秒数；超过此时间未收到任何 response/event 则触发 hang。 */
+  /** 无消息超时毫秒数；未配置时不启用检测。 */
   inactivityTimeoutMs?: number
   /** 启动线程超时毫秒数。 */
   startupTimeoutMs?: number
@@ -75,16 +66,18 @@ export class TransportWorkerClient implements WorkerClient {
   private readonly pending = new Map<string, PendingRequest>()
   /** 事件监听器集合。 */
   private readonly eventListeners: Array<(event: WorkerEnvelope) => void> = []
+  /** hang 监听器集合。 */
+  private readonly hangListeners: Array<(info: WorkerHangInfo) => void> = []
   /** 是否已停止。 */
   private stopped = false
   /** 无消息超时毫秒数。 */
-  private readonly inactivityTimeoutMs: number
+  private readonly inactivityTimeoutMs: number | undefined
   /** 启动线程超时毫秒数。 */
   private readonly startupTimeoutMs: number
   /** 获取当前时间戳的函数。 */
   private readonly now: () => number
   /** worker 无消息时回调。 */
-  private readonly onHang?: (info: WorkerHangInfo) => void
+  private readonly onHangCallback?: (info: WorkerHangInfo) => void
   /** 最近收到消息时间戳。 */
   private lastMessageAt: number
   /** 无消息检测计时器。 */
@@ -98,14 +91,14 @@ export class TransportWorkerClient implements WorkerClient {
     this.workerId = options.workerId
     this.transport = options.transport
     this.requestTimeoutMs = options.requestTimeoutMs ?? 30000
-    this.inactivityTimeoutMs = options.inactivityTimeoutMs ?? 30000
+    this.inactivityTimeoutMs = options.inactivityTimeoutMs
     this.startupTimeoutMs = options.startupTimeoutMs ?? 30000
     this.createRequestId = options.createRequestId ?? (() => crypto.randomUUID())
     this.now = options.now ?? Date.now
-    this.onHang = options.onHang
+    this.onHangCallback = options.onHang
     this.lastMessageAt = this.now()
     this.transport.onMessage((envelope) => this.handleEnvelope(envelope))
-    this.transport.onClose((reason) => this.rejectAll(new Error(reason)))
+    this.transport.onClose((reason) => this.handleClose(reason))
     this.scheduleInactivityCheck()
   }
 
@@ -157,7 +150,13 @@ export class TransportWorkerClient implements WorkerClient {
         reject(new Error(`request timed out: ${command.type}`))
       }, this.requestTimeoutMs)
       this.pending.set(id, { resolve, reject, timer })
-      this.transport.send(envelope)
+      try {
+        this.transport.send(envelope)
+      } catch (error) {
+        clearTimeout(timer)
+        this.pending.delete(id)
+        reject(error instanceof Error ? error : new Error(String(error)))
+      }
     })
   }
 
@@ -185,6 +184,21 @@ export class TransportWorkerClient implements WorkerClient {
       const index = this.eventListeners.indexOf(listener)
       if (index >= 0) {
         this.eventListeners.splice(index, 1)
+      }
+    }
+  }
+
+  /**
+   * 注册 hang 监听器。
+   * @param listener - hang 监听器。
+   * @returns 取消订阅函数。
+   */
+  onHang(listener: (info: WorkerHangInfo) => void): () => void {
+    this.hangListeners.push(listener)
+    return () => {
+      const index = this.hangListeners.indexOf(listener)
+      if (index >= 0) {
+        this.hangListeners.splice(index, 1)
       }
     }
   }
@@ -227,7 +241,7 @@ export class TransportWorkerClient implements WorkerClient {
    * 调度无消息检测。
    */
   private scheduleInactivityCheck(): void {
-    if (this.stopped) {
+    if (this.stopped || this.inactivityTimeoutMs === undefined) {
       return
     }
     this.inactivityTimer = setTimeout(() => {
@@ -243,16 +257,22 @@ export class TransportWorkerClient implements WorkerClient {
     if (this.stopped) {
       return
     }
+    const timeoutMs = this.inactivityTimeoutMs
+    if (timeoutMs === undefined) {
+      return
+    }
     const silentMs = this.now() - this.lastMessageAt
-    if (silentMs < this.inactivityTimeoutMs) {
+    if (silentMs < timeoutMs) {
       this.scheduleInactivityCheck()
       return
     }
-    this.onHang?.({
+    const info: WorkerHangInfo = {
       workerId: this.workerId,
       threadId: this.threadId,
       silentMs
-    })
+    }
+    this.onHangCallback?.(info)
+    this.hangListeners.forEach((listener) => listener(info))
     this.stop(`worker hang: no message for ${silentMs}ms`).catch(() => {
       // 清理操作失败时忽略，避免影响回调执行
     })
@@ -266,6 +286,15 @@ export class TransportWorkerClient implements WorkerClient {
       clearTimeout(this.inactivityTimer)
       this.inactivityTimer = undefined
     }
+  }
+
+  /**
+   * 处理传输层关闭。
+   * @param reason - 关闭原因。
+   */
+  private handleClose(reason: string): void {
+    this.stopped = true
+    this.rejectAll(new Error(reason))
   }
 
   /**
