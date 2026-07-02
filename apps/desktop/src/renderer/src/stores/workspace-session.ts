@@ -512,7 +512,11 @@ function applyProjectionEvent(snapshot: ThreadSnapshot, event: Record<string, un
       return
     case 'tool.call':
     case 'tool.updated':
-      upsertUnknown(snapshot.toolCalls, isRecord(event.toolCall) ? event.toolCall : event, 'toolCallId')
+      upsertUnknown(
+        snapshot.toolCalls,
+        isRecord(event.toolCall) ? event.toolCall : event,
+        'toolCallId'
+      )
       return
     case 'file.changed':
       snapshot.fileChanges.push(isRecord(event.fileChange) ? event.fileChange : event)
@@ -528,7 +532,9 @@ function applyProjectionEvent(snapshot: ThreadSnapshot, event: Record<string, un
  * @param event - canonical event。
  * @returns 消息载荷。
  */
-function extractMessagePayload(event: Record<string, unknown>): Record<string, unknown> | undefined {
+function extractMessagePayload(
+  event: Record<string, unknown>
+): Record<string, unknown> | undefined {
   if (isRecord(event.message)) {
     return event.message
   }
@@ -536,7 +542,10 @@ function extractMessagePayload(event: Record<string, unknown>): Record<string, u
     return { ...event.userMessage, role: getString(event.userMessage.role) ?? 'user' }
   }
   if (isRecord(event.assistantMessage)) {
-    return { ...event.assistantMessage, role: getString(event.assistantMessage.role) ?? 'assistant' }
+    return {
+      ...event.assistantMessage,
+      role: getString(event.assistantMessage.role) ?? 'assistant'
+    }
   }
   if (typeof event.userMessage === 'string') {
     return { role: 'user', content: event.userMessage }
@@ -608,7 +617,10 @@ function getStreamingMessageId(
  * @param incoming - 新文本。
  * @returns 是否应复用同一条消息。
  */
-function isStreamingTextUpdate(existing: string | undefined, incoming: string | undefined): boolean {
+function isStreamingTextUpdate(
+  existing: string | undefined,
+  incoming: string | undefined
+): boolean {
   if (!existing || !incoming) {
     return true
   }
@@ -746,7 +758,9 @@ function isThinkingLevel(value: unknown): value is ThreadSnapshot['thinkingLevel
  * @returns 字符串数组。
  */
 function toStringArray(value: unknown): string[] {
-  return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : []
+  return Array.isArray(value)
+    ? value.filter((item): item is string => typeof item === 'string')
+    : []
 }
 
 /**

@@ -69,7 +69,11 @@ function classifyError(message: string): string {
   if (normalized.includes('permission') || normalized.includes('denied')) {
     return 'permission_denied'
   }
-  if (normalized.includes('crash') || normalized.includes('exit') || normalized.includes('closed')) {
+  if (
+    normalized.includes('crash') ||
+    normalized.includes('exit') ||
+    normalized.includes('closed')
+  ) {
     return 'worker_crash'
   }
   if (normalized.includes('protocol')) {

@@ -437,5 +437,4 @@ function installCodingAgentApi(overrides: Record<string, unknown>): void {
 }
 
 let capturedEventListener:
-  | ((event: Parameters<Parameters<typeof window.api.codingAgent.onEvent>[0]>[0]) => void)
-  | undefined
+  ((event: Parameters<Parameters<typeof window.api.codingAgent.onEvent>[0]>[0]) => void) | undefined

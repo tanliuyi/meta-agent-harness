@@ -190,7 +190,8 @@ export class ThreadManagerCore {
       title: (state.sessionName as string | undefined) ?? thread.title,
       status: thread.status,
       thinkingLevel: (state.thinkingLevel as ThreadSnapshot['thinkingLevel'] | undefined) ?? 'off',
-      messages: (state.messages as ThreadSnapshot['messages'] | undefined) ?? this.listMessages(thread),
+      messages:
+        (state.messages as ThreadSnapshot['messages'] | undefined) ?? this.listMessages(thread),
       toolCalls:
         (state.toolCalls as ThreadSnapshot['toolCalls'] | undefined) ?? this.listToolCalls(thread),
       fileChanges:

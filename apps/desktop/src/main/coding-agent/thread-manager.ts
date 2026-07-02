@@ -68,7 +68,9 @@ export class CodingThreadManager extends ThreadManagerCore {
    * @returns Project 摘要。
    */
   createProject(input: CreateProjectInput): ProjectSummary {
-    return this.getProjectTrustService().decorateProject(this.getProjectStore().createProject(input))
+    return this.getProjectTrustService().decorateProject(
+      this.getProjectStore().createProject(input)
+    )
   }
 
   /**
@@ -77,7 +79,9 @@ export class CodingThreadManager extends ThreadManagerCore {
    * @returns Project 摘要。
    */
   openProject(projectId: string): ProjectSummary {
-    return this.getProjectTrustService().decorateProject(this.getProjectStore().openProject(projectId))
+    return this.getProjectTrustService().decorateProject(
+      this.getProjectStore().openProject(projectId)
+    )
   }
 
   /**
@@ -86,7 +90,9 @@ export class CodingThreadManager extends ThreadManagerCore {
    * @returns Project 摘要。
    */
   getProject(projectId: string): ProjectSummary {
-    return this.getProjectTrustService().decorateProject(this.getProjectStore().requireProject(projectId))
+    return this.getProjectTrustService().decorateProject(
+      this.getProjectStore().requireProject(projectId)
+    )
   }
 
   /**

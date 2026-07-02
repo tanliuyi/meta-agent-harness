@@ -109,9 +109,9 @@ describe('CodingThreadStore', () => {
     const store = new CodingThreadStore(db, { ownsDb: false })
     expect(store.listThreads()).toEqual([])
 
-    const columns = db
-      .prepare("select name from pragma_table_info('threads')")
-      .all() as Array<{ name: string }>
+    const columns = db.prepare("select name from pragma_table_info('threads')").all() as Array<{
+      name: string
+    }>
     expect(columns.some((column) => column.name === 'project_id')).toBe(true)
     db.close()
   })
@@ -396,7 +396,9 @@ describe('CodingThreadStore', () => {
       title: 'JSONL session',
       thinkingLevel: 'high'
     })
-    expect(snapshot.messages.map((message) => ({ role: message.role, text: message.text }))).toEqual([
+    expect(
+      snapshot.messages.map((message) => ({ role: message.role, text: message.text }))
+    ).toEqual([
       { role: 'user', text: 'hello' },
       { role: 'assistant', text: 'world' }
     ])

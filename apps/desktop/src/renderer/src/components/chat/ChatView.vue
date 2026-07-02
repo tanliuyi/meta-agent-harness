@@ -15,12 +15,16 @@ const messages = computed(() => workspaceSession.activeSnapshot?.messages ?? [])
 
 /** 当前会话是否正在执行。 */
 const isRunning = computed(() =>
-  ['queued', 'starting', 'running', 'stopping'].includes(workspaceSession.activeSession?.status ?? '')
+  ['queued', 'starting', 'running', 'stopping'].includes(
+    workspaceSession.activeSession?.status ?? ''
+  )
 )
 
 /** 是否允许发送消息。 */
 const canSend = computed(() =>
-  Boolean(workspaceSession.activeSessionId && workspaceSession.draftMessage.trim() && !isRunning.value)
+  Boolean(
+    workspaceSession.activeSessionId && workspaceSession.draftMessage.trim() && !isRunning.value
+  )
 )
 
 /** 当前输入框状态提示。 */

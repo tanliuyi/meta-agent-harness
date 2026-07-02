@@ -39,10 +39,7 @@ async function createThreadInProject(projectId: string): Promise<void> {
  * @param projectId - Project ID。
  * @param decision - trust 决策。
  */
-async function setProjectTrust(
-  projectId: string,
-  decision: ProjectTrustDecision
-): Promise<void> {
+async function setProjectTrust(projectId: string, decision: ProjectTrustDecision): Promise<void> {
   await workspaceProject.setProjectTrust(projectId, decision)
 }
 
@@ -85,7 +82,10 @@ function getTrustLabel(project: ProjectSummary): string {
         </BaseIconButton>
       </div>
 
-      <p v-if="workspaceProject.errorMessage || workspaceSession.errorMessage" class="sidebar-error">
+      <p
+        v-if="workspaceProject.errorMessage || workspaceSession.errorMessage"
+        class="sidebar-error"
+      >
         {{ workspaceProject.errorMessage || workspaceSession.errorMessage }}
       </p>
 
@@ -95,10 +95,7 @@ function getTrustLabel(project: ProjectSummary): string {
           :key="project.projectId"
           class="project-tree__item"
         >
-          <div
-            class="project-tree__project"
-            @click="openProject(project.projectId)"
-          >
+          <div class="project-tree__project" @click="openProject(project.projectId)">
             <span>{{ project.name }}</span>
             <small>{{ getTrustLabel(project) }}</small>
             <BaseIconButton
@@ -308,5 +305,4 @@ function getTrustLabel(project: ProjectSummary): string {
     border-color: var(--color-border-strong);
   }
 }
-
 </style>

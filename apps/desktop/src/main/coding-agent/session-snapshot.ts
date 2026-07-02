@@ -24,7 +24,8 @@ export function buildSnapshotFromSession(input: BuildSnapshotFromSessionInput): 
   const entries = readSessionEntries(input.sessionFile)
   const title = findLastString(entries, 'session_info', 'name') ?? input.thread.title
   const thinkingLevel =
-    normalizeThinkingLevel(findLastString(entries, 'thinking_level_change', 'thinkingLevel')) ?? 'off'
+    normalizeThinkingLevel(findLastString(entries, 'thinking_level_change', 'thinkingLevel')) ??
+    'off'
   return {
     threadId: input.thread.threadId,
     projectId: input.thread.projectId,
@@ -125,7 +126,9 @@ function normalizeRole(role: unknown): ThreadMessage['role'] | undefined {
  * @param value - 原始值。
  * @returns ThinkingLevel 或 undefined。
  */
-function normalizeThinkingLevel(value: string | undefined): ThreadSnapshot['thinkingLevel'] | undefined {
+function normalizeThinkingLevel(
+  value: string | undefined
+): ThreadSnapshot['thinkingLevel'] | undefined {
   switch (value) {
     case 'minimal':
     case 'low':

@@ -26,10 +26,12 @@ describe('ThreadWorkerRegistry', () => {
 
     expect(first.workerId).toBe('worker-1')
     expect(second.workerId).toBe('worker-2')
-    expect(registry.listLeases().map((lease) => lease.threadId).sort()).toEqual([
-      'thread-a',
-      'thread-b'
-    ])
+    expect(
+      registry
+        .listLeases()
+        .map((lease) => lease.threadId)
+        .sort()
+    ).toEqual(['thread-a', 'thread-b'])
   })
 
   it('记录 worker run start 与 finish 生命周期', async () => {

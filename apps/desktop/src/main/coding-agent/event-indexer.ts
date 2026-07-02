@@ -113,7 +113,11 @@ function indexProjectionEvent(store: CodingThreadStore, threadId: string, event:
  * @param threadId - 线程 ID。
  * @param event - projection event。
  */
-function indexToolCall(store: CodingThreadStore, threadId: string, event: Record<string, unknown>): void {
+function indexToolCall(
+  store: CodingThreadStore,
+  threadId: string,
+  event: Record<string, unknown>
+): void {
   const toolCall = isRecord(event.toolCall) ? event.toolCall : event
   const toolCallId = getString(toolCall.toolCallId) ?? getString(toolCall.id)
   const toolName = getString(toolCall.toolName) ?? getString(toolCall.name)
@@ -138,7 +142,11 @@ function indexToolCall(store: CodingThreadStore, threadId: string, event: Record
  * @param threadId - 线程 ID。
  * @param event - projection event。
  */
-function indexFileChange(store: CodingThreadStore, threadId: string, event: Record<string, unknown>): void {
+function indexFileChange(
+  store: CodingThreadStore,
+  threadId: string,
+  event: Record<string, unknown>
+): void {
   const fileChange = isRecord(event.fileChange) ? event.fileChange : event
   const path = getString(fileChange.path)
   if (!path) {
@@ -160,7 +168,11 @@ function indexFileChange(store: CodingThreadStore, threadId: string, event: Reco
  * @param threadId - 线程 ID。
  * @param error - 错误。
  */
-function writeIndexDiagnostic(store: CodingThreadStore, threadId: string | undefined, error: unknown): void {
+function writeIndexDiagnostic(
+  store: CodingThreadStore,
+  threadId: string | undefined,
+  error: unknown
+): void {
   try {
     store.saveDiagnostic({
       threadId,

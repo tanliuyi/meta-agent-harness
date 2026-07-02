@@ -119,7 +119,11 @@ describe('CodingThreadManager lifecycle', () => {
     const threadStore = new CodingThreadStore(':memory:')
     const registry = createRecordingRegistry()
     const project = projectStore.createProject({ path: createTempDir() })
-    const manager = new CodingThreadManager(registry as unknown as ThreadWorkerRegistry, threadStore, projectStore)
+    const manager = new CodingThreadManager(
+      registry as unknown as ThreadWorkerRegistry,
+      threadStore,
+      projectStore
+    )
 
     await expect(manager.createThread({ projectId: project.projectId })).rejects.toThrow(
       'project is not available: missing'
@@ -147,7 +151,10 @@ function createRecordingRegistry(): {
   acquires: StartThreadInput[]
   acquireThreadWorker(input: StartThreadInput): Promise<WorkerLease>
   releaseThreadWorker(threadId: string): Promise<void>
-  send(threadId: string, command: { type: string }): Promise<{
+  send(
+    threadId: string,
+    command: { type: string }
+  ): Promise<{
     kind: 'response'
     id: string
     command: string

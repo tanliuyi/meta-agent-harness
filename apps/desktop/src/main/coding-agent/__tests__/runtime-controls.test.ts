@@ -4,11 +4,7 @@
 
 import { describe, expect, it } from 'vitest'
 import { ThreadManagerCore } from '../thread-manager-core'
-import {
-  getCommands,
-  respondApproval,
-  respondUi
-} from '../thread-runtime-controls'
+import { getCommands, respondApproval, respondUi } from '../thread-runtime-controls'
 import { runCommand } from '../thread-agent-commands'
 import type { WorkerCommand, WorkerResponseEnvelope } from '../worker-types'
 import type { ThreadWorkerRegistry } from '../thread-worker-registry'

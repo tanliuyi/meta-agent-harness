@@ -4,10 +4,7 @@
 
 import { describe, expect, it } from 'vitest'
 import { codingAgentChannels } from '../../../shared/coding-agent/channels'
-import {
-  publishCodingAgentEvent,
-  toCodingAgentIpcEvent
-} from '../ipc'
+import { publishCodingAgentEvent, toCodingAgentIpcEvent } from '../ipc'
 import type { CodingAgentIpcEvent } from '../../../shared/coding-agent/types'
 
 describe('coding agent IPC events', () => {

@@ -90,20 +90,31 @@ export function registerCodingAgentIpc(options: CodingAgentIpcOptions = {}): Cod
       return undefined
     }
     const project = manager.createProject({ path: result.filePaths[0] })
-    publishCodingAgentEvent(subscribers, { type: 'project', event: { type: 'project.created', project } })
+    publishCodingAgentEvent(subscribers, {
+      type: 'project',
+      event: { type: 'project.created', project }
+    })
     return project
   })
   handle(manager, codingAgentChannels.openProject, (projectId: string) => {
     const project = manager.openProject(projectId)
-    publishCodingAgentEvent(subscribers, { type: 'project', event: { type: 'project.opened', project } })
+    publishCodingAgentEvent(subscribers, {
+      type: 'project',
+      event: { type: 'project.opened', project }
+    })
     return project
   })
-  handle(manager, codingAgentChannels.getProject, (projectId: string) => manager.getProject(projectId))
+  handle(manager, codingAgentChannels.getProject, (projectId: string) =>
+    manager.getProject(projectId)
+  )
   handle(manager, codingAgentChannels.listProjects, () => manager.listProjects())
   handle(manager, codingAgentChannels.renameProject, (input: RenameProjectInput) => {
     manager.renameProject(input)
     const project = manager.getProject(input.projectId)
-    publishCodingAgentEvent(subscribers, { type: 'project', event: { type: 'project.updated', project } })
+    publishCodingAgentEvent(subscribers, {
+      type: 'project',
+      event: { type: 'project.updated', project }
+    })
   })
   handle(manager, codingAgentChannels.setProjectTrust, (input: SetProjectTrustInput) => {
     const project = manager.setProjectTrust(input)
@@ -115,10 +126,16 @@ export function registerCodingAgentIpc(options: CodingAgentIpcOptions = {}): Cod
   })
   handle(manager, codingAgentChannels.createThread, async (input: CreateThreadInput) => {
     const snapshot = await manager.createThread(input)
-    publishCodingAgentEvent(subscribers, { type: 'threadSnapshot', threadId: snapshot.threadId, snapshot })
+    publishCodingAgentEvent(subscribers, {
+      type: 'threadSnapshot',
+      threadId: snapshot.threadId,
+      snapshot
+    })
     return snapshot
   })
-  handle(manager, codingAgentChannels.stopThread, (threadId: string) => manager.stopThread(threadId))
+  handle(manager, codingAgentChannels.stopThread, (threadId: string) =>
+    manager.stopThread(threadId)
+  )
   handle(manager, codingAgentChannels.restartThread, (threadId: string) =>
     manager.restartThread(threadId)
   )
@@ -126,7 +143,9 @@ export function registerCodingAgentIpc(options: CodingAgentIpcOptions = {}): Cod
     manager.listThreads(input)
   )
   handle(manager, codingAgentChannels.getThread, (threadId: string) => manager.getThread(threadId))
-  handle(manager, codingAgentChannels.getSnapshot, (threadId: string) => manager.getSnapshot(threadId))
+  handle(manager, codingAgentChannels.getSnapshot, (threadId: string) =>
+    manager.getSnapshot(threadId)
+  )
   handle(manager, codingAgentChannels.prompt, (input: PromptInput) => manager.prompt(input))
   handle(manager, codingAgentChannels.steer, (input: TextInput) => manager.steer(input))
   handle(manager, codingAgentChannels.followUp, (input: TextInput) => manager.followUp(input))
@@ -151,9 +170,13 @@ export function registerCodingAgentIpc(options: CodingAgentIpcOptions = {}): Cod
   handle(manager, codingAgentChannels.archiveThread, (threadId: string) =>
     manager.archiveThread(threadId)
   )
-  handle(manager, codingAgentChannels.listModels, (threadId: string) => manager.listModels(threadId))
+  handle(manager, codingAgentChannels.listModels, (threadId: string) =>
+    manager.listModels(threadId)
+  )
   handle(manager, codingAgentChannels.setModel, (input: SetModelInput) => manager.setModel(input))
-  handle(manager, codingAgentChannels.cycleModel, (threadId: string) => manager.cycleModel(threadId))
+  handle(manager, codingAgentChannels.cycleModel, (threadId: string) =>
+    manager.cycleModel(threadId)
+  )
   handle(manager, codingAgentChannels.setThinkingLevel, (input: SetThinkingInput) =>
     manager.setThinkingLevel(input)
   )
@@ -167,8 +190,12 @@ export function registerCodingAgentIpc(options: CodingAgentIpcOptions = {}): Cod
   handle(manager, codingAgentChannels.setAutoRetry, (input: ToggleInput) =>
     manager.setAutoRetry(input)
   )
-  handle(manager, codingAgentChannels.abortRetry, (threadId: string) => manager.abortRetry(threadId))
-  handle(manager, codingAgentChannels.getCommands, (threadId: string) => manager.getCommands(threadId))
+  handle(manager, codingAgentChannels.abortRetry, (threadId: string) =>
+    manager.abortRetry(threadId)
+  )
+  handle(manager, codingAgentChannels.getCommands, (threadId: string) =>
+    manager.getCommands(threadId)
+  )
   handle(manager, codingAgentChannels.runCommand, (input: { threadId: string; command: string }) =>
     manager.runCommand(input)
   )

@@ -210,13 +210,13 @@ export class CodingThreadStore {
    * @returns 线程摘要列表，按 updated_at 降序。
    */
   listThreads(input: { projectId?: string } = {}): ThreadSummary[] {
-    const rows = (
-      input.projectId
-        ? this.db
-            .prepare('select summary_json from threads where project_id = ? order by updated_at desc')
-            .all(input.projectId)
-        : this.db.prepare('select summary_json from threads order by updated_at desc').all()
-    ) as unknown as ThreadRow[]
+    const rows = (input.projectId
+      ? this.db
+          .prepare('select summary_json from threads where project_id = ? order by updated_at desc')
+          .all(input.projectId)
+      : this.db
+          .prepare('select summary_json from threads order by updated_at desc')
+          .all()) as unknown as ThreadRow[]
     return rows.map((row) => JSON.parse(row.summary_json) as ThreadSummary)
   }
 
@@ -475,8 +475,9 @@ export class CodingThreadStore {
    * @param input - worker run 完成信息。
    */
   finishWorkerRun(
-    input: { workerId: string; startedAt: string } &
-      Partial<Pick<WorkerRunRecord, 'status' | 'exitedAt' | 'exitCode' | 'signal' | 'stderrTail'>>
+    input: { workerId: string; startedAt: string } & Partial<
+      Pick<WorkerRunRecord, 'status' | 'exitedAt' | 'exitCode' | 'signal' | 'stderrTail'>
+    >
   ): void {
     this.db
       .prepare(

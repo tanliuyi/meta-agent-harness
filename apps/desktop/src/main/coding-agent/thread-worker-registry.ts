@@ -27,7 +27,13 @@ export interface ThreadWorkerRegistryOptions {
 
 /** Thread worker 生命周期事件。 */
 export type ThreadWorkerLifecycleEvent =
-  | { type: 'worker.run.started'; workerId: string; threadId: string; cwd: string; startedAt: number }
+  | {
+      type: 'worker.run.started'
+      workerId: string
+      threadId: string
+      cwd: string
+      startedAt: number
+    }
   | {
       type: 'worker.run.finished'
       workerId: string
