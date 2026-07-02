@@ -243,7 +243,6 @@ export class CodingThreadStore {
     }
     const metadata = JSON.parse(readFileSync(this.metadataPath, 'utf8')) as ThreadMetadataFile
 
-    console.debug(`[ThreadStore] load metadata from ${this.metadataPath}:`, metadata)
     for (const thread of metadata.threads ?? []) {
       this.threads.set(thread.threadId, thread)
     }

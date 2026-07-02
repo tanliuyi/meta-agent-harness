@@ -56,7 +56,6 @@ export class ThreadManagerCore {
     this.modelSettingsService = modelSettingsService
     this.agentSettingsService = agentSettingsService
     for (const thread of store?.listThreads() ?? []) {
-      console.debug(`[ThreadManagerCore] load thread from store: ${thread.threadId}`, thread)
       this.threads.set(thread.threadId, thread)
     }
   }
@@ -128,30 +127,25 @@ export class ThreadManagerCore {
    */
   async getSnapshot(threadId: string): Promise<ThreadSnapshot> {
     const thread = this.requireThread(threadId)
-    console.debug(`[ThreadManagerCore] getSnapshot threadId=${threadId} thread=`, thread)
     if (!this.hasWorker(threadId)) {
       return this.buildSnapshotFromSessionFile(thread) ?? this.buildSnapshot(thread)
     }
     const response = await this.workers.send(threadId, { type: 'get_state' })
-    console.debug(`[ThreadManagerCore] getSnapshot threadId=${threadId} response=`, response)
 
     if (response.success) {
       const liveMessages = await this.getLiveMessages(threadId)
-      this.syncThreadMetadataFromLiveState(thread, response.data as Partial<ThreadLiveState>)
+      const liveState = response.data as Partial<ThreadLiveState>
+      this.syncThreadMetadataFromLiveState(thread, liveState)
       const snapshot = this.buildSnapshot(thread, {
-        ...(response.data as ThreadLiveState),
+        ...liveState,
         ...(liveMessages ? { messages: liveMessages } : {})
       })
-      console.debug(`[ThreadManagerCore] getSnapshot threadId=${threadId} snapshot=`, snapshot)
       return snapshot
     }
     if (
       isMissingWorkerResponse(response) ||
       (thread.status !== 'idle' && thread.status !== 'running')
     ) {
-      console.debug(
-        `[ThreadManagerCore] getSnapshot threadId=${threadId} fallback to session file or memory`
-      )
       return this.buildSnapshotFromSessionFile(thread) ?? this.buildSnapshot(thread)
     }
     throwResponseError(response)
@@ -172,6 +166,10 @@ export class ThreadManagerCore {
     }
     if (state.sessionName && state.sessionName !== thread.title) {
       patch.title = state.sessionName
+    }
+    const liveStatus = getThreadStatusFromLiveState(state)
+    if (liveStatus && liveStatus !== thread.status) {
+      patch.status = liveStatus
     }
     if (Object.keys(patch).length > 0) {
       this.updateThread(thread.threadId, patch)
@@ -241,7 +239,7 @@ export class ThreadManagerCore {
       cwd: state.cwd ?? this.getThreadCwd(thread),
       sessionFile: state.sessionFile ?? thread.sessionFile,
       title: state.sessionName ?? thread.title,
-      status: thread.status,
+      status: getThreadStatusFromLiveState(state) ?? thread.status,
       model: state.model,
       thinkingLevel: state.thinkingLevel ?? 'off',
       messages: state.messages ?? [],
@@ -436,4 +434,16 @@ export function throwResponseError(response: WorkerResponseEnvelope): never {
  */
 function isMissingWorkerResponse(response: WorkerResponseEnvelope): boolean {
   return response.error?.code === 'thread_not_found' || response.error?.code === 'worker_not_found'
+}
+
+function getThreadStatusFromLiveState(
+  state: Partial<ThreadLiveState>
+): ThreadSummary['status'] | undefined {
+  if (state.isStreaming || state.isCompacting) {
+    return 'running'
+  }
+  if (typeof state.isStreaming === 'boolean' || typeof state.isCompacting === 'boolean') {
+    return 'idle'
+  }
+  return undefined
 }

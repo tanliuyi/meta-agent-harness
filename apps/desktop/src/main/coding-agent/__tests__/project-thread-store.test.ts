@@ -343,6 +343,8 @@ describe('CodingThreadStore', () => {
     const snapshot = await manager.getSnapshot('thread-live')
 
     expect(snapshot.cwd).toBe(runtimeCwd)
+    expect(snapshot.status).toBe('idle')
+    expect(store.listThreads({ projectId: project.projectId })[0]?.status).toBe('idle')
     expect(
       snapshot.messages.map((message) => ({ role: message.role, text: message.text }))
     ).toEqual([
@@ -613,7 +615,9 @@ function createLiveThreadWorkerRegistry(cwd = '/tmp/live-cwd'): ThreadWorkerRegi
           data: {
             cwd,
             sessionName: 'Live session',
-            thinkingLevel: 'medium'
+            thinkingLevel: 'medium',
+            isStreaming: false,
+            isCompacting: false
           }
         }
       }
