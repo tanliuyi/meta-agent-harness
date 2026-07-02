@@ -6,6 +6,8 @@ import type {
   CommandInfo,
   CompactInput,
   CompactionResult,
+  ExtensionUiResponseInput,
+  ApprovalResponseInput,
   ToggleInput
 } from '@shared/coding-agent/types'
 import type { ThreadManagerCore } from './thread-manager-core'
@@ -79,9 +81,9 @@ export async function getCommands(
  */
 export async function respondUi(
   core: ThreadManagerCore,
-  input: { threadId: string; response: unknown }
+  input: ExtensionUiResponseInput
 ): Promise<void> {
-  await core.sendOk(input.threadId, { type: 'ui.respond', response: input.response as never })
+  await core.sendOk(input.threadId, { type: 'ui.respond', response: input.response })
 }
 
 /**
@@ -91,7 +93,7 @@ export async function respondUi(
  */
 export async function respondApproval(
   core: ThreadManagerCore,
-  input: { threadId: string; response: unknown }
+  input: ApprovalResponseInput
 ): Promise<void> {
-  await core.sendOk(input.threadId, { type: 'approval.respond', response: input.response as never })
+  await core.sendOk(input.threadId, { type: 'approval.respond', response: input.response })
 }

@@ -79,6 +79,30 @@ export const codingAgentChannels = {
   respondApproval: 'coding-agent:respond-approval',
   /** 获取 debug diagnostics。 */
   listDiagnostics: 'coding-agent:list-diagnostics',
+  /** 获取全局模型设置快照。 */
+  getModelSettings: 'coding-agent:get-model-settings',
+  /** 更新全局模型设置。 */
+  updateModelSettings: 'coding-agent:update-model-settings',
+  /** 获取全局模型 registry。 */
+  listModelRegistry: 'coding-agent:list-model-registry',
+  /** 获取 provider 凭据状态。 */
+  listProviderCredentials: 'coding-agent:list-provider-credentials',
+  /** 获取模型设置诊断。 */
+  listModelDiagnostics: 'coding-agent:list-model-diagnostics',
+  /** 获取自定义 provider 列表。 */
+  listCustomProviders: 'coding-agent:list-custom-providers',
+  /** 新增或更新自定义 provider。 */
+  upsertCustomProvider: 'coding-agent:upsert-custom-provider',
+  /** 删除自定义 provider。 */
+  deleteCustomProvider: 'coding-agent:delete-custom-provider',
+  /** 保存 provider API key 到 Pi-compatible auth.json。 */
+  setProviderApiKey: 'coding-agent:set-provider-api-key',
+  /** 刷新模型 registry。 */
+  refreshModelRegistry: 'coding-agent:refresh-model-registry',
+  /** 获取 Pi-compatible agent 设置快照。 */
+  getAgentSettings: 'coding-agent:get-agent-settings',
+  /** 更新 Pi-compatible agent 设置。 */
+  updateAgentSettings: 'coding-agent:update-agent-settings',
   /** 事件通道。 */
   event: 'coding-agent:event'
 } as const

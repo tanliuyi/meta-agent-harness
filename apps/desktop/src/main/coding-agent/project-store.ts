@@ -1,48 +1,51 @@
 /**
- * 本文件实现 Electron main 侧 Project registry。
+ * 本文件实现 Electron main 侧轻量 Project metadata registry。
  */
 
-import { accessSync, constants, mkdirSync, statSync } from 'node:fs'
-import { basename, dirname, resolve } from 'node:path'
-import { DatabaseSync } from 'node:sqlite'
+import {
+  accessSync,
+  constants,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  statSync,
+  writeFileSync
+} from 'node:fs'
+import { basename, dirname, join, resolve } from 'node:path'
 import type { CreateProjectInput, ProjectStatus, ProjectSummary } from '@shared/coding-agent/types'
+import { getAgentDir } from '../../../../../packages/coding-agent/src/config'
 
-/** 数据库 projects 表行。 */
-interface ProjectRow {
-  /** Project 摘要 JSON 字符串。 */
-  summary_json: string
+/** Project metadata 文件结构。 */
+interface ProjectMetadataFile {
+  /** schema version。 */
+  version: 1
+  /** Project 列表。 */
+  projects: ProjectSummary[]
 }
 
 /** ProjectStore 构造选项。 */
 export interface ProjectStoreOptions {
-  /** 是否拥有数据库连接；拥有时 close 会关闭连接。 */
-  ownsDb?: boolean
+  /** 是否自动保存到文件。 */
+  persist?: boolean
 }
 
 /**
  * Electron main 侧 Project registry。
  */
 export class ProjectStore {
-  private readonly db: DatabaseSync
-  private readonly ownsDb: boolean
+  private readonly metadataPath: string | undefined
+  private readonly persist: boolean
+  private readonly projects = new Map<string, ProjectSummary>()
 
   /**
    * 创建 ProjectStore。
-   * @param dbOrPath - SQLite 数据库连接或路径。
+   * @param metadataPath - metadata JSON 文件路径；传 ':memory:' 使用内存 registry。
    * @param options - 构造选项。
    */
-  constructor(dbOrPath: DatabaseSync | string, options: ProjectStoreOptions = {}) {
-    if (typeof dbOrPath === 'string') {
-      if (dbOrPath !== ':memory:') {
-        mkdirSync(dirname(dbOrPath), { recursive: true })
-      }
-      this.db = new DatabaseSync(dbOrPath)
-      this.ownsDb = options.ownsDb ?? true
-    } else {
-      this.db = dbOrPath
-      this.ownsDb = options.ownsDb ?? false
-    }
-    this.migrate()
+  constructor(metadataPath = defaultProjectMetadataPath(), options: ProjectStoreOptions = {}) {
+    this.metadataPath = metadataPath === ':memory:' ? undefined : metadataPath
+    this.persist = options.persist ?? metadataPath !== ':memory:'
+    this.load()
   }
 
   /**
@@ -82,40 +85,8 @@ export class ProjectStore {
    * @param project - Project 摘要。
    */
   saveProject(project: ProjectSummary): void {
-    this.db
-      .prepare(
-        `insert into projects(
-           project_id,
-           name,
-           path,
-           status,
-           archived_at,
-           created_at,
-           updated_at,
-           last_opened_at,
-           summary_json
-         )
-         values (?, ?, ?, ?, ?, ?, ?, ?, ?)
-         on conflict(project_id) do update set
-           name = excluded.name,
-           path = excluded.path,
-           status = excluded.status,
-           archived_at = excluded.archived_at,
-           updated_at = excluded.updated_at,
-           last_opened_at = excluded.last_opened_at,
-           summary_json = excluded.summary_json`
-      )
-      .run(
-        project.projectId,
-        project.name,
-        project.path,
-        project.status,
-        null,
-        project.createdAt,
-        project.updatedAt,
-        project.lastOpenedAt ?? null,
-        JSON.stringify(project)
-      )
+    this.projects.set(project.projectId, project)
+    this.flush()
   }
 
   /**
@@ -124,10 +95,7 @@ export class ProjectStore {
    * @returns Project 或 undefined。
    */
   getProject(projectId: string): ProjectSummary | undefined {
-    const row = this.db
-      .prepare('select summary_json from projects where project_id = ?')
-      .get(projectId) as ProjectRow | undefined
-    return row ? (JSON.parse(row.summary_json) as ProjectSummary) : undefined
+    return this.projects.get(projectId)
   }
 
   /**
@@ -136,10 +104,8 @@ export class ProjectStore {
    * @returns Project 或 undefined。
    */
   findProjectByPath(path: string): ProjectSummary | undefined {
-    const row = this.db
-      .prepare('select summary_json from projects where path = ?')
-      .get(resolve(path)) as ProjectRow | undefined
-    return row ? (JSON.parse(row.summary_json) as ProjectSummary) : undefined
+    const resolved = resolve(path)
+    return [...this.projects.values()].find((project) => resolve(project.path) === resolved)
   }
 
   /**
@@ -147,10 +113,9 @@ export class ProjectStore {
    * @returns Project 列表。
    */
   listProjects(): ProjectSummary[] {
-    const rows = this.db
-      .prepare('select summary_json from projects order by updated_at desc')
-      .all() as unknown as ProjectRow[]
-    return rows.map((row) => JSON.parse(row.summary_json) as ProjectSummary)
+    return [...this.projects.values()]
+      .map((project) => ({ ...project, status: getProjectStatus(project.path) }))
+      .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))
   }
 
   /**
@@ -194,38 +159,34 @@ export class ProjectStore {
   }
 
   /**
-   * 关闭数据库连接。
+   * 关闭 store。
    */
   close(): void {
-    if (this.ownsDb) {
-      this.db.close()
+    this.flush()
+  }
+
+  /** 从 metadata 文件加载。 */
+  private load(): void {
+    if (!this.metadataPath || !existsSync(this.metadataPath)) {
+      return
+    }
+    const metadata = JSON.parse(readFileSync(this.metadataPath, 'utf8')) as ProjectMetadataFile
+    for (const project of metadata.projects ?? []) {
+      this.projects.set(project.projectId, project)
     }
   }
 
-  /**
-   * 初始化 Project schema。
-   */
-  private migrate(): void {
-    this.db.exec(`
-      create table if not exists schema_meta (
-        key text primary key,
-        value text not null
-      );
-      create table if not exists projects (
-        project_id text primary key,
-        name text not null,
-        path text not null unique,
-        status text not null,
-        archived_at text,
-        created_at text not null,
-        updated_at text not null,
-        last_opened_at text,
-        summary_json text not null
-      );
-      insert into schema_meta(key, value)
-        values ('desktop_schema_version', '2')
-        on conflict(key) do update set value = excluded.value;
-    `)
+  /** 写入 metadata 文件。 */
+  private flush(): void {
+    if (!this.persist || !this.metadataPath) {
+      return
+    }
+    mkdirSync(dirname(this.metadataPath), { recursive: true })
+    const metadata: ProjectMetadataFile = {
+      version: 1,
+      projects: [...this.projects.values()]
+    }
+    writeFileSync(this.metadataPath, `${JSON.stringify(metadata, null, 2)}\n`)
   }
 }
 
@@ -252,4 +213,8 @@ export function getProjectStatus(path: string): ProjectStatus {
     }
     return 'invalid'
   }
+}
+
+function defaultProjectMetadataPath(): string {
+  return join(getAgentDir(), 'projects.json')
 }

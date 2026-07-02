@@ -14,12 +14,62 @@ describe('coding agent IPC events', () => {
         kind: 'event',
         eventType: 'canonical',
         threadId: 'thread-a',
-        event: { type: 'message_update' }
+        event: {
+          type: 'message_end',
+          message: {
+            role: 'assistant',
+            content: [{ type: 'text', text: 'hello' }],
+            api: 'responses',
+            provider: 'openai',
+            model: 'gpt-5',
+            usage: {
+              input: 1,
+              output: 1,
+              cacheRead: 0,
+              cacheWrite: 0,
+              totalTokens: 2,
+              cost: {
+                input: 0,
+                output: 0,
+                cacheRead: 0,
+                cacheWrite: 0,
+                total: 0
+              }
+            },
+            stopReason: 'stop',
+            timestamp: 1782844800000
+          }
+        }
       })
     ).toEqual({
       type: 'canonical',
       threadId: 'thread-a',
-      event: { type: 'message_update' }
+      event: {
+        type: 'message_end',
+        message: {
+          role: 'assistant',
+          content: [{ type: 'text', text: 'hello' }],
+          api: 'responses',
+          provider: 'openai',
+          model: 'gpt-5',
+          usage: {
+            input: 1,
+            output: 1,
+            cacheRead: 0,
+            cacheWrite: 0,
+            totalTokens: 2,
+            cost: {
+              input: 0,
+              output: 0,
+              cacheRead: 0,
+              cacheWrite: 0,
+              total: 0
+            }
+          },
+          stopReason: 'stop',
+          timestamp: 1782844800000
+        }
+      }
     })
 
     expect(
@@ -27,12 +77,36 @@ describe('coding agent IPC events', () => {
         kind: 'event',
         eventType: 'projection',
         threadId: 'thread-a',
-        event: { type: 'approval.requested' }
+        event: {
+          type: 'approval.requested',
+          threadId: 'thread-a',
+          approval: {
+            approvalId: 'approval-a',
+            threadId: 'thread-a',
+            action: 'edit',
+            risk: 'medium',
+            scope: 'once',
+            defaultAction: 'deny',
+            createdAt: '2026-07-01T00:00:00.000Z'
+          }
+        }
       })
     ).toEqual({
       type: 'projection',
       threadId: 'thread-a',
-      event: { type: 'approval.requested' }
+      event: {
+        type: 'approval.requested',
+        threadId: 'thread-a',
+        approval: {
+          approvalId: 'approval-a',
+          threadId: 'thread-a',
+          action: 'edit',
+          risk: 'medium',
+          scope: 'once',
+          defaultAction: 'deny',
+          createdAt: '2026-07-01T00:00:00.000Z'
+        }
+      }
     })
   })
 
@@ -50,7 +124,17 @@ describe('coding agent IPC events', () => {
     ])
     const event: CodingAgentIpcEvent = {
       type: 'project',
-      event: { type: 'project.opened', projectId: 'project-a' }
+      event: {
+        type: 'project.opened',
+        project: {
+          projectId: 'project-a',
+          name: 'Project A',
+          path: '/tmp/project-a',
+          status: 'available',
+          createdAt: '2026-07-01T00:00:00.000Z',
+          updatedAt: '2026-07-01T00:00:00.000Z'
+        }
+      }
     }
 
     publishCodingAgentEvent(subscribers, event)

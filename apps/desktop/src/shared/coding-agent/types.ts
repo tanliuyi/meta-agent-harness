@@ -2,12 +2,30 @@
  * 本文件定义 desktop renderer 与 main 之间受控暴露的 coding agent IPC 类型。
  */
 
+import type {
+  ApprovalRequest as PackageApprovalRequest,
+  ApprovalResponse as PackageApprovalResponse
+} from '../../../../../packages/coding-agent/src/desktop/protocol/approval'
+import type { DesktopIpcEvent as PackageDesktopIpcEvent } from '../../../../../packages/coding-agent/src/desktop/ipc/event'
+import type { ExtensionUiResponse as PackageExtensionUiResponse } from '../../../../../packages/coding-agent/src/desktop/protocol/extension-ui'
+import type { AgentMessage, ThinkingLevel as PiThinkingLevel } from '@earendil-works/pi-agent-core'
+import { toDesktopMessageContent as toPackageDesktopMessageContent } from '../../../../../packages/coding-agent/src/desktop/protocol/message'
+import type {
+  DesktopMessage,
+  ThreadSnapshot as PackageThreadSnapshot
+} from '../../../../../packages/coding-agent/src/desktop/protocol/snapshot'
+import type {
+  StartThreadInput as PackageStartThreadInput,
+  ThreadRuntimeState,
+  ThreadSummary as PackageThreadSummary
+} from '../../../../../packages/coding-agent/src/desktop/protocol/thread'
+import type { RpcResponse } from '../../../../../packages/coding-agent/src/modes/rpc/rpc-types'
+
 /** 线程状态。 */
-export type ThreadStatus =
-  'new' | 'queued' | 'starting' | 'idle' | 'running' | 'stopping' | 'stopped' | 'error'
+export type ThreadStatus = ThreadRuntimeState
 
 /** 思考级别。 */
-export type ThinkingLevel = 'off' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh'
+export type ThinkingLevel = PiThinkingLevel
 
 /** Project 可用状态。 */
 export type ProjectStatus = 'available' | 'missing' | 'permissionDenied' | 'invalid'
@@ -77,123 +95,39 @@ export interface SetProjectTrustInput {
 }
 
 /** 创建线程的输入参数。 */
-export interface CreateThreadInput {
-  /** 线程 ID；未提供时自动生成。 */
-  threadId?: string
+export type CreateThreadInput = Omit<PackageStartThreadInput, 'cwd'> & {
   /** 所属 Project ID。 */
   projectId: string
-  /** 会话文件路径。 */
-  sessionFile?: string
-  /** 线程标题。 */
-  title?: string
-  /** Agent 目录路径。 */
-  agentDir?: string
 }
 
 /** 线程摘要信息。 */
-export interface ThreadSummary {
-  /** 线程 ID。 */
-  threadId: string
+export type ThreadSummary = Omit<PackageThreadSummary, 'cwd'> & {
   /** 所属 Project ID。 */
   projectId: string
-  /** 会话文件路径。 */
-  sessionFile?: string
-  /** 线程标题。 */
-  title?: string
-  /** 当前状态。 */
-  status: ThreadStatus
   /** 归档时间（ISO 8601）。 */
   archivedAt?: string
-  /** 创建时间（ISO 8601）。 */
-  createdAt: string
-  /** 更新时间（ISO 8601）。 */
-  updatedAt: string
 }
 
 /** 线程快照。 */
-export interface ThreadSnapshot {
-  /** 线程 ID。 */
-  threadId: string
+export type ThreadSnapshot = PackageThreadSnapshot & {
   /** 所属 Project ID。 */
   projectId: string
-  /** 工作目录。 */
-  cwd: string
-  /** 会话文件路径。 */
-  sessionFile?: string
-  /** 线程标题。 */
-  title?: string
-  /** 当前状态。 */
-  status: ThreadStatus
-  /** 思考级别。 */
-  thinkingLevel: ThinkingLevel
-  /** 消息列表。 */
-  messages: ThreadMessage[]
-  /** 工具调用列表。 */
-  toolCalls: unknown[]
-  /** 文件变更列表。 */
-  fileChanges: unknown[]
-  /** 审批请求列表。 */
-  approvals: unknown[]
-  /** 待处理队列。 */
-  queue: {
-    /** 引导/转向输入队列。 */
-    steering: string[]
-    /** 跟进输入队列。 */
-    followUp: string[]
-  }
-  /** 诊断信息列表。 */
-  diagnostics: unknown[]
 }
 
 /** 审批请求。 */
-export interface ApprovalRequest {
-  /** 审批请求 ID。 */
-  approvalId: string
-  /** 所属线程 ID。 */
-  threadId: string
-  /** 需要审批的操作描述。 */
-  action: string
-  /** 风险等级。 */
-  risk: 'low' | 'medium' | 'high'
-  /** 审批作用范围。 */
-  scope: 'once' | 'thread' | 'workspace'
-  /** 可选的选项列表。 */
-  choices?: string[]
-  /** 审批主题/对象。 */
-  subject?: string
-  /** 默认动作。 */
-  defaultAction: 'allow' | 'deny'
-  /** 超时时间（毫秒）。 */
-  timeoutMs?: number
-  /** 创建时间（ISO 8601）。 */
-  createdAt: string
-}
+export type ApprovalRequest = PackageApprovalRequest
 
 /** 审批响应。 */
-export interface ApprovalResponse {
-  /** 审批请求 ID。 */
-  approvalId: string
-  /** 是否允许执行。 */
-  allow: boolean
-  /** 审批作用范围。 */
-  scope: 'once' | 'thread' | 'workspace'
-  /** 选中的选项。 */
-  choice?: string
-  /** 拒绝或允许的原因。 */
-  reason?: string
-}
+export type ApprovalResponse = PackageApprovalResponse
 
 /** 线程消息。 */
-export interface ThreadMessage {
-  /** 消息 ID。 */
-  id: string
-  /** 消息角色。 */
-  role: 'user' | 'assistant' | 'tool' | 'system'
-  /** 消息文本内容。 */
-  text?: string
-  /** 创建时间（ISO 8601）。 */
-  createdAt?: string
-}
+export type ThreadMessage = DesktopMessage
+
+/** 将 Pi AgentMessage 转换为不含 ID 的 Desktop message 内容。 */
+export const toDesktopMessageContent = toPackageDesktopMessageContent
+
+/** Pi AgentMessage。 */
+export type { AgentMessage }
 
 /** 包含线程 ID 的基础输入。 */
 export interface ThreadIdInput {
@@ -276,14 +210,10 @@ export interface SetModelInput extends ThreadIdInput {
 }
 
 /** 模型切换结果。 */
-export interface ModelCycleResult {
-  /** 当前模型信息。 */
-  model: ModelInfo
-  /** 当前思考级别。 */
-  thinkingLevel: ThinkingLevel
-  /** 是否为范围限定模型。 */
-  isScoped: boolean
-}
+export type ModelCycleResult = Extract<
+  RpcResponse,
+  { command: 'cycle_model'; success: true }
+>['data']
 
 /** 设置思考级别输入。 */
 export interface SetThinkingInput extends ThreadIdInput {
@@ -292,10 +222,10 @@ export interface SetThinkingInput extends ThreadIdInput {
 }
 
 /** 思考级别切换结果。 */
-export interface ThinkingCycleResult {
-  /** 当前思考级别。 */
-  level: ThinkingLevel
-}
+export type ThinkingCycleResult = Extract<
+  RpcResponse,
+  { command: 'cycle_thinking_level'; success: true }
+>['data']
 
 /** 压缩线程输入。 */
 export interface CompactInput extends ThreadIdInput {
@@ -310,25 +240,433 @@ export interface ToggleInput extends ThreadIdInput {
 }
 
 /** 命令信息。 */
-export interface CommandInfo {
-  /** 命令名称。 */
-  name: string
-  /** 命令描述。 */
-  description?: string
-  /** 命令来源。 */
-  source: 'extension' | 'prompt' | 'skill'
-  /** 来源相关的附加信息。 */
-  sourceInfo: unknown
-}
+export type CommandInfo = Extract<
+  RpcResponse,
+  { command: 'get_commands'; success: true }
+>['data']['commands'][number]
 
 /** 模型信息。 */
-export interface ModelInfo {
+export type ModelInfo = Extract<
+  RpcResponse,
+  { command: 'get_available_models'; success: true }
+>['data']['models'][number]
+
+/** 模型配置页中的模型状态。 */
+export type ModelSettingsModelStatus = 'available' | 'missingAuth' | 'invalid' | 'disabled'
+
+/** 模型配置来源。 */
+export type ModelSettingsSource =
+  'builtin' | 'global' | 'project' | 'runtime' | 'custom' | 'extension'
+
+/** Provider 凭据状态。 */
+export type ProviderCredentialState = 'configured' | 'missing' | 'invalid' | 'unknown'
+
+/** Provider 凭据来源。 */
+export type ProviderCredentialSource =
+  'credentialStore' | 'env' | 'oauth' | 'runtime' | 'models_json_key' | 'models_json_command'
+
+/** 模型设置诊断级别。 */
+export type ModelSettingsDiagnosticSeverity = 'info' | 'warning' | 'error'
+
+/** 模型设置诊断来源。 */
+export type ModelSettingsDiagnosticSource =
+  'settings' | 'auth' | 'modelRegistry' | 'resourceLoading' | 'customProvider'
+
+/** 模型配置页模型条目。 */
+export interface ModelSettingsModelItem {
   /** 模型提供方。 */
   provider: string
   /** 模型 ID。 */
   id: string
-  /** 模型显示名称。 */
+  /** 显示名。 */
+  displayName?: string
+  /** 上下文窗口。 */
+  contextWindow?: number
+  /** 最大输出 token。 */
+  maxOutputTokens?: number
+  /** 是否支持工具调用。 */
+  supportsTools?: boolean
+  /** 是否支持图片输入。 */
+  supportsImages?: boolean
+  /** 是否支持 thinking/reasoning。 */
+  supportsReasoning?: boolean
+  /** 支持的 thinking level。 */
+  thinkingLevels?: ThinkingLevel[]
+  /** 配置来源。 */
+  source?: ModelSettingsSource
+  /** 当前可用状态。 */
+  status: ModelSettingsModelStatus
+}
+
+/** Provider 摘要。 */
+export interface ModelProviderSummary {
+  /** Provider ID。 */
+  id: string
+  /** Provider 显示名。 */
+  displayName: string
+  /** Provider 来源。 */
+  source: ModelSettingsSource
+  /** 总模型数。 */
+  modelCount: number
+  /** 可用模型数。 */
+  availableModelCount: number
+  /** 凭据状态。 */
+  credentialStatus: ProviderCredentialState
+}
+
+/** Provider 凭据状态摘要，不包含密钥明文。 */
+export interface ProviderCredentialStatus {
+  /** Provider ID。 */
+  provider: string
+  /** 凭据状态。 */
+  status: ProviderCredentialState
+  /** 凭据来源。 */
+  source?: ProviderCredentialSource
+  /** 面向用户的状态说明。 */
+  message?: string
+}
+
+/** 模型设置诊断信息。 */
+export interface ModelSettingsDiagnostic {
+  /** 诊断 ID。 */
+  id: string
+  /** 严重级别。 */
+  severity: ModelSettingsDiagnosticSeverity
+  /** 诊断来源。 */
+  source: ModelSettingsDiagnosticSource
+  /** 摘要。 */
+  message: string
+  /** 详情，不包含密钥明文。 */
+  details?: string
+}
+
+/** 模型 registry 快照。 */
+export interface ModelRegistrySnapshot {
+  /** 模型列表。 */
+  models: ModelSettingsModelItem[]
+  /** Provider 摘要列表。 */
+  providers: ModelProviderSummary[]
+  /** models.json 加载错误。 */
+  loadError?: string
+  /** 刷新时间（ISO 8601）。 */
+  refreshedAt: string
+}
+
+/** 自定义 provider 摘要。 */
+export interface CustomProviderSummary {
+  /** Provider ID。 */
+  provider: string
+  /** 显示名。 */
   name?: string
+  /** API 地址。 */
+  baseUrl?: string
+  /** API 类型。 */
+  api?: string
+  /** 模型数量。 */
+  modelCount: number
+  /** 是否为内置 provider override。 */
+  overridesBuiltIn: boolean
+  /** 是否配置了 API key 来源。 */
+  hasApiKeyConfig: boolean
+}
+
+/** 模型设置快照。 */
+export interface ModelSettingsSnapshot {
+  /** 全局模型相关设置。 */
+  settings: {
+    /** 默认 provider。 */
+    defaultProvider?: string
+    /** 默认模型 ID。 */
+    defaultModel?: string
+    /** 默认 thinking level。 */
+    defaultThinkingLevel?: ThinkingLevel
+    /** scoped/cycling 模型模式。 */
+    enabledModels?: string[]
+  }
+  /** 模型 registry 投影。 */
+  registry: ModelRegistrySnapshot
+  /** Provider 凭据状态。 */
+  credentials: ProviderCredentialStatus[]
+  /** 诊断信息。 */
+  diagnostics: ModelSettingsDiagnostic[]
+  /** 自定义 provider 摘要。 */
+  customProviders: CustomProviderSummary[]
+  /** 后端存储路径。 */
+  storage: {
+    /** agentDir 路径。 */
+    agentDir: string
+    /** settings.json 路径。 */
+    settingsPath: string
+    /** models.json 路径。 */
+    modelsPath: string
+  }
+}
+
+/** 更新模型设置输入。 */
+export interface UpdateModelSettingsInput {
+  /** 默认 provider。 */
+  defaultProvider?: string
+  /** 默认模型 ID。 */
+  defaultModel?: string
+  /** 默认 thinking level。 */
+  defaultThinkingLevel?: ThinkingLevel
+  /** scoped/cycling 模型模式。 */
+  enabledModels?: string[]
+}
+
+/** 自定义模型配置输入。 */
+export interface CustomModelConfigInput {
+  /** 模型 ID。 */
+  id: string
+  /** 显示名。 */
+  name?: string
+  /** API 类型。 */
+  api?: string
+  /** 模型级 API 地址。 */
+  baseUrl?: string
+  /** 是否支持 reasoning。 */
+  reasoning?: boolean
+  /** thinking level 映射。 */
+  thinkingLevelMap?: Partial<Record<ThinkingLevel, string | null>>
+  /** 输入类型。 */
+  input?: Array<'text' | 'image'>
+  /** 上下文窗口。 */
+  contextWindow?: number
+  /** 最大输出 token。 */
+  maxTokens?: number
+  /** 成本配置。 */
+  cost?: {
+    /** 输入成本。 */
+    input: number
+    /** 输出成本。 */
+    output: number
+    /** cache read 成本。 */
+    cacheRead: number
+    /** cache write 成本。 */
+    cacheWrite: number
+  }
+  /** 请求 headers；后端返回时不得包含敏感原文。 */
+  headers?: Record<string, string>
+  /** provider/model 兼容配置。 */
+  compat?: Record<string, unknown>
+}
+
+/** 自定义模型 override 输入。 */
+export type CustomModelOverrideInput = Partial<
+  Omit<CustomModelConfigInput, 'id' | 'api' | 'baseUrl'>
+>
+
+/** 新增或更新自定义 provider 输入。 */
+export interface UpsertCustomProviderInput {
+  /** Provider ID。 */
+  provider: string
+  /** 显示名。 */
+  name?: string
+  /** API 地址。 */
+  baseUrl?: string
+  /** API key 配置值；只允许 renderer 提交，不允许后端回显。 */
+  apiKey?: string
+  /** API 类型。 */
+  api?: string
+  /** 请求 headers；只允许 renderer 提交，不允许后端回显敏感原文。 */
+  headers?: Record<string, string>
+  /** provider 兼容配置。 */
+  compat?: Record<string, unknown>
+  /** 是否自动添加 Authorization bearer header。 */
+  authHeader?: boolean
+  /** 自定义模型列表。 */
+  models?: CustomModelConfigInput[]
+  /** 内置模型 override。 */
+  modelOverrides?: Record<string, CustomModelOverrideInput>
+}
+
+/** 保存 provider API key 到 Pi-compatible auth.json。 */
+export interface SetProviderApiKeyInput {
+  /** Provider ID。 */
+  provider: string
+  /** API key 或 Pi 支持的 config value（如 $ENV_VAR、${ENV_VAR}、!command）。 */
+  key: string
+  /** provider-scoped env 值。 */
+  env?: Record<string, string>
+}
+
+/** Pi 消息排队模式。 */
+export type AgentQueueMode = 'all' | 'one-at-a-time'
+
+/** Pi provider transport 偏好。 */
+export type AgentTransportMode = 'auto' | 'sse' | 'websocket' | 'websocket-cached'
+
+/** 默认项目 trust 策略。 */
+export type AgentDefaultProjectTrust = 'ask' | 'always' | 'never'
+
+/** 空编辑器双击 Escape 行为。 */
+export type AgentDoubleEscapeAction = 'fork' | 'tree' | 'none'
+
+/** Session tree 默认过滤模式。 */
+export type AgentTreeFilterMode = 'default' | 'no-tools' | 'user-only' | 'labeled-only' | 'all'
+
+/** Agent 设置诊断信息。 */
+export interface AgentSettingsDiagnostic {
+  /** 诊断 ID。 */
+  id: string
+  /** 严重级别。 */
+  severity: ModelSettingsDiagnosticSeverity
+  /** 诊断来源。 */
+  source: 'settings'
+  /** 摘要。 */
+  message: string
+  /** 详情。 */
+  details?: string
+}
+
+/** Pi-compatible agent 设置快照。 */
+export interface AgentSettingsSnapshot {
+  /** 消息投递与连接设置。 */
+  delivery: {
+    /** streaming 期间 steering 消息投递模式。 */
+    steeringMode: AgentQueueMode
+    /** streaming 期间 follow-up 消息投递模式。 */
+    followUpMode: AgentQueueMode
+    /** Provider transport 偏好。 */
+    transport: AgentTransportMode
+  }
+  /** 运行时可靠性设置。 */
+  runtime: {
+    /** 自动上下文压缩。 */
+    compactionEnabled: boolean
+    /** 压缩预留 token。 */
+    compactionReserveTokens: number
+    /** 压缩保留最近 token。 */
+    compactionKeepRecentTokens: number
+    /** 分支摘要预留 token。 */
+    branchSummaryReserveTokens: number
+    /** 跳过分支摘要提示。 */
+    branchSummarySkipPrompt: boolean
+    /** 自动重试。 */
+    retryEnabled: boolean
+    /** Agent-level 最大重试次数。 */
+    retryMaxRetries: number
+    /** Agent-level 重试基础延迟。 */
+    retryBaseDelayMs: number
+    /** Provider SDK 请求 timeout。 */
+    providerRetryTimeoutMs?: number
+    /** Provider SDK 最大重试次数。 */
+    providerRetryMaxRetries?: number
+    /** Provider server-requested retry delay 上限。 */
+    providerRetryMaxRetryDelayMs: number
+    /** HTTP idle timeout，毫秒。 */
+    httpIdleTimeoutMs: number
+    /** WebSocket connect timeout，毫秒。 */
+    websocketConnectTimeoutMs?: number
+  }
+  /** 显示与交互设置。 */
+  display: {
+    /** 主题名称或路径。 */
+    theme?: string
+    /** 启动时减少非必要输出。 */
+    quietStartup: boolean
+    /** 更新后折叠 changelog。 */
+    collapseChangelog: boolean
+    /** 隐藏 thinking block。 */
+    hideThinkingBlock: boolean
+    /** 空编辑器双击 Escape 行为。 */
+    doubleEscapeAction: AgentDoubleEscapeAction
+    /** Session tree 默认过滤模式。 */
+    treeFilterMode: AgentTreeFilterMode
+    /** 是否显示硬件光标。 */
+    showHardwareCursor: boolean
+    /** 输入编辑器水平 padding。 */
+    editorPaddingX: number
+    /** 自动补全最大可见项数。 */
+    autocompleteMaxVisible: number
+  }
+  /** 安全和遥测设置。 */
+  safety: {
+    /** 项目本地资源默认 trust 策略。 */
+    defaultProjectTrust: AgentDefaultProjectTrust
+    /** 匿名安装/更新 telemetry。 */
+    enableInstallTelemetry: boolean
+    /** Analytics opt-in。 */
+    enableAnalytics: boolean
+    /** Skill slash commands。 */
+    enableSkillCommands: boolean
+    /** Anthropic Pro/Max extra usage 提示。 */
+    warnAnthropicExtraUsage: boolean
+    /** HTTP/HTTPS proxy。 */
+    httpProxy?: string
+  }
+  /** 图片和终端呈现设置。 */
+  media: {
+    /** 发送前自动缩放图片。 */
+    imageAutoResize: boolean
+    /** 阻止图片发送给 provider。 */
+    blockImages: boolean
+    /** 终端内联图片显示。 */
+    showImages: boolean
+    /** 终端图片宽度，单位 cells。 */
+    imageWidthCells: number
+    /** 内容变短时清理终端空白行。 */
+    clearOnShrink: boolean
+    /** 终端进度指示。 */
+    showTerminalProgress: boolean
+  }
+  /** 全局资源路径配置。 */
+  resources: {
+    /** npm/git package sources。 */
+    packages: string[]
+    /** 本地 extension 路径。 */
+    extensions: string[]
+    /** 本地 skill 路径。 */
+    skills: string[]
+    /** 本地 prompt template 路径。 */
+    prompts: string[]
+    /** 本地 theme 路径。 */
+    themes: string[]
+  }
+  /** shell 与命令设置。 */
+  shell: {
+    /** 自定义 shell 路径。 */
+    shellPath?: string
+    /** bash 命令前缀。 */
+    shellCommandPrefix?: string
+    /** npm 命令 argv。 */
+    npmCommand: string[]
+    /** Session 存储目录。 */
+    sessionDir?: string
+  }
+  /** 高级模型与渲染配置。 */
+  advanced: {
+    /** Thinking token budgets。 */
+    thinkingBudgets: {
+      minimal?: number
+      low?: number
+      medium?: number
+      high?: number
+    }
+    /** Markdown code block indent。 */
+    codeBlockIndent: string
+  }
+  /** 存储位置。 */
+  storage: {
+    /** Pi agentDir。 */
+    agentDir: string
+    /** settings.json 路径。 */
+    settingsPath: string
+  }
+  /** 诊断信息。 */
+  diagnostics: AgentSettingsDiagnostic[]
+}
+
+/** 更新 Pi-compatible agent 设置。 */
+export interface UpdateAgentSettingsInput {
+  delivery?: Partial<AgentSettingsSnapshot['delivery']>
+  runtime?: Partial<AgentSettingsSnapshot['runtime']>
+  display?: Partial<AgentSettingsSnapshot['display']>
+  safety?: Partial<AgentSettingsSnapshot['safety']>
+  media?: Partial<AgentSettingsSnapshot['media']>
+  resources?: Partial<AgentSettingsSnapshot['resources']>
+  shell?: Partial<AgentSettingsSnapshot['shell']>
+  advanced?: Partial<AgentSettingsSnapshot['advanced']>
 }
 
 /** 压缩结果。 */
@@ -350,7 +688,7 @@ export interface ExtensionUiResponseInput {
   /** 线程 ID。 */
   threadId: string
   /** 响应内容。 */
-  response: unknown
+  response: PackageExtensionUiResponse
 }
 
 /** 审批响应输入。 */
@@ -385,12 +723,42 @@ export interface DiagnosticsInput {
 }
 
 /** Coding Agent IPC 事件联合类型。 */
+export type ThreadWorkerLifecycleIpcEvent =
+  | {
+      type: 'worker.run.started'
+      workerId: string
+      threadId: string
+      cwd: string
+      startedAt: number
+    }
+  | {
+      type: 'worker.run.finished'
+      workerId: string
+      threadId: string
+      reason: 'idle' | 'stop' | 'archive' | 'crash' | 'shutdown'
+      startedAt: number
+      exitedAt: number
+    }
+  | { type: 'worker.run.failed'; threadId?: string; message: string; createdAt: number }
+
+/** Project metadata IPC 事件。 */
+export type ProjectIpcEvent =
+  | { type: 'project.created'; project: ProjectSummary }
+  | { type: 'project.opened'; project: ProjectSummary }
+  | { type: 'project.updated'; project: ProjectSummary }
+  | { type: 'project.trustChanged'; project: ProjectSummary }
+
+/** Coding Agent IPC 事件联合类型。 */
 export type CodingAgentIpcEvent =
-  | { type: 'canonical'; threadId: string; event: unknown }
-  | { type: 'projection'; threadId: string; event: unknown }
-  | { type: 'project'; event: unknown }
-  | { type: 'worker'; threadId?: string; event: unknown }
+  | Exclude<PackageDesktopIpcEvent, { type: 'threadSnapshot' }>
   | { type: 'threadSnapshot'; threadId: string; snapshot: ThreadSnapshot }
+  | { type: 'threadWorker'; threadId?: string; event: ThreadWorkerLifecycleIpcEvent }
+  | {
+      /** Project metadata 事件。 */
+      type: 'project'
+      /** Project 事件载荷。 */
+      event: ProjectIpcEvent
+    }
 
 /** Coding Agent 渲染进程与主进程之间的 API 契约。 */
 export interface CodingAgentApi {
@@ -470,6 +838,30 @@ export interface CodingAgentApi {
   respondApproval(input: ApprovalResponseInput): Promise<void>
   /** 获取 debug diagnostics。 */
   listDiagnostics(input?: DiagnosticsInput): Promise<unknown[]>
+  /** 获取全局模型设置快照。 */
+  getModelSettings(): Promise<ModelSettingsSnapshot>
+  /** 更新全局模型设置。 */
+  updateModelSettings(input: UpdateModelSettingsInput): Promise<ModelSettingsSnapshot>
+  /** 获取全局模型 registry。 */
+  listModelRegistry(): Promise<ModelRegistrySnapshot>
+  /** 获取 provider 凭据状态。 */
+  listProviderCredentials(): Promise<ProviderCredentialStatus[]>
+  /** 获取模型设置诊断。 */
+  listModelDiagnostics(): Promise<ModelSettingsDiagnostic[]>
+  /** 获取自定义 provider 摘要。 */
+  listCustomProviders(): Promise<CustomProviderSummary[]>
+  /** 新增或更新自定义 provider。 */
+  upsertCustomProvider(input: UpsertCustomProviderInput): Promise<ModelSettingsSnapshot>
+  /** 删除自定义 provider。 */
+  deleteCustomProvider(provider: string): Promise<ModelSettingsSnapshot>
+  /** 保存 provider API key 到 Pi-compatible auth.json。 */
+  setProviderApiKey(input: SetProviderApiKeyInput): Promise<ModelSettingsSnapshot>
+  /** 刷新模型 registry。 */
+  refreshModelRegistry(): Promise<ModelSettingsSnapshot>
+  /** 获取 Pi-compatible agent 设置。 */
+  getAgentSettings(): Promise<AgentSettingsSnapshot>
+  /** 更新 Pi-compatible agent 设置。 */
+  updateAgentSettings(input: UpdateAgentSettingsInput): Promise<AgentSettingsSnapshot>
   /** 注册事件监听器，返回取消订阅函数。 */
   onEvent(listener: (event: CodingAgentIpcEvent) => void): () => void
 }

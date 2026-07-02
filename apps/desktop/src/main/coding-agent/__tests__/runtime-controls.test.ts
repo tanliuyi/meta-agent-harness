@@ -29,7 +29,7 @@ describe('thread-runtime-controls', () => {
       }
     ])
     await runCommand(core, { threadId: 'thread-a', command: 'mycommand' })
-    await respondUi(core, { threadId: 'thread-a', response: { value: 'ok' } })
+    await respondUi(core, { threadId: 'thread-a', response: { id: 'ui-a', value: 'ok' } })
     await respondApproval(core, {
       threadId: 'thread-a',
       response: {
@@ -47,7 +47,7 @@ describe('thread-runtime-controls', () => {
         images: undefined,
         streamingBehavior: undefined
       },
-      { type: 'ui.respond', response: { value: 'ok' } },
+      { type: 'ui.respond', response: { id: 'ui-a', value: 'ok' } },
       {
         type: 'approval.respond',
         response: {

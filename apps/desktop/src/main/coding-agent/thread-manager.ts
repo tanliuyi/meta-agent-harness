@@ -11,23 +11,35 @@ import type {
   DiagnosticsInput,
   ExportSessionInput,
   ExportSessionResult,
+  ExtensionUiResponseInput,
   ForkInput,
   ImportSessionInput,
+  CustomProviderSummary,
   ModelCycleResult,
   ModelInfo,
+  ModelRegistrySnapshot,
+  ModelSettingsDiagnostic,
+  ModelSettingsSnapshot,
   NewSessionInput,
   PromptInput,
   ProjectSummary,
+  ProviderCredentialStatus,
   RenameThreadInput,
   RenameProjectInput,
+  ApprovalResponseInput,
   SetProjectTrustInput,
   SetModelInput,
+  SetProviderApiKeyInput,
   SetThinkingInput,
   SwitchSessionInput,
   TextInput,
   ThinkingCycleResult,
   ThreadSnapshot,
-  ToggleInput
+  ToggleInput,
+  AgentSettingsSnapshot,
+  UpdateAgentSettingsInput,
+  UpdateModelSettingsInput,
+  UpsertCustomProviderInput
 } from '@shared/coding-agent/types'
 import { abort, followUp, prompt, runCommand, steer } from './thread-agent-commands'
 import { archiveThread, createThread, restartThread, stopThread } from './thread-lifecycle'
@@ -347,7 +359,7 @@ export class CodingThreadManager extends ThreadManagerCore {
    * 响应 UI 扩展请求。
    * @param input - 响应输入。
    */
-  respondUi(input: { threadId: string; response: unknown }): Promise<void> {
+  respondUi(input: ExtensionUiResponseInput): Promise<void> {
     return respondUi(this, input)
   }
 
@@ -355,7 +367,7 @@ export class CodingThreadManager extends ThreadManagerCore {
    * 响应审批请求。
    * @param input - 审批响应输入。
    */
-  respondApproval(input: { threadId: string; response: unknown }): Promise<void> {
+  respondApproval(input: ApprovalResponseInput): Promise<void> {
     return respondApproval(this, input)
   }
 
@@ -366,6 +378,107 @@ export class CodingThreadManager extends ThreadManagerCore {
    */
   listDiagnostics(input: DiagnosticsInput = {}): unknown[] {
     return this.getStore()?.listDiagnostics(input) ?? []
+  }
+
+  /**
+   * 获取全局模型设置快照。
+   * @returns 模型设置快照。
+   */
+  getModelSettings(): Promise<ModelSettingsSnapshot> {
+    return this.getModelSettingsService().getModelSettings()
+  }
+
+  /**
+   * 更新全局模型设置。
+   * @param input - 更新输入。
+   * @returns 模型设置快照。
+   */
+  updateModelSettings(input: UpdateModelSettingsInput): Promise<ModelSettingsSnapshot> {
+    return this.getModelSettingsService().updateModelSettings(input)
+  }
+
+  /**
+   * 获取模型 registry。
+   * @returns registry 快照。
+   */
+  listModelRegistry(): Promise<ModelRegistrySnapshot> {
+    return this.getModelSettingsService().listModelRegistry()
+  }
+
+  /**
+   * 获取 provider 凭据状态。
+   * @returns 凭据状态列表。
+   */
+  listProviderCredentials(): Promise<ProviderCredentialStatus[]> {
+    return this.getModelSettingsService().listProviderCredentials()
+  }
+
+  /**
+   * 获取模型设置诊断。
+   * @returns 诊断列表。
+   */
+  listModelDiagnostics(): Promise<ModelSettingsDiagnostic[]> {
+    return this.getModelSettingsService().listModelDiagnostics()
+  }
+
+  /**
+   * 获取自定义 provider 摘要。
+   * @returns 自定义 provider 摘要列表。
+   */
+  listCustomProviders(): Promise<CustomProviderSummary[]> {
+    return this.getModelSettingsService().listCustomProviders()
+  }
+
+  /**
+   * 新增或更新自定义 provider。
+   * @param input - provider 输入。
+   * @returns 模型设置快照。
+   */
+  upsertCustomProvider(input: UpsertCustomProviderInput): Promise<ModelSettingsSnapshot> {
+    return this.getModelSettingsService().upsertCustomProvider(input)
+  }
+
+  /**
+   * 删除自定义 provider。
+   * @param provider - provider ID。
+   * @returns 模型设置快照。
+   */
+  deleteCustomProvider(provider: string): Promise<ModelSettingsSnapshot> {
+    return this.getModelSettingsService().deleteCustomProvider(provider)
+  }
+
+  /**
+   * 保存 provider API key 到 Pi-compatible auth.json。
+   * @param input - API key 输入。
+   * @returns 模型设置快照。
+   */
+  setProviderApiKey(input: SetProviderApiKeyInput): Promise<ModelSettingsSnapshot> {
+    return this.getModelSettingsService().setProviderApiKey(input)
+  }
+
+  /**
+   * 刷新模型 registry。
+   * @returns 模型设置快照。
+   */
+  refreshModelRegistry(): Promise<ModelSettingsSnapshot> {
+    return this.getModelSettingsService().refreshModelRegistry()
+  }
+
+  /**
+   * 获取 Pi-compatible agent 设置快照。
+   * @returns agent 设置快照。
+   */
+  getAgentSettings(): Promise<AgentSettingsSnapshot> {
+    return this.getAgentSettingsService().getAgentSettings()
+  }
+
+  /**
+   * 更新 Pi-compatible agent 设置。
+   * @param input - 更新输入。
+   * @returns agent 设置快照。
+   */
+  updateAgentSettings(input: UpdateAgentSettingsInput): Promise<AgentSettingsSnapshot> {
+    return this.getAgentSettingsService().updateAgentSettings(input)
   }
 
   /**

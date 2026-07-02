@@ -4,6 +4,7 @@
 
 import type { CreateThreadInput, ThreadSnapshot } from '@shared/coding-agent/types'
 import type { ThreadManagerCore } from './thread-manager-core'
+import { resolveSessionCwd } from '../../../../../packages/coding-agent/src/core/session-manager'
 
 /**
  * 创建新线程并启动 worker。
@@ -37,14 +38,18 @@ export async function createThread(
     createdAt: now,
     updatedAt: now
   })
+  const cwd = input.sessionFile
+    ? resolveSessionCwd(input.sessionFile, project.path, input.cwdOverride)
+    : project.path
   try {
     await core.getWorkers().acquireThreadWorker({
       threadId,
-      cwd: project.path,
+      cwd,
       sessionFile: input.sessionFile,
+      cwdOverride: input.cwdOverride,
       title: input.title,
       agentDir: input.agentDir,
-      projectTrustOverride: core.getProjectTrustOverride(project.path)
+      projectTrustOverride: core.getProjectTrustOverride(cwd)
     })
     core.updateThread(threadId, { status: 'idle' })
     return await core.getSnapshot(threadId)
@@ -86,7 +91,9 @@ export async function restartThread(
     await core.getWorkers().releaseThreadWorker(threadId, 'stop')
   }
   core.updateThread(threadId, { status: 'starting' })
-  const cwd = core.getThreadCwd(thread)
+  const cwd = thread.sessionFile
+    ? resolveSessionCwd(thread.sessionFile, core.getThreadCwd(thread))
+    : core.getThreadCwd(thread)
   await core.getWorkers().acquireThreadWorker({
     threadId,
     cwd,

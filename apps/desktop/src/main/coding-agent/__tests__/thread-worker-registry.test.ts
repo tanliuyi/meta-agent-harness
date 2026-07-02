@@ -8,6 +8,7 @@ import type {
   StartThreadInput,
   WorkerClient,
   WorkerCommand,
+  WorkerEnvelope,
   WorkerHangInfo,
   WorkerResponseEnvelope,
   WorkerSnapshot
@@ -188,12 +189,19 @@ describe('ThreadWorkerRegistry', () => {
   it('running 状态线程即使 idle 超时也不被回收', async () => {
     let now = 0
     const stopReasons: string[] = []
+    let eventListener: ((event: WorkerEnvelope) => void) | undefined
     const registry = new ThreadWorkerRegistry({
       now: () => now,
       idleTimeoutMs: 1000,
       idleCheckIntervalMs: 300,
       createWorker: async () => ({
         ...createFakeWorker('worker-a'),
+        onEvent: (listener) => {
+          eventListener = listener
+          return () => {
+            eventListener = undefined
+          }
+        },
         stop: async (reason: string) => {
           stopReasons.push(reason)
         }
@@ -201,7 +209,12 @@ describe('ThreadWorkerRegistry', () => {
     })
 
     await registry.acquireThreadWorker({ threadId: 'thread-a', cwd: '/tmp/project-a' })
-    await registry.send('thread-a', { type: 'control.setStatus', status: 'running' })
+    eventListener?.({
+      kind: 'event',
+      eventType: 'projection',
+      threadId: 'thread-a',
+      event: { type: 'thread.stateChanged', threadId: 'thread-a', status: 'running' }
+    })
     now = 1200
     await waitMs(500)
 
@@ -212,9 +225,8 @@ describe('ThreadWorkerRegistry', () => {
   it('idle 扫描遇到已并发释放的 worker 时继续完成回收', async () => {
     let now = 0
     let count = 0
-    let registry: ThreadWorkerRegistry
     const stopReasons: Array<{ workerId: string; reason: string }> = []
-    registry = new ThreadWorkerRegistry({
+    const registry = new ThreadWorkerRegistry({
       now: () => now,
       idleTimeoutMs: 1000,
       idleCheckIntervalMs: 50,

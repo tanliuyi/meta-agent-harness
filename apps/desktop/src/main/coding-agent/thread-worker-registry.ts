@@ -278,12 +278,6 @@ export class ThreadWorkerRegistry {
         }
       }
     }
-    if (command.type === 'control.setStatus' || command.type === 'worker.setStatus') {
-      const status = (command as { status?: WorkerLease['status'] }).status
-      if (status) {
-        lease.status = status
-      }
-    }
     lease.lastActiveAt = this.now()
     return worker.send(command)
   }
@@ -334,17 +328,8 @@ export class ThreadWorkerRegistry {
         lease.lastActiveAt = time
         lease.lastEventAt = time
         if (event.kind === 'event') {
-          const eventType = (event as { eventType?: string }).eventType
-          const payload = (event as { event?: unknown }).event
-          if (
-            eventType === 'projection' &&
-            isRecord(payload) &&
-            payload.type === 'thread.stateChanged'
-          ) {
-            const status = (payload as { status?: WorkerLease['status'] }).status
-            if (status) {
-              lease.status = status
-            }
+          if (event.eventType === 'projection' && event.event.type === 'thread.stateChanged') {
+            lease.status = event.event.status
           }
         }
       }
@@ -373,13 +358,4 @@ export class ThreadWorkerRegistry {
       throw new Error('worker registry is closed')
     }
   }
-}
-
-/**
- * 判断是否为普通对象。
- * @param value - 值。
- * @returns 是否普通对象。
- */
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null
 }

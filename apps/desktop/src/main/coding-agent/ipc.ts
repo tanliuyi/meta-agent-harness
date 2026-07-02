@@ -3,17 +3,17 @@
  */
 
 import { app, dialog, ipcMain, type WebContents } from 'electron'
-import { join } from 'node:path'
-import { DatabaseSync } from 'node:sqlite'
 import { codingAgentChannels } from '@shared/coding-agent/channels'
 import { fail, ok } from '@shared/coding-agent/ipc-contract'
 import { CodingThreadManager } from './thread-manager'
 import { CodingThreadStore } from './thread-store'
 import { ProjectStore } from './project-store'
 import { ProjectTrustService } from './project-trust-service'
+import { ModelSettingsService } from './model-settings-service'
+import { AgentSettingsService } from './agent-settings-service'
 import { createUtilityProcessWorkerClient } from './utility-process-worker-client-factory'
 import { ThreadWorkerRegistry } from './thread-worker-registry'
-import { indexWorkerEvent } from './event-indexer'
+import { cacheWorkerProjectionEvent } from './projection-cache'
 import type { WorkerClient, WorkerEnvelope } from './worker-types'
 import type { ThreadWorkerLifecycleEvent } from './thread-worker-registry'
 import type {
@@ -22,19 +22,25 @@ import type {
   CreateThreadInput,
   DiagnosticsInput,
   ExportSessionInput,
+  ExtensionUiResponseInput,
   ForkInput,
   ImportSessionInput,
   IpcResult,
   NewSessionInput,
   PromptInput,
+  ApprovalResponseInput,
   RenameProjectInput,
   RenameThreadInput,
+  SetProviderApiKeyInput,
   SetProjectTrustInput,
   SetModelInput,
   SetThinkingInput,
   SwitchSessionInput,
   TextInput,
-  ToggleInput
+  ToggleInput,
+  UpdateAgentSettingsInput,
+  UpdateModelSettingsInput,
+  UpsertCustomProviderInput
 } from '@shared/coding-agent/types'
 
 /**
@@ -54,17 +60,18 @@ export interface CodingAgentIpcOptions {
  */
 export function registerCodingAgentIpc(options: CodingAgentIpcOptions = {}): CodingThreadManager {
   const subscribers = new Set<WebContents>()
-  const db = new DatabaseSync(join(app.getPath('userData'), 'meta-agent.db'))
-  const projectStore = new ProjectStore(db, { ownsDb: false })
+  const projectStore = new ProjectStore()
   const projectTrustService = new ProjectTrustService()
-  const store = new CodingThreadStore(db, { ownsDb: false })
+  const modelSettingsService = new ModelSettingsService()
+  const agentSettingsService = new AgentSettingsService()
+  const store = new CodingThreadStore()
   const manager =
     options.manager ??
     new CodingThreadManager(
       new ThreadWorkerRegistry({
         createWorker: options.createWorker ?? createUtilityProcessWorkerClient,
         onEvent: (event) => {
-          indexWorkerEvent(store, event)
+          cacheWorkerProjectionEvent(store, event)
           const ipcEvent = toCodingAgentIpcEvent(event)
           if (!ipcEvent) {
             return
@@ -73,12 +80,18 @@ export function registerCodingAgentIpc(options: CodingAgentIpcOptions = {}): Cod
         },
         onLifecycle: (event) => {
           indexWorkerLifecycle(store, event)
-          publishCodingAgentEvent(subscribers, { type: 'worker', threadId: event.threadId, event })
+          publishCodingAgentEvent(subscribers, {
+            type: 'threadWorker',
+            threadId: event.threadId,
+            event
+          })
         }
       }),
       store,
       projectStore,
-      projectTrustService
+      projectTrustService,
+      modelSettingsService,
+      agentSettingsService
     )
 
   handle(manager, codingAgentChannels.createProject, async () => {
@@ -199,16 +212,38 @@ export function registerCodingAgentIpc(options: CodingAgentIpcOptions = {}): Cod
   handle(manager, codingAgentChannels.runCommand, (input: { threadId: string; command: string }) =>
     manager.runCommand(input)
   )
-  handle(manager, codingAgentChannels.respondUi, (input: { threadId: string; response: unknown }) =>
+  handle(manager, codingAgentChannels.respondUi, (input: ExtensionUiResponseInput) =>
     manager.respondUi(input)
   )
-  handle(
-    manager,
-    codingAgentChannels.respondApproval,
-    (input: { threadId: string; response: unknown }) => manager.respondApproval(input)
+  handle(manager, codingAgentChannels.respondApproval, (input: ApprovalResponseInput) =>
+    manager.respondApproval(input)
   )
   handle(manager, codingAgentChannels.listDiagnostics, (input?: DiagnosticsInput) =>
     manager.listDiagnostics(input)
+  )
+  handle(manager, codingAgentChannels.getModelSettings, () => manager.getModelSettings())
+  handle(manager, codingAgentChannels.updateModelSettings, (input: UpdateModelSettingsInput) =>
+    manager.updateModelSettings(input)
+  )
+  handle(manager, codingAgentChannels.listModelRegistry, () => manager.listModelRegistry())
+  handle(manager, codingAgentChannels.listProviderCredentials, () =>
+    manager.listProviderCredentials()
+  )
+  handle(manager, codingAgentChannels.listModelDiagnostics, () => manager.listModelDiagnostics())
+  handle(manager, codingAgentChannels.listCustomProviders, () => manager.listCustomProviders())
+  handle(manager, codingAgentChannels.upsertCustomProvider, (input: UpsertCustomProviderInput) =>
+    manager.upsertCustomProvider(input)
+  )
+  handle(manager, codingAgentChannels.deleteCustomProvider, (provider: string) =>
+    manager.deleteCustomProvider(provider)
+  )
+  handle(manager, codingAgentChannels.setProviderApiKey, (input: SetProviderApiKeyInput) =>
+    manager.setProviderApiKey(input)
+  )
+  handle(manager, codingAgentChannels.refreshModelRegistry, () => manager.refreshModelRegistry())
+  handle(manager, codingAgentChannels.getAgentSettings, () => manager.getAgentSettings())
+  handle(manager, codingAgentChannels.updateAgentSettings, (input: UpdateAgentSettingsInput) =>
+    manager.updateAgentSettings(input)
   )
   ipcMain.on(codingAgentChannels.event, (event, action: 'subscribe' | 'unsubscribe') => {
     if (action === 'subscribe') {
@@ -222,21 +257,20 @@ export function registerCodingAgentIpc(options: CodingAgentIpcOptions = {}): Cod
     void manager.shutdown()
     store.close()
     projectStore.close()
-    db.close()
   })
 
   return manager
 }
 
 /**
- * 索引 worker lifecycle 状态。
- * @param store - Thread store。
+ * 记录 worker lifecycle 临时状态。
+ * @param store - Thread metadata/projection cache。
  * @param event - 生命周期事件。
  */
 function indexWorkerLifecycle(store: CodingThreadStore, event: ThreadWorkerLifecycleEvent): void {
   try {
     if (event.type === 'worker.run.started') {
-      store.saveWorkerRun({
+      store.recordWorkerRun({
         workerId: event.workerId,
         threadId: event.threadId,
         status: 'running',
@@ -253,7 +287,7 @@ function indexWorkerLifecycle(store: CodingThreadStore, event: ThreadWorkerLifec
       })
       return
     }
-    store.saveDiagnostic({
+    store.recordDiagnostic({
       threadId: event.threadId,
       source: 'thread_worker_registry',
       severity: 'error',
@@ -262,14 +296,14 @@ function indexWorkerLifecycle(store: CodingThreadStore, event: ThreadWorkerLifec
     })
   } catch (error) {
     try {
-      store.saveDiagnostic({
+      store.recordDiagnostic({
         threadId: event.threadId,
-        source: 'database',
+        source: 'storage',
         severity: 'error',
         message: error instanceof Error ? error.message : String(error)
       })
     } catch {
-      // 数据库 diagnostics 写入失败不能影响 worker 主路径。
+      // diagnostics 写入失败不能影响 worker 主路径。
     }
   }
 }
@@ -318,7 +352,7 @@ export function publishCodingAgentEvent(
  */
 function writeDiagnostic(manager: CodingThreadManager, error: unknown): void {
   try {
-    manager.getStore()?.saveDiagnostic({
+    manager.getStore()?.recordDiagnostic({
       source: 'ipc',
       severity: 'error',
       message: error instanceof Error ? error.message : String(error)

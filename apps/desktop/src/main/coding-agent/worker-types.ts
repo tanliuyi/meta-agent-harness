@@ -1,104 +1,31 @@
 /**
- * 本文件定义 Electron main 内部 thread worker registry 需要的最小结构类型。
+ * 本文件只保留 Electron main 内部 registry 的运行时抽象。
+ * Worker 协议类型统一复用 packages/coding-agent，避免 Desktop 维护第二套协议。
  */
 
-/**
- * 发送给 worker 的命令。
- */
-export interface WorkerCommand {
-  /** 命令类型。 */
-  type: string
-  /** 其他扩展字段。 */
-  [key: string]: unknown
-}
+import type {
+  WorkerCommand,
+  WorkerEnvelope,
+  WorkerResponseEnvelope
+} from '../../../../../packages/coding-agent/src/desktop/protocol/envelope'
+import type { WorkerSnapshot } from '../../../../../packages/coding-agent/src/desktop/protocol/snapshot'
+import type {
+  StartThreadInput,
+  ThreadRuntimeState
+} from '../../../../../packages/coding-agent/src/desktop/protocol/thread'
 
-/**
- * 命令信封，包含请求 ID。
- */
-export interface WorkerCommandEnvelope {
-  /** 信封类型。 */
-  kind: 'command'
-  /** 请求 ID。 */
-  id: string
-  /** 命令内容。 */
-  command: WorkerCommand
-}
-
-/**
- * 命令响应信封。
- */
-export interface WorkerResponseEnvelope<T = unknown> {
-  /** 信封类型。 */
-  kind: 'response'
-  /** 请求 ID。 */
-  id: string
-  /** 命令类型。 */
-  command: string
-  /** 是否成功。 */
-  success: boolean
-  /** 响应数据。 */
-  data?: T
-  /** 错误信息。 */
-  error?: {
-    /** 错误码。 */
-    code: string
-    /** 错误消息。 */
-    message: string
-    /** 是否可恢复。 */
-    recoverable: boolean
-    /** 附加详情。 */
-    details?: unknown
-  }
-}
-
-/**
- *  worker 之间传输的信封联合类型。
- */
-export type WorkerEnvelope =
-  | WorkerCommandEnvelope
-  | WorkerResponseEnvelope
-  | {
-      /** 信封类型。 */
-      kind: 'event'
-      /** 事件类型。 */
-      eventType: 'canonical' | 'projection' | 'worker'
-      /** 所属线程 ID。 */
-      threadId?: string
-      /** 事件内容。 */
-      event: unknown
-    }
-
-/**
- * 启动 worker 线程的输入。
- */
-export interface StartThreadInput {
-  /** 线程 ID；未提供时自动生成。 */
-  threadId?: string
-  /** 工作目录。 */
-  cwd: string
-  /** 会话文件路径。 */
-  sessionFile?: string
-  /** 线程标题。 */
-  title?: string
-  /** Agent 目录路径。 */
-  agentDir?: string
-  /** Project trust 覆盖。 */
-  projectTrustOverride?: boolean
-}
-
-/**
- * worker 快照。
- */
-export interface WorkerSnapshot {
-  /** worker ID。 */
-  workerId: string
-  /** 绑定的线程 ID。 */
-  threadId?: string
-  /** 状态：ready 或已绑定。 */
-  state: 'ready' | 'bound'
-  /** 诊断信息列表。 */
-  diagnostics: unknown[]
-}
+export type {
+  WorkerCommand,
+  WorkerCommandEnvelope,
+  WorkerEnvelope,
+  WorkerEventEnvelope,
+  WorkerResponseEnvelope
+} from '../../../../../packages/coding-agent/src/desktop/protocol/envelope'
+export type { WorkerSnapshot } from '../../../../../packages/coding-agent/src/desktop/protocol/snapshot'
+export type {
+  StartThreadInput,
+  ThreadRuntimeState
+} from '../../../../../packages/coding-agent/src/desktop/protocol/thread'
 
 /**
  * worker hang 信息。
@@ -201,5 +128,5 @@ export interface WorkerLease {
   /** 最近收到事件时间戳。 */
   lastEventAt: number
   /** 线程状态。 */
-  status?: 'starting' | 'idle' | 'running' | 'stopping' | 'stopped' | 'error'
+  status?: ThreadRuntimeState
 }

@@ -4,11 +4,18 @@
 
 import type { ThreadSnapshot, ThreadSummary } from '@shared/coding-agent/types'
 import type { WorkerCommand, WorkerResponseEnvelope } from './worker-types'
+import type {
+  ThreadLiveState,
+  ThreadMessagesResponse
+} from '../../../../../packages/coding-agent/src/desktop/protocol/thread'
 import type { ThreadWorkerRegistry } from './thread-worker-registry'
 import type { CodingThreadStore } from './thread-store'
 import type { ProjectStore } from './project-store'
 import type { ProjectTrustService } from './project-trust-service'
-import { buildSnapshotFromSession } from './session-snapshot'
+import type { ModelSettingsService } from './model-settings-service'
+import type { AgentSettingsService } from './agent-settings-service'
+import { buildSnapshotFromSession, toThreadMessages } from './session-snapshot'
+import { resolveSessionCwd } from '../../../../../packages/coding-agent/src/core/session-manager'
 
 /**
  * Coding thread 管理核心类，负责线程注册、worker 路由和快照构建。
@@ -24,6 +31,10 @@ export class ThreadManagerCore {
   private readonly projectStore: ProjectStore | undefined
   /** Project trust 服务。 */
   private readonly projectTrustService: ProjectTrustService | undefined
+  /** 全局模型设置服务。 */
+  private readonly modelSettingsService: ModelSettingsService | undefined
+  /** 全局 Pi agent 设置服务。 */
+  private readonly agentSettingsService: AgentSettingsService | undefined
 
   /**
    * 创建 ThreadManagerCore 实例。
@@ -34,13 +45,18 @@ export class ThreadManagerCore {
     workers: ThreadWorkerRegistry,
     store?: CodingThreadStore,
     projectStore?: ProjectStore,
-    projectTrustService?: ProjectTrustService
+    projectTrustService?: ProjectTrustService,
+    modelSettingsService?: ModelSettingsService,
+    agentSettingsService?: AgentSettingsService
   ) {
     this.workers = workers
     this.store = store
     this.projectStore = projectStore
     this.projectTrustService = projectTrustService
+    this.modelSettingsService = modelSettingsService
+    this.agentSettingsService = agentSettingsService
     for (const thread of store?.listThreads() ?? []) {
+      console.debug(`[ThreadManagerCore] load thread from store: ${thread.threadId}`, thread)
       this.threads.set(thread.threadId, thread)
     }
   }
@@ -112,34 +128,71 @@ export class ThreadManagerCore {
    */
   async getSnapshot(threadId: string): Promise<ThreadSnapshot> {
     const thread = this.requireThread(threadId)
+    console.debug(`[ThreadManagerCore] getSnapshot threadId=${threadId} thread=`, thread)
     if (!this.hasWorker(threadId)) {
-      return (
-        this.getStoredSnapshot(thread) ??
-        this.buildSnapshotFromSessionFile(thread) ??
-        this.buildSnapshot(thread)
-      )
+      return this.buildSnapshotFromSessionFile(thread) ?? this.buildSnapshot(thread)
     }
     const response = await this.workers.send(threadId, { type: 'get_state' })
+    console.debug(`[ThreadManagerCore] getSnapshot threadId=${threadId} response=`, response)
+
     if (response.success) {
-      const snapshot = this.buildSnapshot(thread, response.data as Record<string, unknown>)
-      try {
-        this.store?.saveSnapshot(snapshot)
-      } catch (error) {
-        this.saveStoreDiagnostic(threadId, error)
-      }
+      const liveMessages = await this.getLiveMessages(threadId)
+      this.syncThreadMetadataFromLiveState(thread, response.data as Partial<ThreadLiveState>)
+      const snapshot = this.buildSnapshot(thread, {
+        ...(response.data as ThreadLiveState),
+        ...(liveMessages ? { messages: liveMessages } : {})
+      })
+      console.debug(`[ThreadManagerCore] getSnapshot threadId=${threadId} snapshot=`, snapshot)
       return snapshot
     }
     if (
       isMissingWorkerResponse(response) ||
       (thread.status !== 'idle' && thread.status !== 'running')
     ) {
-      return (
-        this.getStoredSnapshot(thread) ??
-        this.buildSnapshotFromSessionFile(thread) ??
-        this.buildSnapshot(thread)
+      console.debug(
+        `[ThreadManagerCore] getSnapshot threadId=${threadId} fallback to session file or memory`
       )
+      return this.buildSnapshotFromSessionFile(thread) ?? this.buildSnapshot(thread)
     }
     throwResponseError(response)
+  }
+
+  /**
+   * 将 Pi runtime 产生的 durable session metadata 回写到 thread registry。
+   * 新建 thread 时 session.jsonl 由 worker 内部 SessionManager 创建，初始 metadata
+   * 还拿不到 sessionFile；恢复能力依赖这里把 live state 同步到 threads.json。
+   */
+  private syncThreadMetadataFromLiveState(
+    thread: ThreadSummary,
+    state: Partial<ThreadLiveState>
+  ): void {
+    const patch: Partial<ThreadSummary> = {}
+    if (state.sessionFile && state.sessionFile !== thread.sessionFile) {
+      patch.sessionFile = state.sessionFile
+    }
+    if (state.sessionName && state.sessionName !== thread.title) {
+      patch.title = state.sessionName
+    }
+    if (Object.keys(patch).length > 0) {
+      this.updateThread(thread.threadId, patch)
+    }
+  }
+
+  /**
+   * 从 Pi live runtime 读取完整 messages。
+   * @param threadId - 线程 ID。
+   * @returns desktop messages 或 undefined。
+   */
+  private async getLiveMessages(threadId: string): Promise<ThreadSnapshot['messages'] | undefined> {
+    const response = await this.workers.send(threadId, { type: 'get_messages' })
+    if (!response.success) {
+      if (isMissingWorkerResponse(response)) {
+        return undefined
+      }
+      throwResponseError(response)
+    }
+    const data = response.data as ThreadMessagesResponse | undefined
+    return data ? toThreadMessages(data.messages) : undefined
   }
 
   /**
@@ -180,46 +233,26 @@ export class ThreadManagerCore {
    */
   protected buildSnapshot(
     thread: ThreadSummary,
-    state: Record<string, unknown> = {}
+    state: Partial<ThreadLiveState> & Partial<Pick<ThreadSnapshot, 'messages'>> = {}
   ): ThreadSnapshot {
     return {
       threadId: thread.threadId,
       projectId: thread.projectId,
-      cwd: this.getThreadCwd(thread),
-      sessionFile: (state.sessionFile as string | undefined) ?? thread.sessionFile,
-      title: (state.sessionName as string | undefined) ?? thread.title,
+      cwd: state.cwd ?? this.getThreadCwd(thread),
+      sessionFile: state.sessionFile ?? thread.sessionFile,
+      title: state.sessionName ?? thread.title,
       status: thread.status,
-      thinkingLevel: (state.thinkingLevel as ThreadSnapshot['thinkingLevel'] | undefined) ?? 'off',
-      messages:
-        (state.messages as ThreadSnapshot['messages'] | undefined) ?? this.listMessages(thread),
-      toolCalls:
-        (state.toolCalls as ThreadSnapshot['toolCalls'] | undefined) ?? this.listToolCalls(thread),
-      fileChanges:
-        (state.fileChanges as ThreadSnapshot['fileChanges'] | undefined) ??
-        this.listFileChanges(thread),
-      approvals:
-        (state.approvals as ThreadSnapshot['approvals'] | undefined) ?? this.listApprovals(thread),
+      model: state.model,
+      thinkingLevel: state.thinkingLevel ?? 'off',
+      messages: state.messages ?? [],
+      toolCalls: [],
+      fileChanges: [],
+      approvals: [],
       queue: {
         steering: [],
         followUp: []
       },
-      diagnostics:
-        (state.diagnostics as ThreadSnapshot['diagnostics'] | undefined) ??
-        this.listSnapshotDiagnostics(thread)
-    }
-  }
-
-  /**
-   * 获取已持久化 snapshot。
-   * @param thread - 线程摘要。
-   * @returns snapshot 或 undefined。
-   */
-  private getStoredSnapshot(thread: ThreadSummary): ThreadSnapshot | undefined {
-    try {
-      return this.store?.getSnapshot(thread.threadId)
-    } catch (error) {
-      this.saveStoreDiagnostic(thread.threadId, error)
-      return undefined
+      diagnostics: []
     }
   }
 
@@ -245,91 +278,15 @@ export class ThreadManagerCore {
   }
 
   /**
-   * 从 store 读取消息索引，失败时回退为空。
-   * @param thread - 线程摘要。
-   * @returns 消息数组。
-   */
-  private listMessages(thread: ThreadSummary): ThreadSnapshot['messages'] {
-    try {
-      return (
-        this.store?.listMessageIndex(thread.threadId).map((message) => ({
-          id: message.sessionEntryId,
-          role: message.role as ThreadSnapshot['messages'][number]['role'],
-          text: message.summary,
-          createdAt: message.createdAt
-        })) ?? []
-      )
-    } catch (error) {
-      this.saveStoreDiagnostic(thread.threadId, error)
-      return []
-    }
-  }
-
-  /**
-   * 从 store 读取工具调用索引，失败时回退为空。
-   * @param thread - 线程摘要。
-   * @returns 工具调用数组。
-   */
-  private listToolCalls(thread: ThreadSummary): ThreadSnapshot['toolCalls'] {
-    try {
-      return this.store?.listToolCalls(thread.threadId) ?? []
-    } catch (error) {
-      this.saveStoreDiagnostic(thread.threadId, error)
-      return []
-    }
-  }
-
-  /**
-   * 从 store 读取文件变更索引，失败时回退为空。
-   * @param thread - 线程摘要。
-   * @returns 文件变更数组。
-   */
-  private listFileChanges(thread: ThreadSummary): ThreadSnapshot['fileChanges'] {
-    try {
-      return this.store?.listFileChanges(thread.threadId) ?? []
-    } catch (error) {
-      this.saveStoreDiagnostic(thread.threadId, error)
-      return []
-    }
-  }
-
-  /**
-   * 从 store 读取审批索引，失败时回退为空。
-   * @param thread - 线程摘要。
-   * @returns 审批数组。
-   */
-  private listApprovals(thread: ThreadSummary): ThreadSnapshot['approvals'] {
-    try {
-      return this.store?.listApprovals({ threadId: thread.threadId }) ?? []
-    } catch (error) {
-      this.saveStoreDiagnostic(thread.threadId, error)
-      return []
-    }
-  }
-
-  /**
-   * 从 store 读取 diagnostics，失败时回退为空。
-   * @param thread - 线程摘要。
-   * @returns diagnostics 数组。
-   */
-  private listSnapshotDiagnostics(thread: ThreadSummary): ThreadSnapshot['diagnostics'] {
-    try {
-      return this.store?.listDiagnostics({ threadId: thread.threadId }) ?? []
-    } catch {
-      return []
-    }
-  }
-
-  /**
    * 尽力记录 store 错误。
    * @param threadId - 线程 ID。
    * @param error - 错误。
    */
   private saveStoreDiagnostic(threadId: string, error: unknown): void {
     try {
-      this.store?.saveDiagnostic({
+      this.store?.recordDiagnostic({
         threadId,
-        source: 'database',
+        source: 'storage',
         severity: 'error',
         message: error instanceof Error ? error.message : String(error)
       })
@@ -387,6 +344,30 @@ export class ThreadManagerCore {
   }
 
   /**
+   * 获取全局模型设置服务。
+   * @returns ModelSettingsService。
+   * @throws 当未配置服务时。
+   */
+  getModelSettingsService(): ModelSettingsService {
+    if (!this.modelSettingsService) {
+      throw new Error('model settings service is required')
+    }
+    return this.modelSettingsService
+  }
+
+  /**
+   * 获取全局 Pi agent 设置服务。
+   * @returns AgentSettingsService。
+   * @throws 当未配置服务时。
+   */
+  getAgentSettingsService(): AgentSettingsService {
+    if (!this.agentSettingsService) {
+      throw new Error('agent settings service is required')
+    }
+    return this.agentSettingsService
+  }
+
+  /**
    * 获取线程启动用的 Project trust 覆盖。
    * @param cwd - Project cwd。
    * @returns 是否加载 Project 本地资源。
@@ -423,7 +404,9 @@ export class ThreadManagerCore {
     }
     const thread = this.requireThread(threadId)
     const statusAfterStart = thread.status === 'running' ? 'running' : 'idle'
-    const cwd = this.getThreadCwd(thread)
+    const cwd = thread.sessionFile
+      ? resolveSessionCwd(thread.sessionFile, this.getThreadCwd(thread))
+      : this.getThreadCwd(thread)
     this.updateThread(threadId, { status: 'starting' })
     await this.workers.acquireThreadWorker({
       threadId,

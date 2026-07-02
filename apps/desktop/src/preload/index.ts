@@ -61,6 +61,20 @@ const codingAgent: CodingAgentApi = {
   respondUi: (input) => invokeCodingAgent(codingAgentChannels.respondUi, input),
   respondApproval: (input) => invokeCodingAgent(codingAgentChannels.respondApproval, input),
   listDiagnostics: (input) => invokeCodingAgent(codingAgentChannels.listDiagnostics, input),
+  getModelSettings: () => invokeCodingAgent(codingAgentChannels.getModelSettings),
+  updateModelSettings: (input) => invokeCodingAgent(codingAgentChannels.updateModelSettings, input),
+  listModelRegistry: () => invokeCodingAgent(codingAgentChannels.listModelRegistry),
+  listProviderCredentials: () => invokeCodingAgent(codingAgentChannels.listProviderCredentials),
+  listModelDiagnostics: () => invokeCodingAgent(codingAgentChannels.listModelDiagnostics),
+  listCustomProviders: () => invokeCodingAgent(codingAgentChannels.listCustomProviders),
+  upsertCustomProvider: (input) =>
+    invokeCodingAgent(codingAgentChannels.upsertCustomProvider, input),
+  deleteCustomProvider: (provider) =>
+    invokeCodingAgent(codingAgentChannels.deleteCustomProvider, provider),
+  setProviderApiKey: (input) => invokeCodingAgent(codingAgentChannels.setProviderApiKey, input),
+  refreshModelRegistry: () => invokeCodingAgent(codingAgentChannels.refreshModelRegistry),
+  getAgentSettings: () => invokeCodingAgent(codingAgentChannels.getAgentSettings),
+  updateAgentSettings: (input) => invokeCodingAgent(codingAgentChannels.updateAgentSettings, input),
   onEvent: (listener) => {
     const handler = (_event: Electron.IpcRendererEvent, payload: CodingAgentIpcEvent): void =>
       listener(payload)

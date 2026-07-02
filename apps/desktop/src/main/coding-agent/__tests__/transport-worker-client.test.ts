@@ -22,8 +22,8 @@ describe('TransportWorkerClient', () => {
       now: () => 0
     })
 
-    await expect(client.send({ type: 'test.command' })).rejects.toThrow(
-      'request timed out: test.command'
+    await expect(client.send({ type: 'worker.ping' })).rejects.toThrow(
+      'request timed out: worker.ping'
     )
   })
 
@@ -75,7 +75,7 @@ describe('TransportWorkerClient', () => {
 
     transport.close()
 
-    await expect(client.send({ type: 'test.command' })).resolves.toMatchObject({
+    await expect(client.send({ type: 'worker.ping' })).resolves.toMatchObject({
       success: false,
       error: { code: 'worker_exited' }
     })
@@ -144,7 +144,8 @@ describe('TransportWorkerClient', () => {
     transport.emitEvent({
       kind: 'event',
       eventType: 'projection',
-      event: { type: 'thread.stateChanged', status: 'running' }
+      threadId: 'thread-a',
+      event: { type: 'thread.stateChanged', threadId: 'thread-a', status: 'running' }
     })
     await waitMs(80)
     now = 160
