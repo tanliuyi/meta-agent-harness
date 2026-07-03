@@ -47,7 +47,7 @@ describe('cacheWorkerProjectionEvent', () => {
     store.close()
   })
 
-  it('缓存 approval、tool、file change 与 thread error projection', () => {
+  it('缓存 approval、file change 与 thread error projection', () => {
     const store = new CodingThreadStore(':memory:')
 
     cacheWorkerProjectionEvent(store, {
@@ -65,25 +65,6 @@ describe('cacheWorkerProjectionEvent', () => {
           scope: 'once',
           defaultAction: 'deny',
           createdAt: '2026-07-01T00:00:00.000Z'
-        }
-      }
-    })
-    cacheWorkerProjectionEvent(store, {
-      kind: 'event',
-      eventType: 'projection',
-      threadId: 'thread-a',
-      event: {
-        type: 'tool.started',
-        threadId: 'thread-a',
-        toolCall: {
-          threadId: 'thread-a',
-          toolCallId: 'tool-a',
-          toolName: 'edit',
-          status: 'succeeded',
-          args: { path: 'README.md' },
-          resultSummary: 'updated',
-          startedAt: '2026-07-01T00:00:01.000Z',
-          finishedAt: '2026-07-01T00:00:02.000Z'
         }
       }
     })
@@ -122,14 +103,7 @@ describe('cacheWorkerProjectionEvent', () => {
     })
 
     expect(store.listApprovals({ threadId: 'thread-a' })).toHaveLength(1)
-    expect(store.listToolCalls('thread-a')).toMatchObject([
-      {
-        toolCallId: 'tool-a',
-        toolName: 'edit',
-        status: 'succeeded',
-        args: { path: 'README.md' }
-      }
-    ])
+    expect(store.listToolCalls('thread-a')).toEqual([])
     expect(store.listFileChanges('thread-a')).toMatchObject([
       {
         toolCallId: 'tool-a',

@@ -8,7 +8,7 @@ import { publishCodingAgentEvent, toCodingAgentIpcEvent } from '../ipc'
 import type { CodingAgentIpcEvent } from '@shared/coding-agent/types'
 
 describe('coding agent IPC events', () => {
-  it('将 worker canonical/projection envelope 转成 renderer IPC event', () => {
+  it('将 worker agent/projection envelope 转成 renderer IPC event', () => {
     expect(
       toCodingAgentIpcEvent({
         kind: 'event',
@@ -42,33 +42,30 @@ describe('coding agent IPC events', () => {
         }
       })
     ).toEqual({
-      type: 'canonical',
+      type: 'message_end',
       threadId: 'thread-a',
-      event: {
-        type: 'message_end',
-        message: {
-          role: 'assistant',
-          content: [{ type: 'text', text: 'hello' }],
-          api: 'responses',
-          provider: 'openai',
-          model: 'gpt-5',
-          usage: {
-            input: 1,
-            output: 1,
+      message: {
+        role: 'assistant',
+        content: [{ type: 'text', text: 'hello' }],
+        api: 'responses',
+        provider: 'openai',
+        model: 'gpt-5',
+        usage: {
+          input: 1,
+          output: 1,
+          cacheRead: 0,
+          cacheWrite: 0,
+          totalTokens: 2,
+          cost: {
+            input: 0,
+            output: 0,
             cacheRead: 0,
             cacheWrite: 0,
-            totalTokens: 2,
-            cost: {
-              input: 0,
-              output: 0,
-              cacheRead: 0,
-              cacheWrite: 0,
-              total: 0
-            }
-          },
-          stopReason: 'stop',
-          timestamp: 1782844800000
-        }
+            total: 0
+          }
+        },
+        stopReason: 'stop',
+        timestamp: 1782844800000
       }
     })
 

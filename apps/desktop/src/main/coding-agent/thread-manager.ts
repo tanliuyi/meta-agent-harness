@@ -27,6 +27,7 @@ import type {
   RenameThreadInput,
   RenameProjectInput,
   ApprovalResponseInput,
+  SetThreadTitleInput,
   SetProjectTrustInput,
   SetModelInput,
   SetProviderApiKeyInput,
@@ -35,6 +36,7 @@ import type {
   TextInput,
   ThinkingCycleResult,
   ThreadSnapshot,
+  ThreadSummary,
   ToggleInput,
   AgentSettingsSnapshot,
   UpdateAgentSettingsInput,
@@ -66,6 +68,7 @@ import {
   importSession,
   newSession,
   renameThread,
+  setThreadTitle,
   switchSession
 } from './thread-session-commands'
 import { ThreadManagerCore } from './thread-manager-core'
@@ -244,6 +247,15 @@ export class CodingThreadManager extends ThreadManagerCore {
    */
   clone(threadId: string): Promise<ThreadSnapshot> {
     return clone(this, threadId)
+  }
+
+  /**
+   * 设置线程标题。
+   * @param input - 标题输入。
+   * @returns 更新后的线程摘要。
+   */
+  setThreadTitle(input: SetThreadTitleInput): Promise<ThreadSummary> {
+    return setThreadTitle(this, input)
   }
 
   /**

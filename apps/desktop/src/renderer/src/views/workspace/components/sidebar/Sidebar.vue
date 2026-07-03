@@ -8,26 +8,27 @@ import useWorkspaceProjectStore from '@renderer/stores/workspace-project'
 import useWorkspaceSessionStore from '@renderer/stores/workspace-session'
 import type { ProjectSummary, ProjectTrustDecision } from '@shared/coding-agent/types'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
+import ScrollArea from '@/components/ui/scroll-area/ScrollArea.vue'
 import { RouterLink } from 'vue-router'
 
 const workspaceProject = useWorkspaceProjectStore()
 const workspaceSession = useWorkspaceSessionStore()
 
 /**
- * 打开 Project 并刷新所有 thread。
+ * 选择 Project，并进入未创建 thread 的新会话草稿态。
  * @param projectId - Project ID。
  */
 async function openProject(projectId: string): Promise<void> {
   await workspaceProject.openProject(projectId)
-  await workspaceSession.loadThreads()
+  workspaceSession.startNewSession(projectId)
 }
 
 /**
- * 在指定 Project 下创建 Thread。
+ * 在指定 Project 下开始一个新会话草稿。
  * @param projectId - Project ID。
  */
-async function createThreadInProject(projectId: string): Promise<void> {
-  await workspaceSession.createThread(projectId)
+function createThreadInProject(projectId: string): void {
+  workspaceSession.startNewSession(projectId)
 }
 
 /**
@@ -97,7 +98,7 @@ async function createProject(): Promise<void> {
 
 <template>
   <aside class="workspace__sidebar">
-    <div class="sidebar-section">
+    <ScrollArea class="sidebar-section">
       <div class="sidebar-section__header">
         <span>项目</span>
         <BaseIconButton
@@ -165,7 +166,7 @@ async function createProject(): Promise<void> {
           </CollapsibleContent>
         </Collapsible>
       </ul>
-    </div>
+    </ScrollArea>
     <div class="sidebar-section is-footer">
       <RouterLink to="/settings" class="button-cell">
         <SettingIcon :size="12" />
@@ -189,16 +190,18 @@ async function createProject(): Promise<void> {
 }
 
 .sidebar-section {
-  display: flex;
   flex: 1 1 auto;
-  flex-direction: column;
   min-width: 0;
   min-height: 0;
-  overflow-y: auto;
 
   &.is-footer {
     flex: 0 0 auto;
   }
+}
+
+.sidebar-section :deep([data-slot='scroll-area-viewport']) {
+  display: flex;
+  flex-direction: column;
 }
 
 .sidebar-section__header {
@@ -292,7 +295,7 @@ async function createProject(): Promise<void> {
   gap: var(--space-2);
   min-width: 0;
   margin: 0 var(--space-2);
-  padding: 0 var(--space-3) 0 var(--space-3);
+  padding: 0 var(--space-3) 0 var(--space-8);
   border-radius: var(--radius-md);
   color: var(--color-text-muted);
 

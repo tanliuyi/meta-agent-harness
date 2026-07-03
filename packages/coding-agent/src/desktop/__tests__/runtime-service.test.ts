@@ -66,8 +66,8 @@ describe("RuntimeDesktopWorkerService", () => {
 		expect(response.success).toBe(true);
 	});
 
-	/** 验证绑定 runtime 后转发 canonical event 并派生 projection event。 */
-	it("绑定 runtime 后转发 canonical event 并派生 projection event", async () => {
+	/** 验证绑定 runtime 后原样转发 canonical event。 */
+	it("绑定 runtime 后原样转发 canonical event", async () => {
 		let listener: ((event: { type: "thinking_level_changed"; level: "high" }) => void) | undefined;
 		const events: WorkerEventEnvelope[] = [];
 		const service = new RuntimeDesktopWorkerService(async () =>
@@ -97,12 +97,6 @@ describe("RuntimeDesktopWorkerService", () => {
 				eventType: "canonical",
 				threadId: "thread-1",
 				event: { type: "thinking_level_changed", level: "high" },
-			},
-			{
-				kind: "event",
-				eventType: "projection",
-				threadId: "thread-1",
-				event: { type: "thinking.changed", threadId: "thread-1", level: "high" },
 			},
 		]);
 	});

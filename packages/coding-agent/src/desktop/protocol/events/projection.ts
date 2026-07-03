@@ -6,8 +6,7 @@ import type { ApprovalRequest } from "../approval.ts";
 import type { DesktopDiagnostic } from "../diagnostic.ts";
 import type { ExtensionUiRequest } from "../extension-ui.ts";
 import type { ThreadId } from "../identity.ts";
-import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
-import type { DesktopFileChange, DesktopToolCall } from "../tool.ts";
+import type { DesktopFileChange } from "../tool.ts";
 import type { ThreadRuntimeState } from "../thread.ts";
 
 /** Desktop UI projection 事件联合类型。 */
@@ -27,30 +26,6 @@ export type DesktopProjectionEvent =
 			threadId: ThreadId;
 			/** 诊断信息。 */
 			diagnostic: DesktopDiagnostic;
-	  }
-	| {
-			/** 事件类型：工具调用已开始。 */
-			type: "tool.started";
-			/** 线程 ID。 */
-			threadId: ThreadId;
-			/** 工具调用信息。 */
-			toolCall: DesktopToolCall;
-	  }
-	| {
-			/** 事件类型：工具调用已更新。 */
-			type: "tool.updated";
-			/** 线程 ID。 */
-			threadId: ThreadId;
-			/** 工具调用信息。 */
-			toolCall: DesktopToolCall;
-	  }
-	| {
-			/** 事件类型：工具调用已完成。 */
-			type: "tool.finished";
-			/** 线程 ID。 */
-			threadId: ThreadId;
-			/** 工具调用信息。 */
-			toolCall: DesktopToolCall;
 	  }
 	| {
 			/** 事件类型：文件已变更。 */
@@ -75,22 +50,4 @@ export type DesktopProjectionEvent =
 			threadId: ThreadId;
 			/** 扩展 UI 请求。 */
 			request: ExtensionUiRequest;
-	  }
-	| {
-			/** 事件类型：thinking 级别已切换。 */
-			type: "thinking.changed";
-			/** 线程 ID。 */
-			threadId: ThreadId;
-			/** 新的 thinking 级别。 */
-			level: ThinkingLevel;
-	  }
-	| {
-			/** 事件类型：队列已变化。 */
-			type: "queue.changed";
-			/** 线程 ID。 */
-			threadId: ThreadId;
-			/** Steering 队列中的命令类型列表。 */
-			steering: string[];
-			/** Follow-up 队列中的命令类型列表。 */
-			followUp: string[];
 	  };

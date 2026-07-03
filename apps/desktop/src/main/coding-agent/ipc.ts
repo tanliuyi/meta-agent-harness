@@ -3,8 +3,14 @@
  */
 
 import { app, dialog, ipcMain, type WebContents } from 'electron'
+import { mkdir, readFile, stat, writeFile } from 'node:fs/promises'
+import { basename, join } from 'node:path'
+import { randomUUID } from 'node:crypto'
+import { tmpdir } from 'node:os'
 import { codingAgentChannels } from '@shared/coding-agent/channels'
 import { fail, ok } from '@shared/coding-agent/ipc-contract'
+import { detectSupportedImageMimeTypeFromFile } from '../../../../../packages/coding-agent/src/utils/mime'
+import { extensionForImageMimeType } from '../../../../../packages/coding-agent/src/utils/clipboard-image'
 import { CodingThreadManager } from './thread-manager'
 import { CodingThreadStore } from './thread-store'
 import { ProjectStore } from './project-store'
@@ -27,10 +33,13 @@ import type {
   ImportSessionInput,
   IpcResult,
   NewSessionInput,
+  PromptImageDraft,
+  PromptImageAttachment,
   PromptInput,
   ApprovalResponseInput,
   RenameProjectInput,
   RenameThreadInput,
+  SetThreadTitleInput,
   SetProviderApiKeyInput,
   SetProjectTrustInput,
   SetModelInput,
@@ -162,6 +171,10 @@ export function registerCodingAgentIpc(options: CodingAgentIpcOptions = {}): Cod
   handle(manager, codingAgentChannels.prompt, (input: PromptInput) => manager.prompt(input))
   handle(manager, codingAgentChannels.steer, (input: TextInput) => manager.steer(input))
   handle(manager, codingAgentChannels.followUp, (input: TextInput) => manager.followUp(input))
+  handle(manager, codingAgentChannels.selectPromptImages, () => selectPromptImages())
+  handle(manager, codingAgentChannels.stagePromptImages, (images: PromptImageDraft[]) =>
+    stagePromptImages(manager, images)
+  )
   handle(manager, codingAgentChannels.abort, (threadId: string) => manager.abort(threadId))
   handle(manager, codingAgentChannels.newSession, (input: NewSessionInput) =>
     manager.newSession(input)
@@ -177,6 +190,9 @@ export function registerCodingAgentIpc(options: CodingAgentIpcOptions = {}): Cod
   )
   handle(manager, codingAgentChannels.fork, (input: ForkInput) => manager.fork(input))
   handle(manager, codingAgentChannels.clone, (threadId: string) => manager.clone(threadId))
+  handle(manager, codingAgentChannels.setThreadTitle, (input: SetThreadTitleInput) =>
+    manager.setThreadTitle(input)
+  )
   handle(manager, codingAgentChannels.renameThread, (input: RenameThreadInput) =>
     manager.renameThread(input)
   )
@@ -346,6 +362,88 @@ export function publishCodingAgentEvent(
 }
 
 /**
+ * 选择并处理 prompt 图片附件。
+ * @param manager - thread manager。
+ * @returns 处理后的图片附件；用户取消时返回 undefined。
+ */
+async function selectPromptImages(): Promise<PromptImageAttachment[] | undefined> {
+  const result = await dialog.showOpenDialog({
+    title: '选择图片',
+    properties: ['openFile', 'multiSelections'],
+    filters: [{ name: 'Images', extensions: ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp'] }]
+  })
+  if (result.canceled || result.filePaths.length === 0) {
+    return undefined
+  }
+  return await Promise.all(
+    result.filePaths.map((filePath) => createPromptImageAttachment(filePath))
+  )
+}
+
+/**
+ * 暂存 renderer 传入的 prompt 图片，再按文件图片链路处理。
+ * @param manager - thread manager。
+ * @param images - renderer 图片草稿。
+ * @returns 处理后的图片附件。
+ */
+async function stagePromptImages(
+  _manager: CodingThreadManager,
+  images: PromptImageDraft[]
+): Promise<PromptImageAttachment[]> {
+  if (images.length === 0) {
+    return []
+  }
+  return await Promise.all(
+    images.map(async (image) => {
+      const filePath = await writePromptImageDraft(image)
+      return await createPromptImageAttachment(filePath, image.name, image.size)
+    })
+  )
+}
+
+/**
+ * 将 renderer 图片草稿写入临时文件。
+ * @param image - 图片草稿。
+ * @returns 临时文件路径。
+ */
+async function writePromptImageDraft(image: PromptImageDraft): Promise<string> {
+  const ext = extensionForImageMimeType(image.mimeType) ?? 'png'
+  const dir = join(tmpdir(), 'meta-agent-prompt-images')
+  await mkdir(dir, { recursive: true })
+  const filePath = join(dir, `meta-agent-prompt-${randomUUID()}.${ext}`)
+  await writeFile(filePath, Buffer.from(image.data, 'base64'))
+  return filePath
+}
+
+/**
+ * 从图片文件创建 Composer 预览附件，不做 provider inline resize。
+ * @param filePath - 图片路径。
+ * @param displayName - UI 展示名称。
+ * @param displaySize - UI 展示大小。
+ * @returns prompt 图片附件。
+ */
+async function createPromptImageAttachment(
+  filePath: string,
+  displayName = basename(filePath),
+  displaySize?: number
+): Promise<PromptImageAttachment> {
+  const mimeType = await detectSupportedImageMimeTypeFromFile(filePath)
+  if (!mimeType) {
+    throw new Error(`${basename(filePath)} 不是支持的图片格式`)
+  }
+  const [fileStats, bytes] = await Promise.all([stat(filePath), readFile(filePath)])
+  return {
+    type: 'image',
+    path: filePath,
+    name: displayName,
+    size: displaySize ?? fileStats.size,
+    mimeType,
+    data: Buffer.from(bytes).toString('base64'),
+    hints: []
+  }
+}
+
+/**
  * 尽力写入 diagnostics。
  * @param manager - thread manager。
  * @param error - 错误。
@@ -372,7 +470,7 @@ export function toCodingAgentIpcEvent(event: WorkerEnvelope): CodingAgentIpcEven
     return undefined
   }
   if (event.eventType === 'canonical' && typeof event.threadId === 'string') {
-    return { type: 'canonical', threadId: event.threadId, event: event.event }
+    return { ...event.event, threadId: event.threadId }
   }
   if (event.eventType === 'projection' && typeof event.threadId === 'string') {
     return { type: 'projection', threadId: event.threadId, event: event.event }

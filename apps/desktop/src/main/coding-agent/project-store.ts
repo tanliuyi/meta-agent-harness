@@ -115,7 +115,7 @@ export class ProjectStore {
   listProjects(): ProjectSummary[] {
     return [...this.projects.values()]
       .map((project) => ({ ...project, status: getProjectStatus(project.path) }))
-      .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))
+      .sort((left, right) => right.createdAt.localeCompare(left.createdAt))
   }
 
   /**

@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, inject, onMounted, ref, watch } from 'vue'
 import type { Ref } from 'vue'
+import ScrollArea from '@/components/ui/scroll-area/ScrollArea.vue'
 import { shikiHighlightService } from './shiki-highlight-service'
 import { MarkdownContextKey, type StreamingMarkdownContext } from './markdown-context'
 
@@ -39,7 +40,7 @@ const language = computed(() => props.node.language || '')
 function shouldHighlight(): boolean {
   const ctx = context.value
   if (!ctx.messageId) return false
-  if (ctx.isStreaming) return false
+  if (ctx.isStreaming && props.node.loading) return false
   if (!code.value) return false
   return true
 }
@@ -95,7 +96,7 @@ onMounted(() => {
 })
 
 watch(
-  () => [context.value.isStreaming, context.value.theme, code.value],
+  () => [context.value.isStreaming, context.value.theme, code.value, props.node.loading],
   () => {
     highlightedHtml.value = undefined
     if (shouldHighlight()) {
@@ -111,12 +112,14 @@ watch(
     <div v-if="language" class="streaming-code-block__header">
       <span class="streaming-code-block__lang">{{ language }}</span>
     </div>
-    <div
-      v-if="highlightedHtml"
-      class="streaming-code-block__highlight"
-      v-html="highlightedHtml"
-    />
-    <pre v-else class="streaming-code-block__pre"><code>{{ code }}</code></pre>
+    <ScrollArea scrollbars="horizontal" class="streaming-code-block__scroll">
+      <div
+        v-if="highlightedHtml"
+        class="streaming-code-block__highlight"
+        v-html="highlightedHtml"
+      />
+      <pre v-else class="streaming-code-block__pre"><code>{{ code }}</code></pre>
+    </ScrollArea>
   </div>
 </template>
 
@@ -146,10 +149,22 @@ watch(
   text-transform: lowercase;
 }
 
+.streaming-code-block__scroll {
+  width: 100%;
+}
+
+.streaming-code-block__scroll :deep([data-slot='scroll-area-viewport']) {
+  width: 100%;
+}
+
+.streaming-code-block__pre,
+.streaming-code-block__highlight {
+  min-width: 100%;
+  padding: var(--space-2) var(--space-3);
+}
+
 .streaming-code-block__pre {
   margin: 0;
-  padding: var(--space-2) var(--space-3);
-  overflow-x: auto;
   font-family: var(--font-mono);
   font-size: 12px;
   line-height: 1.55;
@@ -165,9 +180,26 @@ watch(
 }
 
 .streaming-code-block__highlight {
-  padding: var(--space-2) var(--space-3);
-  overflow-x: auto;
   font-size: 12px;
   line-height: 1.55;
+}
+
+.streaming-code-block__highlight :deep(.shiki) {
+  width: max-content;
+  min-width: 100%;
+  margin: 0;
+  overflow: visible !important;
+  font-family: var(--font-mono);
+  font-size: inherit;
+  line-height: inherit;
+  background: transparent !important;
+}
+
+.streaming-code-block__highlight :deep(.shiki code) {
+  display: block;
+  width: max-content;
+  min-width: 100%;
+  font-family: inherit;
+  background: transparent;
 }
 </style>

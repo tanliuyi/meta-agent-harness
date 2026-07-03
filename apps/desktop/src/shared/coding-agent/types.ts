@@ -6,7 +6,9 @@ import type {
   ApprovalRequest as PackageApprovalRequest,
   ApprovalResponse as PackageApprovalResponse
 } from '../../../../../packages/coding-agent/src/desktop/protocol/approval'
-import type { DesktopIpcEvent as PackageDesktopIpcEvent } from '../../../../../packages/coding-agent/src/desktop/ipc/event'
+import type { AgentSessionEvent as PackageAgentSessionEvent } from '../../../../../packages/coding-agent/src/core/agent-session'
+import type { DesktopProjectionEvent as PackageDesktopProjectionEvent } from '../../../../../packages/coding-agent/src/desktop/protocol/events/projection'
+import type { WorkerLifecycleEvent as PackageWorkerLifecycleEvent } from '../../../../../packages/coding-agent/src/desktop/protocol/events/worker'
 import type { ExtensionUiResponse as PackageExtensionUiResponse } from '../../../../../packages/coding-agent/src/desktop/protocol/extension-ui'
 import type { AgentMessage, ThinkingLevel as PiThinkingLevel } from '@earendil-works/pi-agent-core'
 import { toDesktopMessageContent as toPackageDesktopMessageContent } from '../../../../../packages/coding-agent/src/desktop/protocol/message'
@@ -20,6 +22,7 @@ import type {
   ThreadSummary as PackageThreadSummary
 } from '../../../../../packages/coding-agent/src/desktop/protocol/thread'
 import type { RpcResponse } from '../../../../../packages/coding-agent/src/modes/rpc/rpc-types'
+import type { ImageContent } from '@earendil-works/pi-ai'
 
 /** 线程状态。 */
 export type ThreadStatus = ThreadRuntimeState
@@ -123,6 +126,37 @@ export type ApprovalResponse = PackageApprovalResponse
 /** 线程消息。 */
 export type ThreadMessage = DesktopMessage
 
+/** Prompt 图片内容。 */
+export type PromptImage = ImageContent
+
+/** Prompt 图片文件引用，由后端按 Pi @file 语义展开。 */
+export interface PromptImageFile {
+  /** 原始文件路径。 */
+  path: string
+  /** renderer 已持有的图片数据，用于文件处理失败时的 inline fallback。 */
+  inlineFallback?: PromptImage
+}
+
+/** 待暂存的 prompt 图片内容。 */
+export type PromptImageDraft = PromptImage & {
+  /** 原始文件名。 */
+  name: string
+  /** 原始文件大小，字节。 */
+  size: number
+}
+
+/** Prompt 图片附件，包含 UI 展示用文件元信息。 */
+export type PromptImageAttachment = PromptImage & {
+  /** 原始文件路径；粘贴图片等 inline 附件可能没有磁盘路径。 */
+  path?: string
+  /** 原始文件名。 */
+  name: string
+  /** 原始文件大小，字节。 */
+  size: number
+  /** 图片处理提示，例如格式转换或缩放说明。 */
+  hints: string[]
+}
+
 /** 将 Pi AgentMessage 转换为不含 ID 的 Desktop message 内容。 */
 export const toDesktopMessageContent = toPackageDesktopMessageContent
 
@@ -140,7 +174,9 @@ export interface PromptInput extends ThreadIdInput {
   /** 用户消息文本。 */
   message: string
   /** 附加图片数据。 */
-  images?: unknown[]
+  images?: PromptImage[]
+  /** 附加图片文件，由后端按 Pi @file 语义展开。 */
+  imageFiles?: PromptImageFile[]
   /** 流式行为：引导或跟进。 */
   streamingBehavior?: 'steer' | 'followUp'
 }
@@ -150,7 +186,9 @@ export interface TextInput extends ThreadIdInput {
   /** 用户消息文本。 */
   message: string
   /** 附加图片数据。 */
-  images?: unknown[]
+  images?: PromptImage[]
+  /** 附加图片文件，由后端按 Pi @file 语义展开。 */
+  imageFiles?: PromptImageFile[]
 }
 
 /** 新建会话输入。 */
@@ -199,6 +237,12 @@ export interface ForkInput extends ThreadIdInput {
 export interface RenameThreadInput extends ThreadIdInput {
   /** 新名称。 */
   name: string
+}
+
+/** 设置线程标题输入。 */
+export interface SetThreadTitleInput extends ThreadIdInput {
+  /** 新标题。 */
+  title: string
 }
 
 /** 设置模型输入。 */
@@ -723,6 +767,31 @@ export interface DiagnosticsInput {
 }
 
 /** Coding Agent IPC 事件联合类型。 */
+export type AgentSessionIpcEvent = PackageAgentSessionEvent & {
+  /** 关联线程 ID。 */
+  threadId: string
+}
+
+/** Desktop UI projection IPC 事件。 */
+export type ProjectionIpcEvent = {
+  /** Desktop UI projection 事件。 */
+  type: 'projection'
+  /** 关联线程 ID。 */
+  threadId: string
+  /** Projection 事件载荷。 */
+  event: PackageDesktopProjectionEvent
+}
+
+/** Worker lifecycle IPC 事件。 */
+export type WorkerIpcEvent = {
+  /** Worker 生命周期事件。 */
+  type: 'worker'
+  /** 关联线程 ID。 */
+  threadId?: string
+  /** Worker 事件载荷。 */
+  event: PackageWorkerLifecycleEvent
+}
+
 export type ThreadWorkerLifecycleIpcEvent =
   | {
       type: 'worker.run.started'
@@ -750,7 +819,9 @@ export type ProjectIpcEvent =
 
 /** Coding Agent IPC 事件联合类型。 */
 export type CodingAgentIpcEvent =
-  | Exclude<PackageDesktopIpcEvent, { type: 'threadSnapshot' }>
+  | AgentSessionIpcEvent
+  | ProjectionIpcEvent
+  | WorkerIpcEvent
   | { type: 'threadSnapshot'; threadId: string; snapshot: ThreadSnapshot }
   | { type: 'threadWorker'; threadId?: string; event: ThreadWorkerLifecycleIpcEvent }
   | {
@@ -792,6 +863,10 @@ export interface CodingAgentApi {
   steer(input: TextInput): Promise<void>
   /** 向线程发送跟进输入。 */
   followUp(input: TextInput): Promise<void>
+  /** 选择并处理 prompt 图片附件；用户取消时返回 undefined。 */
+  selectPromptImages(): Promise<PromptImageAttachment[] | undefined>
+  /** 暂存并处理 prompt 图片附件。 */
+  stagePromptImages(images: PromptImageDraft[]): Promise<PromptImageAttachment[]>
   /** 中止当前运行。 */
   abort(threadId: string): Promise<void>
   /** 创建新会话。 */
@@ -806,6 +881,8 @@ export interface CodingAgentApi {
   fork(input: ForkInput): Promise<ThreadSnapshot>
   /** 克隆线程。 */
   clone(threadId: string): Promise<ThreadSnapshot>
+  /** 设置线程标题。 */
+  setThreadTitle(input: SetThreadTitleInput): Promise<ThreadSummary>
   /** 重命名线程。 */
   renameThread(input: RenameThreadInput): Promise<void>
   /** 归档线程。 */

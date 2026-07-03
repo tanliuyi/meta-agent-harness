@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import ScrollArea from '@/components/ui/scroll-area/ScrollArea.vue'
 import useModelSettingsStore from '@renderer/stores/model-settings'
 import { onMounted } from 'vue'
 import { RouterLink, RouterView } from 'vue-router'
@@ -25,7 +26,7 @@ onMounted(() => {
 
 <template>
   <div class="models-shell">
-    <nav class="models-shell__nav">
+    <ScrollArea class="models-shell__nav">
       <div class="models-shell__nav-header">
         <h1>模型</h1>
         <p>每个配置项独立保存，切换页面会保留当前编辑状态。</p>
@@ -38,13 +39,15 @@ onMounted(() => {
       >
         {{ link.label }}
       </RouterLink>
-    </nav>
+    </ScrollArea>
     <section class="models-shell__content">
-      <RouterView v-slot="{ Component }">
-        <KeepAlive>
-          <component :is="Component" />
-        </KeepAlive>
-      </RouterView>
+      <ScrollArea class="models-shell__content-scroll">
+        <RouterView v-slot="{ Component }">
+          <KeepAlive>
+            <component :is="Component" />
+          </KeepAlive>
+        </RouterView>
+      </ScrollArea>
     </section>
   </div>
 </template>

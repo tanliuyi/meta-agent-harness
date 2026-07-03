@@ -100,14 +100,14 @@ export class ThreadManagerCore {
 
   /**
    * 列出所有线程摘要。
-   * @returns 线程摘要数组。
+   * @returns 线程摘要数组，按 updatedAt 降序。
    */
   listThreads(input: { projectId?: string } = {}): ThreadSummary[] {
     const threads = [...this.threads.values()]
     if (!input.projectId) {
-      return threads
+      return sortThreadsByUpdatedAt(threads)
     }
-    return threads.filter((thread) => thread.projectId === input.projectId)
+    return sortThreadsByUpdatedAt(threads.filter((thread) => thread.projectId === input.projectId))
   }
 
   /**
@@ -465,4 +465,8 @@ function normalizeInactiveThread(thread: ThreadSummary): ThreadSummary {
     return { ...thread, status: 'idle' }
   }
   return thread
+}
+
+function sortThreadsByUpdatedAt(threads: ThreadSummary[]): ThreadSummary[] {
+  return [...threads].sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))
 }

@@ -3,15 +3,16 @@ import type { RenderableThreadMessage } from './renderable-message'
 import { getMessageText } from './message-format'
 import StreamingMarkdown from '../../markdown/StreamingMarkdown.vue'
 
-defineProps<{
+const props = defineProps<{
   message: RenderableThreadMessage
+  text?: string
 }>()
 </script>
 
 <template>
   <div class="assistant-message">
     <StreamingMarkdown
-      :source="getMessageText(message) ?? ''"
+      :source="props.text ?? getMessageText(message) ?? ''"
       :revision="message.revision"
       :is-streaming="message.renderState === 'streaming'"
       :message-id="message.id"

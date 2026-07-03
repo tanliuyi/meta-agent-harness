@@ -48,11 +48,6 @@ function cacheProjectionEvent(
         createdAt: event.approval.createdAt
       })
       return
-    case 'tool.started':
-    case 'tool.updated':
-    case 'tool.finished':
-      cacheToolCall(store, threadId, event)
-      return
     case 'file.changed':
       cacheFileChange(store, threadId, event)
       return
@@ -67,33 +62,6 @@ function cacheProjectionEvent(
       })
       return
   }
-}
-
-/**
- * 缓存工具调用事件。
- * @param store - Thread metadata/projection cache。
- * @param threadId - 线程 ID。
- * @param event - projection event。
- */
-function cacheToolCall(
-  store: CodingThreadStore,
-  threadId: string,
-  event: Extract<
-    DesktopProjectionEvent,
-    { type: 'tool.started' } | { type: 'tool.updated' } | { type: 'tool.finished' }
-  >
-): void {
-  const toolCall = event.toolCall
-  store.recordToolCall({
-    threadId,
-    toolCallId: toolCall.toolCallId,
-    toolName: toolCall.toolName,
-    status: toolCall.status,
-    args: toolCall.args,
-    resultSummary: toolCall.resultSummary,
-    startedAt: toolCall.startedAt,
-    finishedAt: toolCall.finishedAt
-  })
 }
 
 /**

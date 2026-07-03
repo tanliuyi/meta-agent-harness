@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import BackIcon from '@/components/icons/BackIcon.vue'
+import ScrollArea from '@/components/ui/scroll-area/ScrollArea.vue'
 import { RouterLink, useRouter } from 'vue-router'
 import useWorkspaceSession from '@/stores/workspace-session'
 
@@ -14,7 +15,7 @@ const goBack = (): void => {
 
 <template>
   <aside class="settings__sidebar">
-    <div class="sidebar-section">
+    <ScrollArea class="sidebar-section">
       <button class="back-button" @click="goBack">
         <BackIcon :size="12" />
         <span>返回聊天</span>
@@ -25,7 +26,7 @@ const goBack = (): void => {
       <RouterLink class="settings-link" to="/settings/agent">
         <span>Agent</span>
       </RouterLink>
-    </div>
+    </ScrollArea>
   </aside>
 </template>
 
@@ -44,16 +45,18 @@ const goBack = (): void => {
 }
 
 .sidebar-section {
-  display: flex;
   flex: 1 1 auto;
-  flex-direction: column;
   min-width: 0;
   min-height: 0;
-  overflow-y: auto;
 
   &.is-footer {
     flex: 0 0 auto;
   }
+}
+
+.sidebar-section :deep([data-slot='scroll-area-viewport']) {
+  display: flex;
+  flex-direction: column;
 }
 
 .back-button {

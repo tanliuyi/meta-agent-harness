@@ -60,7 +60,9 @@ class ShikiHighlightService {
 
   constructor() {
     try {
-      this.worker = new Worker(new URL('./shiki-highlight.worker.ts', import.meta.url))
+      this.worker = new Worker(new URL('./shiki-highlight.worker.ts', import.meta.url), {
+        type: 'module'
+      })
       this.worker.onmessage = (event: MessageEvent<HighlightResponse>) => {
         this.handleMessage(event.data)
       }

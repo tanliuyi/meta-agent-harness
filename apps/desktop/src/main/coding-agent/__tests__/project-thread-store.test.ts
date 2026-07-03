@@ -158,6 +158,51 @@ describe('CodingThreadStore', () => {
     rmSync(root, { recursive: true, force: true })
   })
 
+  it('ThreadManagerCore listThreads 按 updatedAt 降序返回', () => {
+    const projectStore = new ProjectStore(':memory:')
+    const store = new CodingThreadStore(':memory:')
+    const projectA = projectStore.createProject({ path: createTempDir() })
+    const projectB = projectStore.createProject({ path: createTempDir() })
+    const oldest: ThreadSummary = {
+      threadId: 'thread-oldest',
+      projectId: projectA.projectId,
+      status: 'idle',
+      createdAt: '2026-07-01T00:00:00.000Z',
+      updatedAt: '2026-07-01T00:00:00.000Z'
+    }
+    const newest: ThreadSummary = {
+      threadId: 'thread-newest',
+      projectId: projectA.projectId,
+      status: 'idle',
+      createdAt: '2026-07-01T00:00:00.000Z',
+      updatedAt: '2026-07-01T00:00:02.000Z'
+    }
+    const otherProject: ThreadSummary = {
+      threadId: 'thread-other-project',
+      projectId: projectB.projectId,
+      status: 'idle',
+      createdAt: '2026-07-01T00:00:00.000Z',
+      updatedAt: '2026-07-01T00:00:01.000Z'
+    }
+
+    const manager = new ThreadManagerCore(createIdleThreadWorkerRegistry(), store, projectStore)
+    manager.saveThread(oldest)
+    manager.saveThread(newest)
+    manager.saveThread(otherProject)
+
+    expect(manager.listThreads().map((thread) => thread.threadId)).toEqual([
+      'thread-newest',
+      'thread-other-project',
+      'thread-oldest'
+    ])
+    expect(
+      manager.listThreads({ projectId: projectA.projectId }).map((thread) => thread.threadId)
+    ).toEqual(['thread-newest', 'thread-oldest'])
+
+    store.close()
+    projectStore.close()
+  })
+
   it('保存和读取临时 projection 状态', () => {
     const store = new CodingThreadStore(':memory:')
 

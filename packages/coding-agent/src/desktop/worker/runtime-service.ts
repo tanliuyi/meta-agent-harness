@@ -201,27 +201,6 @@ export class RuntimeDesktopWorkerService implements DesktopWorkerService {
 		}
 		this.unsubscribeSession = runtime.session.subscribe((event) => {
 			this.eventSink?.({ kind: "event", eventType: "canonical", threadId, event });
-			if (event.type === "thinking_level_changed") {
-				this.eventSink?.({
-					kind: "event",
-					eventType: "projection",
-					threadId,
-					event: { type: "thinking.changed", threadId, level: event.level },
-				});
-			}
-			if (event.type === "queue_update") {
-				this.eventSink?.({
-					kind: "event",
-					eventType: "projection",
-					threadId,
-					event: {
-						type: "queue.changed",
-						threadId,
-						steering: [...event.steering],
-						followUp: [...event.followUp],
-					},
-				});
-			}
 		});
 	}
 }

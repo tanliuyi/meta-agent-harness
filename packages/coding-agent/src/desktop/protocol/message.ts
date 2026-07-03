@@ -24,7 +24,7 @@ export function toDesktopMessageContent(message: AgentMessage): DesktopMessageCo
 		return undefined;
 	}
 	const text = hasContent(message) ? extractText(message.content) : undefined;
-	if (role === "assistant" && !text?.trim()) {
+	if (role === "assistant" && !text?.trim() && !hasAssistantBlockContent(message)) {
 		return undefined;
 	}
 	return {
@@ -140,6 +140,23 @@ function hasContent(message: AgentMessage): message is AgentMessage & { content:
  */
 function hasTimestamp(message: AgentMessage): message is AgentMessage & { timestamp: unknown } {
 	return "timestamp" in message;
+}
+
+/**
+ * 判断 assistant 消息是否包含可单独渲染的结构块。
+ * @param message - 原始消息。
+ * @returns 是否包含 thinking 或 toolCall 内容。
+ */
+function hasAssistantBlockContent(message: AgentMessage): boolean {
+	if (!hasContent(message) || !Array.isArray(message.content)) {
+		return false;
+	}
+	return message.content.some(
+		(part) =>
+			isRecord(part) &&
+			((part.type === "thinking" && typeof part.thinking === "string") ||
+				(part.type === "toolCall" && typeof part.id === "string")),
+	);
 }
 
 /**

@@ -33,6 +33,10 @@ export const codingAgentChannels = {
   steer: 'coding-agent:steer',
   /** 向线程发送跟进输入。 */
   followUp: 'coding-agent:follow-up',
+  /** 选择并处理 prompt 图片附件。 */
+  selectPromptImages: 'coding-agent:select-prompt-images',
+  /** 暂存并处理 prompt 图片附件。 */
+  stagePromptImages: 'coding-agent:stage-prompt-images',
   /** 中止线程当前运行。 */
   abort: 'coding-agent:abort',
   /** 创建新会话。 */
@@ -47,6 +51,8 @@ export const codingAgentChannels = {
   fork: 'coding-agent:fork',
   /** 克隆线程。 */
   clone: 'coding-agent:clone',
+  /** 设置线程标题。 */
+  setThreadTitle: 'coding-agent:set-thread-title',
   /** 重命名线程。 */
   renameThread: 'coding-agent:rename-thread',
   /** 归档线程。 */

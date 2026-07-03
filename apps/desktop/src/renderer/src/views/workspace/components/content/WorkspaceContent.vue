@@ -30,8 +30,8 @@ const activeSession = computed(() => workspaceSession.activeSession)
 const sessionPanel = computed(() => ({
   maxWidth: workspaceSession.maxSessionPanelWidth,
   minWidth: workspaceSession.minSessionPanelWidth,
-  open: activeSession.value?.ui.panelOpen ?? true,
-  width: activeSession.value?.ui.panelWidth ?? workspaceSession.minSessionPanelWidth
+  open: workspaceSession.activeSessionPanel.panelOpen,
+  width: workspaceSession.activeSessionPanel.panelWidth
 }))
 
 /** 内容区网格列模板。 */
@@ -51,7 +51,7 @@ provideSessionContext({
   session: computed(() => ({
     sessionId: activeSession.value?.threadId ?? '',
     status: activeSession.value?.status ?? 'new',
-    title: activeSession.value?.title ?? '未选择会话'
+    title: activeSession.value?.title ?? '新会话'
   })),
   setPanelOpen: workspaceSession.setActiveSessionPanelOpen,
   setPanelWidth: workspaceSession.setActiveSessionPanelWidth

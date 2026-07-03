@@ -6,6 +6,7 @@
  */
 
 import { BaseIconButton } from '@renderer/components/base'
+import ScrollArea from '@renderer/components/ui/scroll-area/ScrollArea.vue'
 import useWorkspaceProjectStore from '@renderer/stores/workspace-project'
 import useWorkspaceSessionStore from '@renderer/stores/workspace-session'
 import { computed } from 'vue'
@@ -76,12 +77,12 @@ defineEmits<{
         </div>
       </dl>
 
-      <section
-        v-if="Object.keys(workspaceSession.pendingApprovals).length > 0"
+      <ScrollArea
+        v-if="Object.keys(workspaceSession.activePendingApprovals).length > 0"
         class="approval-list"
       >
         <article
-          v-for="approval in workspaceSession.pendingApprovals"
+          v-for="approval in workspaceSession.activePendingApprovals"
           :key="approval.approvalId"
           class="approval-card"
         >
@@ -115,14 +116,17 @@ defineEmits<{
             </button>
           </div>
         </article>
-      </section>
+      </ScrollArea>
 
-      <!-- <section class="event-list">
-        <article v-for="event in workspaceSession.events.slice(0, 16)" :key="JSON.stringify(event)">
+      <!-- <ScrollArea class="event-list">
+        <article
+          v-for="event in workspaceSession.activeEvents.slice(0, 16)"
+          :key="JSON.stringify(event)"
+        >
           <span>{{ event.type }}</span>
           <code>{{ eventThreadId(event) }}</code>
         </article>
-      </section> -->
+      </ScrollArea> -->
     </div>
   </section>
 </template>
@@ -211,12 +215,14 @@ dd {
 }
 
 .event-list {
+  min-width: 0;
+  min-height: 0;
+}
+
+.event-list :deep([data-slot='scroll-area-viewport']) {
   display: flex;
   flex-direction: column;
   gap: 6px;
-  min-width: 0;
-  min-height: 0;
-  overflow-y: auto;
 }
 
 .event-list article {
@@ -234,10 +240,12 @@ dd {
 }
 
 .approval-list {
+  min-width: 0;
+}
+
+.approval-list :deep([data-slot='scroll-area-viewport']) {
   display: grid;
   gap: var(--space-2);
-  min-width: 0;
-  overflow-y: auto;
 }
 
 .approval-card {

@@ -9,8 +9,10 @@ import type {
   ImportSessionInput,
   NewSessionInput,
   RenameThreadInput,
+  SetThreadTitleInput,
   SwitchSessionInput,
-  ThreadSnapshot
+  ThreadSnapshot,
+  ThreadSummary
 } from '@shared/coding-agent/types'
 import type { ThreadManagerCore } from './thread-manager-core'
 
@@ -117,6 +119,37 @@ export async function renameThread(
 ): Promise<void> {
   await core.sendOk(input.threadId, { type: 'set_session_name', name: input.name })
   core.updateThread(input.threadId, { title: input.name })
+}
+
+/**
+ * 设置 thread metadata 标题，并在 worker 已运行时同步 session name。
+ * @param core - thread 管理核心。
+ * @param input - 标题输入。
+ * @returns 更新后的 thread 摘要。
+ */
+export async function setThreadTitle(
+  core: ThreadManagerCore,
+  input: SetThreadTitleInput
+): Promise<ThreadSummary> {
+  const title = input.title.trim()
+  if (!title) {
+    return core.requireThread(input.threadId)
+  }
+  core.updateThread(input.threadId, { title })
+  const hasWorker = core.getWorkers().listLeases().some((lease) => lease.threadId === input.threadId)
+  if (hasWorker) {
+    try {
+      await core.sendOk(input.threadId, { type: 'set_session_name', name: title })
+    } catch (error) {
+      core.getStore()?.recordDiagnostic({
+        threadId: input.threadId,
+        source: 'session-name',
+        severity: 'error',
+        message: error instanceof Error ? error.message : String(error)
+      })
+    }
+  }
+  return core.requireThread(input.threadId)
 }
 
 /**

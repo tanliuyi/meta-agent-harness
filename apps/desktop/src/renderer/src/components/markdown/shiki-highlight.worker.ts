@@ -74,6 +74,23 @@ const langMap = {
   yaml
 }
 
+const languageAliases: Record<string, string> = {
+  cjs: 'javascript',
+  console: 'bash',
+  htm: 'html',
+  js: 'javascript',
+  javascriptreact: 'jsx',
+  md: 'markdown',
+  mjs: 'javascript',
+  py: 'python',
+  rs: 'rust',
+  sh: 'bash',
+  shellscript: 'shell',
+  ts: 'typescript',
+  typescriptreact: 'tsx',
+  yml: 'yaml'
+}
+
 const themeMap = {
   [THEMES.light]: githubLight,
   [THEMES.dark]: githubDark
@@ -86,7 +103,8 @@ const resultCache = new Map<string, string>()
 
 function normalizeLanguage(lang: string | undefined): string {
   const value = (lang ?? '').toLowerCase().trim()
-  if (ALLOWED_LANGUAGES.includes(value)) return value
+  const normalized = languageAliases[value] ?? value
+  if (ALLOWED_LANGUAGES.includes(normalized)) return normalized
   return 'text'
 }
 

@@ -64,7 +64,7 @@ provide(MarkdownContextKey, context)
       :is-dark="isDark"
       :max-live-nodes="0"
       :batch-rendering="true"
-      :render-batch-size="16"
+      :render-batch-size="13"
       :render-batch-delay="8"
       :fade="false"
     />
@@ -85,6 +85,14 @@ provide(MarkdownContextKey, context)
 
   :deep(p:last-child) {
     margin-bottom: 0;
+  }
+
+  :deep(.markstream-vue) {
+    font-size: 13px;
+  }
+
+  :deep(.paragraph-node) {
+    font-size: 13px;
   }
 }
 </style>

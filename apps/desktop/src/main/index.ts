@@ -5,18 +5,31 @@
 import { app, shell, BrowserWindow, ipcMain } from 'electron'
 import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
+import windowStateKeeper from 'electron-window-state'
 import icon from '../../resources/icon.png?asset'
 import { registerCodingAgentIpc } from './coding-agent/ipc'
-import { installIpcLogger } from 'electron-ipc-logger'
+// import { installIpcLogger } from 'electron-ipc-logger'
+
+const defaultWindowBounds = {
+  width: 1920,
+  height: 1080
+}
 
 /**
  * 创建并加载主渲染窗口。
  * 配置窗口尺寸、菜单栏、preload 路径及外部链接打开行为。
  */
 function createWindow(): void {
+  const mainWindowState = windowStateKeeper({
+    defaultWidth: defaultWindowBounds.width,
+    defaultHeight: defaultWindowBounds.height
+  })
+
   const mainWindow = new BrowserWindow({
-    width: 1024,
-    height: 768,
+    x: mainWindowState.x,
+    y: mainWindowState.y,
+    width: mainWindowState.width,
+    height: mainWindowState.height,
     show: false,
     autoHideMenuBar: true,
     ...(process.platform === 'linux' ? { icon } : {}),
@@ -29,6 +42,8 @@ function createWindow(): void {
   mainWindow.on('ready-to-show', () => {
     mainWindow.show()
   })
+
+  mainWindowState.manage(mainWindow)
 
   mainWindow.webContents.setWindowOpenHandler((details) => {
     shell.openExternal(details.url)
@@ -43,10 +58,10 @@ function createWindow(): void {
 }
 
 app.whenReady().then(async () => {
-  await installIpcLogger({
-    disable: !is.dev,
-    logSize: 1000
-  })
+  // await installIpcLogger({
+  //   disable: !is.dev,
+  //   logSize: 1000
+  // })
 
   // 在 Windows 上设置应用用户模型 ID
   electronApp.setAppUserModelId('com.meta-agent.desktop')

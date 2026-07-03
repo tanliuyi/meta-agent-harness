@@ -7,12 +7,22 @@ import { ScrollAreaCorner, ScrollAreaRoot, ScrollAreaViewport } from 'reka-ui'
 import { cn } from '@/lib/utils'
 import ScrollBar from './ScrollBar.vue'
 
-const props = defineProps<ScrollAreaRootProps & { class?: HTMLAttributes['class'] }>()
+const props = withDefaults(
+  defineProps<
+    ScrollAreaRootProps & {
+      class?: HTMLAttributes['class']
+      scrollbars?: 'vertical' | 'horizontal' | 'both'
+    }
+  >(),
+  {
+    scrollbars: 'vertical'
+  }
+)
 const emit = defineEmits<{
   scroll: [event: Event]
 }>()
 
-const delegatedProps = reactiveOmit(props, 'class')
+const delegatedProps = reactiveOmit(props, 'class', 'scrollbars')
 
 type ScrollAreaViewportInstance = {
   viewportElement?: HTMLElement
@@ -130,7 +140,11 @@ defineExpose({
     >
       <slot />
     </ScrollAreaViewport>
-    <ScrollBar />
+    <ScrollBar v-if="props.scrollbars === 'vertical' || props.scrollbars === 'both'" />
+    <ScrollBar
+      v-if="props.scrollbars === 'horizontal' || props.scrollbars === 'both'"
+      orientation="horizontal"
+    />
     <ScrollAreaCorner />
   </ScrollAreaRoot>
 </template>

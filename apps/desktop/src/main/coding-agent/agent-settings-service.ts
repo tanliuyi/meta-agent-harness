@@ -66,6 +66,12 @@ export class AgentSettingsService {
     return this.getAgentSettings()
   }
 
+  /** 获取图片是否自动缩放。 */
+  async getImageAutoResize(): Promise<boolean> {
+    await this.settingsManager.reload()
+    return this.settingsManager.getImageAutoResize()
+  }
+
   private createSnapshot(): AgentSettingsSnapshot {
     return {
       delivery: {
