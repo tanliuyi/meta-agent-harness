@@ -81,7 +81,11 @@ function cacheFileChange(
     toolCallId: fileChange.toolCallId,
     path: fileChange.path,
     changeType: fileChange.changeType,
+    diff: fileChange.diff,
     patch: fileChange.patch,
+    additions: fileChange.additions,
+    deletions: fileChange.deletions,
+    firstChangedLine: fileChange.firstChangedLine,
     createdAt: fileChange.createdAt
   })
 }

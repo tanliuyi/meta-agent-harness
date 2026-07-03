@@ -1,19 +1,23 @@
 <script setup lang="ts">
+import { computed } from 'vue'
 import type { RenderableThreadMessage } from './renderable-message'
 import { formatMessageTime, getMessageText } from './message-format'
 
-defineProps<{
+const props = defineProps<{
   message: RenderableThreadMessage
 }>()
+
+const createdAtLabel = computed(() => formatMessageTime(props.message.createdAt))
+const messageText = computed(() => getMessageText(props.message) ?? '')
 </script>
 
 <template>
   <article class="system-message">
     <header class="system-message__meta">
       <span>系统</span>
-      <time v-if="message.createdAt">{{ formatMessageTime(message.createdAt) }}</time>
+      <time v-if="message.createdAt">{{ createdAtLabel }}</time>
     </header>
-    <p v-if="getMessageText(message)">{{ getMessageText(message) }}</p>
+    <p v-if="messageText">{{ messageText }}</p>
   </article>
 </template>
 
@@ -30,7 +34,7 @@ defineProps<{
 
   p {
     margin: 0;
-    font-size: 12px;
+    font-size: var(--font-size-ui-sm);
     line-height: 1.5;
     white-space: pre-wrap;
     word-break: break-word;
@@ -43,6 +47,6 @@ defineProps<{
   justify-content: space-between;
   gap: var(--space-2);
   font-family: var(--font-mono);
-  font-size: 13px;
+  font-size: var(--font-size-ui);
 }
 </style>

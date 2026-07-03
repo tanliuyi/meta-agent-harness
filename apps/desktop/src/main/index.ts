@@ -16,6 +16,21 @@ const defaultWindowBounds = {
 }
 
 /**
+ * 为当前平台生成无边框窗口的 BrowserWindow 选项。
+ * macOS 使用隐藏式标题栏保留原生交通灯按钮；Windows/Linux 使用 frameless。
+ */
+function getFramelessOptions(): Electron.BrowserWindowConstructorOptions {
+  const isMac = process.platform === 'darwin'
+  if (isMac) {
+    return {
+      titleBarStyle: 'hidden',
+      trafficLightPosition: { x: 12, y: 10 }
+    }
+  }
+  return { frame: false }
+}
+
+/**
  * 创建并加载主渲染窗口。
  * 配置窗口尺寸、菜单栏、preload 路径及外部链接打开行为。
  */
@@ -33,6 +48,7 @@ function createWindow(): void {
     show: false,
     autoHideMenuBar: true,
     ...(process.platform === 'linux' ? { icon } : {}),
+    ...getFramelessOptions(),
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       sandbox: false
@@ -65,6 +81,39 @@ function createWindow(): void {
   }
 }
 
+/**
+ * 注册窗口控制 IPC：最小化、最大化/还原、关闭、窗口状态查询。
+ */
+function registerWindowControlIpc(): void {
+  ipcMain.handle('window:minimize', () => {
+    const focused = BrowserWindow.getFocusedWindow()
+    if (focused) focused.minimize()
+  })
+
+  ipcMain.handle('window:maximize', () => {
+    const focused = BrowserWindow.getFocusedWindow()
+    if (focused) {
+      if (focused.isMaximized()) {
+        focused.unmaximize()
+      } else {
+        focused.maximize()
+      }
+    }
+  })
+
+  ipcMain.handle('window:close', () => {
+    const focused = BrowserWindow.getFocusedWindow()
+    if (focused) focused.close()
+  })
+
+  ipcMain.handle('window:isMaximized', () => {
+    const focused = BrowserWindow.getFocusedWindow()
+    return focused ? focused.isMaximized() : false
+  })
+
+  ipcMain.handle('window:platform', () => process.platform)
+}
+
 app.whenReady().then(async () => {
   // await installIpcLogger({
   //   disable: !is.dev,
@@ -81,6 +130,7 @@ app.whenReady().then(async () => {
   // IPC 测试
   ipcMain.on('ping', () => console.log('pong'))
   registerCodingAgentIpc()
+  registerWindowControlIpc()
 
   createWindow()
 

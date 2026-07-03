@@ -16,9 +16,9 @@ body {
   margin: 0;
   overflow: hidden;
   color: var(--color-text);
-  background: --color-canvas;
+  background-color: var(--color-canvas);
   font-family: var(--font-sans);
-  font-size: 12px;
+  font-size: var(--font-size-ui);
   line-height: 1.4;
   letter-spacing: 0;
   text-rendering: geometricPrecision;

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  formatFileReferencesForMarkdown,
   getMessageFileAttachments,
   getStandaloneMessageImages,
   getUserMessageDisplayText
@@ -96,5 +97,17 @@ describe('message-format', () => {
 
     expect(getMessageFileAttachments(message)).toEqual([])
     expect(getUserMessageDisplayText(message)).toBe('请看 @README.md')
+  })
+
+  it('formats bare @file references as markdown chip markers', () => {
+    expect(formatFileReferencesForMarkdown('请看 @src/App.vue。')).toBe(
+      '请看 `meta-agent-file-ref:src%2FApp.vue`。'
+    )
+  })
+
+  it('formats quoted @file references without touching inline code', () => {
+    expect(formatFileReferencesForMarkdown('请看 @"docs/a b.md"，不是 `@src/raw.ts`')).toBe(
+      '请看 `meta-agent-file-ref:docs%2Fa%20b.md`，不是 `@src/raw.ts`'
+    )
   })
 })

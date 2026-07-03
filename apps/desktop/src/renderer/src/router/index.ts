@@ -27,8 +27,13 @@ const router = createRouter({
       path: '/settings',
       name: 'Settings',
       component: () => import('../views/settings/View.vue'),
-      redirect: '/settings/models',
+      redirect: '/settings/general',
       children: [
+        {
+          path: 'general',
+          name: 'SettingsGeneral',
+          component: () => import('../views/settings/general/GeneralSettingsView.vue')
+        },
         {
           path: 'agent',
           name: 'SettingsAgent',
@@ -124,6 +129,11 @@ const router = createRouter({
               component: () => import('../views/settings/models/DiagnosticsView.vue')
             }
           ]
+        },
+        {
+          path: 'archive',
+          name: 'SettingsArchive',
+          component: () => import('../views/settings/archive/ArchiveView.vue')
         }
       ]
     }

@@ -2,7 +2,7 @@
  * 本文件提供 CodingThreadManager 共享的 thread registry 与 worker send 能力。
  */
 
-import type { ThreadSnapshot, ThreadSummary } from '@shared/coding-agent/types'
+import type { ListThreadsInput, ThreadSnapshot, ThreadSummary } from '@shared/coding-agent/types'
 import type { WorkerCommand, WorkerResponseEnvelope } from './worker-types'
 import type {
   ThreadLiveState,
@@ -14,7 +14,12 @@ import type { ProjectStore } from './project-store'
 import type { ProjectTrustService } from './project-trust-service'
 import type { ModelSettingsService } from './model-settings-service'
 import type { AgentSettingsService } from './agent-settings-service'
-import { buildSnapshotFromSession, toThreadMessages, toThreadToolCalls } from './session-snapshot'
+import {
+  buildSnapshotFromSession,
+  toThreadFileChanges,
+  toThreadMessages,
+  toThreadToolCalls
+} from './session-snapshot'
 import { resolveSessionCwd } from '../../../../../packages/coding-agent/src/core/session-manager'
 
 /**
@@ -55,7 +60,11 @@ export class ThreadManagerCore {
     this.projectTrustService = projectTrustService
     this.modelSettingsService = modelSettingsService
     this.agentSettingsService = agentSettingsService
-    for (const thread of store?.listThreads() ?? []) {
+    const persistedThreads = [
+      ...(store?.listThreads() ?? []),
+      ...(store?.listThreads({ archived: true }) ?? [])
+    ]
+    for (const thread of persistedThreads) {
       this.threads.set(thread.threadId, normalizePersistedThread(thread))
     }
   }
@@ -102,12 +111,13 @@ export class ThreadManagerCore {
    * 列出所有线程摘要。
    * @returns 线程摘要数组，按 updatedAt 降序。
    */
-  listThreads(input: { projectId?: string } = {}): ThreadSummary[] {
-    const threads = [...this.threads.values()]
-    if (!input.projectId) {
-      return sortThreadsByUpdatedAt(threads)
-    }
-    return sortThreadsByUpdatedAt(threads.filter((thread) => thread.projectId === input.projectId))
+  listThreads(input: ListThreadsInput = {}): ThreadSummary[] {
+    const includeArchived = input.archived === true
+    return sortThreadsByUpdatedAt(
+      [...this.threads.values()]
+        .filter((thread) => !input.projectId || thread.projectId === input.projectId)
+        .filter((thread) => Boolean(thread.archivedAt) === includeArchived)
+    )
   }
 
   /**
@@ -184,7 +194,7 @@ export class ThreadManagerCore {
    */
   private async getLiveProjection(
     threadId: string
-  ): Promise<Pick<ThreadSnapshot, 'messages' | 'toolCalls'> | undefined> {
+  ): Promise<Pick<ThreadSnapshot, 'messages' | 'toolCalls' | 'fileChanges'> | undefined> {
     const response = await this.workers.send(threadId, { type: 'get_messages' })
     if (!response.success) {
       if (isMissingWorkerResponse(response)) {
@@ -196,7 +206,8 @@ export class ThreadManagerCore {
     return data
       ? {
           messages: toThreadMessages(data.messages),
-          toolCalls: toThreadToolCalls(data.messages, threadId)
+          toolCalls: toThreadToolCalls(data.messages, threadId),
+          fileChanges: toThreadFileChanges(data.messages, threadId)
         }
       : undefined
   }
@@ -239,7 +250,8 @@ export class ThreadManagerCore {
    */
   protected buildSnapshot(
     thread: ThreadSummary,
-    state: Partial<ThreadLiveState> & Partial<Pick<ThreadSnapshot, 'messages' | 'toolCalls'>> = {}
+    state: Partial<ThreadLiveState> &
+      Partial<Pick<ThreadSnapshot, 'messages' | 'toolCalls' | 'fileChanges'>> = {}
   ): ThreadSnapshot {
     return {
       threadId: thread.threadId,
@@ -252,7 +264,7 @@ export class ThreadManagerCore {
       thinkingLevel: state.thinkingLevel ?? 'off',
       messages: state.messages ?? [],
       toolCalls: state.toolCalls ?? [],
-      fileChanges: [],
+      fileChanges: state.fileChanges ?? [],
       approvals: [],
       queue: {
         steering: [],

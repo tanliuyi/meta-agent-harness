@@ -68,13 +68,13 @@ withDefaults(
 .is-sm {
   min-height: 24px;
   padding: 0 var(--space-2);
-  font-size: 11px;
+  font-size: var(--font-size-ui-xs);
 }
 
 .is-md {
   min-height: 28px;
   padding: 0 var(--space-3);
-  font-size: 12px;
+  font-size: var(--font-size-ui-sm);
 }
 
 .is-primary {

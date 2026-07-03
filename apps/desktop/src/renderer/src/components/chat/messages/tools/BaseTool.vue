@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, useSlots } from 'vue'
+import ToolIcon from '@renderer/components/icons/ToolIcon.vue'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import ScrollArea from '@/components/ui/scroll-area/ScrollArea.vue'
 
@@ -72,6 +73,9 @@ const contentStyle = computed(() => ({ maxHeight: props.maxContentHeight }))
         :tool-status="status"
         :is-error="isError"
       >
+        <span class="tool-message__icon">
+          <slot name="icon"><ToolIcon :size="14" /></slot>
+        </span>
         <span class="tool-message__name">
           <slot name="name" :tool-name="name">{{ name }}</slot>
         </span>
@@ -96,7 +100,7 @@ const contentStyle = computed(() => ({ maxHeight: props.maxContentHeight }))
       :class="contentClass"
       :style="contentStyle"
     >
-      <ScrollArea v-if="scrollContent" style="height: 100%">
+      <ScrollArea v-if="scrollContent" scrollbars="both" class="tool-message__scroll">
         <slot name="content" :tool-result="result" :tool-status="status" :is-error="isError">
           <slot>
             <div v-if="result || $slots.result" class="tool-message__result" :class="resultClass">
@@ -157,9 +161,11 @@ const contentStyle = computed(() => ({ maxHeight: props.maxContentHeight }))
       margin: 0;
       color: inherit;
       font-family: var(--font-mono);
-      font-size: 11px;
-      white-space: pre-wrap;
-      word-break: break-word;
+      font-size: var(--font-size-code);
+      min-width: 100%;
+      width: max-content;
+      white-space: pre;
+      word-break: normal;
     }
   }
 
@@ -169,6 +175,27 @@ const contentStyle = computed(() => ({ maxHeight: props.maxContentHeight }))
     background: var(--color-canvas);
     border-bottom: 1px solid var(--color-border);
   }
+}
+
+:deep(.tool-message__content) {
+  display: flex;
+  flex-direction: column;
+  max-width: 100%;
+  min-height: 0;
+}
+
+:deep(.tool-message__scroll) {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+  width: 100%;
+}
+
+:deep(.tool-message__scroll [data-slot='scroll-area-viewport']) {
+  flex: 1 1 auto;
+  min-height: 0;
+  width: 100%;
 }
 
 .tool-message--compact {
@@ -223,10 +250,18 @@ const contentStyle = computed(() => ({ maxHeight: props.maxContentHeight }))
   }
 }
 
+.tool-message__icon {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--color-text-muted);
+}
+
 .tool-message__name {
   flex: 0 0 auto;
   color: var(--color-text-muted);
-  font-size: 13px;
+  font-size: var(--font-size-ui);
 }
 
 .tool-message__args,
@@ -238,10 +273,16 @@ const contentStyle = computed(() => ({ maxHeight: props.maxContentHeight }))
   white-space: nowrap;
 }
 
+.tool-message__args {
+  color: var(--color-text-subtle);
+  font-family: var(--font-sans);
+  font-size: var(--font-size-ui);
+}
+
 .tool-message__status {
   flex: 0 0 auto;
   color: var(--color-text-muted);
-  font-size: 11px;
+  font-size: var(--font-size-ui-xs);
 }
 
 .tool-message__actions {
@@ -258,7 +299,7 @@ const contentStyle = computed(() => ({ maxHeight: props.maxContentHeight }))
   margin: 0;
   padding: 0 var(--space-2) var(--space-2);
   color: var(--color-danger);
-  font-size: 12px;
+  font-size: var(--font-size-ui-sm);
 
   dt,
   dd {

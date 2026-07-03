@@ -13,6 +13,9 @@ export default defineStore('workspace-project', () => {
   /** Project 数据。 */
   const projects = reactive<Record<string, ProjectSummary>>({})
 
+  /** 当前活跃 Project ID，会持久化到本地。 */
+  const activeProjectId = ref<string>()
+
   /** 是否正在加载。 */
   const loading = ref(false)
 
@@ -21,6 +24,19 @@ export default defineStore('workspace-project', () => {
 
   /** Project 列表。 */
   const projectList = computed(() => Object.values(projects))
+
+  /** 当前活跃 Project。 */
+  const activeProject = computed(() =>
+    activeProjectId.value ? projects[activeProjectId.value] : undefined
+  )
+
+  /**
+   * 设置当前活跃 Project。
+   * @param projectId - Project ID。
+   */
+  const setActiveProjectId = (projectId: string | undefined): void => {
+    activeProjectId.value = projectId
+  }
 
   /**
    * 加载 Project 列表。
@@ -32,6 +48,9 @@ export default defineStore('workspace-project', () => {
       const loaded = await window.api.codingAgent.listProjects()
       for (const project of loaded) {
         projects[project.projectId] = project
+      }
+      if (activeProjectId.value && !projects[activeProjectId.value]) {
+        activeProjectId.value = undefined
       }
     } catch (error) {
       errorMessage.value = error instanceof Error ? error.message : String(error)
@@ -52,6 +71,7 @@ export default defineStore('workspace-project', () => {
         return undefined
       }
       projects[project.projectId] = project
+      activeProjectId.value = project.projectId
       return project
     } catch (error) {
       errorMessage.value = error instanceof Error ? error.message : String(error)
@@ -71,6 +91,7 @@ export default defineStore('workspace-project', () => {
     try {
       const project = await window.api.codingAgent.openProject(projectId)
       projects[project.projectId] = project
+      activeProjectId.value = project.projectId
     } catch (error) {
       errorMessage.value = error instanceof Error ? error.message : String(error)
     } finally {
@@ -119,6 +140,8 @@ export default defineStore('workspace-project', () => {
   }
 
   return {
+    activeProject,
+    activeProjectId,
     createProject,
     errorMessage,
     loadProjects,
@@ -127,6 +150,11 @@ export default defineStore('workspace-project', () => {
     projectList,
     projects,
     renameProject,
+    setActiveProjectId,
     setProjectTrust
+  }
+}, {
+  persist: {
+    pick: ['activeProjectId']
   }
 })

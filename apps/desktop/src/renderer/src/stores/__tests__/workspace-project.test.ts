@@ -28,6 +28,8 @@ describe('workspace-project', () => {
     expect(createProject).toHaveBeenCalledWith()
     expect(project?.projectId).toBe('project-a')
     expect(store.projects['project-a']).toMatchObject({ path: '/tmp/project-a' })
+    expect(store.activeProjectId).toBe('project-a')
+    expect(store.activeProject?.path).toBe('/tmp/project-a')
   })
 
   it('用户取消目录选择时不写入 Project', async () => {
@@ -39,7 +41,38 @@ describe('workspace-project', () => {
 
     expect(project).toBeUndefined()
     expect(store.projectList).toEqual([])
+    expect(store.activeProjectId).toBeUndefined()
     expect(store.errorMessage).toBeUndefined()
+  })
+
+  it('打开 Project 后记录 active Project', async () => {
+    const openProject = vi.fn().mockResolvedValue({
+      projectId: 'project-a',
+      name: 'Project A',
+      path: '/tmp/project-a',
+      status: 'available',
+      createdAt: '2026-07-01T00:00:00.000Z',
+      updatedAt: '2026-07-01T00:00:00.000Z'
+    })
+    installCodingAgentApi({ openProject })
+    const store = useWorkspaceProjectStore()
+
+    await store.openProject('project-a')
+
+    expect(openProject).toHaveBeenCalledWith('project-a')
+    expect(store.activeProjectId).toBe('project-a')
+    expect(store.activeProject?.projectId).toBe('project-a')
+  })
+
+  it('加载 Project 时清理不存在的 active Project', async () => {
+    const listProjects = vi.fn().mockResolvedValue([])
+    installCodingAgentApi({ listProjects })
+    const store = useWorkspaceProjectStore()
+    store.setActiveProjectId('project-missing')
+
+    await store.loadProjects()
+
+    expect(store.activeProjectId).toBeUndefined()
   })
 
   it('设置 Project trust 后更新 Project 状态', async () => {

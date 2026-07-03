@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { BaseBadge, BaseButton, BasePanel } from '@renderer/components/base'
+import { SettingsArrayField } from '@renderer/views/settings/components/form'
 import useModelSettingsStore, { type ModelScope } from '@renderer/stores/model-settings'
 import { Save } from 'lucide-vue-next'
 import { computed } from 'vue'
@@ -7,26 +8,30 @@ import { computed } from 'vue'
 const modelSettings = useModelSettingsStore()
 
 const scopeLabels: Record<ModelScope, string> = {
-  default: '默认',
-  chat: '对话',
-  apply: '代码任务',
-  summarize: '摘要',
-  title: '标题生成',
-  compact: '上下文压缩',
-  branchSummary: '分支摘要'
+  default: '默认 Default',
+  chat: '对话 Chat',
+  apply: '代码任务 Apply',
+  summarize: '摘要 Summarize',
+  title: '标题生成 Title',
+  compact: '上下文压缩 Compact',
+  branchSummary: '分支摘要 Branch summary'
 }
 
-const enabledModelsText = computed({
-  get: () => modelSettings.draft.enabledModels.join('\n'),
-  set: (value: string) => {
-    modelSettings.updateEnabledModels(
-      value
-        .split(/\r?\n/)
-        .map((line) => line.trim())
-        .filter(Boolean)
-    )
-  }
-})
+type ScopedModelListItem = {
+  scope: (typeof modelSettings.scopedModels)[number]
+  scopeLabel: string
+  badgeTone: 'neutral' | 'info'
+  badgeLabel: string
+}
+
+const scopedModelItems = computed<ScopedModelListItem[]>(() =>
+  modelSettings.scopedModels.map((scope) => ({
+    scope,
+    scopeLabel: scopeLabels[scope.scope],
+    badgeTone: scope.inheritsDefault ? 'neutral' : 'info',
+    badgeLabel: scope.inheritsDefault ? '继承 Inherit' : '匹配 Pattern'
+  }))
+)
 </script>
 
 <template>
@@ -34,10 +39,11 @@ const enabledModelsText = computed({
     <header class="models-page__header">
       <div>
         <p class="models-page__eyebrow">Scoped</p>
-        <h1 class="models-page__title">任务模型</h1>
+        <h1 class="models-page__title">任务模型 Scoped models</h1>
         <p class="models-page__subtitle">只保存 Pi-compatible enabledModels patterns。</p>
       </div>
       <BaseButton
+        size="sm"
         variant="primary"
         :disabled="modelSettings.saving"
         @click="modelSettings.saveEnabledModels"
@@ -52,24 +58,23 @@ const enabledModelsText = computed({
     <div v-if="modelSettings.error" class="state-strip is-error">{{ modelSettings.error }}</div>
 
     <BasePanel title="模型循环 Patterns" eyebrow="enabledModels">
-      <label class="textarea-field">
-        <span>每行一个 pattern</span>
-        <textarea
-          v-model="enabledModelsText"
-          rows="8"
-          placeholder="claude-*&#10;openai/gpt-*&#10;gemini-2*"
-        />
-      </label>
+      <SettingsArrayField
+        v-model="modelSettings.draft.enabledModels"
+        label="模型匹配 Patterns"
+        description="每个 pattern 单独一项，保存时仍写入 Pi 兼容的 string[]。"
+        placeholder="例如 claude-* 或 openai/gpt-*"
+        add-label="添加 pattern"
+      />
 
       <ul class="plain-list">
-        <li v-for="scope in modelSettings.scopedModels" :key="scope.scope">
+        <li v-for="item in scopedModelItems" :key="item.scope.scope">
           <div>
-            <strong>{{ scopeLabels[scope.scope] }}</strong>
-            <span v-if="scope.inheritsDefault">继承默认模型</span>
-            <span v-else>{{ scope.provider }}/{{ scope.modelId }}</span>
+            <strong>{{ item.scopeLabel }}</strong>
+            <span v-if="item.scope.inheritsDefault">继承默认模型 Inherit default</span>
+            <span v-else>{{ item.scope.provider }}/{{ item.scope.modelId }}</span>
           </div>
-          <BaseBadge :tone="scope.inheritsDefault ? 'neutral' : 'info'">
-            {{ scope.inheritsDefault ? '继承' : 'Pattern' }}
+          <BaseBadge :tone="item.badgeTone">
+            {{ item.badgeLabel }}
           </BaseBadge>
         </li>
       </ul>

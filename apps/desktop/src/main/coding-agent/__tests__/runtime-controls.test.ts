@@ -8,7 +8,7 @@ import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { ThreadManagerCore } from '../thread-manager-core'
 import { getCommands, respondApproval, respondUi } from '../thread-runtime-controls'
-import { prompt, runCommand } from '../thread-agent-commands'
+import { followUp, prompt, runCommand, steer } from '../thread-agent-commands'
 import { setThreadTitle } from '../thread-session-commands'
 import type { WorkerCommand, WorkerResponseEnvelope } from '../worker-types'
 import type { ThreadWorkerRegistry } from '../thread-worker-registry'
@@ -91,6 +91,34 @@ describe('thread-runtime-controls', () => {
       status: 'running'
     })
     expect(core.requireThread('thread-a').title).toBeUndefined()
+  })
+
+  it('steer 与 followUp 直接桥接到 Pi canonical worker command', async () => {
+    const commands: WorkerCommand[] = []
+    const core = createThreadManagerCore(commands)
+    core.saveThread({
+      threadId: 'thread-a',
+      projectId: 'project-a',
+      status: 'running',
+      createdAt: '2026-07-01T00:00:00.000Z',
+      updatedAt: '2026-07-01T00:00:00.000Z'
+    })
+
+    await steer(core, { threadId: 'thread-a', message: 'change direction' })
+    await followUp(core, { threadId: 'thread-a', message: 'after current work' })
+
+    expect(commands).toEqual([
+      {
+        type: 'steer',
+        message: 'change direction',
+        images: undefined
+      },
+      {
+        type: 'follow_up',
+        message: 'after current work',
+        images: undefined
+      }
+    ])
   })
 
   it('prompt 展开 Pi @file 文本文件参数后发送给 worker', async () => {

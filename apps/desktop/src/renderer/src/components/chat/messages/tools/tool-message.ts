@@ -107,6 +107,57 @@ export function joinSummary(parts: Array<string | undefined>): string | undefine
 }
 
 /**
+ * 从路径中提取文件名。
+ * @param path - 文件路径。
+ * @returns 文件名。
+ */
+export function getFileName(path: string | undefined): string | undefined {
+  if (!path) {
+    return undefined
+  }
+  const normalized = path.replace(/\\/g, '/')
+  return normalized.split('/').filter(Boolean).pop() ?? path
+}
+
+/**
+ * 截断单行摘要，避免工具头部过长。
+ * @param value - 原始文本。
+ * @param maxLength - 最大长度。
+ * @returns 截断后的文本。
+ */
+export function truncateSummary(value: string | undefined, maxLength = 72): string | undefined {
+  if (!value) {
+    return undefined
+  }
+  const normalized = value.replace(/\s+/g, ' ').trim()
+  if (normalized.length <= maxLength) {
+    return normalized
+  }
+  return `${normalized.slice(0, Math.max(0, maxLength - 1))}…`
+}
+
+/**
+ * 获取文本行数。
+ * @param value - 文本。
+ * @returns 行数。
+ */
+export function countTextLines(value: string | undefined): number | undefined {
+  if (value === undefined) {
+    return undefined
+  }
+  return value.length === 0 ? 0 : value.split(/\r\n|\r|\n/).length
+}
+
+/**
+ * 统计普通对象的字段数。
+ * @param value - 未知值。
+ * @returns 字段数。
+ */
+export function countObjectKeys(value: unknown): number | undefined {
+  return isRecord(value) ? Object.keys(value).length : undefined
+}
+
+/**
  * 提取工具返回内容里的文本。
  * @param value - 未知内容。
  * @returns 文本。

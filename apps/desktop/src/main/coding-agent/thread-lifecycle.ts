@@ -122,3 +122,19 @@ export async function archiveThread(core: ThreadManagerCore, threadId: string): 
   }
   core.saveThread({ ...thread, status: 'stopped', archivedAt: new Date().toISOString() })
 }
+
+/**
+ * 恢复已归档线程，不启动 worker、不修改 session 文件。
+ * @param core - thread 管理核心。
+ * @param threadId - thread ID。
+ */
+export async function restoreThread(core: ThreadManagerCore, threadId: string): Promise<void> {
+  const thread = core.requireThread(threadId)
+  const restoredThread = { ...thread }
+  delete restoredThread.archivedAt
+  core.saveThread({
+    ...restoredThread,
+    status: thread.status === 'stopped' ? thread.status : 'stopped',
+    updatedAt: new Date().toISOString()
+  })
+}

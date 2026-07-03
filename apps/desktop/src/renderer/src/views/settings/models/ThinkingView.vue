@@ -7,12 +7,12 @@ import { Save } from 'lucide-vue-next'
 const modelSettings = useModelSettingsStore()
 
 const thinkingOptions: Array<{ label: string; value: ThinkingLevel }> = [
-  { label: 'Off', value: 'off' },
-  { label: 'Minimal', value: 'minimal' },
-  { label: 'Low', value: 'low' },
-  { label: 'Medium', value: 'medium' },
-  { label: 'High', value: 'high' },
-  { label: 'XHigh', value: 'xhigh' }
+  { label: '关闭 Off', value: 'off' },
+  { label: '极简 Minimal', value: 'minimal' },
+  { label: '低 Low', value: 'low' },
+  { label: '中 Medium', value: 'medium' },
+  { label: '高 High', value: 'high' },
+  { label: '超高 XHigh', value: 'xhigh' }
 ]
 </script>
 
@@ -21,10 +21,11 @@ const thinkingOptions: Array<{ label: string; value: ThinkingLevel }> = [
     <header class="models-page__header">
       <div>
         <p class="models-page__eyebrow">Reasoning</p>
-        <h1 class="models-page__title">Thinking</h1>
+        <h1 class="models-page__title">思考强度 Thinking</h1>
         <p class="models-page__subtitle">只保存全局默认 thinking level。</p>
       </div>
       <BaseButton
+        size="sm"
         variant="primary"
         :disabled="modelSettings.saving"
         @click="modelSettings.saveThinkingLevel"
@@ -38,9 +39,9 @@ const thinkingOptions: Array<{ label: string; value: ThinkingLevel }> = [
 
     <div v-if="modelSettings.error" class="state-strip is-error">{{ modelSettings.error }}</div>
 
-    <BasePanel title="Thinking Level" eyebrow="Global">
+    <BasePanel title="思考强度 Thinking Level" eyebrow="Global">
       <BaseSegmentedControl
-        label="Thinking level"
+        label="思考强度 Thinking level"
         :model-value="modelSettings.draft.thinkingLevel"
         :options="thinkingOptions"
         @update:model-value="modelSettings.updateThinkingLevel"

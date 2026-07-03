@@ -126,6 +126,86 @@ describe("buildSnapshotFromSession", () => {
 		]);
 	});
 
+	it("从 edit tool result 重建文件 diff/patch 变更", () => {
+		const root = mkdtempSync(join(tmpdir(), "desktop-session-"));
+		roots.push(root);
+		const cwd = join(root, "repo");
+		const sessionDir = join(root, "sessions");
+		const manager = SessionManager.create(cwd, sessionDir);
+		manager.appendMessage({
+			role: "assistant",
+			content: [{ type: "toolCall", id: "tool-edit", name: "edit", arguments: { path: "src/app.ts" } }],
+			api: "responses",
+			provider: "openai",
+			model: "gpt-test",
+			usage: {
+				input: 1,
+				output: 1,
+				cacheRead: 0,
+				cacheWrite: 0,
+				totalTokens: 2,
+				cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+			},
+			stopReason: "toolUse",
+			timestamp: 1,
+		});
+		manager.appendMessage({
+			role: "toolResult",
+			toolCallId: "tool-edit",
+			toolName: "edit",
+			content: [{ type: "text", text: "Successfully replaced 1 block(s) in src/app.ts." }],
+			isError: false,
+			timestamp: Date.parse("2026-07-01T00:00:00.000Z"),
+			details: {
+				diff: "-1 old\n+1 new",
+				patch: "--- src/app.ts\n+++ src/app.ts\n@@\n-old\n+new\n",
+				firstChangedLine: 1,
+			},
+		} as Parameters<typeof manager.appendMessage>[0]);
+		const sessionFile = manager.getSessionFile();
+		if (!sessionFile) {
+			throw new Error("session file is required");
+		}
+
+		const snapshot = buildSnapshotFromSession({
+			thread: {
+				threadId: "thread-1",
+				cwd,
+				status: "stopped",
+				createdAt: "2026-07-01T00:00:00.000Z",
+				updatedAt: "2026-07-01T00:00:00.000Z",
+			},
+			sessionFile,
+		});
+
+		expect(snapshot.fileChanges).toMatchObject([
+			{
+				threadId: "thread-1",
+				toolCallId: "tool-edit",
+				path: "src/app.ts",
+				changeType: "updated",
+				diff: "-1 old\n+1 new",
+				patch: "--- src/app.ts\n+++ src/app.ts\n@@\n-old\n+new\n",
+				additions: 1,
+				deletions: 1,
+				firstChangedLine: 1,
+				createdAt: "2026-07-01T00:00:00.000Z",
+			},
+		]);
+		expect(snapshot.toolCalls).toMatchObject([
+			{
+				toolCallId: "tool-edit",
+				result: {
+					details: {
+						diff: "-1 old\n+1 new",
+						patch: "--- src/app.ts\n+++ src/app.ts\n@@\n-old\n+new\n",
+						firstChangedLine: 1,
+					},
+				},
+			},
+		]);
+	});
+
 	/** 验证 cwd 解析复用完整 JSONL parser，不依赖短读 header。 */
 	it("resolveSessionCwd 使用完整 JSONL header 解析", () => {
 		const root = mkdtempSync(join(tmpdir(), "desktop-session-"));

@@ -1,12 +1,13 @@
 <script setup lang="ts">
 import { BaseBadge, BaseField, BasePanel } from '@renderer/components/base'
+import { SettingsSelectField } from '@renderer/views/settings/components/form'
 import useModelSettingsStore, { type ModelStatus } from '@renderer/stores/model-settings'
 import { Database, Search } from 'lucide-vue-next'
 import { computed, ref } from 'vue'
 
 const modelSettings = useModelSettingsStore()
 const searchQuery = ref('')
-const statusFilter = ref<'all' | ModelStatus>('all')
+const statusFilter = ref('all')
 
 const statusFilters: Array<{ label: string; value: 'all' | ModelStatus }> = [
   { label: '全部', value: 'all' },
@@ -23,6 +24,19 @@ const statusLabels: Record<ModelStatus, string> = {
   disabled: '禁用'
 }
 
+type ModelListItem = {
+  model: (typeof modelSettings.models)[number]
+  statusLabel: string
+  badgeTone: 'neutral' | 'success' | 'warning' | 'info'
+}
+
+type ModelProviderGroup = {
+  provider: string
+  items: ModelListItem[]
+}
+
+const modelCount = computed(() => modelSettings.models.length)
+const hasModels = computed(() => modelCount.value > 0)
 const filteredModels = computed(() => {
   const query = searchQuery.value.trim().toLowerCase()
   return modelSettings.models.filter((model) => {
@@ -31,16 +45,20 @@ const filteredModels = computed(() => {
     return matchesStatus && (!query || label.includes(query))
   })
 })
+const hasFilteredModels = computed(() => filteredModels.value.length > 0)
 
-const groupedModels = computed(() => {
-  return filteredModels.value.reduce<Record<string, typeof filteredModels.value>>(
-    (groups, model) => {
-      groups[model.provider] ??= []
-      groups[model.provider].push(model)
-      return groups
-    },
-    {}
-  )
+const modelGroups = computed<ModelProviderGroup[]>(() => {
+  const groups = new Map<string, ModelListItem[]>()
+  for (const model of filteredModels.value) {
+    const items = groups.get(model.provider) ?? []
+    items.push({
+      model,
+      statusLabel: statusLabels[model.status],
+      badgeTone: badgeToneForStatus(model.status)
+    })
+    groups.set(model.provider, items)
+  }
+  return [...groups.entries()].map(([provider, items]) => ({ provider, items }))
 })
 
 function badgeToneForStatus(status: ModelStatus): 'neutral' | 'success' | 'warning' | 'info' {
@@ -62,8 +80,8 @@ function badgeToneForStatus(status: ModelStatus): 'neutral' | 'success' | 'warni
 
     <BasePanel title="模型注册表" eyebrow="Read only">
       <template #actions>
-        <BaseBadge :tone="modelSettings.models.length > 0 ? 'success' : 'warning'">
-          {{ modelSettings.models.length > 0 ? `${modelSettings.models.length} 个模型` : '空' }}
+        <BaseBadge :tone="hasModels ? 'success' : 'warning'">
+          {{ hasModels ? `${modelCount} 个模型` : '空' }}
         </BaseBadge>
       </template>
 
@@ -75,44 +93,37 @@ function badgeToneForStatus(status: ModelStatus): 'neutral' | 'success' | 'warni
           label="搜索"
           placeholder="provider、model id 或显示名"
         />
-        <label class="select-field">
-          <span>状态</span>
-          <select v-model="statusFilter">
-            <option v-for="option in statusFilters" :key="option.value" :value="option.value">
-              {{ option.label }}
-            </option>
-          </select>
-        </label>
+        <SettingsSelectField v-model="statusFilter" label="状态 Status" :options="statusFilters" />
       </div>
 
-      <div v-if="modelSettings.models.length === 0" class="empty-state">
+      <div v-if="!hasModels" class="empty-state">
         <Database :size="22" />
         <strong>没有可展示的模型</strong>
         <span>请检查模型注册表、凭据状态或自定义 provider 配置。</span>
       </div>
 
-      <div v-else-if="filteredModels.length === 0" class="empty-state">
+      <div v-else-if="!hasFilteredModels" class="empty-state">
         <Search :size="22" />
         <strong>没有匹配的模型</strong>
         <span>调整搜索词或状态筛选后再试。</span>
       </div>
 
       <div v-else class="provider-list">
-        <section v-for="(items, provider) in groupedModels" :key="provider" class="provider-group">
-          <h3>{{ provider }}</h3>
+        <section v-for="group in modelGroups" :key="group.provider" class="provider-group">
+          <h3>{{ group.provider }}</h3>
           <ul class="plain-list">
-            <li v-for="model in items" :key="`${model.provider}:${model.id}`">
+            <li v-for="item in group.items" :key="`${item.model.provider}:${item.model.id}`">
               <div>
-                <strong>{{ model.displayName ?? model.id }}</strong>
-                <span>{{ model.provider }}/{{ model.id }}</span>
+                <strong>{{ item.model.displayName ?? item.model.id }}</strong>
+                <span>{{ item.model.provider }}/{{ item.model.id }}</span>
               </div>
               <div class="model-badges">
-                <BaseBadge :tone="badgeToneForStatus(model.status)">
-                  {{ statusLabels[model.status] }}
+                <BaseBadge :tone="item.badgeTone">
+                  {{ item.statusLabel }}
                 </BaseBadge>
-                <BaseBadge v-if="model.supportsTools" tone="info">Tools</BaseBadge>
-                <BaseBadge v-if="model.supportsImages" tone="info">Images</BaseBadge>
-                <BaseBadge v-if="model.supportsReasoning" tone="info">Reasoning</BaseBadge>
+                <BaseBadge v-if="item.model.supportsTools" tone="info">Tools</BaseBadge>
+                <BaseBadge v-if="item.model.supportsImages" tone="info">Images</BaseBadge>
+                <BaseBadge v-if="item.model.supportsReasoning" tone="info">Reasoning</BaseBadge>
               </div>
             </li>
           </ul>

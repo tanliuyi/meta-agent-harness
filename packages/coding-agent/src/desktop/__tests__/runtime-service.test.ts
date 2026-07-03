@@ -100,6 +100,69 @@ describe("RuntimeDesktopWorkerService", () => {
 			},
 		]);
 	});
+
+	it("edit tool 结束后派生 file.changed projection", async () => {
+		let listener: ((event: { type: string; [key: string]: unknown }) => void) | undefined;
+		const events: WorkerEventEnvelope[] = [];
+		const service = new RuntimeDesktopWorkerService(async () =>
+			createRuntime({
+				session: {
+					subscribe: (next: typeof listener) => {
+						listener = next;
+						return () => {};
+					},
+				},
+			}),
+		);
+		service.setEventSink((event) => events.push(event));
+		await service.startThread({ threadId: "thread-1", cwd: "H:/repo" });
+
+		listener?.({
+			type: "tool_execution_start",
+			toolCallId: "tool-edit",
+			toolName: "edit",
+			args: { path: "src/app.ts" },
+		});
+		listener?.({
+			type: "tool_execution_end",
+			toolCallId: "tool-edit",
+			toolName: "edit",
+			result: {
+				content: [{ type: "text", text: "Successfully replaced 1 block(s) in src/app.ts." }],
+				details: {
+					diff: "-1 old\n+1 new",
+					patch: "--- src/app.ts\n+++ src/app.ts\n@@\n-old\n+new\n",
+					firstChangedLine: 1,
+				},
+			},
+			isError: false,
+		});
+
+		expect(events).toMatchObject([
+			{ eventType: "projection", event: { type: "thread.stateChanged" } },
+			{ eventType: "canonical", event: { type: "tool_execution_start" } },
+			{ eventType: "canonical", event: { type: "tool_execution_end" } },
+			{
+				eventType: "projection",
+				threadId: "thread-1",
+				event: {
+					type: "file.changed",
+					threadId: "thread-1",
+					change: {
+						threadId: "thread-1",
+						toolCallId: "tool-edit",
+						path: "src/app.ts",
+						changeType: "updated",
+						diff: "-1 old\n+1 new",
+						patch: "--- src/app.ts\n+++ src/app.ts\n@@\n-old\n+new\n",
+						additions: 1,
+						deletions: 1,
+						firstChangedLine: 1,
+					},
+				},
+			},
+		]);
+	});
 });
 
 function createRuntime(overrides: Partial<AgentSessionRuntime> = {}): AgentSessionRuntime {

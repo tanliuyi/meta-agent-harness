@@ -1,0 +1,40 @@
+@mixin file-reference-node {
+  display: inline-grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 6px;
+  width: fit-content;
+  max-width: 100%;
+  margin: 0 2px;
+  padding: 2px 4px;
+  vertical-align: baseline;
+  color: var(--color-text);
+  background: color-mix(in srgb, var(--color-surface) 76%, transparent);
+  border-radius: var(--radius-sm);
+}
+
+@mixin file-reference-node-selected {
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--color-primary) 32%, transparent);
+}
+
+@mixin file-reference-node-icon {
+  display: grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  color: var(--color-primary);
+  background: color-mix(in srgb, var(--color-primary) 14%, transparent);
+  border-radius: var(--radius-sm);
+  font-size: var(--font-size-ui-sm);
+  font-weight: 700;
+}
+
+@mixin file-reference-node-label {
+  min-width: 0;
+  overflow: hidden;
+  font-size: var(--font-size-ui-sm);
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

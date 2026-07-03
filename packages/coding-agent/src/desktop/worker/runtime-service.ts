@@ -7,6 +7,7 @@ import { createDesktopError } from "../protocol/error.ts";
 import { createWorkerErrorResponse, createWorkerResponse, type WorkerCommandEnvelope, type WorkerEventEnvelope, type WorkerResponseEnvelope } from "../protocol/envelope.ts";
 import type { ThreadId } from "../protocol/identity.ts";
 import type { StartThreadInput } from "../protocol/thread.ts";
+import { createDesktopFileChangeFromEditResult } from "../protocol/tool.ts";
 import type { DesktopWorkerService } from "./service.ts";
 import { ApprovalBridge } from "./approval-bridge.ts";
 import { createRuntimeForThread } from "./runtime-factory.ts";
@@ -36,6 +37,8 @@ export class RuntimeDesktopWorkerService implements DesktopWorkerService {
 	private uiBridge: ExtensionUiBridge | undefined;
 	/** 当前绑定的 thread 标识。 */
 	private threadId: ThreadId | undefined;
+	/** 当前线程内工具调用参数缓存，用于从 tool result 派生 projection。 */
+	private readonly toolArgsByCallId = new Map<string, unknown>();
 	/** worker 是否已启动并绑定 thread。 */
 	private started = false;
 
@@ -178,6 +181,7 @@ export class RuntimeDesktopWorkerService implements DesktopWorkerService {
 		this.approvalBridge = undefined;
 		this.uiBridge = undefined;
 		this.threadId = undefined;
+		this.toolArgsByCallId.clear();
 		this.started = false;
 	}
 
@@ -201,6 +205,30 @@ export class RuntimeDesktopWorkerService implements DesktopWorkerService {
 		}
 		this.unsubscribeSession = runtime.session.subscribe((event) => {
 			this.eventSink?.({ kind: "event", eventType: "canonical", threadId, event });
+			if (event.type === "tool_execution_start" || event.type === "tool_execution_update") {
+				this.toolArgsByCallId.set(event.toolCallId, event.args);
+			}
+			if (event.type !== "tool_execution_end") {
+				return;
+			}
+			const change = createDesktopFileChangeFromEditResult({
+				threadId,
+				toolCallId: event.toolCallId,
+				toolName: event.toolName,
+				args: this.toolArgsByCallId.get(event.toolCallId),
+				result: event.result,
+				isError: event.isError,
+			});
+			this.toolArgsByCallId.delete(event.toolCallId);
+			if (!change) {
+				return;
+			}
+			this.eventSink?.({
+				kind: "event",
+				eventType: "projection",
+				threadId,
+				event: { type: "file.changed", threadId, change },
+			});
 		});
 	}
 }

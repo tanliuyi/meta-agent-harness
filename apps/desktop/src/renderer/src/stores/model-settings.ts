@@ -19,6 +19,7 @@ import type {
 } from '@shared/coding-agent/types'
 import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
+import { useToast } from '@renderer/composables/useToast'
 
 export type ModelStatus = ModelSettingsModelStatus
 export type DiagnosticSeverity = ModelSettingsDiagnosticSeverity
@@ -62,6 +63,7 @@ const DEFAULT_SCOPES: ScopedModelConfig[] = [
 ]
 
 const useModelSettingsStore = defineStore('model-settings', () => {
+  const toast = useToast()
   const loading = ref(false)
   const saving = ref(false)
   const error = ref<string | null>(null)
@@ -166,11 +168,13 @@ const useModelSettingsStore = defineStore('model-settings', () => {
           defaultProvider: provider || undefined,
           defaultModel: modelId || undefined,
           defaultThinkingLevel: draft.value.thinkingLevel,
-          enabledModels: draft.value.enabledModels
+          enabledModels: cleanStringList(draft.value.enabledModels)
         })
       )
+      toast.success('模型配置已保存')
     } catch (cause) {
       error.value = cause instanceof Error ? cause.message : '模型配置保存失败'
+      toast.error('模型配置保存失败', error.value)
     } finally {
       saving.value = false
     }
@@ -194,8 +198,10 @@ const useModelSettingsStore = defineStore('model-settings', () => {
           defaultModel: modelId
         })
       )
+      toast.success('默认模型已保存')
     } catch (cause) {
       error.value = cause instanceof Error ? cause.message : '默认模型保存失败'
+      toast.error('默认模型保存失败', error.value)
     } finally {
       saving.value = false
     }
@@ -211,8 +217,10 @@ const useModelSettingsStore = defineStore('model-settings', () => {
           defaultThinkingLevel: draft.value.thinkingLevel
         })
       )
+      toast.success('Thinking 已保存')
     } catch (cause) {
       error.value = cause instanceof Error ? cause.message : 'Thinking 保存失败'
+      toast.error('Thinking 保存失败', error.value)
     } finally {
       saving.value = false
     }
@@ -225,11 +233,13 @@ const useModelSettingsStore = defineStore('model-settings', () => {
     try {
       applySnapshot(
         await window.api.codingAgent.updateModelSettings({
-          enabledModels: draft.value.enabledModels
+          enabledModels: cleanStringList(draft.value.enabledModels)
         })
       )
+      toast.success('任务模型已保存')
     } catch (cause) {
       error.value = cause instanceof Error ? cause.message : '任务模型保存失败'
+      toast.error('任务模型保存失败', error.value)
     } finally {
       saving.value = false
     }
@@ -240,8 +250,10 @@ const useModelSettingsStore = defineStore('model-settings', () => {
     error.value = null
     try {
       applySnapshot(await window.api.codingAgent.upsertCustomProvider(input))
+      toast.success('自定义 provider 已保存')
     } catch (cause) {
       error.value = cause instanceof Error ? cause.message : '自定义 provider 保存失败'
+      toast.error('自定义 provider 保存失败', error.value)
     } finally {
       saving.value = false
     }
@@ -252,8 +264,10 @@ const useModelSettingsStore = defineStore('model-settings', () => {
     error.value = null
     try {
       applySnapshot(await window.api.codingAgent.deleteCustomProvider(provider))
+      toast.success('自定义 provider 已删除')
     } catch (cause) {
       error.value = cause instanceof Error ? cause.message : '自定义 provider 删除失败'
+      toast.error('自定义 provider 删除失败', error.value)
     } finally {
       saving.value = false
     }
@@ -264,8 +278,10 @@ const useModelSettingsStore = defineStore('model-settings', () => {
     error.value = null
     try {
       applySnapshot(await window.api.codingAgent.setProviderApiKey(input))
+      toast.success('API key 已保存')
     } catch (cause) {
       error.value = cause instanceof Error ? cause.message : 'API key 保存失败'
+      toast.error('API key 保存失败', error.value)
     } finally {
       saving.value = false
     }
@@ -322,6 +338,10 @@ function cloneDefaultDraft(): ModelSettingsDraft {
     thinkingLevel: DEFAULT_DRAFT.thinkingLevel,
     enabledModels: [...DEFAULT_DRAFT.enabledModels]
   }
+}
+
+function cleanStringList(values: string[]): string[] {
+  return values.map((value) => value.trim()).filter(Boolean)
 }
 
 export default useModelSettingsStore

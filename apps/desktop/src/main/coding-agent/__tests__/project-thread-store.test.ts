@@ -92,6 +92,33 @@ describe('CodingThreadStore', () => {
     store.close()
   })
 
+  it('默认隐藏归档 thread，并支持只列出归档 thread', () => {
+    const store = new CodingThreadStore(':memory:')
+    const visibleThread: ThreadSummary = {
+      threadId: 'thread-visible',
+      projectId: 'project-a',
+      status: 'idle',
+      createdAt: '2026-07-01T00:00:00.000Z',
+      updatedAt: '2026-07-01T00:00:01.000Z'
+    }
+    const archivedThread: ThreadSummary = {
+      threadId: 'thread-archived',
+      projectId: 'project-a',
+      status: 'stopped',
+      archivedAt: '2026-07-01T00:00:02.000Z',
+      createdAt: '2026-07-01T00:00:00.000Z',
+      updatedAt: '2026-07-01T00:00:02.000Z'
+    }
+    store.saveThread(visibleThread)
+    store.saveThread(archivedThread)
+
+    expect(store.listThreads()).toEqual([visibleThread])
+    expect(store.listThreads({ projectId: 'project-a' })).toEqual([visibleThread])
+    expect(store.listThreads({ archived: true })).toEqual([archivedThread])
+    expect(store.listThreads({ projectId: 'project-a', archived: true })).toEqual([archivedThread])
+    store.close()
+  })
+
   it('使用轻量 metadata 文件保存和恢复 Project/Thread registry', () => {
     const root = createTempDir()
     const projectFile = join(root, 'projects.json')
@@ -198,6 +225,39 @@ describe('CodingThreadStore', () => {
     expect(
       manager.listThreads({ projectId: projectA.projectId }).map((thread) => thread.threadId)
     ).toEqual(['thread-newest', 'thread-oldest'])
+
+    store.close()
+    projectStore.close()
+  })
+
+  it('ThreadManagerCore listThreads 默认过滤归档 thread', () => {
+    const projectStore = new ProjectStore(':memory:')
+    const store = new CodingThreadStore(':memory:')
+    const project = projectStore.createProject({ path: createTempDir() })
+    const visibleThread: ThreadSummary = {
+      threadId: 'thread-visible',
+      projectId: project.projectId,
+      status: 'idle',
+      createdAt: '2026-07-01T00:00:00.000Z',
+      updatedAt: '2026-07-01T00:00:01.000Z'
+    }
+    const archivedThread: ThreadSummary = {
+      threadId: 'thread-archived',
+      projectId: project.projectId,
+      status: 'stopped',
+      archivedAt: '2026-07-01T00:00:02.000Z',
+      createdAt: '2026-07-01T00:00:00.000Z',
+      updatedAt: '2026-07-01T00:00:02.000Z'
+    }
+
+    const manager = new ThreadManagerCore(createIdleThreadWorkerRegistry(), store, projectStore)
+    manager.saveThread(visibleThread)
+    manager.saveThread(archivedThread)
+
+    expect(manager.listThreads().map((thread) => thread.threadId)).toEqual(['thread-visible'])
+    expect(manager.listThreads({ archived: true }).map((thread) => thread.threadId)).toEqual([
+      'thread-archived'
+    ])
 
     store.close()
     projectStore.close()

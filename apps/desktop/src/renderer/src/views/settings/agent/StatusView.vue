@@ -2,8 +2,12 @@
 import { BaseBadge, BasePanel } from '@renderer/components/base'
 import useAgentSettingsStore from '@renderer/stores/agent-settings'
 import { AlertTriangle } from 'lucide-vue-next'
+import { computed } from 'vue'
 
 const agentSettings = useAgentSettingsStore()
+
+const diagnosticItems = computed(() => agentSettings.diagnostics)
+const hasDiagnostics = computed(() => diagnosticItems.value.length > 0)
 </script>
 
 <template>
@@ -26,8 +30,8 @@ const agentSettings = useAgentSettingsStore()
         <strong>{{ agentSettings.storage?.agentDir }}</strong>
       </div>
 
-      <ul v-if="agentSettings.diagnostics.length > 0" class="diagnostic-list">
-        <li v-for="diagnostic in agentSettings.diagnostics" :key="diagnostic.id">
+      <ul v-if="hasDiagnostics" class="diagnostic-list">
+        <li v-for="diagnostic in diagnosticItems" :key="diagnostic.id">
           <AlertTriangle :size="15" />
           <div>
             <strong>{{ diagnostic.message }}</strong>

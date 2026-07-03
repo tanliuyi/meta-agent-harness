@@ -22,5 +22,12 @@ declare module '*.vue' {
 interface Window {
   api: {
     codingAgent: import('@shared/coding-agent/types').CodingAgentApi
+    windowControl: {
+      minimize: () => Promise<void>
+      maximize: () => Promise<void>
+      close: () => Promise<void>
+      isMaximized: () => Promise<boolean>
+      platform: () => Promise<string>
+    }
   }
 }

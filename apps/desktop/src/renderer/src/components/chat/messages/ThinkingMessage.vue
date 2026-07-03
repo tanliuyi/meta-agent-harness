@@ -18,7 +18,7 @@ const props = defineProps<{
 const thinkingText = computed(
   () => props.text ?? (props.message ? getMessageThinkingText(props.message) : '') ?? ''
 )
-const label = computed(() => (props.isStreaming ? '思考中' : '思考'))
+const label = computed(() => (props.isStreaming ? 'Thinking' : 'Thought'))
 const firstLine = computed(() => {
   const text = thinkingText.value
   if (!text) return ''
@@ -175,7 +175,7 @@ onBeforeUnmount(() => {
   max-width: 100%;
   color: var(--color-text-muted);
   font-family: var(--font-mono);
-  font-size: 13px;
+  font-size: var(--font-size-ui);
   letter-spacing: 0;
   text-align: left;
   background: transparent;
@@ -211,7 +211,7 @@ onBeforeUnmount(() => {
   color: var(--color-text-subtle);
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 12px;
+  font-size: var(--font-size-ui-sm);
 }
 
 .thinking-message__content {
@@ -243,7 +243,7 @@ onBeforeUnmount(() => {
   :deep(.markstream-vue),
   :deep(.paragraph-node) {
     color: var(--color-text-muted);
-    font-size: 13px;
+    font-size: var(--font-size-ui);
     line-height: 1.6;
   }
 }

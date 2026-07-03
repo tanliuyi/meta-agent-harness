@@ -1,6 +1,14 @@
 :root {
   --font-sans: 'Source Han Sans SC VF', 'Source Han Sans SC', sans-serif;
   --font-mono: 'JetBrains Mono', 'Source Han Sans SC VF', 'Source Han Sans SC', monospace;
+  --font-size-ui: 13px;
+  --font-size-ui-2xs: 10px;
+  --font-size-ui-xs: 11px;
+  --font-size-ui-sm: 12px;
+  --font-size-ui-lg: 15px;
+  --font-size-ui-xl: 20px;
+  --font-size-ui-2xl: 22px;
+  --font-size-code: 12px;
 
   --radius-xs: 4px;
   --radius-sm: 6px;
@@ -20,8 +28,9 @@
   --ease-standard: cubic-bezier(0.2, 0, 0, 1);
 
   // ui
-  --session-panel-actions-width: 48px;
-  --session-header-height: 32px;
+  --session-panel-actions-width: 36px;
+  --session-header-height: 36px;
+  --field-control-height: 36px;
 }
 
 :root,
@@ -32,14 +41,16 @@
   --color-canvas-start: #0d1114;
   --color-canvas-end: #16130f;
   --color-atmosphere: rgb(105 210 160 / 12%);
-  --color-sidebar: rgb(12 15 17 / 76%);
   --color-panel: rgb(23 27 32 / 86%);
   --color-surface: #171b20;
   --color-surface-raised: #20262d;
   --color-surface-hover: #273039;
+  --color-item-active: #26313a;
+  --color-item-active-border: #3a4854;
   --color-control-track: #11161a;
   --color-field: #101316;
   --color-field-focus: #0c1012;
+  --color-border-muted: #262d35;
   --color-border: #343d47;
   --color-border-strong: #52606d;
   --color-text: #edf2f4;
@@ -65,14 +76,16 @@
   --color-canvas-start: #fbfaf6;
   --color-canvas-end: #ece7dc;
   --color-atmosphere: rgb(21 128 91 / 12%);
-  --color-sidebar: rgb(251 250 246 / 78%);
   --color-panel: rgb(255 254 250 / 88%);
   --color-surface: #fffefa;
   --color-surface-raised: #f3eee4;
   --color-surface-hover: #e9e2d5;
+  --color-item-active: #e6dac8;
+  --color-item-active-border: #cbb99e;
   --color-control-track: #e8e0d1;
   --color-field: #fffefa;
   --color-field-focus: #ffffff;
+  --color-border-muted: #eee8dc;
   --color-border: #d4c9b8;
   --color-border-strong: #a8967d;
   --color-text: #20201d;

@@ -16,6 +16,7 @@ import {
 } from '../../../../../../packages/coding-agent/src/core/session-manager'
 import type { StartThreadInput, WorkerLease } from '../worker-types'
 import type { ThreadWorkerRegistry } from '../thread-worker-registry'
+import type { AgentMessage } from '@earendil-works/pi-agent-core'
 
 describe('CodingThreadManager lifecycle', () => {
   it('新线程使用 Project.path，恢复 sessionFile 使用 Pi session header cwd', async () => {
@@ -214,6 +215,140 @@ describe('CodingThreadManager lifecycle', () => {
     rmSync(root, { recursive: true, force: true })
   })
 
+  it('活跃 worker 快照会从 live messages 派生 fileChanges', async () => {
+    const root = createTempDir()
+    const projectPath = join(root, 'repo')
+    mkdirSync(projectPath, { recursive: true })
+    const projectStore = new ProjectStore(':memory:')
+    const threadStore = new CodingThreadStore(':memory:')
+    const registry = createRecordingRegistry()
+    const manager = new CodingThreadManager(
+      registry as unknown as ThreadWorkerRegistry,
+      threadStore,
+      projectStore,
+      new ProjectTrustService(join(root, 'agent'))
+    )
+    const project = manager.createProject({ path: projectPath })
+    const messages: AgentMessage[] = [
+      {
+        role: 'assistant',
+        content: [{ type: 'toolCall', id: 'tool-edit', name: 'edit', arguments: { path: 'src/app.ts' } }],
+        api: 'responses',
+        provider: 'openai',
+        model: 'gpt-test',
+        usage: {
+          input: 1,
+          output: 1,
+          cacheRead: 0,
+          cacheWrite: 0,
+          totalTokens: 2,
+          cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 }
+        },
+        stopReason: 'toolUse',
+        timestamp: 1
+      },
+      {
+        role: 'toolResult',
+        toolCallId: 'tool-edit',
+        toolName: 'edit',
+        content: [{ type: 'text', text: 'Successfully replaced 1 block(s) in src/app.ts.' }],
+        isError: false,
+        timestamp: Date.parse('2026-07-01T00:00:00.000Z'),
+        details: {
+          diff: '-1 old\n+1 new',
+          patch: '--- src/app.ts\n+++ src/app.ts\n@@\n-old\n+new\n',
+          firstChangedLine: 1
+        }
+      } as AgentMessage
+    ]
+
+    await manager.createThread({
+      threadId: 'thread-a',
+      projectId: project.projectId
+    })
+    registry.liveMessages.set('thread-a', messages)
+
+    const snapshot = await manager.getSnapshot('thread-a')
+
+    expect(snapshot.fileChanges).toMatchObject([
+      {
+        threadId: 'thread-a',
+        toolCallId: 'tool-edit',
+        path: 'src/app.ts',
+        changeType: 'updated',
+        diff: '-1 old\n+1 new',
+        additions: 1,
+        deletions: 1,
+        firstChangedLine: 1
+      }
+    ])
+
+    threadStore.close()
+    projectStore.close()
+    rmSync(root, { recursive: true, force: true })
+  })
+
+  it('归档隐藏 thread 但保留 metadata/sessionFile，并支持恢复', async () => {
+    const root = createTempDir()
+    const projectPath = join(root, 'repo')
+    const sessionFile = join(root, 'sessions', 'session.jsonl')
+    mkdirSync(projectPath, { recursive: true })
+    mkdirSync(join(sessionFile, '..'), { recursive: true })
+    writeFileSync(sessionFile, `${JSON.stringify({ type: 'session_start', cwd: projectPath })}\n`)
+    const projectStore = new ProjectStore(':memory:')
+    const threadStore = new CodingThreadStore(':memory:')
+    const registry = createRecordingRegistry()
+    const manager = new CodingThreadManager(
+      registry as unknown as ThreadWorkerRegistry,
+      threadStore,
+      projectStore,
+      new ProjectTrustService(join(root, 'agent'))
+    )
+    const project = manager.createProject({ path: projectPath })
+    await manager.createThread({
+      threadId: 'thread-a',
+      projectId: project.projectId,
+      sessionFile,
+      title: 'Thread A'
+    })
+
+    await manager.archiveThread('thread-a')
+
+    expect(manager.listThreads()).toEqual([])
+    expect(manager.listThreads({ archived: true })).toMatchObject([
+      {
+        threadId: 'thread-a',
+        projectId: project.projectId,
+        sessionFile,
+        status: 'stopped'
+      }
+    ])
+    expect(threadStore.listThreads()).toEqual([])
+    expect(threadStore.listThreads({ archived: true })[0]).toMatchObject({
+      threadId: 'thread-a',
+      sessionFile
+    })
+
+    const acquireCountAfterArchive = registry.acquires.length
+    await manager.restoreThread('thread-a')
+
+    expect(registry.acquires).toHaveLength(acquireCountAfterArchive)
+    expect(manager.listThreads()).toMatchObject([
+      {
+        threadId: 'thread-a',
+        projectId: project.projectId,
+        sessionFile,
+        status: 'stopped'
+      }
+    ])
+    expect(manager.listThreads()[0]?.archivedAt).toBeUndefined()
+    expect(manager.listThreads({ archived: true })).toEqual([])
+
+    threadStore.close()
+    projectStore.close()
+    rmSync(root, { recursive: true, force: true })
+  })
+
   it('project 路径不可用时拒绝 createThread', async () => {
     const projectStore = new ProjectStore(':memory:')
     const threadStore = new CodingThreadStore(':memory:')
@@ -250,6 +385,7 @@ function createTempDir(): string {
 function createRecordingRegistry(): {
   acquires: StartThreadInput[]
   liveStates: Map<string, Record<string, unknown>>
+  liveMessages: Map<string, AgentMessage[]>
   acquireThreadWorker(input: StartThreadInput): Promise<WorkerLease>
   releaseThreadWorker(threadId: string): Promise<void>
   send(
@@ -267,10 +403,12 @@ function createRecordingRegistry(): {
 } {
   const acquires: StartThreadInput[] = []
   const liveStates = new Map<string, Record<string, unknown>>()
+  const liveMessages = new Map<string, AgentMessage[]>()
   const leases = new Map<string, WorkerLease>()
   return {
     acquires,
     liveStates,
+    liveMessages,
     async acquireThreadWorker(input) {
       acquires.push(input)
       if (!input.threadId) {
@@ -301,6 +439,8 @@ function createRecordingRegistry(): {
         data:
           command.type === 'get_state'
             ? { cwd: leases.get(threadId)?.cwd, ...liveStates.get(threadId) }
+            : command.type === 'get_messages'
+              ? { messages: liveMessages.get(threadId) ?? [] }
             : undefined
       }
     },

@@ -20,6 +20,12 @@ const sessionProject = computed(() => {
   return projectId ? workspaceProject.projects[projectId] : undefined
 })
 
+/** 当前待处理审批列表。 */
+const pendingApprovals = computed(() => Object.values(workspaceSession.activePendingApprovals))
+
+/** 是否存在待处理审批。 */
+const hasPendingApprovals = computed(() => pendingApprovals.value.length > 0)
+
 /** 是否折叠面板。 */
 defineProps<{
   collapsed?: boolean
@@ -77,12 +83,9 @@ defineEmits<{
         </div>
       </dl>
 
-      <ScrollArea
-        v-if="Object.keys(workspaceSession.activePendingApprovals).length > 0"
-        class="approval-list"
-      >
+      <ScrollArea v-if="hasPendingApprovals" class="approval-list">
         <article
-          v-for="approval in workspaceSession.activePendingApprovals"
+          v-for="approval in pendingApprovals"
           :key="approval.approvalId"
           class="approval-card"
         >
@@ -117,16 +120,6 @@ defineEmits<{
           </div>
         </article>
       </ScrollArea>
-
-      <!-- <ScrollArea class="event-list">
-        <article
-          v-for="event in workspaceSession.activeEvents.slice(0, 16)"
-          :key="JSON.stringify(event)"
-        >
-          <span>{{ event.type }}</span>
-          <code>{{ eventThreadId(event) }}</code>
-        </article>
-      </ScrollArea> -->
     </div>
   </section>
 </template>
@@ -140,10 +133,6 @@ defineEmits<{
   min-height: 0;
 }
 
-.session-panel--collapsed {
-  pointer-events: none;
-}
-
 .session-panel__header {
   display: flex;
   flex-direction: row;
@@ -152,7 +141,7 @@ defineEmits<{
   gap: var(--space-2);
   width: 100%;
   height: var(--session-header-height);
-  padding: 0 var(--space-1);
+  padding: 0 var(--space-3) 0 0;
 }
 
 .session-panel__tabs {
@@ -200,7 +189,7 @@ dl div {
 dt {
   color: var(--color-text-muted);
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: var(--font-size-ui-xs);
   text-transform: uppercase;
 }
 
@@ -209,7 +198,7 @@ dd {
   margin: 0;
   overflow: hidden;
   color: var(--color-text);
-  font-size: 11px;
+  font-size: var(--font-size-ui-sm);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -233,7 +222,7 @@ dd {
   padding: 6px;
   color: var(--color-text-muted);
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: var(--font-size-ui-2xs);
   background: var(--color-surface-raised);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-sm);
@@ -272,14 +261,14 @@ dd {
 
   strong {
     color: var(--color-text);
-    font-size: 11px;
+    font-size: var(--font-size-ui-xs);
   }
 
   span,
   p {
     margin: 0;
     color: var(--color-text-muted);
-    font-size: 11px;
+    font-size: var(--font-size-ui-xs);
   }
 
   button {

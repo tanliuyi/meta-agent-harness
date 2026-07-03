@@ -3,6 +3,7 @@ import { setCustomComponents } from 'markstream-vue'
 import StreamingCodeBlock from './StreamingCodeBlock.vue'
 import StreamingLink from './StreamingLink.vue'
 import StreamingImage from './StreamingImage.vue'
+import StreamingInlineCode from './StreamingInlineCode.vue'
 
 /**
  * 注册 markstream-vue 自定义节点组件。
@@ -11,7 +12,8 @@ import StreamingImage from './StreamingImage.vue'
 setCustomComponents('meta-agent-markdown', {
   code_block: StreamingCodeBlock,
   link: StreamingLink,
-  image: StreamingImage
+  image: StreamingImage,
+  inline_code: StreamingInlineCode
 })
 </script>
 
@@ -21,6 +23,7 @@ import MarkdownRender from 'markstream-vue'
 import { MarkdownContextKey, type StreamingMarkdownContext } from './markdown-context'
 import { useTheme } from '@renderer/composables/useTheme'
 import 'markstream-vue/index.css'
+import './message-markdown.scss'
 
 /**
  * StreamingMarkdown - 封装 markstream-vue 的流式 Markdown 渲染。
@@ -73,26 +76,7 @@ provide(MarkdownContextKey, context)
 
 <style lang="scss" scoped>
 .streaming-markdown {
-  /* 容器本身不引入额外样式，markstream-vue 内部负责排版。 */
   min-width: 0;
   color: var(--color-text);
-  font-size: 13px;
-  line-height: 1.55;
-
-  :deep(p) {
-    margin: 0 0 var(--space-2);
-  }
-
-  :deep(p:last-child) {
-    margin-bottom: 0;
-  }
-
-  :deep(.markstream-vue) {
-    font-size: 13px;
-  }
-
-  :deep(.paragraph-node) {
-    font-size: 13px;
-  }
 }
 </style>

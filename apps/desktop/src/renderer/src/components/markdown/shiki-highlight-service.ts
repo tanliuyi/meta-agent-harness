@@ -1,4 +1,4 @@
-import type { HighlightJob, HighlightResponse } from './shiki-highlight.worker'
+import type { HighlightJob, HighlightResponse, HighlightTokens } from './shiki-highlight.worker'
 
 /**
  * Shiki 高亮服务。
@@ -18,11 +18,17 @@ export interface HighlightRequest {
   code: string
   /** 主题名。 */
   theme: string
+  /** 是否按 append-only 流式代码处理。 */
+  streaming?: boolean
 }
 
 export interface HighlightResult {
-  /** 高亮后的 HTML。 */
-  html: string
+  /** 本次返回的 token。reset=true 时为全量，否则为增量追加 token。 */
+  tokens: HighlightTokens
+  /** 是否需要用 tokens 替换现有 token 流。 */
+  reset: boolean
+  /** 需要从现有 token 流尾部撤回的 token 数。 */
+  recall: number
   /** 对应的任务 key。 */
   job: HighlightJob
 }
@@ -56,7 +62,10 @@ function createDeferred<T>(): Deferred<T> {
 
 class ShikiHighlightService {
   private worker: Worker | null = null
-  private pending = new Map<string, { deferred: Deferred<HighlightResult | null>; timeout: ReturnType<typeof setTimeout> }>()
+  private pending = new Map<
+    string,
+    { deferred: Deferred<HighlightResult | null>; timeout: ReturnType<typeof setTimeout> }
+  >()
 
   constructor() {
     try {
@@ -92,8 +101,13 @@ class ShikiHighlightService {
       entry.deferred.resolve(null)
       return
     }
-    if (response.html) {
-      entry.deferred.resolve({ html: response.html, job: response.job })
+    if (response.tokens) {
+      entry.deferred.resolve({
+        tokens: response.tokens,
+        reset: response.reset ?? false,
+        recall: response.recall ?? 0,
+        job: response.job
+      })
       return
     }
     entry.deferred.resolve(null)

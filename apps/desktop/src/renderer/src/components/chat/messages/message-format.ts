@@ -60,6 +60,71 @@ export function getUserMessageDisplayText(message: ThreadMessage): string | unde
   return displayText || undefined
 }
 
+/**
+ * 获取 user message 的 Markdown 展示文本，并把 @file 改写为文件引用 chip marker。
+ * @param message - Thread message。
+ * @returns 用户可见 Markdown。
+ */
+export function getUserMessageDisplayMarkdown(message: ThreadMessage): string | undefined {
+  const text = getUserMessageDisplayText(message)
+  return text ? formatFileReferencesForMarkdown(text) : undefined
+}
+
+/**
+ * 将 Pi @file 文本改写为 markstream inline_code marker。
+ * @param text - 用户消息展示文本。
+ * @returns 改写后的 Markdown。
+ */
+export function formatFileReferencesForMarkdown(text: string): string {
+  return mapMarkdownTextSegments(text, replaceFileReferences)
+}
+
+function mapMarkdownTextSegments(text: string, mapText: (value: string) => string): string {
+  let result = ''
+  let cursor = 0
+  while (cursor < text.length) {
+    const fenceMatch = text.slice(cursor).match(/`+/)
+    if (!fenceMatch || fenceMatch.index === undefined) {
+      result += mapText(text.slice(cursor))
+      break
+    }
+
+    const fenceStart = cursor + fenceMatch.index
+    const fence = fenceMatch[0]
+    result += mapText(text.slice(cursor, fenceStart))
+
+    const contentStart = fenceStart + fence.length
+    const fenceEnd = text.indexOf(fence, contentStart)
+    if (fenceEnd < 0) {
+      result += text.slice(fenceStart)
+      break
+    }
+
+    result += text.slice(fenceStart, fenceEnd + fence.length)
+    cursor = fenceEnd + fence.length
+  }
+  return result
+}
+
+function replaceFileReferences(text: string): string {
+  return text.replace(
+    /(^|[\s([{（【])@(?:"((?:\\.|[^"\\])*)"|([^\s`"'<>]+))/g,
+    (match, prefix: string, quotedValue: string | undefined, bareValue: string | undefined) => {
+      const rawValue = quotedValue !== undefined ? quotedValue.replace(/\\"/g, '"') : bareValue
+      const fileArg = rawValue ? trimTrailingFileReferencePunctuation(rawValue) : ''
+      const trailing = rawValue ? rawValue.slice(fileArg.length) : ''
+      if (!fileArg) {
+        return match
+      }
+      return `${prefix}\`meta-agent-file-ref:${encodeURIComponent(fileArg)}\`${trailing}`
+    }
+  )
+}
+
+function trimTrailingFileReferencePunctuation(value: string): string {
+  return value.replace(/[),.，。!?！？;；:：、\]}）】]+$/g, '')
+}
+
 /** 用户消息中的文件附件上下文。 */
 export interface MessageFileAttachment {
   /** 文件名或路径。 */

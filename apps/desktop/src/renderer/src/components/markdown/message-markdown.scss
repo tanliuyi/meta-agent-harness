@@ -1,0 +1,151 @@
+.streaming-markdown {
+  --message-markdown-block-gap: var(--space-2);
+  --message-markdown-paragraph-gap: calc(var(--space-3) * 0.75);
+  --message-markdown-list-gap: calc(var(--space-2) * 0.75);
+  --message-markdown-list-item-gap: calc(var(--space-2) / 2);
+  --message-markdown-table-gap: var(--space-3);
+  --message-markdown-code-gap: var(--space-3);
+  --message-markdown-line-height: 1.72;
+
+  font-size: var(--font-size-ui);
+  line-height: var(--message-markdown-line-height);
+
+  .markstream-vue,
+  [data-custom-id='meta-agent-markdown'] {
+    --ms-text-body: var(--font-size-ui);
+    --ms-leading-body: var(--message-markdown-line-height);
+    --ms-text-h1: var(--font-size-ui);
+    --ms-text-h2: var(--font-size-ui);
+    --ms-text-h3: var(--font-size-ui);
+    --ms-text-h4: var(--font-size-ui);
+    --ms-text-h5: var(--font-size-ui);
+    --ms-text-h6: var(--font-size-ui);
+    --ms-leading-h1: var(--message-markdown-line-height);
+    --ms-leading-h2: var(--message-markdown-line-height);
+    --ms-leading-h3: var(--message-markdown-line-height);
+    --ms-flow-heading-1-mt: var(--space-2);
+    --ms-flow-heading-1-mb: calc(var(--space-2) / 2);
+    --ms-flow-heading-2-mt: var(--space-2);
+    --ms-flow-heading-2-mb: calc(var(--space-2) / 2);
+    --ms-flow-heading-3-mt: var(--space-2);
+    --ms-flow-heading-3-mb: calc(var(--space-2) / 2);
+    --ms-flow-heading-4-mt: var(--space-2);
+    --ms-flow-heading-4-mb: calc(var(--space-2) / 2);
+    --ms-flow-heading-5-mt: var(--space-2);
+    --ms-flow-heading-5-mb: calc(var(--space-2) / 2);
+    --ms-flow-heading-6-mt: var(--space-2);
+    --ms-flow-heading-6-mb: calc(var(--space-2) / 2);
+    --ms-flow-paragraph-y: 0;
+    --ms-flow-list-y: var(--message-markdown-list-gap);
+    --ms-flow-list-item-y: var(--message-markdown-list-item-gap);
+    --ms-flow-table-y: var(--message-markdown-block-gap);
+    --ms-flow-table-cell: calc(var(--space-2) / 2) var(--space-2);
+  }
+
+  .markstream-vue,
+  .paragraph-node {
+    font-size: inherit;
+  }
+
+  .paragraph-node,
+  .markstream-vue .paragraph-node,
+  p {
+    margin: 0;
+  }
+
+  .markstream-vue :where([class*='-node'], .streaming-code-block) + :where(.paragraph-node, p) {
+    margin-top: var(--message-markdown-paragraph-gap);
+  }
+
+  p:last-child {
+    margin-bottom: 0;
+  }
+
+  .paragraph-node:not(:last-child) {
+    margin-bottom: calc(var(--space-2) / 2);
+  }
+
+  .markstream-vue li + li {
+    margin-top: var(--message-markdown-list-item-gap);
+  }
+
+  .markstream-vue :where(ol, ul) {
+    margin-top: var(--message-markdown-list-gap);
+    margin-bottom: var(--message-markdown-list-gap);
+  }
+
+  p code,
+  li code,
+  td code,
+  th code,
+  .markstream-vue .inline-code,
+  .inline-code,
+  .streaming-inline-code {
+    font-family: var(--font-mono);
+    font-size: var(--font-size-code);
+  }
+
+  .markstream-vue .inline-code {
+    line-height: 1.45;
+    vertical-align: baseline;
+  }
+
+  pre,
+  pre code,
+  .markstream-vue pre,
+  .markstream-vue pre code,
+  .streaming-code-block,
+  .streaming-code-block code {
+    font-family: var(--font-mono);
+  }
+
+  .streaming-code-block {
+    margin-top: var(--message-markdown-code-gap);
+    margin-bottom: var(--message-markdown-code-gap);
+  }
+
+  table,
+  .table-node {
+    border-collapse: separate;
+    border-spacing: 0;
+    margin-top: var(--message-markdown-table-gap);
+    margin-bottom: var(--message-markdown-table-gap);
+  }
+
+  .table-node th,
+  .table-node td {
+    border-right: 0;
+    border-bottom: 0;
+    border-left: 1px solid var(--table-border);
+    border-top: 1px solid var(--table-border);
+  }
+
+  .table-node tr > :first-child {
+    border-left: 0;
+  }
+
+  .table-node thead tr:first-child > * {
+    border-top: 0;
+  }
+
+  .table-node tbody tr:hover {
+    background-color: inherit;
+  }
+
+  .table-node tbody tr:nth-child(2n):hover {
+    background-color: hsl(var(--ms-muted) / 0.35);
+  }
+
+  :where(h1, h2, h3, h4, h5, h6),
+  .heading-node {
+    margin-top: var(--space-2);
+    margin-bottom: calc(var(--space-2) / 2);
+    font-size: inherit;
+    font-weight: 600;
+    line-height: var(--message-markdown-line-height);
+  }
+
+  .heading-node:first-child {
+    margin-top: 0;
+  }
+}

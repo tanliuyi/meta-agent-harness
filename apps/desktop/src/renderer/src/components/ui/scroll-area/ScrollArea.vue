@@ -41,6 +41,7 @@ type ScrollAreaMetrics = {
 
 const viewportRef = ref<ScrollAreaViewportInstance | null>(null)
 const viewport = computed(() => viewportRef.value?.viewportElement)
+const rootClass = computed(() => cn('relative', props.class))
 
 /**
  * 获取 reka ScrollAreaViewport 暴露的真实滚动元素。
@@ -140,7 +141,7 @@ defineExpose({
   <ScrollAreaRoot
     data-slot="scroll-area"
     v-bind="delegatedProps"
-    :class="cn('relative', props.class)"
+    :class="rootClass"
   >
     <ScrollAreaViewport
       ref="viewportRef"

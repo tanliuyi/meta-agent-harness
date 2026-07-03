@@ -16,14 +16,7 @@ import { useConfirmDialog } from '@/composables/useConfirmDialog'
 const { activeDialog, cancelActiveDialog, confirmActiveDialog, resolveActiveDialog } =
   useConfirmDialog()
 
-const isOpen = computed({
-  get: () => Boolean(activeDialog.value),
-  set: (open) => {
-    if (!open) {
-      cancelActiveDialog()
-    }
-  }
-})
+const isOpen = computed(() => Boolean(activeDialog.value))
 
 const isDestructive = computed(() => activeDialog.value?.tone === 'destructive')
 const actions = computed(() => activeDialog.value?.actions ?? [])
@@ -31,12 +24,25 @@ const actions = computed(() => activeDialog.value?.actions ?? [])
 function resolveAction(value: string): void {
   resolveActiveDialog(true, value)
 }
+
+function handleOpenChange(open: boolean): void {
+  if (open) {
+    return
+  }
+
+  const closingDialog = activeDialog.value
+  queueMicrotask(() => {
+    if (activeDialog.value === closingDialog) {
+      cancelActiveDialog()
+    }
+  })
+}
 </script>
 
 <template>
   <slot />
 
-  <AlertDialog v-model:open="isOpen">
+  <AlertDialog :open="isOpen" @update:open="handleOpenChange">
     <AlertDialogContent
       :class="
         cn(
@@ -69,7 +75,7 @@ function resolveAction(value: string): void {
             :class="
               cn(
                 'min-w-20',
-                action.tone === 'destructive' &&
+                (action.tone ?? activeDialog?.tone) === 'destructive' &&
                   'bg-destructive text-destructive-foreground hover:bg-destructive/90 focus-visible:ring-destructive/30'
               )
             "

@@ -398,6 +398,11 @@ describe('applyEventToSessions', () => {
           threadId: 'thread-a',
           path: 'README.md',
           changeType: 'updated',
+          diff: '-1 old\n+1 new',
+          patch: '@@',
+          additions: 1,
+          deletions: 1,
+          firstChangedLine: 1,
           createdAt: '2026-07-01T00:00:01.000Z'
         }
       }
@@ -423,7 +428,17 @@ describe('applyEventToSessions', () => {
     expect(snapshot?.thinkingLevel).toBe('off')
     expect(snapshot?.approvals).toHaveLength(1)
     expect(snapshot?.toolCalls).toEqual([])
-    expect(snapshot?.fileChanges).toMatchObject([{ path: 'README.md', changeType: 'updated' }])
+    expect(snapshot?.fileChanges).toMatchObject([
+      {
+        path: 'README.md',
+        changeType: 'updated',
+        diff: '-1 old\n+1 new',
+        patch: '@@',
+        additions: 1,
+        deletions: 1,
+        firstChangedLine: 1
+      }
+    ])
     expect(snapshot?.diagnostics).toMatchObject([{ source: 'worker', severity: 'warning' }])
   })
 })
@@ -511,6 +526,148 @@ describe('workspace-session Project-first actions', () => {
     expect(store.activeSnapshot).toBeUndefined()
     expect(getSnapshot).not.toHaveBeenCalled()
     expect(store.sessionList.map((session) => session.threadId)).toEqual(['thread-a'])
+  })
+
+  it('加载 threads 时按本地 active project 进入已选 Project 的新会话草稿态', async () => {
+    const listThreads = vi.fn().mockResolvedValue([
+      {
+        threadId: 'thread-old',
+        projectId: 'project-a',
+        status: 'idle',
+        createdAt: '2026-07-01T00:00:00.000Z',
+        updatedAt: '2026-07-01T00:00:00.000Z'
+      },
+      {
+        threadId: 'thread-new',
+        projectId: 'project-a',
+        status: 'idle',
+        createdAt: '2026-07-01T00:00:00.000Z',
+        updatedAt: '2026-07-01T00:00:02.000Z'
+      },
+      {
+        threadId: 'thread-other',
+        projectId: 'project-b',
+        status: 'idle',
+        createdAt: '2026-07-01T00:00:00.000Z',
+        updatedAt: '2026-07-01T00:00:03.000Z'
+      }
+    ])
+    const getSnapshot = vi.fn()
+    installCodingAgentApi({ listThreads, getSnapshot })
+    const projectStore = useWorkspaceProjectStore()
+    projectStore.setActiveProjectId('project-a')
+    const store = useWorkspaceSessionStore()
+
+    await store.loadThreads()
+
+    expect(store.activeProjectId).toBe('project-a')
+    expect(store.activeSessionId).toBeUndefined()
+    expect(store.isNewSessionActive).toBe(true)
+    expect(getSnapshot).not.toHaveBeenCalled()
+  })
+
+  it('renderer reload 后通过 sessionStorage 恢复当前选中的 thread', async () => {
+    const thread = {
+      threadId: 'thread-a',
+      projectId: 'project-a',
+      status: 'idle',
+      createdAt: '2026-07-01T00:00:00.000Z',
+      updatedAt: '2026-07-01T00:00:00.000Z'
+    }
+    const snapshot = {
+      ...createSnapshot(),
+      threadId: 'thread-a',
+      projectId: 'project-a'
+    }
+    const sessionStorage = createMemorySessionStorage()
+    const listThreads = vi.fn().mockResolvedValue([thread])
+    const getSnapshot = vi.fn().mockResolvedValue(snapshot)
+    installCodingAgentApi({ listThreads, getSnapshot }, sessionStorage)
+    let store = useWorkspaceSessionStore()
+
+    await store.loadThreads()
+    await store.setActiveSessionId('thread-a')
+
+    expect(sessionStorage.getItem('meta-agent.workspace-session.active-thread.main')).toBe(
+      'thread-a'
+    )
+
+    setActivePinia(createPinia())
+    getSnapshot.mockClear()
+    installCodingAgentApi({ listThreads, getSnapshot }, sessionStorage)
+    store = useWorkspaceSessionStore()
+
+    await store.loadThreads()
+
+    expect(store.activeSessionId).toBe('thread-a')
+    expect(store.activeProjectId).toBe('project-a')
+    expect(getSnapshot).toHaveBeenCalledWith('thread-a')
+  })
+
+  it('active project 没有 thread 时进入该 project 的新会话草稿态', async () => {
+    const listThreads = vi.fn().mockResolvedValue([
+      {
+        threadId: 'thread-other',
+        projectId: 'project-b',
+        status: 'idle',
+        createdAt: '2026-07-01T00:00:00.000Z',
+        updatedAt: '2026-07-01T00:00:00.000Z'
+      }
+    ])
+    const getSnapshot = vi.fn()
+    installCodingAgentApi({ listThreads, getSnapshot })
+    const projectStore = useWorkspaceProjectStore()
+    projectStore.setActiveProjectId('project-a')
+    const store = useWorkspaceSessionStore()
+
+    await store.loadThreads()
+
+    expect(store.activeProjectId).toBe('project-a')
+    expect(store.activeSessionId).toBeUndefined()
+    expect(store.isNewSessionActive).toBe(true)
+    expect(getSnapshot).not.toHaveBeenCalled()
+  })
+
+  it('归档当前活跃 thread 后从列表移除并切到同 Project 剩余 thread', async () => {
+    const threadA = {
+      threadId: 'thread-a',
+      projectId: 'project-a',
+      status: 'idle',
+      createdAt: '2026-07-01T00:00:00.000Z',
+      updatedAt: '2026-07-01T00:00:00.000Z'
+    }
+    const threadB = {
+      threadId: 'thread-b',
+      projectId: 'project-a',
+      status: 'idle',
+      createdAt: '2026-07-01T00:00:00.000Z',
+      updatedAt: '2026-07-01T00:00:01.000Z'
+    }
+    const listThreads = vi
+      .fn()
+      .mockResolvedValueOnce([threadA, threadB])
+      .mockResolvedValueOnce([threadB])
+    const archiveThread = vi.fn().mockResolvedValue(undefined)
+    const getSnapshot = vi.fn().mockImplementation((threadId: string) =>
+      Promise.resolve({
+        ...createSnapshot(),
+        threadId
+      })
+    )
+    installCodingAgentApi({ archiveThread, listThreads, getSnapshot })
+    const store = useWorkspaceSessionStore()
+
+    await store.loadThreads()
+    await store.setActiveSessionId('thread-a')
+    await store.archiveThread('thread-a')
+
+    expect(archiveThread).toHaveBeenCalledWith('thread-a')
+    expect(store.activeSessionId).toBe('thread-b')
+    expect(store.sessions['thread-a']).toBeUndefined()
+    expect(store.sessionList.map((session) => session.threadId)).toEqual(['thread-b'])
+    expect(store.sessionsByProject['project-a']?.map((session) => session.threadId)).toEqual([
+      'thread-b'
+    ])
   })
 
   it('renderer 接住 updatedAt 排序，最近更新的 thread 在最上面', async () => {
@@ -630,6 +787,50 @@ describe('workspace-session Project-first actions', () => {
 
     expect(store.activeSessionId).toBe('thread-b')
     expect(store.activeSnapshot?.cwd).toBe('/tmp/project-b')
+    expect(projectStore.activeProjectId).toBe('project-b')
+  })
+
+  it('切换 Project 时选中该 Project 最近更新的 thread', async () => {
+    const snapshotB = {
+      ...createSnapshot(),
+      threadId: 'thread-b',
+      projectId: 'project-b',
+      cwd: '/tmp/project-b'
+    }
+    const getSnapshot = vi.fn().mockResolvedValue(snapshotB)
+    installCodingAgentApi({ getSnapshot })
+    const projectStore = useWorkspaceProjectStore()
+    const store = useWorkspaceSessionStore()
+    store.sessions['thread-a'] = {
+      ...snapshotToWorkspaceSession(createSnapshot()),
+      updatedAt: '2026-07-01T00:00:02.000Z'
+    }
+    store.sessions['thread-b'] = {
+      ...snapshotToWorkspaceSession(snapshotB),
+      updatedAt: '2026-07-01T00:00:03.000Z'
+    }
+
+    await store.setActiveProjectId('project-b')
+
+    expect(projectStore.activeProjectId).toBe('project-b')
+    expect(store.activeSessionId).toBe('thread-b')
+    expect(getSnapshot).toHaveBeenCalledWith('thread-b')
+  })
+
+  it('切换到没有 thread 的 Project 时清空当前窗口保存的 active thread', async () => {
+    const sessionStorage = createMemorySessionStorage()
+    const getSnapshot = vi.fn().mockResolvedValue(createSnapshot())
+    installCodingAgentApi({ getSnapshot }, sessionStorage)
+    const projectStore = useWorkspaceProjectStore()
+    const store = useWorkspaceSessionStore()
+    store.sessions['thread-a'] = snapshotToWorkspaceSession(createSnapshot())
+
+    await store.setActiveSessionId('thread-a')
+    await store.setActiveProjectId('project-empty')
+
+    expect(projectStore.activeProjectId).toBe('project-empty')
+    expect(store.activeSessionId).toBeUndefined()
+    expect(sessionStorage.getItem('meta-agent.workspace-session.active-thread.main')).toBeNull()
   })
 
   it('按 thread 隔离 Composer JSON 草稿', async () => {
@@ -796,6 +997,54 @@ describe('workspace-session Project-first actions', () => {
     expect(prompt).toHaveBeenCalledWith({ threadId: 'thread-a', message: 'hello\nworld' })
   })
 
+  it('运行中发送 Composer 草稿时默认复用 steer 链路入队', async () => {
+    const snapshot = {
+      ...createSnapshot(),
+      status: 'running' as const
+    }
+    const prompt = vi.fn()
+    const steer = vi.fn().mockResolvedValue(undefined)
+    const followUp = vi.fn()
+    const setThreadTitle = vi.fn()
+    const getSnapshot = vi.fn().mockResolvedValue(snapshot)
+    installCodingAgentApi({ prompt, steer, followUp, setThreadTitle, getSnapshot })
+    const store = useWorkspaceSessionStore()
+    store.sessions['thread-a'] = snapshotToWorkspaceSession(snapshot)
+    await store.setActiveSessionId('thread-a')
+    store.draftMessage = createComposerContent('adjust course')
+
+    await store.sendPrompt()
+
+    expect(steer).toHaveBeenCalledWith({ threadId: 'thread-a', message: 'adjust course' })
+    expect(followUp).not.toHaveBeenCalled()
+    expect(prompt).not.toHaveBeenCalled()
+    expect(setThreadTitle).not.toHaveBeenCalled()
+    expect(store.hasDraftMessage).toBe(false)
+  })
+
+  it('运行中发送 Composer 草稿时可显式复用 followUp 链路入队', async () => {
+    const snapshot = {
+      ...createSnapshot(),
+      status: 'running' as const
+    }
+    const prompt = vi.fn()
+    const steer = vi.fn()
+    const followUp = vi.fn().mockResolvedValue(undefined)
+    const getSnapshot = vi.fn().mockResolvedValue(snapshot)
+    installCodingAgentApi({ prompt, steer, followUp, getSnapshot })
+    const store = useWorkspaceSessionStore()
+    store.sessions['thread-a'] = snapshotToWorkspaceSession(snapshot)
+    await store.setActiveSessionId('thread-a')
+    store.draftMessage = createComposerContent('after this')
+
+    await store.sendPrompt(store.defaultSessionContextId, 'followUp')
+
+    expect(followUp).toHaveBeenCalledWith({ threadId: 'thread-a', message: 'after this' })
+    expect(steer).not.toHaveBeenCalled()
+    expect(prompt).not.toHaveBeenCalled()
+    expect(store.hasDraftMessage).toBe(false)
+  })
+
   it('新会话草稿首次发送时才创建 thread 并发送 prompt', async () => {
     const snapshot = {
       ...createSnapshot(),
@@ -958,6 +1207,71 @@ describe('workspace-session Project-first actions', () => {
     expect(store.activeSessionId).toBe('thread-existing')
     expect(store.sessions['thread-another']).toBeDefined()
   })
+
+  it('按 toolCallId 同步活跃工具索引以支持 renderer 原子更新', async () => {
+    vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
+      callback(0)
+      return 1
+    })
+    vi.stubGlobal('cancelAnimationFrame', vi.fn())
+    installCodingAgentApi({})
+    const store = useWorkspaceSessionStore()
+
+    capturedEventListener?.({
+      type: 'threadSnapshot',
+      threadId: 'thread-a',
+      snapshot: createSnapshot()
+    })
+    capturedEventListener?.({
+      type: 'tool_execution_start',
+      threadId: 'thread-a',
+      toolCallId: 'tool-a',
+      toolName: 'bash',
+      args: { command: 'pnpm test' }
+    })
+
+    expect(store.activeToolCallsById['tool-a']).toMatchObject({
+      toolCallId: 'tool-a',
+      status: 'running',
+      args: { command: 'pnpm test' }
+    })
+    const initialStructure = store.activeToolCallStructures[0]
+
+    capturedEventListener?.({
+      type: 'tool_execution_update',
+      threadId: 'thread-a',
+      toolCallId: 'tool-a',
+      toolName: 'bash',
+      args: undefined,
+      partialResult: { stdout: 'running' }
+    })
+
+    expect(store.activeToolCallsById['tool-a']).toMatchObject({
+      partialResult: { stdout: 'running' }
+    })
+    expect(store.activeToolCallStructures[0]).toBe(initialStructure)
+
+    capturedEventListener?.({
+      type: 'tool_execution_end',
+      threadId: 'thread-a',
+      toolCallId: 'tool-a',
+      toolName: 'bash',
+      result: { content: 'ok' },
+      isError: false
+    })
+
+    expect(store.activeToolCallsById['tool-a']).toMatchObject({
+      status: 'succeeded',
+      result: { content: 'ok' },
+      resultSummary: 'ok'
+    })
+    expect(store.activeToolCallStructures[0]).not.toBe(initialStructure)
+    expect(store.activeToolCallStructures[0]).toMatchObject({
+      toolCallId: 'tool-a',
+      startedAt: initialStructure.startedAt,
+      finishedAt: expect.any(String)
+    })
+  })
 })
 
 /**
@@ -1054,7 +1368,9 @@ function createAssistantThinkingMessage(
  * @param timestamp - 时间戳。
  * @returns assistant message。
  */
-function createAssistantMixedMessage(timestamp: number): Extract<AgentMessage, { role: 'assistant' }> {
+function createAssistantMixedMessage(
+  timestamp: number
+): Extract<AgentMessage, { role: 'assistant' }> {
   return {
     ...createAssistantMessage('', timestamp),
     content: [
@@ -1070,7 +1386,9 @@ function createAssistantMixedMessage(timestamp: number): Extract<AgentMessage, {
  * @param timestamp - 时间戳。
  * @returns assistant message。
  */
-function createAssistantToolOnlyMessage(timestamp: number): Extract<AgentMessage, { role: 'assistant' }> {
+function createAssistantToolOnlyMessage(
+  timestamp: number
+): Extract<AgentMessage, { role: 'assistant' }> {
   return {
     ...createAssistantMessage('', timestamp),
     content: [
@@ -1182,12 +1500,18 @@ function snapshotToWorkspaceSession(snapshot: ThreadSnapshot): WorkspaceSession 
  * 安装测试用 codingAgent API。
  * @param overrides - 覆盖方法。
  */
-function installCodingAgentApi(overrides: Record<string, unknown>): void {
+function installCodingAgentApi(
+  overrides: Record<string, unknown>,
+  sessionStorage = createMemorySessionStorage()
+): void {
   capturedEventListener = undefined
   vi.stubGlobal('window', {
+    sessionStorage,
     api: {
       codingAgent: {
         listThreads: vi.fn().mockResolvedValue([]),
+        archiveThread: vi.fn().mockResolvedValue(undefined),
+        restoreThread: vi.fn().mockResolvedValue(undefined),
         createThread: vi.fn(),
         getSnapshot: vi.fn().mockResolvedValue(createSnapshot()),
         setThreadTitle: vi.fn(async (input: { threadId: string; title: string }) => ({
@@ -1203,6 +1527,28 @@ function installCodingAgentApi(overrides: Record<string, unknown>): void {
       }
     }
   })
+}
+
+/**
+ * 创建测试用 sessionStorage。
+ * @returns 内存 sessionStorage。
+ */
+function createMemorySessionStorage(): Storage {
+  const values = new Map<string, string>()
+  return {
+    get length() {
+      return values.size
+    },
+    clear: vi.fn(() => values.clear()),
+    getItem: vi.fn((key: string) => values.get(key) ?? null),
+    key: vi.fn((index: number) => [...values.keys()][index] ?? null),
+    removeItem: vi.fn((key: string) => {
+      values.delete(key)
+    }),
+    setItem: vi.fn((key: string, value: string) => {
+      values.set(key, value)
+    })
+  }
 }
 
 let capturedEventListener:

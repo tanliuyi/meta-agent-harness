@@ -5,7 +5,7 @@
 import type { CustomMessage } from "../../core/messages.ts";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import type { DesktopMessage } from "./snapshot.ts";
-import type { DesktopToolCall } from "./tool.ts";
+import { createDesktopFileChangeFromEditResult, type DesktopFileChange, type DesktopToolCall } from "./tool.ts";
 import type { ThreadId } from "./identity.ts";
 
 export type _DesktopMessageProtocolAugmentation = CustomMessage;
@@ -93,13 +93,53 @@ export function toDesktopToolCalls(messages: AgentMessage[], threadId: ThreadId)
 				toolName: typeof message.toolName === "string" ? message.toolName : existing?.toolName ?? "tool",
 				status: message.isError ? "failed" : "succeeded",
 				args: existing?.args,
-				result: message.content,
+				result: { content: message.content, details: readMessageDetails(message) },
 				resultSummary: extractText(message.content),
 				finishedAt: hasTimestamp(message) ? normalizeTimestamp(message.timestamp) : existing?.finishedAt,
 			});
 		}
 	}
 	return [...toolCalls.values()];
+}
+
+/**
+ * 从 AgentMessage 列表派生 Desktop 文件变更。
+ * @param messages - Pi live/context messages。
+ * @param threadId - 关联线程 ID。
+ * @returns desktop 文件变更列表。
+ */
+export function toDesktopFileChanges(messages: AgentMessage[], threadId: ThreadId): DesktopFileChange[] {
+	const toolArgs = new Map<string, unknown>();
+	const changes: DesktopFileChange[] = [];
+	for (const message of messages) {
+		if (message.role === "assistant" && hasContent(message) && Array.isArray(message.content)) {
+			for (const block of message.content) {
+				if (!isRecord(block) || block.type !== "toolCall" || typeof block.id !== "string") {
+					continue;
+				}
+				if ("arguments" in block) {
+					toolArgs.set(block.id, block.arguments);
+				}
+			}
+			continue;
+		}
+		if (message.role !== "toolResult" || typeof message.toolCallId !== "string") {
+			continue;
+		}
+		const change = createDesktopFileChangeFromEditResult({
+			threadId,
+			toolCallId: message.toolCallId,
+			toolName: typeof message.toolName === "string" ? message.toolName : "tool",
+			args: toolArgs.get(message.toolCallId),
+			result: { content: hasContent(message) ? message.content : undefined, details: readMessageDetails(message) },
+			isError: Boolean(message.isError),
+			createdAt: hasTimestamp(message) ? normalizeTimestamp(message.timestamp) : undefined,
+		});
+		if (change) {
+			changes.push(change);
+		}
+	}
+	return changes;
 }
 
 /**
@@ -140,6 +180,10 @@ function hasContent(message: AgentMessage): message is AgentMessage & { content:
  */
 function hasTimestamp(message: AgentMessage): message is AgentMessage & { timestamp: unknown } {
 	return "timestamp" in message;
+}
+
+function readMessageDetails(message: AgentMessage): unknown {
+	return isRecord(message) ? message.details : undefined;
 }
 
 /**

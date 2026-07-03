@@ -37,6 +37,9 @@ export type ComposerImageAttachment = PromptImageAttachment & {
   id: string
 }
 
+/** 运行中消息的交付方式。 */
+export type RunningMessageDelivery = 'steer' | 'followUp'
+
 /** 消息渲染状态。 */
 export interface MessageRenderState {
   /** 渲染版本号，流式更新时递增。 */
@@ -83,6 +86,15 @@ export type WorkspaceSessionRuntime = {
   errorMessage?: string
 }
 
+/** 按 toolCallId 归一化的工具调用索引。 */
+export type WorkspaceToolCallsById = Record<string, ThreadSnapshot['toolCalls'][number] | undefined>
+
+/** timeline 使用的轻量工具调用结构。 */
+export type WorkspaceToolCallStructure = Pick<
+  ThreadSnapshot['toolCalls'][number],
+  'threadId' | 'toolCallId' | 'toolName' | 'args' | 'startedAt' | 'finishedAt'
+>
+
 /** 会话面板最小宽度。 */
 const minSessionPanelWidth = 220
 
@@ -91,6 +103,9 @@ const maxSessionPanelWidth = 460
 
 /** 默认会话上下文 ID。 */
 const defaultSessionContextId = 'main'
+
+/** 当前窗口会话中活跃 thread 的 sessionStorage key 前缀。 */
+const activeThreadSessionStoragePrefix = 'meta-agent.workspace-session.active-thread.'
 
 /** 后端真实 agent session 事件类型集合。 */
 const agentSessionEventTypes = new Set<AgentSessionIpcEvent['type']>([
@@ -160,6 +175,14 @@ export default defineStore('workspace-session', () => {
   /** 每个 thread 的运行态。 */
   const runtimeByThreadId = shallowReactive<Record<string, WorkspaceSessionRuntime>>({})
 
+  /** 每个 thread 的工具调用索引，用于 renderer 按 id 原子订阅。 */
+  const toolCallsByThreadId = shallowReactive<Record<string, WorkspaceToolCallsById>>({})
+
+  /** 每个 thread 的工具调用结构列表，避免 timeline 订阅流式 result。 */
+  const toolCallStructuresByThreadId = shallowReactive<Record<string, WorkspaceToolCallStructure[]>>(
+    {}
+  )
+
   const workspaceProject = useWorkspaceProjectStore()
 
   /** 待提交的渲染版本更新。 */
@@ -215,12 +238,147 @@ export default defineStore('workspace-session', () => {
   }
 
   /**
+   * 确保指定 thread 的工具调用索引存在。
+   * @param threadId - thread ID。
+   * @returns 工具调用索引。
+   */
+  function ensureToolCallsById(threadId: string): WorkspaceToolCallsById {
+    toolCallsByThreadId[threadId] ??= shallowReactive({} as WorkspaceToolCallsById)
+    return toolCallsByThreadId[threadId]
+  }
+
+  /**
+   * 确保指定 thread 的工具调用结构列表存在。
+   * @param threadId - thread ID。
+   * @returns 工具调用结构列表。
+   */
+  function ensureToolCallStructures(threadId: string): WorkspaceToolCallStructure[] {
+    toolCallStructuresByThreadId[threadId] ??= shallowReactive([])
+    return toolCallStructuresByThreadId[threadId]
+  }
+
+  /**
+   * 从完整 snapshot 同步工具调用索引。
+   * @param snapshot - thread snapshot。
+   */
+  function syncToolCallsByIdFromSnapshot(snapshot: ThreadSnapshot): void {
+    const toolCallsById = ensureToolCallsById(snapshot.threadId)
+    const nextIds = new Set<string>()
+    for (const toolCall of snapshot.toolCalls) {
+      nextIds.add(toolCall.toolCallId)
+      toolCallsById[toolCall.toolCallId] = toolCall
+    }
+    for (const toolCallId of Object.keys(toolCallsById)) {
+      if (!nextIds.has(toolCallId)) {
+        delete toolCallsById[toolCallId]
+      }
+    }
+    syncToolCallStructuresFromSnapshot(snapshot)
+  }
+
+  /**
+   * 从当前 session snapshot 同步单个工具调用。
+   * @param threadId - thread ID。
+   * @param toolCallId - 工具调用 ID。
+   */
+  function syncToolCallByIdFromSession(threadId: string, toolCallId: string): void {
+    const toolCall = sessions[threadId]?.snapshot?.toolCalls.find(
+      (item) => item.toolCallId === toolCallId
+    )
+    const toolCallsById = ensureToolCallsById(threadId)
+    if (toolCall) {
+      toolCallsById[toolCallId] = toolCall
+      syncToolCallStructure(threadId, toolCall)
+    } else {
+      delete toolCallsById[toolCallId]
+      removeToolCallStructure(threadId, toolCallId)
+    }
+  }
+
+  /**
+   * 从完整 snapshot 同步工具调用结构。
+   * @param snapshot - thread snapshot。
+   */
+  function syncToolCallStructuresFromSnapshot(snapshot: ThreadSnapshot): void {
+    const structures = ensureToolCallStructures(snapshot.threadId)
+    structures.splice(0, structures.length, ...snapshot.toolCalls.map(toToolCallStructure))
+  }
+
+  /**
+   * 同步单个工具调用结构，仅在结构字段变化时替换。
+   * @param threadId - thread ID。
+   * @param toolCall - 工具调用。
+   */
+  function syncToolCallStructure(
+    threadId: string,
+    toolCall: ThreadSnapshot['toolCalls'][number]
+  ): void {
+    const structures = ensureToolCallStructures(threadId)
+    const next = toToolCallStructure(toolCall)
+    const index = structures.findIndex((item) => item.toolCallId === toolCall.toolCallId)
+    if (index < 0) {
+      structures.push(next)
+      return
+    }
+    if (!isSameToolCallStructure(structures[index], next)) {
+      structures[index] = next
+    }
+  }
+
+  /**
+   * 移除单个工具调用结构。
+   * @param threadId - thread ID。
+   * @param toolCallId - 工具调用 ID。
+   */
+  function removeToolCallStructure(threadId: string, toolCallId: string): void {
+    const structures = ensureToolCallStructures(threadId)
+    const index = structures.findIndex((item) => item.toolCallId === toolCallId)
+    if (index >= 0) {
+      structures.splice(index, 1)
+    }
+  }
+
+  /**
    * 获取上下文选中的 thread ID。
    * @param contextId - 上下文 ID。
    * @returns thread ID。
    */
   function getContextActiveThreadId(contextId = defaultSessionContextId): string | undefined {
     return ensureSessionContext(contextId).activeThreadId
+  }
+
+  /**
+   * 获取当前窗口会话中保存的活跃 thread ID。
+   * @param contextId - 上下文 ID。
+   * @returns thread ID。
+   */
+  function readSessionActiveThreadId(contextId = defaultSessionContextId): string | undefined {
+    try {
+      return window.sessionStorage?.getItem(getActiveThreadStorageKey(contextId)) || undefined
+    } catch {
+      return undefined
+    }
+  }
+
+  /**
+   * 保存当前窗口会话中的活跃 thread ID。
+   * @param threadId - thread ID。
+   * @param contextId - 上下文 ID。
+   */
+  function writeSessionActiveThreadId(
+    threadId: string | undefined,
+    contextId = defaultSessionContextId
+  ): void {
+    try {
+      const key = getActiveThreadStorageKey(contextId)
+      if (threadId) {
+        window.sessionStorage?.setItem(key, threadId)
+      } else {
+        window.sessionStorage?.removeItem(key)
+      }
+    } catch {
+      // sessionStorage 不可用时降级为内存态，不阻塞主流程。
+    }
   }
 
   /**
@@ -234,8 +392,12 @@ export default defineStore('workspace-session', () => {
   ): void {
     const context = ensureSessionContext(contextId)
     context.activeThreadId = threadId
+    writeSessionActiveThreadId(threadId, contextId)
     if (threadId) {
       context.selectedProjectId = sessions[threadId]?.projectId ?? context.selectedProjectId
+      if (context.selectedProjectId) {
+        workspaceProject.setActiveProjectId(context.selectedProjectId)
+      }
     }
   }
 
@@ -247,7 +409,9 @@ export default defineStore('workspace-session', () => {
   function startNewSession(projectId: string, contextId = defaultSessionContextId): void {
     const context = ensureSessionContext(contextId)
     context.activeThreadId = undefined
+    writeSessionActiveThreadId(undefined, contextId)
     context.selectedProjectId = projectId
+    workspaceProject.setActiveProjectId(projectId)
     globalErrorMessage.value = undefined
   }
 
@@ -267,9 +431,24 @@ export default defineStore('workspace-session', () => {
    * @param existingThreadIds - 当前存在的 thread ID 集合。
    */
   function pruneThreadScopedState(existingThreadIds: Set<string>): void {
+    for (const threadId of Object.keys(sessions)) {
+      if (!existingThreadIds.has(threadId)) {
+        delete sessions[threadId]
+      }
+    }
     for (const threadId of Object.keys(runtimeByThreadId)) {
       if (!existingThreadIds.has(threadId)) {
         delete runtimeByThreadId[threadId]
+      }
+    }
+    for (const threadId of Object.keys(toolCallsByThreadId)) {
+      if (!existingThreadIds.has(threadId)) {
+        delete toolCallsByThreadId[threadId]
+      }
+    }
+    for (const threadId of Object.keys(toolCallStructuresByThreadId)) {
+      if (!existingThreadIds.has(threadId)) {
+        delete toolCallStructuresByThreadId[threadId]
       }
     }
     for (const context of Object.values(contexts)) {
@@ -351,6 +530,7 @@ export default defineStore('workspace-session', () => {
     pendingToolUpdateEvents.clear()
     for (const event of events) {
       applyEventToSessions(sessions, event)
+      syncToolCallByIdFromSession(event.threadId, event.toolCallId)
     }
   }
 
@@ -436,9 +616,22 @@ export default defineStore('workspace-session', () => {
   /** 当前活跃会话的快照。 */
   const activeSnapshot = computed(() => activeSession.value?.snapshot)
 
+  /** 当前活跃会话的工具调用索引。 */
+  const activeToolCallsById = computed<WorkspaceToolCallsById>(() =>
+    activeSessionId.value ? ensureToolCallsById(activeSessionId.value) : {}
+  )
+
+  /** 当前活跃会话的工具调用结构列表。 */
+  const activeToolCallStructures = computed<WorkspaceToolCallStructure[]>(() =>
+    activeSessionId.value ? ensureToolCallStructures(activeSessionId.value) : []
+  )
+
   /** 当前活跃或新会话草稿所属 Project ID。 */
   const activeProjectId = computed(
-    () => activeSession.value?.projectId ?? mainContext.value.selectedProjectId
+    () =>
+      activeSession.value?.projectId ??
+      mainContext.value.selectedProjectId ??
+      workspaceProject.activeProjectId
   )
 
   /** 当前是否处于尚未创建 thread 的新会话草稿态。 */
@@ -489,9 +682,7 @@ export default defineStore('workspace-session', () => {
 
   /** 当前活跃会话是否有可发送草稿。 */
   const hasDraftMessage = computed(
-    () =>
-      Boolean(getComposerText(draftMessage.value).trim()) ||
-      draftImages.value.length > 0
+    () => Boolean(getComposerText(draftMessage.value).trim()) || draftImages.value.length > 0
   )
 
   /** 会话列表，最近更新排在最上面。 */
@@ -516,24 +707,49 @@ export default defineStore('workspace-session', () => {
 
   /**
    * 加载所有 thread 列表。
-   * 仅刷新仍然有效的活跃 thread；没有活跃 thread 时保持新会话空态。
+   * 仅刷新仍然有效的活跃 thread；没有活跃 thread 时默认保持新会话空态。
    */
-  const loadThreads = async (contextId = defaultSessionContextId): Promise<void> => {
+  const loadThreads = async (
+    contextId = defaultSessionContextId,
+    options: { selectLatestActiveProjectThread?: boolean } = {}
+  ): Promise<void> => {
     loadingThreads.value = true
     globalErrorMessage.value = undefined
     try {
-      const threads = await window.api.codingAgent.listThreads()
+      const loadedThreads = await window.api.codingAgent.listThreads()
+      const threads = loadedThreads.filter((thread) => !thread.archivedAt)
       for (const thread of threads) {
         mergeSession(sessions, thread)
         ensureRuntime(thread.threadId)
       }
       pruneThreadScopedState(new Set(threads.map((thread) => thread.threadId)))
       const context = ensureSessionContext(contextId)
+      const storedActiveThreadId = readSessionActiveThreadId(contextId)
+      if (
+        !context.activeThreadId &&
+        storedActiveThreadId &&
+        threads.some((thread) => thread.threadId === storedActiveThreadId)
+      ) {
+        setContextActiveThreadId(storedActiveThreadId, contextId)
+      }
       const activeExists =
         context.activeThreadId &&
         threads.some((thread) => thread.threadId === context.activeThreadId)
       if (!activeExists) {
-        context.activeThreadId = undefined
+        setContextActiveThreadId(undefined, contextId)
+      }
+      if (
+        !context.activeThreadId &&
+        options.selectLatestActiveProjectThread &&
+        workspaceProject.activeProjectId
+      ) {
+        const projectThreads = sortSessionsByUpdatedAt(
+          threads.filter((thread) => thread.projectId === workspaceProject.activeProjectId)
+        )
+        context.selectedProjectId = workspaceProject.activeProjectId
+        setContextActiveThreadId(projectThreads[0]?.threadId, contextId)
+      } else if (!context.activeThreadId && workspaceProject.activeProjectId) {
+        context.selectedProjectId = workspaceProject.activeProjectId
       }
       if (context.activeThreadId) {
         await refreshSnapshot(context.activeThreadId)
@@ -562,9 +778,11 @@ export default defineStore('workspace-session', () => {
     try {
       const snapshot = await window.api.codingAgent.createThread({ projectId })
       mergeSnapshot(sessions, snapshot)
+      syncToolCallsByIdFromSnapshot(snapshot)
       ensureRuntime(snapshot.threadId)
       syncRenderStateFromSnapshot(snapshot)
       setContextActiveThreadId(snapshot.threadId, contextId)
+      workspaceProject.setActiveProjectId(snapshot.projectId)
     } catch (error) {
       globalErrorMessage.value = error instanceof Error ? error.message : String(error)
     } finally {
@@ -594,6 +812,7 @@ export default defineStore('workspace-session', () => {
         updatedAt: existing?.updatedAt ?? summary.updatedAt,
         snapshot
       })
+      syncToolCallsByIdFromSnapshot(snapshot)
       syncRenderStateFromSnapshot(snapshot)
     } catch (error) {
       runtime.errorMessage = error instanceof Error ? error.message : String(error)
@@ -605,7 +824,10 @@ export default defineStore('workspace-session', () => {
   /**
    * 向当前活跃会话发送 prompt。
    */
-  const sendPrompt = async (contextId = defaultSessionContextId): Promise<void> => {
+  const sendPrompt = async (
+    contextId = defaultSessionContextId,
+    runningDelivery: RunningMessageDelivery = 'steer'
+  ): Promise<void> => {
     const context = ensureSessionContext(contextId)
     let threadId = context.activeThreadId
     const draft = getComposerDraft(threadId, contextId)
@@ -635,38 +857,57 @@ export default defineStore('workspace-session', () => {
           projectId: context.selectedProjectId!
         })
         mergeSnapshot(sessions, snapshot)
+        syncToolCallsByIdFromSnapshot(snapshot)
         syncRenderStateFromSnapshot(snapshot)
-        threadId = snapshot.threadId
-        context.activeThreadId = threadId
+        const createdThreadId = snapshot.threadId
+        threadId = createdThreadId
+        context.activeThreadId = createdThreadId
         context.selectedProjectId = snapshot.projectId
-        context.composerDrafts[threadId] = orphanDraft
-        context.composerImageAttachments[threadId] = orphanImages
-        runtime = ensureRuntime(threadId)
+        workspaceProject.setActiveProjectId(snapshot.projectId)
+        context.composerDrafts[createdThreadId] = orphanDraft
+        context.composerImageAttachments[createdThreadId] = orphanImages
+        runtime = ensureRuntime(createdThreadId)
         runtime.errorMessage = undefined
       }
-      const initialTitle = getInitialPromptTitle(sessions[threadId], message)
+      if (!threadId) {
+        return
+      }
+      const targetThreadId = threadId
+      const session = sessions[targetThreadId]
+      const isQueuedWhileRunning = isThreadRunning(session)
+      const initialTitle = isQueuedWhileRunning
+        ? undefined
+        : getInitialPromptTitle(session, message)
       if (initialTitle) {
         const updatedThread = await window.api.codingAgent.setThreadTitle({
-          threadId,
+          threadId: targetThreadId,
           title: initialTitle
         })
         mergeSession(sessions, updatedThread)
-        const snapshot = sessions[threadId]?.snapshot
+        const snapshot = sessions[targetThreadId]?.snapshot
         if (snapshot) {
           snapshot.title = updatedThread.title
         }
       }
-      await window.api.codingAgent.prompt({
-        threadId,
+      const input = {
+        threadId: targetThreadId,
         message,
         ...(fileArgs.length > 0 ? { fileArgs } : {}),
         ...getPromptImagePayload(images)
-      })
-      clearComposerDraft(threadId, contextId)
-      clearComposerImages(threadId, contextId)
+      }
+      if (isQueuedWhileRunning) {
+        if (runningDelivery === 'followUp') {
+          await window.api.codingAgent.followUp(input)
+        } else {
+          await window.api.codingAgent.steer(input)
+        }
+      } else {
+        await window.api.codingAgent.prompt(input)
+      }
+      clearComposerDraft(targetThreadId, contextId)
+      clearComposerImages(targetThreadId, contextId)
       context.orphanDraftMessage = createEmptyComposerContent()
       context.orphanImageAttachments = []
-      const session = sessions[threadId]
       if (session) {
         session.status = 'running'
       }
@@ -731,6 +972,51 @@ export default defineStore('workspace-session', () => {
     if (session) {
       setContextActiveThreadId(sessionId, contextId)
       await refreshSnapshot(sessionId)
+    }
+  }
+
+  /**
+   * 激活指定 Project，并选中该 Project 最近更新的 thread；没有 thread 时进入新会话草稿态。
+   * @param projectId - Project ID。
+   * @param contextId - 上下文 ID。
+   */
+  const setActiveProjectId = async (
+    projectId: string,
+    contextId = defaultSessionContextId
+  ): Promise<void> => {
+    workspaceProject.setActiveProjectId(projectId)
+    const context = ensureSessionContext(contextId)
+    context.selectedProjectId = projectId
+    const [latestThread] = sortSessionsByUpdatedAt(
+      Object.values(sessions).filter((session) => session.projectId === projectId)
+    )
+    if (!latestThread) {
+      setContextActiveThreadId(undefined, contextId)
+      return
+    }
+    setContextActiveThreadId(latestThread.threadId, contextId)
+    await refreshSnapshot(latestThread.threadId)
+  }
+
+  /**
+   * 归档指定会话并刷新列表。
+   * @param threadId - 目标 thread ID。
+   * @param contextId - 上下文 ID。
+   */
+  const archiveThread = async (
+    threadId: string,
+    contextId = defaultSessionContextId
+  ): Promise<void> => {
+    globalErrorMessage.value = undefined
+    try {
+      await window.api.codingAgent.archiveThread(threadId)
+      delete sessions[threadId]
+      delete runtimeByThreadId[threadId]
+      delete toolCallsByThreadId[threadId]
+      delete toolCallStructuresByThreadId[threadId]
+      await loadThreads(contextId, { selectLatestActiveProjectThread: true })
+    } catch (error) {
+      globalErrorMessage.value = error instanceof Error ? error.message : String(error)
     }
   }
 
@@ -828,10 +1114,7 @@ export default defineStore('workspace-session', () => {
    * 删除图片附件草稿。
    * @param imageId - 图片附件 ID。
    */
-  const removeComposerImage = (
-    imageId: string,
-    contextId = defaultSessionContextId
-  ): void => {
+  const removeComposerImage = (imageId: string, contextId = defaultSessionContextId): void => {
     const images = getComposerImages(getContextActiveThreadId(contextId), contextId)
     const index = images.findIndex((image) => image.id === imageId)
     if (index >= 0) {
@@ -865,6 +1148,7 @@ export default defineStore('workspace-session', () => {
     switch (event.type) {
       case 'threadSnapshot': {
         mergeSnapshot(sessions, event.snapshot)
+        syncToolCallsByIdFromSnapshot(event.snapshot)
         ensureRuntime(event.threadId)
         syncRenderStateFromSnapshot(event.snapshot)
         if (!activeSessionId.value || !sessions[activeSessionId.value]) {
@@ -901,6 +1185,22 @@ export default defineStore('workspace-session', () => {
         bumpMessageRevision(threadId, messageId, renderState)
       }
     })
+    if (
+      threadId &&
+      (event.type === 'tool_execution_start' ||
+        event.type === 'tool_execution_end')
+    ) {
+      syncToolCallByIdFromSession(threadId, event.toolCallId)
+    }
+  }
+
+  /**
+   * 获取指定上下文的活跃 thread 存储 key。
+   * @param contextId - 上下文 ID。
+   * @returns sessionStorage key。
+   */
+  function getActiveThreadStorageKey(contextId: string): string {
+    return `${activeThreadSessionStoragePrefix}${contextId}`
   }
 
   /** 订阅 IPC 事件并保存取消订阅函数。 */
@@ -909,6 +1209,7 @@ export default defineStore('workspace-session', () => {
   return {
     abortActive,
     addComposerImages,
+    archiveThread,
     activeEvents,
     activePendingApprovals,
     activeProjectId,
@@ -917,6 +1218,8 @@ export default defineStore('workspace-session', () => {
     activeSessionId,
     activeSessionPanel,
     activeSnapshot,
+    activeToolCallsById,
+    activeToolCallStructures,
     contexts,
     createThread,
     clearComposerDraft,
@@ -948,6 +1251,7 @@ export default defineStore('workspace-session', () => {
     sessions,
     setActiveComposerDraft,
     setContextActiveThreadId,
+    setActiveProjectId,
     setActiveSessionId,
     setActiveSessionPanelOpen,
     setActiveSessionPanelWidth,
@@ -966,6 +1270,44 @@ function snapshotToSession(snapshot: ThreadSnapshot): WorkspaceSession {
     ...snapshotToSummary(snapshot),
     snapshot
   }
+}
+
+/**
+ * 提取 timeline 所需的工具调用结构字段。
+ * @param toolCall - 完整工具调用。
+ * @returns 轻量结构。
+ */
+function toToolCallStructure(
+  toolCall: ThreadSnapshot['toolCalls'][number]
+): WorkspaceToolCallStructure {
+  return {
+    threadId: toolCall.threadId,
+    toolCallId: toolCall.toolCallId,
+    toolName: toolCall.toolName,
+    args: toolCall.args,
+    startedAt: toolCall.startedAt,
+    finishedAt: toolCall.finishedAt
+  }
+}
+
+/**
+ * 判断工具调用结构是否相同。
+ * @param left - 左侧结构。
+ * @param right - 右侧结构。
+ * @returns 是否相同。
+ */
+function isSameToolCallStructure(
+  left: WorkspaceToolCallStructure,
+  right: WorkspaceToolCallStructure
+): boolean {
+  return (
+    left.threadId === right.threadId &&
+    left.toolCallId === right.toolCallId &&
+    left.toolName === right.toolName &&
+    left.args === right.args &&
+    left.startedAt === right.startedAt &&
+    left.finishedAt === right.finishedAt
+  )
 }
 
 /**
@@ -1042,6 +1384,15 @@ function getInitialPromptTitle(
   }
   const title = [...message.trim()].slice(0, PROMPT_TITLE_MAX_CHARS).join('')
   return title || undefined
+}
+
+/**
+ * 判断 thread 是否处于可排队的运行态。
+ * @param session - 当前 thread session。
+ * @returns 是否正在运行。
+ */
+function isThreadRunning(session: WorkspaceSession | undefined): boolean {
+  return ['queued', 'starting', 'running', 'stopping'].includes(session?.status ?? '')
 }
 
 /**

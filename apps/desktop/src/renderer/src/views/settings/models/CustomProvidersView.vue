@@ -1,8 +1,9 @@
 <script setup lang="ts">
 import { BaseBadge, BaseButton, BaseField, BasePanel } from '@renderer/components/base'
+import { SettingsSelectField } from '@renderer/views/settings/components/form'
 import useModelSettingsStore from '@renderer/stores/model-settings'
 import { Database, Save } from 'lucide-vue-next'
-import { ref } from 'vue'
+import { computed, ref } from 'vue'
 
 const modelSettings = useModelSettingsStore()
 
@@ -19,11 +20,31 @@ const customProviderDraft = ref({
 })
 
 const supportedApis = [
-  'openai-completions',
-  'openai-responses',
-  'anthropic-messages',
-  'google-generative-ai'
+  { label: 'OpenAI Completions', value: 'openai-completions' },
+  { label: 'OpenAI Responses', value: 'openai-responses' },
+  { label: 'Anthropic Messages', value: 'anthropic-messages' },
+  { label: 'Google Generative AI', value: 'google-generative-ai' }
 ]
+
+type CustomProviderListItem = {
+  provider: (typeof modelSettings.customProviders)[number]
+  title: string
+  subtitle: string
+  credentialTone: 'success' | 'warning'
+  credentialLabel: string
+}
+
+const customProviderCount = computed(() => modelSettings.customProviders.length)
+const hasCustomProviders = computed(() => customProviderCount.value > 0)
+const customProviderItems = computed<CustomProviderListItem[]>(() =>
+  modelSettings.customProviders.map((provider) => ({
+    provider,
+    title: provider.name ?? provider.provider,
+    subtitle: `${provider.provider} · ${provider.api ?? 'api 未指定'}`,
+    credentialTone: provider.hasApiKeyConfig ? 'success' : 'warning',
+    credentialLabel: provider.hasApiKeyConfig ? '凭据来源已配置' : '缺凭据来源'
+  }))
+)
 
 async function saveCustomProvider(): Promise<void> {
   const draft = customProviderDraft.value
@@ -56,7 +77,7 @@ async function saveCustomProvider(): Promise<void> {
         <h1 class="models-page__title">自定义 Provider</h1>
         <p class="models-page__subtitle">只保存 Pi-compatible models.json provider 配置。</p>
       </div>
-      <BaseButton variant="primary" :disabled="modelSettings.saving" @click="saveCustomProvider">
+      <BaseButton size="sm" variant="primary" :disabled="modelSettings.saving" @click="saveCustomProvider">
         <template #icon>
           <Save :size="14" />
         </template>
@@ -68,12 +89,12 @@ async function saveCustomProvider(): Promise<void> {
 
     <BasePanel title="Provider 定义" eyebrow="models.json">
       <template #actions>
-        <BaseBadge :tone="modelSettings.customProviders.length > 0 ? 'success' : 'neutral'">
-          {{ modelSettings.customProviders.length }} 个
+        <BaseBadge :tone="hasCustomProviders ? 'success' : 'neutral'">
+          {{ customProviderCount }} 个
         </BaseBadge>
       </template>
 
-      <div class="form-grid">
+      <div class="provider-form">
         <BaseField
           id="custom-provider-id"
           v-model="customProviderDraft.provider"
@@ -92,12 +113,7 @@ async function saveCustomProvider(): Promise<void> {
           label="Base URL"
           placeholder="http://localhost:11434/v1"
         />
-        <label class="select-field">
-          <span>API</span>
-          <select v-model="customProviderDraft.api">
-            <option v-for="api in supportedApis" :key="api" :value="api">{{ api }}</option>
-          </select>
-        </label>
+        <SettingsSelectField v-model="customProviderDraft.api" label="API 类型 API" :options="supportedApis" />
         <BaseField
           id="custom-provider-api-key"
           v-model="customProviderDraft.apiKey"
@@ -134,16 +150,16 @@ async function saveCustomProvider(): Promise<void> {
     </BasePanel>
 
     <BasePanel title="已配置 Provider" eyebrow="Custom" style="margin-top: var(--space-4)">
-      <ul v-if="modelSettings.customProviders.length > 0" class="plain-list">
-        <li v-for="provider in modelSettings.customProviders" :key="provider.provider">
+      <ul v-if="hasCustomProviders" class="plain-list">
+        <li v-for="item in customProviderItems" :key="item.provider.provider">
           <div>
-            <strong>{{ provider.name ?? provider.provider }}</strong>
-            <span>{{ provider.provider }} · {{ provider.api ?? 'api 未指定' }}</span>
+            <strong>{{ item.title }}</strong>
+            <span>{{ item.subtitle }}</span>
           </div>
           <div class="model-badges">
-            <BaseBadge tone="info">{{ provider.modelCount }} models</BaseBadge>
-            <BaseBadge :tone="provider.hasApiKeyConfig ? 'success' : 'warning'">
-              {{ provider.hasApiKeyConfig ? '凭据来源已配置' : '缺凭据来源' }}
+            <BaseBadge tone="info">{{ item.provider.modelCount }} models</BaseBadge>
+            <BaseBadge :tone="item.credentialTone">
+              {{ item.credentialLabel }}
             </BaseBadge>
           </div>
         </li>

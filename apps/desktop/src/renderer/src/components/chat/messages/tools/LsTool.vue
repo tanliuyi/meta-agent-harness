@@ -2,6 +2,7 @@
 import { computed } from 'vue'
 import BaseTool from './BaseTool.vue'
 import {
+  getFileName,
   getNumberArg,
   getStringArg,
   getToolArgs,
@@ -14,11 +15,10 @@ import {
 const props = defineProps<ToolComponentProps>()
 
 const args = computed(() => getToolArgs(props.toolCall))
+const target = computed(() => getFileName(getStringArg(args.value, 'path')) ?? '.')
+const limit = computed(() => getNumberArg(args.value, 'limit'))
 const summary = computed(() =>
-  joinSummary([
-    getStringArg(args.value, 'path') ?? '.',
-    getNumberArg(args.value, 'limit') ? `limit=${getNumberArg(args.value, 'limit')}` : undefined
-  ])
+  joinSummary([target.value, limit.value ? `limit=${limit.value}` : undefined])
 )
 const result = computed(() => getToolResultText(props.message, props.toolCall))
 const isError = computed(() => isToolError(props.message, props.toolCall))
@@ -26,5 +26,20 @@ const status = computed(() => props.toolCall?.status)
 </script>
 
 <template>
-  <BaseTool name="ls" :summary="summary" :result="result" :status="status" :is-error="isError" />
+  <BaseTool name="已列出" :summary="summary" :result="result" :status="status" :is-error="isError">
+    <template #summary>
+      <span class="ls-tool__target">{{ target }}</span>
+      <span v-if="limit" class="ls-tool__meta">limit={{ limit }}</span>
+    </template>
+  </BaseTool>
 </template>
+
+<style lang="scss" scoped>
+.ls-tool__target {
+  color: var(--color-info);
+}
+
+.ls-tool__meta {
+  color: var(--color-text-subtle);
+}
+</style>

@@ -233,7 +233,8 @@ const editor = useEditor({
     scheduleFileReferenceCompletion()
   },
   onCreate({ editor: currentEditor }) {
-    currentText.value = getPlainText(currentEditor.getJSON())
+    const content = currentEditor.getJSON()
+    currentText.value = getPlainText(content)
     emit('text-change', currentText.value)
     scheduleFileReferenceCompletion()
   },
@@ -288,9 +289,10 @@ function submitContent(): void {
     return
   }
 
+  const content = currentEditor.getJSON()
   emit('submit', {
-    json: currentEditor.getJSON(),
-    text: getPlainText(currentEditor.getJSON())
+    json: content,
+    text: getPlainText(content)
   })
 }
 
@@ -513,6 +515,8 @@ defineExpose({
 </template>
 
 <style lang="scss" scoped>
+@use './file-reference-node';
+
 .plain-text-editor {
   position: relative;
   min-width: 0;
@@ -525,7 +529,7 @@ defineExpose({
   left: 0;
   z-index: 1;
   color: var(--color-text-subtle);
-  font-size: 13px;
+  font-size: var(--font-size-ui);
   line-height: 1.5;
   pointer-events: none;
 }
@@ -550,7 +554,7 @@ defineExpose({
   border: 0;
   color: var(--color-text);
   font: inherit;
-  font-size: 13px;
+  font-size: var(--font-size-ui);
   line-height: 1.6;
   outline: none;
   box-shadow: none;
@@ -573,45 +577,19 @@ defineExpose({
   }
 
   .file-reference-node {
-    display: inline-grid;
-    grid-template-columns: auto minmax(0, 1fr);
-    align-items: center;
-    gap: 6px;
-    width: fit-content;
-    max-width: 100%;
-    margin: 0 2px;
-    padding: 5px 8px;
-    vertical-align: baseline;
-    color: var(--color-text);
-    background: color-mix(in srgb, var(--color-surface) 76%, transparent);
-    border: 1px solid color-mix(in srgb, var(--color-primary) 28%, var(--color-border));
-    border-radius: var(--radius-sm);
+    @include file-reference-node.file-reference-node;
   }
 
   .file-reference-node.ProseMirror-selectednode {
-    border-color: var(--color-primary);
-    box-shadow: 0 0 0 1px color-mix(in srgb, var(--color-primary) 32%, transparent);
+    @include file-reference-node.file-reference-node-selected;
   }
 
   .file-reference-node__icon {
-    display: grid;
-    place-items: center;
-    width: 18px;
-    height: 18px;
-    color: var(--color-primary);
-    background: color-mix(in srgb, var(--color-primary) 14%, transparent);
-    border-radius: var(--radius-sm);
-    font-size: 12px;
-    font-weight: 700;
+    @include file-reference-node.file-reference-node-icon;
   }
 
   .file-reference-node__label {
-    min-width: 0;
-    overflow: hidden;
-    font-size: 12px;
-    line-height: 1.35;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+    @include file-reference-node.file-reference-node-label;
   }
 }
 

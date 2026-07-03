@@ -111,6 +111,14 @@ export type ThreadSummary = Omit<PackageThreadSummary, 'cwd'> & {
   archivedAt?: string
 }
 
+/** Thread 列表过滤条件。 */
+export interface ListThreadsInput {
+  /** 过滤指定 Project。 */
+  projectId?: string
+  /** 是否返回归档线程；默认 false。 */
+  archived?: boolean
+}
+
 /** 线程快照。 */
 export type ThreadSnapshot = PackageThreadSnapshot & {
   /** 所属 Project ID。 */
@@ -227,6 +235,27 @@ export interface TextInput extends ThreadIdInput {
   images?: PromptImage[]
   /** 附加图片文件，由后端按 Pi @file 语义展开。 */
   imageFiles?: PromptImageFile[]
+}
+
+/** 资源路径选择模式。 */
+export type ResourcePathSelectionMode = 'directory' | 'file' | 'any'
+
+/** 选择资源路径输入。 */
+export interface SelectResourcePathInput {
+  /** 选择器标题。 */
+  title?: string
+  /** 选择文件、目录或二者皆可。 */
+  mode?: ResourcePathSelectionMode
+  /** 是否允许多选。 */
+  multi?: boolean
+  /** 默认打开路径。 */
+  defaultPath?: string
+}
+
+/** 显示资源路径输入。 */
+export interface RevealResourcePathInput {
+  /** 要在资源管理器中显示或打开的路径。 */
+  path: string
 }
 
 /** 新建会话输入。 */
@@ -890,7 +919,7 @@ export interface CodingAgentApi {
   /** 重新启动线程。 */
   restartThread(threadId: string): Promise<ThreadSnapshot>
   /** 列出所有线程。 */
-  listThreads(input?: { projectId?: string }): Promise<ThreadSummary[]>
+  listThreads(input?: ListThreadsInput): Promise<ThreadSummary[]>
   /** 获取线程详情。 */
   getThread(threadId: string): Promise<ThreadSnapshot>
   /** 获取线程快照。 */
@@ -905,10 +934,12 @@ export interface CodingAgentApi {
   selectPromptImages(): Promise<PromptImageAttachment[] | undefined>
   /** 暂存并处理 prompt 图片附件。 */
   stagePromptImages(images: PromptImageDraft[]): Promise<PromptImageAttachment[]>
+  /** 选择资源路径；用户取消时返回 undefined。 */
+  selectResourcePath(input?: SelectResourcePathInput): Promise<string[] | undefined>
+  /** 在系统资源管理器中显示资源路径。 */
+  revealResourcePath(input: RevealResourcePathInput): Promise<void>
   /** 补全 prompt 中的 Pi @file 文件引用。 */
-  completeFileReference(
-    input: FileReferenceCompletionInput
-  ): Promise<FileReferenceCompletionResult>
+  completeFileReference(input: FileReferenceCompletionInput): Promise<FileReferenceCompletionResult>
   /** 中止当前运行。 */
   abort(threadId: string): Promise<void>
   /** 创建新会话。 */
@@ -929,6 +960,8 @@ export interface CodingAgentApi {
   renameThread(input: RenameThreadInput): Promise<void>
   /** 归档线程。 */
   archiveThread(threadId: string): Promise<void>
+  /** 恢复归档线程。 */
+  restoreThread(threadId: string): Promise<void>
   /** 列出可用的模型。 */
   listModels(threadId: string): Promise<ModelInfo[]>
   /** 设置当前模型。 */

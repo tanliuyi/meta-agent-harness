@@ -80,7 +80,11 @@ describe('cacheWorkerProjectionEvent', () => {
           toolCallId: 'tool-a',
           path: 'README.md',
           changeType: 'updated',
+          diff: '-1 old\n+1 new',
           patch: '@@',
+          additions: 1,
+          deletions: 1,
+          firstChangedLine: 1,
           createdAt: '2026-07-01T00:00:03.000Z'
         }
       }
@@ -109,7 +113,11 @@ describe('cacheWorkerProjectionEvent', () => {
         toolCallId: 'tool-a',
         path: 'README.md',
         changeType: 'updated',
-        patch: '@@'
+        diff: '-1 old\n+1 new',
+        patch: '@@',
+        additions: 1,
+        deletions: 1,
+        firstChangedLine: 1
       }
     ])
     expect(store.listDiagnostics({ threadId: 'thread-a', source: 'worker' })).toMatchObject([

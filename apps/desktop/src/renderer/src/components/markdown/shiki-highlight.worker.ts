@@ -1,3 +1,4 @@
+import { ShikiStreamTokenizer } from '@shikijs/stream'
 import { createHighlighterCore } from 'shiki/core'
 import { createJavaScriptRegexEngine } from 'shiki/engine/javascript'
 import typescript from 'shiki/dist/langs/ts.mjs'
@@ -19,7 +20,7 @@ import go from 'shiki/dist/langs/go.mjs'
 import rust from 'shiki/dist/langs/rust.mjs'
 import githubLight from 'shiki/dist/themes/github-light.mjs'
 import githubDark from 'shiki/dist/themes/github-dark.mjs'
-import type { HighlighterCore } from 'shiki/core'
+import type { HighlighterCore, ThemedToken } from 'shiki/core'
 
 /**
  * Shiki 语法高亮 Worker。
@@ -98,8 +99,22 @@ const themeMap = {
 
 let highlighter: HighlighterCore | undefined
 
-/** 高亮结果缓存：lang + theme + codeHash -> html。 */
-const resultCache = new Map<string, string>()
+export interface HighlightToken {
+  content: string
+  style?: Record<string, string>
+}
+
+export type HighlightTokens = HighlightToken[]
+
+/** 高亮结果缓存：lang + theme + codeHash -> tokens。 */
+const resultCache = new Map<string, HighlightTokens>()
+
+interface StreamSession {
+  code: string
+  tokenizer: ShikiStreamTokenizer
+}
+
+const streamSessions = new Map<string, StreamSession>()
 
 function normalizeLanguage(lang: string | undefined): string {
   const value = (lang ?? '').toLowerCase().trim()
@@ -147,16 +162,93 @@ export interface HighlightJob {
   code: string
   codeHash: string
   theme: string
+  streaming?: boolean
 }
 
 export interface HighlightResponse {
   job: HighlightJob
-  html?: string
+  reset?: boolean
+  recall?: number
+  tokens?: HighlightTokens
   error?: string
 }
 
 function computeCacheKey(lang: string, theme: string, codeHash: string): string {
   return `${lang}:${theme}:${codeHash}`
+}
+
+function computeStreamKey(job: HighlightJob, lang: string, theme: string): string {
+  return `${job.messageId}:${job.blockIndex}:${lang}:${theme}`
+}
+
+function serializeToken(token: ThemedToken): HighlightToken {
+  const style: Record<string, string> = { ...(token.htmlStyle ?? {}) }
+  if (token.color) style.color = token.color
+  if (token.bgColor) style.backgroundColor = token.bgColor
+
+  if (token.fontStyle !== undefined) {
+    if (token.fontStyle & 1) style.fontStyle = 'italic'
+    if (token.fontStyle & 2) style.fontWeight = '700'
+    if (token.fontStyle & 4) style.textDecoration = 'underline'
+  }
+
+  return {
+    content: token.content,
+    style: Object.keys(style).length > 0 ? style : undefined
+  }
+}
+
+function serializeTokens(lines: ThemedToken[][]): HighlightTokens {
+  return lines.flatMap((line, lineIndex) => {
+    const tokens = line.map((token) => serializeToken(token))
+    if (lineIndex < lines.length - 1) {
+      tokens.push({ content: '\n' })
+    }
+    return tokens
+  })
+}
+
+function serializeFlatTokens(tokens: ThemedToken[]): HighlightTokens {
+  return tokens.map((token) => serializeToken(token))
+}
+
+async function highlightStreaming(
+  highlighter: HighlighterCore,
+  job: HighlightJob,
+  lang: string,
+  theme: string
+): Promise<HighlightResponse> {
+  const streamKey = computeStreamKey(job, lang, theme)
+  const existing = streamSessions.get(streamKey)
+  const canAppend = existing && job.code.startsWith(existing.code)
+
+  if (!canAppend) {
+    const tokenizer = new ShikiStreamTokenizer({
+      highlighter,
+      lang,
+      theme
+    })
+    await tokenizer.enqueue(job.code)
+    streamSessions.set(streamKey, { code: job.code, tokenizer })
+    return {
+      job,
+      reset: true,
+      tokens: serializeFlatTokens([...tokenizer.tokensStable, ...tokenizer.tokensUnstable])
+    }
+  }
+
+  const delta = job.code.slice(existing.code.length)
+  if (!delta) {
+    return { job, recall: 0, tokens: [] }
+  }
+
+  const result = await existing.tokenizer.enqueue(delta)
+  existing.code = job.code
+  return {
+    job,
+    recall: result.recall,
+    tokens: serializeFlatTokens([...result.stable, ...result.unstable])
+  }
 }
 
 self.onmessage = async (event: MessageEvent<HighlightJob>) => {
@@ -170,23 +262,32 @@ self.onmessage = async (event: MessageEvent<HighlightJob>) => {
 
     const theme = resolveTheme(job.theme)
     const lang = normalizeLanguage(job.lang)
-    const cacheKey = computeCacheKey(lang, theme, job.codeHash)
-    const cached = resultCache.get(cacheKey)
-    if (cached) {
-      self.postMessage({ job, html: cached } satisfies HighlightResponse)
-      return
-    }
-
     const highlighter = await ensureHighlighter(theme)
     await ensureLanguage(lang)
 
-    const html = highlighter.codeToHtml(job.code, {
-      lang,
-      theme
-    })
+    if (job.streaming) {
+      self.postMessage(await highlightStreaming(highlighter, job, lang, theme))
+      return
+    }
 
-    resultCache.set(cacheKey, html)
-    self.postMessage({ job, html } satisfies HighlightResponse)
+    streamSessions.delete(computeStreamKey(job, lang, theme))
+
+    const cacheKey = computeCacheKey(lang, theme, job.codeHash)
+    const cached = resultCache.get(cacheKey)
+    if (cached) {
+      self.postMessage({ job, reset: true, tokens: cached } satisfies HighlightResponse)
+      return
+    }
+
+    const tokens = serializeTokens(
+      highlighter.codeToTokensBase(job.code, {
+        lang,
+        theme
+      })
+    )
+
+    resultCache.set(cacheKey, tokens)
+    self.postMessage({ job, reset: true, tokens } satisfies HighlightResponse)
   } catch (error) {
     self.postMessage({
       job,

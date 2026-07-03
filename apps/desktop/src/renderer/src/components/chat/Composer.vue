@@ -4,7 +4,7 @@
  */
 
 import type { JSONContent } from '@tiptap/vue-3'
-import { nextTick, ref, watch } from 'vue'
+import { computed, nextTick, ref, watch } from 'vue'
 import { BaseIconButton } from '@renderer/components/base'
 import SendIcon from '@renderer/components/icons/SendIcon.vue'
 import { Command } from '@renderer/components/ui/command'
@@ -28,6 +28,12 @@ type FileReferenceCompletionState = {
   selectedIndex: number
 }
 
+type RunningMessageDelivery = 'steer' | 'followUp'
+
+type ComposerImagePreview = ComposerImageAttachment & {
+  previewSrc: string
+}
+
 const props = withDefaults(
   defineProps<{
     /** Tiptap JSON 草稿。 */
@@ -48,6 +54,8 @@ const props = withDefaults(
     imageError?: string
     /** 是否正在选择/处理图片。 */
     selectingImages?: boolean
+    /** Agent 运行中提交消息时的交付方式。 */
+    runningDelivery?: RunningMessageDelivery
     /** 输入提示。 */
     placeholder?: string
   }>(),
@@ -59,6 +67,7 @@ const props = withDefaults(
     images: () => [],
     imageError: undefined,
     selectingImages: false,
+    runningDelivery: 'steer',
     placeholder: ''
   }
 )
@@ -70,6 +79,8 @@ const emit = defineEmits<{
   'text-change': [value: string]
   /** 发送当前草稿。 */
   submit: []
+  /** 同步运行中消息交付方式。 */
+  'update:runningDelivery': [value: RunningMessageDelivery]
   /** 选择新会话草稿所属 Project。 */
   'select-project': [projectId: string]
   /** 选择图片附件。 */
@@ -97,6 +108,13 @@ const fileReferenceCompletion = ref<FileReferenceCompletionState>({
   candidates: [],
   selectedIndex: 0
 })
+
+const imagePreviews = computed<ComposerImagePreview[]>(() =>
+  props.images.map((image) => ({
+    ...image,
+    previewSrc: `data:${image.mimeType};base64,${image.data}`
+  }))
+)
 
 watch(
   () => [
@@ -228,12 +246,37 @@ function scrollSelectedFileReferenceIntoView(): void {
  * 处理发送/停止图标按钮点击。
  */
 function handleActionClick(): void {
-  if (props.isRunning) {
+  if (props.isRunning && !props.canSend) {
     emit('abort')
     return
   }
-
   emit('submit')
+}
+
+/**
+ * 处理 Composer 范围内的快捷键。
+ * @param event - 键盘事件。
+ */
+function handleComposerKeyDown(event: KeyboardEvent): void {
+  handleFileReferenceKeyDown(event)
+  if (event.defaultPrevented || event.isComposing) {
+    return
+  }
+  if (event.key === 'Escape' && props.isRunning && isEditorFocused.value) {
+    event.preventDefault()
+    event.stopPropagation()
+    emit('abort')
+  }
+}
+
+/**
+ * 处理运行中消息交付方式变化。
+ * @param value - 交付方式。
+ */
+function handleRunningDeliveryChange(value: unknown): void {
+  if (value === 'steer' || value === 'followUp') {
+    emit('update:runningDelivery', value)
+  }
 }
 
 /**
@@ -254,21 +297,11 @@ function handleProjectChange(value: unknown): void {
   emit('select-project', value)
 }
 
-/**
- * 生成图片预览 URL。
- * @param image - 图片附件。
- */
-function getImagePreviewSrc(image: ComposerImageAttachment): string {
-  return `data:${image.mimeType};base64,${image.data}`
-}
 </script>
 
 <template>
-  <div ref="composerShellRef" class="composer-shell" @keydown.capture="handleFileReferenceKeyDown">
-    <Command
-      v-if="fileReferenceCompletion.candidates.length > 0"
-      class="composer__file-completion"
-    >
+  <div ref="composerShellRef" class="composer-shell" @keydown.capture="handleComposerKeyDown">
+    <Command v-if="fileReferenceCompletion.candidates.length > 0" class="composer__file-completion">
       <ScrollArea ref="fileCompletionScrollRef" class="composer__file-completion-scroll">
         <div class="composer__file-completion-list" role="listbox">
           <button
@@ -289,16 +322,16 @@ function getImagePreviewSrc(image: ComposerImageAttachment): string {
       </ScrollArea>
     </Command>
     <form class="composer" @submit.prevent="handleSubmit">
-      <div v-if="images.length > 0" class="composer__images">
-        <div v-for="image in images" :key="image.id" class="composer__image">
-          <img :src="getImagePreviewSrc(image)" :alt="image.name" />
+      <div v-if="imagePreviews.length > 0" class="composer__images">
+        <div v-for="image in imagePreviews" :key="image.id" class="composer__image">
+          <img :src="image.previewSrc" :alt="image.name" />
           <button
             type="button"
             class="composer__image-remove"
             :aria-label="`移除 ${image.name}`"
             @click="emit('remove-image', image.id)"
           >
-            <X :size="14" />
+            <X :size="10" />
           </button>
         </div>
       </div>
@@ -339,12 +372,31 @@ function getImagePreviewSrc(image: ComposerImageAttachment): string {
             </SelectGroup>
           </SelectContent>
         </Select>
+        <Select
+          v-if="isRunning && canSend"
+          :model-value="runningDelivery"
+          @update:model-value="handleRunningDeliveryChange"
+        >
+          <SelectTrigger
+            class="composer__delivery-select"
+            size="sm"
+            aria-label="运行中消息交付方式"
+          >
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectGroup>
+              <SelectItem value="steer">Steer</SelectItem>
+              <SelectItem value="followUp">Follow-up</SelectItem>
+            </SelectGroup>
+          </SelectContent>
+        </Select>
         <BaseIconButton
           type="button"
           size="large"
           class="composer__attach"
           label="添加图片"
-          :disabled="isRunning || selectingImages"
+          :disabled="selectingImages"
           @click="openImagePicker"
         >
           <ImagePlus :size="18" />
@@ -353,13 +405,13 @@ function getImagePreviewSrc(image: ComposerImageAttachment): string {
           type="button"
           size="large"
           class="composer__action"
-          :class="{ 'is-stop': isRunning }"
-          :label="isRunning ? '停止' : '发送'"
-          :disabled="isRunning ? false : !canSend"
+          :class="{ 'is-stop': isRunning && !canSend }"
+          :label="isRunning && !canSend ? '停止' : isRunning ? '发送到队列' : '发送'"
+          :disabled="!isRunning && !canSend"
           @click="handleActionClick"
         >
-          <StopIcon v-if="isRunning" />
-          <SendIcon v-else />
+          <StopIcon v-if="isRunning && !canSend" :size="20" />
+          <SendIcon v-else :size="20" />
         </BaseIconButton>
       </div>
     </form>
@@ -458,11 +510,17 @@ function getImagePreviewSrc(image: ComposerImageAttachment): string {
   flex: 0 1 160px;
 }
 
+.composer__delivery-select {
+  width: 128px;
+  min-width: 0;
+  flex: 0 1 128px;
+}
+
 .composer__image-error {
   min-width: 0;
   margin: 0 auto 0 0;
   color: var(--color-danger);
-  font-size: 12px;
+  font-size: var(--font-size-ui-sm);
   line-height: 1.4;
 }
 
@@ -491,18 +549,32 @@ function getImagePreviewSrc(image: ComposerImageAttachment): string {
 
 .composer__image-remove {
   position: absolute;
-  top: 4px;
-  right: 4px;
+  top: 2px;
+  right: 2px;
   display: grid;
   place-items: center;
-  width: 22px;
-  height: 22px;
+  width: 16px;
+  height: 16px;
   padding: 0;
-  color: var(--color-danger-ink);
-  background: color-mix(in srgb, var(--color-danger) 88%, transparent);
-  border: 1px solid color-mix(in srgb, var(--color-danger) 80%, var(--color-border));
-  border-radius: var(--radius-sm);
+  color: var(--color-text);
+  background: color-mix(in srgb, var(--color-surface) 86%, transparent);
+  border: 1px solid var(--color-border);
+  border-radius: 50%;
+  box-shadow: var(--shadow-sm);
   cursor: pointer;
+  opacity: 0.7;
+  transition:
+    opacity var(--duration-fast) var(--ease-standard),
+    background var(--duration-fast) var(--ease-standard),
+    color var(--duration-fast) var(--ease-standard),
+    border-color var(--duration-fast) var(--ease-standard);
+
+  &:hover {
+    opacity: 1;
+    color: var(--color-danger-ink);
+    background: var(--color-danger);
+    border-color: var(--color-danger);
+  }
 }
 
 .composer__attach {
@@ -523,6 +595,10 @@ function getImagePreviewSrc(image: ComposerImageAttachment): string {
     color: var(--color-danger-ink);
     background: var(--color-danger);
     border-color: var(--color-danger);
+
+    &:hover:not(:disabled) {
+      background: color-mix(in srgb, var(--color-danger) 88%, black);
+    }
   }
 }
 </style>

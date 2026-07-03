@@ -2,24 +2,25 @@
 import { computed } from 'vue'
 import BaseTool from './BaseTool.vue'
 import {
+  getFileName,
   getNumberArg,
   getStringArg,
   getToolArgs,
   getToolResultText,
   isToolError,
   joinSummary,
+  truncateSummary,
   type ToolComponentProps
 } from './tool-message'
 
 const props = defineProps<ToolComponentProps>()
 
 const args = computed(() => getToolArgs(props.toolCall))
+const pattern = computed(() => truncateSummary(getStringArg(args.value, 'pattern'), 64))
+const target = computed(() => getFileName(getStringArg(args.value, 'path')))
+const limit = computed(() => getNumberArg(args.value, 'limit'))
 const summary = computed(() =>
-  joinSummary([
-    getStringArg(args.value, 'pattern'),
-    getStringArg(args.value, 'path'),
-    getNumberArg(args.value, 'limit') ? `limit=${getNumberArg(args.value, 'limit')}` : undefined
-  ])
+  joinSummary([pattern.value, target.value, limit.value ? `limit=${limit.value}` : undefined])
 )
 const result = computed(() => getToolResultText(props.message, props.toolCall))
 const isError = computed(() => isToolError(props.message, props.toolCall))
@@ -27,5 +28,23 @@ const status = computed(() => props.toolCall?.status)
 </script>
 
 <template>
-  <BaseTool name="Find" :summary="summary" :result="result" :status="status" :is-error="isError" />
+  <BaseTool name="已查找" :summary="summary" :result="result" :status="status" :is-error="isError">
+    <template #summary>
+      <span v-if="pattern" class="find-tool__pattern">{{ pattern }}</span>
+      <span v-if="target" class="find-tool__target">{{ target }}</span>
+      <span v-if="limit" class="find-tool__meta">limit={{ limit }}</span>
+      <span v-if="!pattern && summary">{{ summary }}</span>
+    </template>
+  </BaseTool>
 </template>
+
+<style lang="scss" scoped>
+.find-tool__pattern {
+  color: var(--color-info);
+}
+
+.find-tool__target,
+.find-tool__meta {
+  color: var(--color-text-subtle);
+}
+</style>

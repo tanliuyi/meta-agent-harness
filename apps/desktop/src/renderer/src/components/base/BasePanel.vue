@@ -64,7 +64,7 @@ withDefaults(
 .base-panel__eyebrow {
   margin: 0;
   color: var(--color-primary);
-  font-size: 10px;
+  font-size: var(--font-size-ui-2xs);
   font-weight: 750;
   text-transform: uppercase;
 }
@@ -73,7 +73,7 @@ withDefaults(
   margin: 0;
   overflow: hidden;
   color: var(--color-text);
-  font-size: 13px;
+  font-size: var(--font-size-ui);
   line-height: 1.25;
   text-overflow: ellipsis;
   white-space: nowrap;

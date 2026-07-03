@@ -37,6 +37,10 @@ export const codingAgentChannels = {
   selectPromptImages: 'coding-agent:select-prompt-images',
   /** 暂存并处理 prompt 图片附件。 */
   stagePromptImages: 'coding-agent:stage-prompt-images',
+  /** 选择资源路径。 */
+  selectResourcePath: 'coding-agent:select-resource-path',
+  /** 在系统资源管理器中显示资源路径。 */
+  revealResourcePath: 'coding-agent:reveal-resource-path',
   /** 补全 prompt 中的 Pi @file 文件引用。 */
   completeFileReference: 'coding-agent:complete-file-reference',
   /** 中止线程当前运行。 */
@@ -59,6 +63,8 @@ export const codingAgentChannels = {
   renameThread: 'coding-agent:rename-thread',
   /** 归档线程。 */
   archiveThread: 'coding-agent:archive-thread',
+  /** 恢复归档线程。 */
+  restoreThread: 'coding-agent:restore-thread',
   /** 列出可用的模型。 */
   listModels: 'coding-agent:list-models',
   /** 设置当前模型。 */

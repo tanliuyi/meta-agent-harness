@@ -29,9 +29,9 @@ let isInitialized = false
 
 /** 可供用户选择的主题选项。 */
 const themeOptions: Array<{ label: string; value: ThemeMode }> = [
+  { label: '跟随系统', value: 'system' },
   { label: '浅色', value: 'light' },
-  { label: '深色', value: 'dark' },
-  { label: '系统', value: 'system' }
+  { label: '深色', value: 'dark' }
 ]
 
 /** 根据当前模式解析出的最终主题。 */

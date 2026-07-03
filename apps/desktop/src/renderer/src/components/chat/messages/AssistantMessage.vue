@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { computed } from 'vue'
 import type { RenderableThreadMessage } from './renderable-message'
 import { getMessageText } from './message-format'
 import StreamingMarkdown from '../../markdown/StreamingMarkdown.vue'
@@ -7,12 +8,14 @@ const props = defineProps<{
   message: RenderableThreadMessage
   text?: string
 }>()
+
+const source = computed(() => props.text ?? getMessageText(props.message) ?? '')
 </script>
 
 <template>
   <div class="assistant-message">
     <StreamingMarkdown
-      :source="props.text ?? getMessageText(message) ?? ''"
+      :source="source"
       :revision="message.revision"
       :is-streaming="message.renderState === 'streaming'"
       :message-id="message.id"
@@ -29,7 +32,7 @@ const props = defineProps<{
   // border-radius: var(--radius-md);
   // box-shadow: var(--shadow-sm);
   color: var(--color-text);
-  font-size: 13px;
-  line-height: 1.55;
+  font-size: var(--font-size-ui);
+  line-height: 1.6;
 }
 </style>

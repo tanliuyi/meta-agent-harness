@@ -8,6 +8,17 @@ import { codingAgentChannels } from '@shared/coding-agent/channels'
 import { unwrapIpcResult } from '@shared/coding-agent/ipc-contract'
 
 /**
+ * 窗口控制 API 类型。
+ */
+interface WindowControlApi {
+  minimize: () => Promise<void>
+  maximize: () => Promise<void>
+  close: () => Promise<void>
+  isMaximized: () => Promise<boolean>
+  platform: () => Promise<NodeJS.Platform>
+}
+
+/**
  * 调用 main IPC 并解包结构化结果。
  * @param channel - IPC channel。
  * @param args - 参数。
@@ -39,6 +50,8 @@ const codingAgent: CodingAgentApi = {
   followUp: (input) => invokeCodingAgent(codingAgentChannels.followUp, input),
   selectPromptImages: () => invokeCodingAgent(codingAgentChannels.selectPromptImages),
   stagePromptImages: (images) => invokeCodingAgent(codingAgentChannels.stagePromptImages, images),
+  selectResourcePath: (input) => invokeCodingAgent(codingAgentChannels.selectResourcePath, input),
+  revealResourcePath: (input) => invokeCodingAgent(codingAgentChannels.revealResourcePath, input),
   completeFileReference: (input) =>
     invokeCodingAgent(codingAgentChannels.completeFileReference, input),
   abort: (threadId) => invokeCodingAgent(codingAgentChannels.abort, threadId),
@@ -51,6 +64,7 @@ const codingAgent: CodingAgentApi = {
   setThreadTitle: (input) => invokeCodingAgent(codingAgentChannels.setThreadTitle, input),
   renameThread: (input) => invokeCodingAgent(codingAgentChannels.renameThread, input),
   archiveThread: (threadId) => invokeCodingAgent(codingAgentChannels.archiveThread, threadId),
+  restoreThread: (threadId) => invokeCodingAgent(codingAgentChannels.restoreThread, threadId),
   listModels: (threadId) => invokeCodingAgent(codingAgentChannels.listModels, threadId),
   setModel: (input) => invokeCodingAgent(codingAgentChannels.setModel, input),
   cycleModel: (threadId) => invokeCodingAgent(codingAgentChannels.cycleModel, threadId),
@@ -92,10 +106,18 @@ const codingAgent: CodingAgentApi = {
   }
 }
 
+const windowControl: WindowControlApi = {
+  minimize: () => ipcRenderer.invoke('window:minimize'),
+  maximize: () => ipcRenderer.invoke('window:maximize'),
+  close: () => ipcRenderer.invoke('window:close'),
+  isMaximized: () => ipcRenderer.invoke('window:isMaximized'),
+  platform: () => ipcRenderer.invoke('window:platform')
+}
+
 /**
  * 注入到 window 的受控 API 集合。
  */
-const api = { codingAgent }
+const api = { codingAgent, windowControl }
 
 if (process.contextIsolated) {
   try {

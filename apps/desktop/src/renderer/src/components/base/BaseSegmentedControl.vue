@@ -65,7 +65,7 @@ defineEmits<{
   border: 0;
   border-radius: var(--radius-xs);
   cursor: pointer;
-  font-size: 11px;
+  font-size: var(--font-size-ui-xs);
   font-weight: 700;
   transition:
     color var(--duration-fast) var(--ease-standard),

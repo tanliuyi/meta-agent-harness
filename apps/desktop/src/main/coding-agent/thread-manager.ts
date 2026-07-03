@@ -44,7 +44,13 @@ import type {
   UpsertCustomProviderInput
 } from '@shared/coding-agent/types'
 import { abort, followUp, prompt, runCommand, steer } from './thread-agent-commands'
-import { archiveThread, createThread, restartThread, stopThread } from './thread-lifecycle'
+import {
+  archiveThread,
+  createThread,
+  restartThread,
+  restoreThread,
+  stopThread
+} from './thread-lifecycle'
 import {
   cycleModel,
   cycleThinkingLevel,
@@ -272,6 +278,14 @@ export class CodingThreadManager extends ThreadManagerCore {
    */
   archiveThread(threadId: string): Promise<void> {
     return archiveThread(this, threadId)
+  }
+
+  /**
+   * 恢复归档线程。
+   * @param threadId - 线程 ID。
+   */
+  restoreThread(threadId: string): Promise<void> {
+    return restoreThread(this, threadId)
   }
 
   /**

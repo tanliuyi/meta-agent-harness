@@ -20,6 +20,7 @@ const id = useId()
 const isRender = computed(() =>
   !filterState.search ? true : filterState.filtered.groups.has(id)
 )
+const rootClass = computed(() => cn('text-foreground overflow-hidden p-1', props.class))
 
 provideCommandGroupContext({ id })
 
@@ -39,7 +40,7 @@ onUnmounted(() => {
     v-bind="delegatedProps"
     :id="id"
     data-slot="command-group"
-    :class="cn('text-foreground overflow-hidden p-1', props.class)"
+    :class="rootClass"
     :hidden="isRender ? undefined : true"
   >
     <ListboxGroupLabel

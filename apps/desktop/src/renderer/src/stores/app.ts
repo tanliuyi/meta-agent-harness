@@ -6,11 +6,27 @@ import { defineStore } from 'pinia'
 
 /**
  * 应用级 Store。
- * 提供应用名称等全局基础状态。
+ * 提供应用名称、运行平台等全局基础状态。
  */
 export const useAppStore = defineStore('app', {
   state: () => ({
     /** 应用名称。 */
-    name: 'Meta Agent'
-  })
+    name: 'Meta Agent',
+
+    /** 当前运行平台。 */
+    platform: null as string | null
+  }),
+  getters: {
+    /** 是否运行在 macOS。 */
+    isMac: (state) => state.platform === 'darwin'
+  },
+  actions: {
+    /**
+     * 初始化 renderer 运行时基础信息。
+     */
+    async initializeRuntime(): Promise<void> {
+      if (this.platform) return
+      this.platform = await window.api.windowControl.platform()
+    }
+  }
 })

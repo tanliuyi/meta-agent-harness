@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { BaseButton, BasePanel } from '@renderer/components/base'
+import { SettingsSelectField } from '@renderer/views/settings/components/form'
 import useModelSettingsStore from '@renderer/stores/model-settings'
 import { Save } from 'lucide-vue-next'
 import { computed } from 'vue'
@@ -16,6 +17,26 @@ const selectedModelMissing = computed(() => {
   const { provider, modelId } = modelSettings.draft.defaultModel
   return Boolean(provider && modelId && !modelSettings.selectedModel)
 })
+
+const providerModel = computed({
+  get: () => modelSettings.draft.defaultModel.provider,
+  set: (provider: string) => modelSettings.updateDefaultProvider(provider)
+})
+
+const modelIdModel = computed({
+  get: () => modelSettings.draft.defaultModel.modelId,
+  set: (modelId: string) => modelSettings.updateDefaultModel(modelId)
+})
+
+const providerOptions = computed(() =>
+  modelSettings.providers.map((provider) => ({ label: provider, value: provider }))
+)
+
+const modelOptions = computed(() =>
+  modelSettings.models
+    .filter((item) => item.provider === modelSettings.draft.defaultModel.provider)
+    .map((model) => ({ label: model.displayName ?? model.id, value: model.id }))
+)
 </script>
 
 <template>
@@ -27,6 +48,7 @@ const selectedModelMissing = computed(() => {
         <p class="models-page__subtitle">只保存新建 thread 默认使用的 provider 和 model。</p>
       </div>
       <BaseButton
+        size="sm"
         variant="primary"
         :disabled="!modelSettings.canSaveDefaultModel"
         @click="modelSettings.saveDefaultModel"
@@ -48,39 +70,20 @@ const selectedModelMissing = computed(() => {
       </div>
 
       <div class="form-grid">
-        <label class="select-field">
-          <span>Provider</span>
-          <select
-            :value="modelSettings.draft.defaultModel.provider"
-            :disabled="modelSettings.providers.length === 0"
-            @change="modelSettings.updateDefaultProvider(($event.target as HTMLSelectElement).value)"
-          >
-            <option value="">选择 provider</option>
-            <option v-for="provider in modelSettings.providers" :key="provider" :value="provider">
-              {{ provider }}
-            </option>
-          </select>
-        </label>
-
-        <label class="select-field">
-          <span>Model</span>
-          <select
-            :value="modelSettings.draft.defaultModel.modelId"
-            :disabled="!modelSettings.draft.defaultModel.provider"
-            @change="modelSettings.updateDefaultModel(($event.target as HTMLSelectElement).value)"
-          >
-            <option value="">选择 model</option>
-            <option
-              v-for="model in modelSettings.models.filter(
-                (item) => item.provider === modelSettings.draft.defaultModel.provider
-              )"
-              :key="model.id"
-              :value="model.id"
-            >
-              {{ model.displayName ?? model.id }}
-            </option>
-          </select>
-        </label>
+        <SettingsSelectField
+          v-model="providerModel"
+          label="Provider"
+          placeholder="选择 provider"
+          :disabled="modelSettings.providers.length === 0"
+          :options="providerOptions"
+        />
+        <SettingsSelectField
+          v-model="modelIdModel"
+          label="模型 Model"
+          placeholder="选择 model"
+          :disabled="!modelSettings.draft.defaultModel.provider"
+          :options="modelOptions"
+        />
       </div>
 
       <p v-if="selectedModelMissing" class="warning-copy">当前配置的模型不在可用模型列表中。</p>

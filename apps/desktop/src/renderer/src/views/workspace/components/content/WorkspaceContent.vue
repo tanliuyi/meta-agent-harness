@@ -142,7 +142,7 @@ const {
 .workspace-content__session-header {
   min-width: 0;
   min-height: 0;
-  border-bottom: 1px solid var(--color-border);
+  border-bottom: 1px solid var(--color-border-muted);
 }
 
 .workspace-content__chat,
@@ -167,7 +167,6 @@ const {
   align-items: center;
   width: auto;
   height: var(--session-header-height);
-  pointer-events: none;
 }
 
 .workspace-content__session-panel-resizer {

@@ -85,6 +85,7 @@ export function confirm(request: ConfirmDialogRequest): Promise<ConfirmDialogRes
     queue.value = [
       ...queue.value,
       {
+        actions: request.actions,
         cancelText: request.cancelText ?? DEFAULT_CANCEL_TEXT,
         confirmText: request.confirmText ?? DEFAULT_CONFIRM_TEXT,
         description: request.description,

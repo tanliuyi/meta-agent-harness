@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import type { SelectScrollDownButtonProps } from 'reka-ui'
 import type { HTMLAttributes } from 'vue'
+import { computed } from 'vue'
 import { ChevronDown } from '@lucide/vue'
 import { reactiveOmit } from '@vueuse/core'
 import { SelectScrollDownButton, useForwardProps } from 'reka-ui'
@@ -11,13 +12,16 @@ const props = defineProps<SelectScrollDownButtonProps & { class?: HTMLAttributes
 const delegatedProps = reactiveOmit(props, 'class')
 
 const forwardedProps = useForwardProps(delegatedProps)
+const rootClass = computed(() =>
+  cn('flex cursor-default items-center justify-center py-1', props.class)
+)
 </script>
 
 <template>
   <SelectScrollDownButton
     data-slot="select-scroll-down-button"
     v-bind="forwardedProps"
-    :class="cn('flex cursor-default items-center justify-center py-1', props.class)"
+    :class="rootClass"
   >
     <slot>
       <ChevronDown class="size-4" />

@@ -2,6 +2,7 @@
 import { BaseBadge, BasePanel } from '@renderer/components/base'
 import useModelSettingsStore, { type DiagnosticSeverity } from '@renderer/stores/model-settings'
 import { AlertTriangle, CheckCircle2, SlidersHorizontal } from 'lucide-vue-next'
+import { computed } from 'vue'
 
 const modelSettings = useModelSettingsStore()
 
@@ -10,6 +11,22 @@ const severityLabels: Record<DiagnosticSeverity, string> = {
   warning: '警告',
   error: '错误'
 }
+
+type DiagnosticListItem = {
+  diagnostic: (typeof modelSettings.diagnostics)[number]
+  tone: 'neutral' | 'success' | 'warning' | 'info'
+  severityLabel: string
+  isInfo: boolean
+}
+
+const diagnosticItems = computed<DiagnosticListItem[]>(() =>
+  modelSettings.diagnostics.map((diagnostic) => ({
+    diagnostic,
+    tone: badgeToneForSeverity(diagnostic.severity),
+    severityLabel: severityLabels[diagnostic.severity],
+    isInfo: diagnostic.severity === 'info'
+  }))
+)
 
 function badgeToneForSeverity(
   severity: DiagnosticSeverity
@@ -30,18 +47,18 @@ function badgeToneForSeverity(
     </header>
 
     <BasePanel title="诊断信息" eyebrow="Read only">
-      <ul v-if="modelSettings.diagnostics.length > 0" class="plain-list">
-        <li v-for="diagnostic in modelSettings.diagnostics" :key="diagnostic.id">
+      <ul v-if="diagnosticItems.length > 0" class="plain-list">
+        <li v-for="item in diagnosticItems" :key="item.diagnostic.id">
           <div>
             <strong>
-              <AlertTriangle v-if="diagnostic.severity !== 'info'" :size="14" />
+              <AlertTriangle v-if="!item.isInfo" :size="14" />
               <CheckCircle2 v-else :size="14" />
-              {{ diagnostic.message }}
+              {{ item.diagnostic.message }}
             </strong>
-            <span>{{ diagnostic.details ?? diagnostic.source }}</span>
+            <span>{{ item.diagnostic.details ?? item.diagnostic.source }}</span>
           </div>
-          <BaseBadge :tone="badgeToneForSeverity(diagnostic.severity)">
-            {{ severityLabels[diagnostic.severity] }}
+          <BaseBadge :tone="item.tone">
+            {{ item.severityLabel }}
           </BaseBadge>
         </li>
       </ul>

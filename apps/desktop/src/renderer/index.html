@@ -27,6 +27,48 @@
           document.documentElement.dataset.themeMode = themeMode
           document.documentElement.dataset.theme = resolvedTheme
           document.documentElement.style.colorScheme = resolvedTheme
+
+          const uiFontSize = Number(window.localStorage.getItem('meta-agent.ui-font-size'))
+          const codeFontSize = Number(window.localStorage.getItem('meta-agent.code-font-size'))
+          const normalizedUiFontSize = Number.isFinite(uiFontSize)
+            ? Math.min(16, Math.max(11, Math.round(uiFontSize)))
+            : 13
+          const normalizedCodeFontSize = Number.isFinite(codeFontSize)
+            ? Math.min(18, Math.max(11, Math.round(codeFontSize)))
+            : 12
+
+          document.documentElement.style.setProperty(
+            '--font-size-ui',
+            `${normalizedUiFontSize}px`
+          )
+          document.documentElement.style.setProperty(
+            '--font-size-ui-2xs',
+            `${normalizedUiFontSize - 3}px`
+          )
+          document.documentElement.style.setProperty(
+            '--font-size-ui-xs',
+            `${normalizedUiFontSize - 2}px`
+          )
+          document.documentElement.style.setProperty(
+            '--font-size-ui-sm',
+            `${normalizedUiFontSize - 1}px`
+          )
+          document.documentElement.style.setProperty(
+            '--font-size-ui-lg',
+            `${normalizedUiFontSize + 2}px`
+          )
+          document.documentElement.style.setProperty(
+            '--font-size-ui-xl',
+            `${normalizedUiFontSize + 7}px`
+          )
+          document.documentElement.style.setProperty(
+            '--font-size-ui-2xl',
+            `${normalizedUiFontSize + 9}px`
+          )
+          document.documentElement.style.setProperty(
+            '--font-size-code',
+            `${normalizedCodeFontSize}px`
+          )
         } catch {
           document.documentElement.dataset.theme = 'dark'
           document.documentElement.style.colorScheme = 'dark'

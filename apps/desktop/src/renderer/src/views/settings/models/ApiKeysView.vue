@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { BaseButton, BaseField, BasePanel } from '@renderer/components/base'
+import { SettingsSelectField } from '@renderer/views/settings/components/form'
 import useModelSettingsStore from '@renderer/stores/model-settings'
 import { KeyRound, Save } from 'lucide-vue-next'
 import { computed, ref } from 'vue'
@@ -15,6 +16,10 @@ const providerCredentialSummary = computed(() => {
   const missing = modelSettings.credentialStatuses.filter((item) => item.status === 'missing').length
   return missing > 0 ? `${missing} 个 provider 缺少凭据` : '凭据状态正常'
 })
+
+const providerOptions = computed(() =>
+  modelSettings.providers.map((provider) => ({ label: provider, value: provider }))
+)
 
 async function saveProviderApiKey(): Promise<void> {
   await modelSettings.setProviderApiKey({
@@ -33,7 +38,7 @@ async function saveProviderApiKey(): Promise<void> {
         <h1 class="models-page__title">API Key</h1>
         <p class="models-page__subtitle">只保存 provider 凭据到 Pi-compatible auth.json。</p>
       </div>
-      <BaseButton variant="primary" :disabled="modelSettings.saving" @click="saveProviderApiKey">
+      <BaseButton size="sm" variant="primary" :disabled="modelSettings.saving" @click="saveProviderApiKey">
         <template #icon>
           <Save :size="14" />
         </template>
@@ -51,15 +56,12 @@ async function saveProviderApiKey(): Promise<void> {
       <p class="muted-copy">保存后不回显明文；Pi CLI 与 Desktop 使用同一份 auth.json。</p>
 
       <div class="api-key-form">
-        <label class="select-field">
-          <span>Provider</span>
-          <select v-model="apiKeyDraft.provider">
-            <option value="">选择 provider</option>
-            <option v-for="provider in modelSettings.providers" :key="provider" :value="provider">
-              {{ provider }}
-            </option>
-          </select>
-        </label>
+        <SettingsSelectField
+          v-model="apiKeyDraft.provider"
+          label="Provider"
+          placeholder="选择 provider"
+          :options="providerOptions"
+        />
         <BaseField
           id="provider-api-key"
           v-model="apiKeyDraft.key"

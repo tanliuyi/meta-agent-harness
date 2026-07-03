@@ -13,6 +13,7 @@
 - [05. 状态存储](05-state-storage.md)
 - [06. 第一期验收规格](06-phase-one-acceptance.md)
 - [07. Project / Workspace](07-project-workspace.md)
+- [08. Desktop Tool Groups PRD / Spec](08-tool-groups.md)
 
 ## 分层关系
 

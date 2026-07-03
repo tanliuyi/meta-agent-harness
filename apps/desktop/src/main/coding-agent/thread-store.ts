@@ -4,7 +4,12 @@
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
-import type { ApprovalRequest, ApprovalResponse, ThreadSummary } from '@shared/coding-agent/types'
+import type {
+  ApprovalRequest,
+  ApprovalResponse,
+  ListThreadsInput,
+  ThreadSummary
+} from '@shared/coding-agent/types'
 import { getAgentDir } from '../../../../../packages/coding-agent/src/config'
 
 /** Thread metadata 文件结构。 */
@@ -33,7 +38,11 @@ export interface FileChangeRecord {
   toolCallId?: string
   path: string
   changeType: string
+  diff?: string
   patch?: string
+  additions?: number
+  deletions?: number
+  firstChangedLine?: number
   createdAt?: string
 }
 
@@ -116,9 +125,11 @@ export class CodingThreadStore {
    * @param input - 可选过滤条件。
    * @returns 线程摘要列表，按 updated_at 降序。
    */
-  listThreads(input: { projectId?: string } = {}): ThreadSummary[] {
+  listThreads(input: ListThreadsInput = {}): ThreadSummary[] {
+    const includeArchived = input.archived === true
     return [...this.threads.values()]
       .filter((thread) => !input.projectId || thread.projectId === input.projectId)
+      .filter((thread) => Boolean(thread.archivedAt) === includeArchived)
       .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))
   }
 

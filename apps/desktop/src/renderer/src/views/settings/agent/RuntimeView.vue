@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { BaseButton, BasePanel } from '@renderer/components/base'
+import { SettingsSwitchField, SettingsTextField } from '@renderer/views/settings/components/form'
 import useAgentSettingsStore from '@renderer/stores/agent-settings'
 import { Save } from 'lucide-vue-next'
 
@@ -14,7 +15,7 @@ const agentSettings = useAgentSettingsStore()
         <h1 class="agent-page__title">运行时</h1>
         <p class="agent-page__subtitle">只保存压缩、摘要、重试和连接 timeout。</p>
       </div>
-      <BaseButton variant="primary" :disabled="!agentSettings.canSave" @click="agentSettings.saveRuntime">
+      <BaseButton size="sm" variant="primary" :disabled="!agentSettings.canSave" @click="agentSettings.saveRuntime">
         <template #icon><Save :size="14" /></template>
         保存运行时
       </BaseButton>
@@ -24,70 +25,34 @@ const agentSettings = useAgentSettingsStore()
 
     <BasePanel v-if="agentSettings.draft" title="运行时" eyebrow="Runtime">
       <div class="switch-list">
-        <label class="switch-row">
-          <input v-model="agentSettings.draft.runtime.compactionEnabled" type="checkbox" />
-          <span>
-            <strong>自动上下文压缩</strong>
-            <small>接近上下文窗口时自动 compact。</small>
-          </span>
-        </label>
-        <label class="switch-row">
-          <input v-model="agentSettings.draft.runtime.retryEnabled" type="checkbox" />
-          <span>
-            <strong>自动重试</strong>
-            <small>网络或 provider transient error 自动重试。</small>
-          </span>
-        </label>
-        <label class="switch-row">
-          <input v-model="agentSettings.draft.runtime.branchSummarySkipPrompt" type="checkbox" />
-          <span>
-            <strong>跳过分支摘要提示</strong>
-            <small>/tree navigation 时默认不询问 branch summary。</small>
-          </span>
-        </label>
+        <SettingsSwitchField
+          v-model="agentSettings.draft.runtime.compactionEnabled"
+          title="自动上下文压缩"
+          description="接近上下文窗口时自动 compact。"
+        />
+        <SettingsSwitchField
+          v-model="agentSettings.draft.runtime.retryEnabled"
+          title="自动重试"
+          description="网络或 provider transient error 自动重试。"
+        />
+        <SettingsSwitchField
+          v-model="agentSettings.draft.runtime.branchSummarySkipPrompt"
+          title="跳过分支摘要提示"
+          description="/tree navigation 时默认不询问 branch summary。"
+        />
       </div>
 
-      <div class="form-grid compact-grid" style="margin-top: var(--space-4)">
-        <label class="number-field">
-          <span>HTTP idle timeout</span>
-          <input v-model.number="agentSettings.draft.runtime.httpIdleTimeoutMs" min="0" step="1000" type="number" />
-        </label>
-        <label class="number-field">
-          <span>Compaction reserve tokens</span>
-          <input v-model.number="agentSettings.draft.runtime.compactionReserveTokens" min="0" type="number" />
-        </label>
-        <label class="number-field">
-          <span>Keep recent tokens</span>
-          <input v-model.number="agentSettings.draft.runtime.compactionKeepRecentTokens" min="0" type="number" />
-        </label>
-        <label class="number-field">
-          <span>Branch summary reserve</span>
-          <input v-model.number="agentSettings.draft.runtime.branchSummaryReserveTokens" min="0" type="number" />
-        </label>
-        <label class="number-field">
-          <span>Retry max attempts</span>
-          <input v-model.number="agentSettings.draft.runtime.retryMaxRetries" min="0" type="number" />
-        </label>
-        <label class="number-field">
-          <span>Retry base delay ms</span>
-          <input v-model.number="agentSettings.draft.runtime.retryBaseDelayMs" min="0" type="number" />
-        </label>
-        <label class="number-field">
-          <span>WebSocket connect timeout</span>
-          <input v-model.number="agentSettings.draft.runtime.websocketConnectTimeoutMs" min="0" type="number" />
-        </label>
-        <label class="number-field">
-          <span>Provider timeout ms</span>
-          <input v-model.number="agentSettings.draft.runtime.providerRetryTimeoutMs" min="0" type="number" />
-        </label>
-        <label class="number-field">
-          <span>Provider max retries</span>
-          <input v-model.number="agentSettings.draft.runtime.providerRetryMaxRetries" min="0" type="number" />
-        </label>
-        <label class="number-field">
-          <span>Provider retry delay cap</span>
-          <input v-model.number="agentSettings.draft.runtime.providerRetryMaxRetryDelayMs" min="0" type="number" />
-        </label>
+      <div class="form-grid compact-grid">
+        <SettingsTextField v-model="agentSettings.draft.runtime.httpIdleTimeoutMs" label="HTTP 空闲超时 HTTP idle timeout" type="number" :min="0" :step="1000" />
+        <SettingsTextField v-model="agentSettings.draft.runtime.compactionReserveTokens" label="压缩预留 token Compaction reserve tokens" type="number" :min="0" />
+        <SettingsTextField v-model="agentSettings.draft.runtime.compactionKeepRecentTokens" label="保留最近 token Keep recent tokens" type="number" :min="0" />
+        <SettingsTextField v-model="agentSettings.draft.runtime.branchSummaryReserveTokens" label="分支摘要预留 Branch summary reserve" type="number" :min="0" />
+        <SettingsTextField v-model="agentSettings.draft.runtime.retryMaxRetries" label="最大重试次数 Retry max attempts" type="number" :min="0" />
+        <SettingsTextField v-model="agentSettings.draft.runtime.retryBaseDelayMs" label="重试基础延迟 Retry base delay ms" type="number" :min="0" />
+        <SettingsTextField v-model="agentSettings.draft.runtime.websocketConnectTimeoutMs" label="WebSocket 连接超时 WebSocket connect timeout" type="number" :min="0" />
+        <SettingsTextField v-model="agentSettings.draft.runtime.providerRetryTimeoutMs" label="Provider 超时 Provider timeout ms" type="number" :min="0" />
+        <SettingsTextField v-model="agentSettings.draft.runtime.providerRetryMaxRetries" label="Provider 最大重试 Provider max retries" type="number" :min="0" />
+        <SettingsTextField v-model="agentSettings.draft.runtime.providerRetryMaxRetryDelayMs" label="Provider 重试延迟上限 Provider retry delay cap" type="number" :min="0" />
       </div>
     </BasePanel>
   </div>

@@ -1,8 +1,9 @@
 <script setup lang="ts">
-import { computed, inject, onMounted, ref, watch } from 'vue'
+import { computed, inject, markRaw, onMounted, ref, shallowRef, triggerRef, watch } from 'vue'
 import type { Ref } from 'vue'
 import ScrollArea from '@/components/ui/scroll-area/ScrollArea.vue'
 import { shikiHighlightService } from './shiki-highlight-service'
+import type { HighlightTokens } from './shiki-highlight.worker'
 import { MarkdownContextKey, type StreamingMarkdownContext } from './markdown-context'
 
 /**
@@ -29,7 +30,7 @@ const props = defineProps<{
 
 const context = inject<Ref<StreamingMarkdownContext>>(MarkdownContextKey)!
 
-const highlightedHtml = ref<string>()
+const highlightedTokens = shallowRef<HighlightTokens>()
 const isLoading = ref(false)
 const needsRetry = ref(false)
 const blockId = Math.random().toString(36).slice(2)
@@ -40,9 +41,26 @@ const language = computed(() => props.node.language || '')
 function shouldHighlight(): boolean {
   const ctx = context.value
   if (!ctx.messageId) return false
-  if (ctx.isStreaming && props.node.loading) return false
   if (!code.value) return false
   return true
+}
+
+function applyHighlightResult(
+  result: Awaited<ReturnType<typeof shikiHighlightService.highlight>>
+): void {
+  if (!result) return
+  if (result.reset || !highlightedTokens.value) {
+    highlightedTokens.value = markRaw(result.tokens)
+    return
+  }
+
+  if (result.recall > 0) {
+    highlightedTokens.value.splice(Math.max(0, highlightedTokens.value.length - result.recall))
+  }
+  if (result.tokens.length > 0) {
+    highlightedTokens.value.push(...result.tokens)
+  }
+  triggerRef(highlightedTokens)
 }
 
 async function requestHighlight(): Promise<void> {
@@ -57,6 +75,7 @@ async function requestHighlight(): Promise<void> {
   const expectedMessageId = ctx.messageId
   const expectedTheme = ctx.theme
   const expectedCode = code.value
+  const expectedStreaming = ctx.isStreaming
 
   isLoading.value = true
   needsRetry.value = false
@@ -67,17 +86,22 @@ async function requestHighlight(): Promise<void> {
       blockIndex: blockId,
       lang: language.value,
       code: expectedCode,
-      theme: expectedTheme
+      theme: expectedTheme,
+      streaming: expectedStreaming
     })
 
     if (!result) return
     // 过期结果丢弃：检查消息是否仍在当前版本且未被替换。
     if (context.value.messageId !== expectedMessageId) return
-    if (context.value.revision !== expectedRevision) return
     if (context.value.theme !== expectedTheme) return
-    if (code.value !== expectedCode) return
+    if (expectedStreaming) {
+      if (!code.value.startsWith(expectedCode)) return
+    } else if (code.value !== expectedCode) {
+      return
+    }
+    if (!expectedStreaming && context.value.revision !== expectedRevision) return
 
-    highlightedHtml.value = result.html
+    applyHighlightResult(result)
   } finally {
     isLoading.value = false
     const shouldRetry =
@@ -96,11 +120,12 @@ onMounted(() => {
 })
 
 watch(
-  () => [context.value.isStreaming, context.value.theme, code.value, props.node.loading],
+  () => [context.value.isStreaming, context.value.theme, code.value, language.value],
   () => {
-    highlightedHtml.value = undefined
     if (shouldHighlight()) {
       requestHighlight()
+    } else {
+      highlightedTokens.value = undefined
     }
   },
   { flush: 'post' }
@@ -113,11 +138,8 @@ watch(
       <span class="streaming-code-block__lang">{{ language }}</span>
     </div>
     <ScrollArea scrollbars="horizontal" class="streaming-code-block__scroll">
-      <div
-        v-if="highlightedHtml"
-        class="streaming-code-block__highlight"
-        v-html="highlightedHtml"
-      />
+      <!-- prettier-ignore -->
+      <pre v-if="highlightedTokens" class="streaming-code-block__highlight"><code><span v-for="(token, tokenIndex) in highlightedTokens" :key="tokenIndex" class="streaming-code-block__token" :style="token.style">{{ token.content }}</span></code></pre>
       <pre v-else class="streaming-code-block__pre"><code>{{ code }}</code></pre>
     </ScrollArea>
   </div>
@@ -126,7 +148,7 @@ watch(
 <style lang="scss" scoped>
 .streaming-code-block {
   position: relative;
-  margin: var(--space-2) 0;
+  margin: var(--message-markdown-code-gap, var(--message-markdown-block-gap, var(--space-2))) 0;
   background: var(--color-canvas);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-md);
@@ -139,7 +161,7 @@ watch(
   justify-content: space-between;
   padding: var(--space-1) var(--space-2);
   color: var(--color-text-muted);
-  font-size: 11px;
+  font-size: var(--font-size-ui-sm);
   font-family: var(--font-mono);
   background: color-mix(in srgb, var(--color-surface) 86%, transparent);
   border-bottom: 1px solid var(--color-border);
@@ -163,10 +185,11 @@ watch(
   padding: var(--space-2) var(--space-3);
 }
 
-.streaming-code-block__pre {
+.streaming-code-block__pre,
+.streaming-code-block__highlight {
   margin: 0;
   font-family: var(--font-mono);
-  font-size: 12px;
+  font-size: var(--font-size-code);
   line-height: 1.55;
   white-space: pre;
   word-break: normal;
@@ -180,26 +203,19 @@ watch(
 }
 
 .streaming-code-block__highlight {
-  font-size: 12px;
-  line-height: 1.55;
-}
-
-.streaming-code-block__highlight :deep(.shiki) {
   width: max-content;
-  min-width: 100%;
-  margin: 0;
-  overflow: visible !important;
-  font-family: var(--font-mono);
-  font-size: inherit;
-  line-height: inherit;
   background: transparent !important;
 }
 
-.streaming-code-block__highlight :deep(.shiki code) {
+.streaming-code-block__highlight code {
   display: block;
   width: max-content;
   min-width: 100%;
   font-family: inherit;
   background: transparent;
+}
+
+.streaming-code-block__token {
+  white-space: pre;
 }
 </style>

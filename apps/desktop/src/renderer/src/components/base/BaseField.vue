@@ -58,13 +58,14 @@ defineEmits<{
 
 .base-field__label {
   color: var(--color-text-muted);
-  font-size: 11px;
+  font-size: var(--font-size-ui-xs);
   font-weight: 650;
 }
 
 .base-field__control {
   width: 100%;
-  min-height: 28px;
+  height: var(--field-control-height);
+  min-height: var(--field-control-height);
   padding: 0 var(--space-2);
   color: var(--color-text);
   background: var(--color-field);
@@ -93,6 +94,6 @@ defineEmits<{
 
 .base-field__hint {
   color: var(--color-text-subtle);
-  font-size: 11px;
+  font-size: var(--font-size-ui-xs);
 }
 </style>

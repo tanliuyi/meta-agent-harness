@@ -20,11 +20,17 @@ const goBack = (): void => {
         <BackIcon :size="12" />
         <span>返回聊天</span>
       </button>
+      <RouterLink class="settings-link" to="/settings/general">
+        <span>通用</span>
+      </RouterLink>
       <RouterLink class="settings-link" to="/settings/models">
         <span>模型</span>
       </RouterLink>
       <RouterLink class="settings-link" to="/settings/agent">
         <span>Agent</span>
+      </RouterLink>
+      <RouterLink class="settings-link" to="/settings/archive">
+        <span>归档</span>
       </RouterLink>
     </ScrollArea>
   </aside>
@@ -83,11 +89,16 @@ const goBack = (): void => {
   height: 28px;
   margin: var(--space-1) var(--space-2) 0;
   padding: 0 var(--space-3);
-  color: var(--color-text-muted);
+  border: 1px solid transparent;
   border-radius: var(--radius-md);
-  font-size: 12px;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-ui-sm);
   font-weight: 650;
   text-decoration: none;
+  transition:
+    background var(--duration-fast) var(--ease-standard),
+    border-color var(--duration-fast) var(--ease-standard),
+    color var(--duration-fast) var(--ease-standard);
 
   &:hover {
     color: var(--color-text);
@@ -96,7 +107,8 @@ const goBack = (): void => {
 
   &.router-link-active {
     color: var(--color-text);
-    background: var(--color-surface-raised);
+    background: var(--color-item-active);
+    border-color: var(--color-item-active-border);
   }
 }
 </style>

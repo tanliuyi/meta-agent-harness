@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { BaseButton, BasePanel, BaseSegmentedControl } from '@renderer/components/base'
+import { BaseButton, BasePanel } from '@renderer/components/base'
+import { SettingsSelectField } from '@renderer/views/settings/components/form'
 import useAgentSettingsStore from '@renderer/stores/agent-settings'
 import type { AgentQueueMode, AgentTransportMode } from '@shared/coding-agent/types'
 import { Save } from 'lucide-vue-next'
@@ -7,15 +8,15 @@ import { Save } from 'lucide-vue-next'
 const agentSettings = useAgentSettingsStore()
 
 const queueModeOptions: Array<{ label: string; value: AgentQueueMode }> = [
-  { label: '全部投递', value: 'all' },
-  { label: '逐条投递', value: 'one-at-a-time' }
+  { label: '全部投递 All', value: 'all' },
+  { label: '逐条投递 One at a time', value: 'one-at-a-time' }
 ]
 
 const transportOptions: Array<{ label: string; value: AgentTransportMode }> = [
-  { label: 'Auto', value: 'auto' },
-  { label: 'SSE', value: 'sse' },
+  { label: '自动 Auto', value: 'auto' },
+  { label: '服务端事件 SSE', value: 'sse' },
   { label: 'WebSocket', value: 'websocket' },
-  { label: 'Cached WS', value: 'websocket-cached' }
+  { label: '缓存 WebSocket Cached WS', value: 'websocket-cached' }
 ]
 </script>
 
@@ -27,7 +28,7 @@ const transportOptions: Array<{ label: string; value: AgentTransportMode }> = [
         <h1 class="agent-page__title">消息投递</h1>
         <p class="agent-page__subtitle">只保存 steering、follow-up 和 provider transport。</p>
       </div>
-      <BaseButton variant="primary" :disabled="!agentSettings.canSave" @click="agentSettings.saveDelivery">
+      <BaseButton size="sm" variant="primary" :disabled="!agentSettings.canSave" @click="agentSettings.saveDelivery">
         <template #icon><Save :size="14" /></template>
         保存消息投递
       </BaseButton>
@@ -38,30 +39,21 @@ const transportOptions: Array<{ label: string; value: AgentTransportMode }> = [
 
     <BasePanel v-if="agentSettings.draft" title="消息投递" eyebrow="Delivery">
       <div class="field-stack">
-        <label class="control-field">
-          <span>Steering</span>
-          <BaseSegmentedControl
-            v-model="agentSettings.draft.delivery.steeringMode"
-            label="Steering mode"
-            :options="queueModeOptions"
-          />
-        </label>
-        <label class="control-field">
-          <span>Follow-up</span>
-          <BaseSegmentedControl
-            v-model="agentSettings.draft.delivery.followUpMode"
-            label="Follow-up mode"
-            :options="queueModeOptions"
-          />
-        </label>
-        <label class="select-field">
-          <span>Transport</span>
-          <select v-model="agentSettings.draft.delivery.transport">
-            <option v-for="option in transportOptions" :key="option.value" :value="option.value">
-              {{ option.label }}
-            </option>
-          </select>
-        </label>
+        <SettingsSelectField
+          v-model="agentSettings.draft.delivery.steeringMode"
+          label="引导消息 Steering"
+          :options="queueModeOptions"
+        />
+        <SettingsSelectField
+          v-model="agentSettings.draft.delivery.followUpMode"
+          label="跟进消息 Follow-up"
+          :options="queueModeOptions"
+        />
+        <SettingsSelectField
+          v-model="agentSettings.draft.delivery.transport"
+          label="传输方式 Transport"
+          :options="transportOptions"
+        />
       </div>
     </BasePanel>
   </div>

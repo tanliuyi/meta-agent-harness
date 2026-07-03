@@ -2,6 +2,7 @@
 import { BaseContextMenu, BaseIconButton } from '@renderer/components/base'
 import PlusIcon from '@renderer/components/icons/PlusIcon.vue'
 import FolderIcon from '@renderer/components/icons/FolderIcon.vue'
+import FolderOpenIcon from '@renderer/components/icons/FolderOpenIcon.vue'
 import SettingIcon from '@renderer/components/icons/SettingIcon.vue'
 import { confirm } from '@renderer/composables/useConfirmDialog'
 import useWorkspaceProjectStore from '@renderer/stores/workspace-project'
@@ -9,6 +10,7 @@ import useWorkspaceSessionStore from '@renderer/stores/workspace-session'
 import type { ProjectSummary, ProjectTrustDecision } from '@shared/coding-agent/types'
 import type { WorkspaceSession } from '@renderer/stores/workspace-session'
 import type { Component } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import ScrollArea from '@/components/ui/scroll-area/ScrollArea.vue'
 import { Archive, Copy } from '@lucide/vue'
@@ -30,15 +32,60 @@ interface ThreadMenuSection {
   items: ThreadMenuItem[]
 }
 
+interface ThreadListItem {
+  thread: WorkspaceSession
+  statusIndicator?: 'running' | 'error'
+  statusLabel?: string
+  updatedAtDistance?: string
+}
+
+interface ProjectListItem {
+  project: ProjectSummary
+  threads: ThreadListItem[]
+}
+
 const workspaceProject = useWorkspaceProjectStore()
 const workspaceSession = useWorkspaceSessionStore()
+const currentTime = ref(Date.now())
+let currentTimeTimer: number | undefined
+
+const threadMenuSections: ThreadMenuSection[] = [
+  {
+    items: [{ id: 'copy-id', label: '复制 Thread ID', icon: Copy }]
+  },
+  {
+    items: [{ id: 'archive', label: '归档会话', icon: Archive, danger: true }]
+  }
+]
+
+const projectListItems = computed<ProjectListItem[]>(() =>
+  workspaceProject.projectList.map((project) => ({
+    project,
+    threads: (workspaceSession.sessionsByProject[project.projectId] ?? []).map((thread) =>
+      toThreadListItem(thread)
+    )
+  }))
+)
+
+onMounted(() => {
+  currentTimeTimer = window.setInterval(() => {
+    currentTime.value = Date.now()
+  }, 60_000)
+})
+
+onBeforeUnmount(() => {
+  if (currentTimeTimer) {
+    window.clearInterval(currentTimeTimer)
+  }
+})
 
 /**
- * 打开 Project，不改变当前 active thread。
+ * 打开 Project，并激活该 Project 下最近更新的 thread。
  * @param projectId - Project ID。
  */
 async function openProject(projectId: string): Promise<void> {
   await workspaceProject.openProject(projectId)
+  await workspaceSession.setActiveProjectId(projectId)
 }
 
 /**
@@ -113,17 +160,6 @@ async function createProject(): Promise<void> {
   }
 }
 
-function getThreadMenuSections(): ThreadMenuSection[] {
-  return [
-    {
-      items: [{ id: 'copy-id', label: '复制 Thread ID', icon: Copy }]
-    },
-    {
-      items: [{ id: 'archive', label: '归档会话', icon: Archive, danger: true }]
-    }
-  ]
-}
-
 async function runThreadMenuAction(actionId: string, thread: WorkspaceSession): Promise<void> {
   switch (actionId) {
     case 'copy-id':
@@ -145,12 +181,56 @@ async function archiveThread(thread: WorkspaceSession): Promise<void> {
     tone: 'destructive'
   })
 
-  if (!result.confirmed) {
+  if (!result.confirmed || result.action !== 'archive') {
     return
   }
 
-  await window.api.codingAgent.archiveThread(thread.threadId)
-  await workspaceSession.loadThreads()
+  await workspaceSession.archiveThread(thread.threadId)
+}
+
+function getThreadStatusIndicator(
+  status: WorkspaceSession['status']
+): 'running' | 'error' | undefined {
+  if (status === 'running' || status === 'error') {
+    return status
+  }
+
+  return undefined
+}
+
+function getThreadStatusLabel(status: WorkspaceSession['status']): string | undefined {
+  const indicator = getThreadStatusIndicator(status)
+  return indicator === undefined ? undefined : indicator === 'running' ? '运行中' : '错误'
+}
+
+function toThreadListItem(thread: WorkspaceSession): ThreadListItem {
+  const statusIndicator = getThreadStatusIndicator(thread.status)
+  return {
+    thread,
+    statusIndicator,
+    statusLabel: statusIndicator ? getThreadStatusLabel(thread.status) : undefined,
+    updatedAtDistance: statusIndicator ? undefined : formatUpdatedAtDistance(thread.updatedAt)
+  }
+}
+
+function formatUpdatedAtDistance(updatedAt: string): string | undefined {
+  const updatedAtTime = Date.parse(updatedAt)
+
+  if (Number.isNaN(updatedAtTime)) {
+    return undefined
+  }
+
+  const minutes = Math.max(1, Math.floor((currentTime.value - updatedAtTime) / 60_000))
+
+  if (minutes >= 60 * 24) {
+    return `${Math.floor(minutes / (60 * 24))} 天`
+  }
+
+  if (minutes >= 60) {
+    return `${Math.floor(minutes / 60)} 小时`
+  }
+
+  return `${minutes} 分`
 }
 </script>
 
@@ -177,21 +257,23 @@ async function archiveThread(thread: WorkspaceSession): Promise<void> {
 
       <ul class="project-tree">
         <Collapsible
-          v-for="project in workspaceProject.projectList"
-          :key="project.projectId"
+          v-for="projectItem in projectListItems"
+          :key="projectItem.project.projectId"
+          v-slot="{ open }"
           default-open
           class="project-tree__item"
         >
           <CollapsibleTrigger>
-            <div class="project-tree__project" @click="openProject(project.projectId)">
-              <FolderIcon :size="12" />
-              <span>{{ project.name }}</span>
+            <div class="project-tree__project" @click="openProject(projectItem.project.projectId)">
+              <FolderIcon v-if="!open" :size="12" />
+              <FolderOpenIcon v-else :size="12" />
+              <span>{{ projectItem.project.name }}</span>
               <BaseIconButton
                 label="创建 Thread"
                 size="small"
-                :disabled="project.status !== 'available'"
+                :disabled="projectItem.project.status !== 'available'"
                 class="thread__add-btn"
-                @click.stop="createThreadInProject(project.projectId)"
+                @click.stop="createThreadInProject(projectItem.project.projectId)"
               >
                 <PlusIcon :size="14" />
               </BaseIconButton>
@@ -200,29 +282,57 @@ async function archiveThread(thread: WorkspaceSession): Promise<void> {
 
           <CollapsibleContent>
             <ul class="session-group">
-              <template
-                v-if="(workspaceSession.sessionsByProject[project.projectId] ?? []).length === 0"
-              >
+              <template v-if="projectItem.threads.length === 0">
                 <li class="session-group__item is-empty">
                   <span class="session-group__item-title">暂无会话</span>
                 </li>
               </template>
 
               <BaseContextMenu
-                v-for="thread in workspaceSession.sessionsByProject[project.projectId] ?? []"
-                :key="thread.threadId"
-                :sections="getThreadMenuSections()"
-                @select="(item) => runThreadMenuAction(item.id, thread)"
+                v-for="threadItem in projectItem.threads"
+                :key="threadItem.thread.threadId"
+                :sections="threadMenuSections"
+                @select="(item) => runThreadMenuAction(item.id, threadItem.thread)"
               >
                 <li
                   class="session-group__item"
                   :class="{
-                    'is-active': thread.threadId === workspaceSession.activeSessionId
+                    'is-active': threadItem.thread.threadId === workspaceSession.activeSessionId
                   }"
-                  @click="workspaceSession.setActiveSessionId(thread.threadId)"
+                  @click="workspaceSession.setActiveSessionId(threadItem.thread.threadId)"
                 >
-                  <span class="session-group__item-title">{{ thread.title || '新会话' }}</span>
-                  <small>{{ thread.status }}</small>
+                  <span class="session-group__item-title">{{
+                    threadItem.thread.title || '新会话'
+                  }}</span>
+                  <span
+                    v-if="threadItem.statusIndicator"
+                    class="thread-status"
+                    :class="`is-${threadItem.statusIndicator}`"
+                    :aria-label="threadItem.statusLabel"
+                    role="img"
+                  >
+                    <svg
+                      v-if="threadItem.statusIndicator === 'running'"
+                      class="thread-status__svg"
+                      viewBox="0 0 16 16"
+                      aria-hidden="true"
+                    >
+                      <circle class="thread-status__track" cx="8" cy="8" r="6.25" />
+                      <circle class="thread-status__runner" cx="8" cy="8" r="6.25" />
+                    </svg>
+                    <svg v-else class="thread-status__svg" viewBox="0 0 16 16" aria-hidden="true">
+                      <circle class="thread-status__error-ring" cx="8" cy="8" r="6.25" />
+                      <path class="thread-status__error-mark" d="M8 4.75v4.2" />
+                      <circle class="thread-status__error-dot" cx="8" cy="11.35" r="0.7" />
+                    </svg>
+                  </span>
+                  <time
+                    v-else-if="threadItem.updatedAtDistance"
+                    class="thread-updated-at"
+                    :datetime="threadItem.thread.updatedAt"
+                  >
+                    {{ threadItem.updatedAtDistance }}
+                  </time>
                 </li>
               </BaseContextMenu>
             </ul>
@@ -248,7 +358,7 @@ async function archiveThread(thread: WorkspaceSession): Promise<void> {
   min-height: 0;
   overflow: hidden;
   color: var(--color-text);
-  border-right: 1px solid rgb(255 255 255 / 4%);
+  background: var(--color-canvas);
   backdrop-filter: blur(16px);
 }
 
@@ -279,7 +389,7 @@ async function archiveThread(thread: WorkspaceSession): Promise<void> {
     min-width: 0;
     overflow: hidden;
     color: var(--color-text);
-    font-size: 12px;
+    font-size: var(--font-size-ui-sm);
     font-weight: 750;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -300,7 +410,7 @@ async function archiveThread(thread: WorkspaceSession): Promise<void> {
 .sidebar-error {
   margin: 0;
   color: var(--color-danger, #ff7a7a);
-  font-size: 11px;
+  font-size: var(--font-size-ui-xs);
 }
 
 .project-tree,
@@ -319,6 +429,7 @@ async function archiveThread(thread: WorkspaceSession): Promise<void> {
   flex-direction: column;
   gap: 2px;
   min-width: 0;
+  font-size: var(--font-size-ui-sm);
 }
 
 .project-tree__project {
@@ -334,7 +445,7 @@ async function archiveThread(thread: WorkspaceSession): Promise<void> {
   span {
     min-width: 0;
     overflow: hidden;
-    font-size: 12px;
+    font-size: var(--font-size-ui);
     font-weight: 560;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -359,13 +470,24 @@ async function archiveThread(thread: WorkspaceSession): Promise<void> {
   min-width: 0;
   margin: 0 var(--space-2);
   padding: 0 var(--space-3) 0 var(--space-8);
+  border: 1px solid transparent;
   border-radius: var(--radius-md);
   color: var(--color-text-muted);
+  cursor: default;
+  transition:
+    background var(--duration-fast) var(--ease-standard),
+    border-color var(--duration-fast) var(--ease-standard),
+    color var(--duration-fast) var(--ease-standard);
 
-  &:not(.is-empty):hover,
-  &.is-active {
+  &:not(.is-empty):hover {
     color: var(--color-text);
     background: var(--color-surface-raised);
+  }
+
+  &.is-active {
+    color: var(--color-text);
+    background: var(--color-item-active);
+    border-color: var(--color-item-active-border);
   }
 
   &-title {
@@ -374,17 +496,121 @@ async function archiveThread(thread: WorkspaceSession): Promise<void> {
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
-    font-size: 13px;
+    font-size: var(--font-size-ui-sm);
+    font-weight: 500;
   }
 
   &.is-empty {
-    font-size: 12px;
+    font-size: var(--font-size-ui-sm);
     color: var(--color-text-muted);
   }
 }
 
 .session-group__item {
   height: 28px;
+}
+
+.thread-status {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  color: var(--color-text-muted);
+}
+
+.thread-updated-at {
+  flex: 0 0 auto;
+  color: var(--color-text-subtle, var(--color-text-muted));
+  font-size: var(--font-size-ui-xs);
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.thread-status__svg {
+  display: block;
+  width: 16px;
+  height: 16px;
+  overflow: visible;
+}
+
+.thread-status__track,
+.thread-status__runner,
+.thread-status__error-ring {
+  fill: none;
+  stroke-width: 2;
+}
+
+.thread-status__track {
+  stroke: currentColor;
+  opacity: 0.22;
+}
+
+.thread-status__runner {
+  animation: thread-status-spin 0.9s linear infinite;
+  stroke: currentColor;
+  stroke-dasharray: 22 40;
+  stroke-linecap: round;
+  transform-origin: 8px 8px;
+}
+
+.thread-status.is-error {
+  color: var(--color-danger, #ff7a7a);
+}
+
+.thread-status__error-ring {
+  animation: thread-status-error-pulse 1.4s var(--ease-standard) infinite;
+  stroke: currentColor;
+}
+
+.thread-status__error-mark {
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-width: 1.8;
+}
+
+.thread-status__error-dot {
+  animation: thread-status-error-dot 1.4s var(--ease-standard) infinite;
+  fill: currentColor;
+}
+
+@keyframes thread-status-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes thread-status-error-pulse {
+  0%,
+  100% {
+    opacity: 0.45;
+  }
+
+  50% {
+    opacity: 1;
+  }
+}
+
+@keyframes thread-status-error-dot {
+  0%,
+  100% {
+    transform: scale(0.85);
+  }
+
+  50% {
+    transform: scale(1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .thread-status__runner,
+  .thread-status__error-ring,
+  .thread-status__error-dot {
+    animation: none;
+  }
 }
 
 .button-cell {
@@ -395,11 +621,22 @@ async function archiveThread(thread: WorkspaceSession): Promise<void> {
   height: 28px;
   margin: 0 var(--space-2) var(--space-2);
   padding: 0 var(--space-3);
+  border: 1px solid transparent;
   border-radius: var(--radius-md);
+  transition:
+    background var(--duration-fast) var(--ease-standard),
+    border-color var(--duration-fast) var(--ease-standard),
+    color var(--duration-fast) var(--ease-standard);
 
   &:hover {
     color: var(--color-text);
     background: var(--color-surface-raised);
+  }
+
+  &.router-link-active {
+    color: var(--color-text);
+    background: var(--color-item-active);
+    border-color: var(--color-item-active-border);
   }
 }
 </style>

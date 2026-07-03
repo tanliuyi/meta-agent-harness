@@ -8,10 +8,12 @@
 import type { AgentSettingsSnapshot, UpdateAgentSettingsInput } from '@shared/coding-agent/types'
 import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
+import { useToast } from '@renderer/composables/useToast'
 
 type AgentSettingsDraft = Omit<AgentSettingsSnapshot, 'storage' | 'diagnostics'>
 
 const useAgentSettingsStore = defineStore('agent-settings', () => {
+  const toast = useToast()
   const loading = ref(false)
   const saving = ref(false)
   const error = ref<string | null>(null)
@@ -40,8 +42,10 @@ const useAgentSettingsStore = defineStore('agent-settings', () => {
     error.value = null
     try {
       applySnapshot(await window.api.codingAgent.updateAgentSettings(toUpdateInput(draft.value)))
+      toast.success('Agent 设置已保存')
     } catch (cause) {
       error.value = cause instanceof Error ? cause.message : 'Agent 设置保存失败'
+      toast.error('Agent 设置保存失败', error.value)
     } finally {
       saving.value = false
     }
@@ -77,11 +81,11 @@ const useAgentSettingsStore = defineStore('agent-settings', () => {
     await savePartial(
       {
         resources: {
-          packages: [...draft.value.resources.packages],
-          extensions: [...draft.value.resources.extensions],
-          skills: [...draft.value.resources.skills],
-          prompts: [...draft.value.resources.prompts],
-          themes: [...draft.value.resources.themes]
+          packages: cleanStringList(draft.value.resources.packages),
+          extensions: cleanStringList(draft.value.resources.extensions),
+          skills: cleanStringList(draft.value.resources.skills),
+          prompts: cleanStringList(draft.value.resources.prompts),
+          themes: cleanStringList(draft.value.resources.themes)
         }
       },
       '资源路径保存失败'
@@ -95,7 +99,7 @@ const useAgentSettingsStore = defineStore('agent-settings', () => {
         shell: {
           shellPath: draft.value.shell.shellPath,
           shellCommandPrefix: draft.value.shell.shellCommandPrefix,
-          npmCommand: [...draft.value.shell.npmCommand],
+          npmCommand: cleanStringList(draft.value.shell.npmCommand),
           sessionDir: draft.value.shell.sessionDir
         }
       },
@@ -121,8 +125,10 @@ const useAgentSettingsStore = defineStore('agent-settings', () => {
     error.value = null
     try {
       applySnapshot(await window.api.codingAgent.updateAgentSettings(input))
+      toast.success('设置已保存')
     } catch (cause) {
       error.value = cause instanceof Error ? cause.message : fallbackMessage
+      toast.error(fallbackMessage, error.value)
     } finally {
       saving.value = false
     }
@@ -186,16 +192,16 @@ function toUpdateInput(draft: AgentSettingsDraft): UpdateAgentSettingsInput {
     safety: { ...draft.safety },
     media: { ...draft.media },
     resources: {
-      packages: [...draft.resources.packages],
-      extensions: [...draft.resources.extensions],
-      skills: [...draft.resources.skills],
-      prompts: [...draft.resources.prompts],
-      themes: [...draft.resources.themes]
+      packages: cleanStringList(draft.resources.packages),
+      extensions: cleanStringList(draft.resources.extensions),
+      skills: cleanStringList(draft.resources.skills),
+      prompts: cleanStringList(draft.resources.prompts),
+      themes: cleanStringList(draft.resources.themes)
     },
     shell: {
       shellPath: draft.shell.shellPath,
       shellCommandPrefix: draft.shell.shellCommandPrefix,
-      npmCommand: [...draft.shell.npmCommand],
+      npmCommand: cleanStringList(draft.shell.npmCommand),
       sessionDir: draft.shell.sessionDir
     },
     advanced: {
@@ -203,6 +209,10 @@ function toUpdateInput(draft: AgentSettingsDraft): UpdateAgentSettingsInput {
       codeBlockIndent: draft.advanced.codeBlockIndent
     }
   }
+}
+
+function cleanStringList(values: string[]): string[] {
+  return values.map((value) => value.trim()).filter(Boolean)
 }
 
 export default useAgentSettingsStore

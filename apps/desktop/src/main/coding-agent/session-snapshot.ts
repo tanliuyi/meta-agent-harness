@@ -5,6 +5,7 @@
 
 import type { AgentMessage } from '@earendil-works/pi-agent-core'
 import {
+  toDesktopFileChanges,
   toDesktopMessages,
   toDesktopToolCalls
 } from '../../../../../packages/coding-agent/src/desktop/protocol/message'
@@ -68,4 +69,17 @@ export function toThreadToolCalls(
   threadId: string
 ): ThreadSnapshot['toolCalls'] {
   return toDesktopToolCalls(messages, threadId)
+}
+
+/**
+ * 将 Pi AgentMessage 列表转换为 desktop file changes。
+ * @param messages - Pi live/context messages。
+ * @param threadId - 线程 ID。
+ * @returns desktop file changes。
+ */
+export function toThreadFileChanges(
+  messages: AgentMessage[],
+  threadId: string
+): ThreadSnapshot['fileChanges'] {
+  return toDesktopFileChanges(messages, threadId)
 }

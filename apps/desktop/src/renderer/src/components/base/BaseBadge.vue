@@ -31,7 +31,7 @@ withDefaults(
   padding: 0 6px;
   border: 1px solid transparent;
   border-radius: var(--radius-xs);
-  font-size: 10px;
+  font-size: var(--font-size-ui-2xs);
   font-weight: 700;
   line-height: 1;
 }

@@ -2,7 +2,7 @@
  * 本文件注册 desktop coding agent 后端 IPC handlers。
  */
 
-import { app, dialog, ipcMain, type WebContents } from 'electron'
+import { app, dialog, ipcMain, shell, type WebContents } from 'electron'
 import { mkdir, readFile, stat, writeFile } from 'node:fs/promises'
 import { basename, join } from 'node:path'
 import { randomUUID } from 'node:crypto'
@@ -34,6 +34,7 @@ import type {
   ForkInput,
   ImportSessionInput,
   IpcResult,
+  ListThreadsInput,
   NewSessionInput,
   PromptImageDraft,
   PromptImageAttachment,
@@ -41,6 +42,8 @@ import type {
   ApprovalResponseInput,
   RenameProjectInput,
   RenameThreadInput,
+  RevealResourcePathInput,
+  SelectResourcePathInput,
   SetThreadTitleInput,
   SetProviderApiKeyInput,
   SetProjectTrustInput,
@@ -167,7 +170,7 @@ export function registerCodingAgentIpc(options: CodingAgentIpcOptions = {}): Cod
   handle(manager, codingAgentChannels.restartThread, (threadId: string) =>
     manager.restartThread(threadId)
   )
-  handle(manager, codingAgentChannels.listThreads, (input?: { projectId?: string }) =>
+  handle(manager, codingAgentChannels.listThreads, (input?: ListThreadsInput) =>
     manager.listThreads(input)
   )
   handle(manager, codingAgentChannels.getThread, (threadId: string) => manager.getThread(threadId))
@@ -181,8 +184,16 @@ export function registerCodingAgentIpc(options: CodingAgentIpcOptions = {}): Cod
   handle(manager, codingAgentChannels.stagePromptImages, (images: PromptImageDraft[]) =>
     stagePromptImages(manager, images)
   )
-  handle(manager, codingAgentChannels.completeFileReference, (input: FileReferenceCompletionInput) =>
-    completeFileReference(manager, input)
+  handle(manager, codingAgentChannels.selectResourcePath, (input?: SelectResourcePathInput) =>
+    selectResourcePath(input)
+  )
+  handle(manager, codingAgentChannels.revealResourcePath, (input: RevealResourcePathInput) =>
+    revealResourcePath(input)
+  )
+  handle(
+    manager,
+    codingAgentChannels.completeFileReference,
+    (input: FileReferenceCompletionInput) => completeFileReference(manager, input)
   )
   handle(manager, codingAgentChannels.abort, (threadId: string) => manager.abort(threadId))
   handle(manager, codingAgentChannels.newSession, (input: NewSessionInput) =>
@@ -207,6 +218,9 @@ export function registerCodingAgentIpc(options: CodingAgentIpcOptions = {}): Cod
   )
   handle(manager, codingAgentChannels.archiveThread, (threadId: string) =>
     manager.archiveThread(threadId)
+  )
+  handle(manager, codingAgentChannels.restoreThread, (threadId: string) =>
+    manager.restoreThread(threadId)
   )
   handle(manager, codingAgentChannels.listModels, (threadId: string) =>
     manager.listModels(threadId)
@@ -437,6 +451,49 @@ async function selectPromptImages(): Promise<PromptImageAttachment[] | undefined
   return await Promise.all(
     result.filePaths.map((filePath) => createPromptImageAttachment(filePath))
   )
+}
+
+/**
+ * 打开系统选择器选择资源路径。
+ * @param input - 选择器选项。
+ * @returns 选中的路径数组；用户取消时返回 undefined。
+ */
+async function selectResourcePath(
+  input: SelectResourcePathInput = {}
+): Promise<string[] | undefined> {
+  const mode = input.mode ?? 'directory'
+  const properties: Electron.OpenDialogOptions['properties'] = []
+  if (mode === 'directory' || mode === 'any') properties.push('openDirectory', 'createDirectory')
+  if (mode === 'file' || mode === 'any') properties.push('openFile')
+  if (input.multi) properties.push('multiSelections')
+
+  const result = await dialog.showOpenDialog({
+    title: input.title ?? '选择资源路径',
+    defaultPath: input.defaultPath,
+    properties
+  })
+  if (result.canceled || result.filePaths.length === 0) {
+    return undefined
+  }
+  return result.filePaths
+}
+
+/**
+ * 在系统资源管理器中显示指定资源路径。
+ * @param input - 路径输入。
+ */
+async function revealResourcePath(input: RevealResourcePathInput): Promise<void> {
+  const targetPath = input.path.trim()
+  if (!targetPath) {
+    return
+  }
+
+  const pathStats = await stat(targetPath).catch(() => undefined)
+  if (pathStats?.isDirectory()) {
+    await shell.openPath(targetPath)
+    return
+  }
+  shell.showItemInFolder(targetPath)
 }
 
 /**

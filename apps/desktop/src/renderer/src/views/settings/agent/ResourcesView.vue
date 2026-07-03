@@ -1,40 +1,10 @@
 <script setup lang="ts">
 import { BaseButton, BasePanel } from '@renderer/components/base'
+import { SettingsArrayField } from '@renderer/views/settings/components/form'
 import useAgentSettingsStore from '@renderer/stores/agent-settings'
 import { Save } from 'lucide-vue-next'
-import { computed } from 'vue'
 
 const agentSettings = useAgentSettingsStore()
-
-const resourcesText = computed({
-  get: () => ({
-    packages: joinLines(agentSettings.draft?.resources.packages ?? []),
-    extensions: joinLines(agentSettings.draft?.resources.extensions ?? []),
-    skills: joinLines(agentSettings.draft?.resources.skills ?? []),
-    prompts: joinLines(agentSettings.draft?.resources.prompts ?? []),
-    themes: joinLines(agentSettings.draft?.resources.themes ?? [])
-  }),
-  set: () => {}
-})
-
-function setList(
-  key: 'packages' | 'extensions' | 'skills' | 'prompts' | 'themes',
-  value: string
-): void {
-  if (!agentSettings.draft) return
-  agentSettings.draft.resources[key] = splitLines(value)
-}
-
-function joinLines(values: string[]): string {
-  return values.join('\n')
-}
-
-function splitLines(value: string): string[] {
-  return value
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .filter(Boolean)
-}
 </script>
 
 <template>
@@ -45,7 +15,7 @@ function splitLines(value: string): string[] {
         <h1 class="agent-page__title">资源路径</h1>
         <p class="agent-page__subtitle">只保存 packages、extensions、skills、prompts 和 themes。</p>
       </div>
-      <BaseButton variant="primary" :disabled="!agentSettings.canSave" @click="agentSettings.saveResources">
+      <BaseButton size="sm" variant="primary" :disabled="!agentSettings.canSave" @click="agentSettings.saveResources">
         <template #icon><Save :size="14" /></template>
         保存资源路径
       </BaseButton>
@@ -55,26 +25,49 @@ function splitLines(value: string): string[] {
 
     <BasePanel v-if="agentSettings.draft" title="资源路径" eyebrow="Resources">
       <div class="resource-grid">
-        <label class="textarea-field">
-          <span>Packages</span>
-          <textarea :value="resourcesText.packages" rows="6" placeholder="每行一个 npm/git package source" @input="setList('packages', ($event.target as HTMLTextAreaElement).value)" />
-        </label>
-        <label class="textarea-field">
-          <span>Extensions</span>
-          <textarea :value="resourcesText.extensions" rows="6" placeholder="每行一个 extension 路径" @input="setList('extensions', ($event.target as HTMLTextAreaElement).value)" />
-        </label>
-        <label class="textarea-field">
-          <span>Skills</span>
-          <textarea :value="resourcesText.skills" rows="6" placeholder="每行一个 skill 路径" @input="setList('skills', ($event.target as HTMLTextAreaElement).value)" />
-        </label>
-        <label class="textarea-field">
-          <span>Prompts</span>
-          <textarea :value="resourcesText.prompts" rows="6" placeholder="每行一个 prompt 路径" @input="setList('prompts', ($event.target as HTMLTextAreaElement).value)" />
-        </label>
-        <label class="textarea-field">
-          <span>Themes</span>
-          <textarea :value="resourcesText.themes" rows="6" placeholder="每行一个 theme 路径" @input="setList('themes', ($event.target as HTMLTextAreaElement).value)" />
-        </label>
+        <SettingsArrayField
+          v-model="agentSettings.draft.resources.packages"
+          label="包 Packages"
+          description="npm、git 或本地 package source。"
+          placeholder="例如 @scope/package 或 /path/to/package"
+          select-title="选择 package 目录"
+          path-actions
+          path-mode="any"
+        />
+        <SettingsArrayField
+          v-model="agentSettings.draft.resources.extensions"
+          label="扩展 Extensions"
+          description="每个 extension 单独一项。"
+          placeholder="例如 /path/to/extension"
+          select-title="选择 extension 目录"
+          path-actions
+        />
+        <SettingsArrayField
+          v-model="agentSettings.draft.resources.skills"
+          label="技能 Skills"
+          description="每个 skill 目录单独一项。"
+          placeholder="例如 /path/to/skill"
+          select-title="选择 skill 目录"
+          path-actions
+        />
+        <SettingsArrayField
+          v-model="agentSettings.draft.resources.prompts"
+          label="提示词 Prompts"
+          description="每个 prompt 资源路径单独一项。"
+          placeholder="例如 /path/to/prompts"
+          select-title="选择 prompt 路径"
+          path-actions
+          path-mode="any"
+        />
+        <SettingsArrayField
+          v-model="agentSettings.draft.resources.themes"
+          label="主题 Themes"
+          description="每个 theme 路径单独一项。"
+          placeholder="例如 /path/to/themes"
+          select-title="选择 theme 路径"
+          path-actions
+          path-mode="any"
+        />
       </div>
     </BasePanel>
   </div>
