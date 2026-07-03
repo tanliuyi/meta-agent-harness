@@ -60,6 +60,16 @@ function scrollTo(options: ScrollAreaScrollToOptions): void {
     return
   }
 
+  if (options.behavior === 'auto') {
+    if (typeof options.top === 'number') {
+      viewport.scrollTop = options.top
+    }
+    if (typeof options.left === 'number') {
+      viewport.scrollLeft = options.left
+    }
+    return
+  }
+
   if (typeof viewport.scrollTo === 'function') {
     viewport.scrollTo(options)
     return

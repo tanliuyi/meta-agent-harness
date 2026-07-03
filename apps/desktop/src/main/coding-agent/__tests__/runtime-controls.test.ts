@@ -93,6 +93,40 @@ describe('thread-runtime-controls', () => {
     expect(core.requireThread('thread-a').title).toBeUndefined()
   })
 
+  it('prompt 展开 Pi @file 文本文件参数后发送给 worker', async () => {
+    const commands: WorkerCommand[] = []
+    const core = createThreadManagerCore(commands)
+    core.saveThread({
+      threadId: 'thread-a',
+      projectId: 'project-a',
+      status: 'idle',
+      createdAt: '2026-07-01T00:00:00.000Z',
+      updatedAt: '2026-07-01T00:00:00.000Z'
+    })
+    const dir = join(tmpdir(), `desktop-file-args-${Date.now()}-${Math.random()}`)
+    tempDirs.push(dir)
+    mkdirSync(dir, { recursive: true })
+    const filePath = join(dir, 'notes.txt')
+    writeFileSync(filePath, 'hello from file')
+
+    await prompt(core, {
+      threadId: 'thread-a',
+      message: '总结一下 @notes.txt',
+      fileArgs: [filePath]
+    })
+
+    expect(commands[0]).toMatchObject({
+      type: 'prompt',
+      images: undefined,
+      streamingBehavior: undefined
+    })
+    expect(commands[0]).toMatchObject({
+      message: expect.stringContaining('<file name=')
+    })
+    expect((commands[0] as { message: string }).message).toContain('hello from file')
+    expect((commands[0] as { message: string }).message).toContain('总结一下 @notes.txt')
+  })
+
   it('图片文件处理失败时使用 inline fallback 发送给 worker', async () => {
     const commands: WorkerCommand[] = []
     const core = createThreadManagerCore(commands)

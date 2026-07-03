@@ -5,6 +5,7 @@
 import { defineStore } from 'pinia'
 import { computed, reactive, ref, shallowReactive } from 'vue'
 import useWorkspaceProjectStore from './workspace-project'
+import { formatFileArgForInsertion } from '../../../../../../packages/coding-agent/src/core/file-reference-format'
 import { toDesktopMessageContent } from '@shared/coding-agent/types'
 import type { JSONContent } from '@tiptap/vue-3'
 import type {
@@ -488,7 +489,9 @@ export default defineStore('workspace-session', () => {
 
   /** 当前活跃会话是否有可发送草稿。 */
   const hasDraftMessage = computed(
-    () => Boolean(getComposerText(draftMessage.value).trim()) || draftImages.value.length > 0
+    () =>
+      Boolean(getComposerText(draftMessage.value).trim()) ||
+      draftImages.value.length > 0
   )
 
   /** 会话列表，最近更新排在最上面。 */
@@ -605,7 +608,9 @@ export default defineStore('workspace-session', () => {
   const sendPrompt = async (contextId = defaultSessionContextId): Promise<void> => {
     const context = ensureSessionContext(contextId)
     let threadId = context.activeThreadId
-    const text = getComposerText(getComposerDraft(threadId, contextId)).trim()
+    const draft = getComposerDraft(threadId, contextId)
+    const text = getComposerText(draft).trim()
+    const fileArgs = getComposerFileArgs(draft)
     const images = getComposerImages(threadId, contextId)
     const message = text || (images.length > 0 ? '请分析这些图片' : '')
     if (!message) {
@@ -654,6 +659,7 @@ export default defineStore('workspace-session', () => {
       await window.api.codingAgent.prompt({
         threadId,
         message,
+        ...(fileArgs.length > 0 ? { fileArgs } : {}),
         ...getPromptImagePayload(images)
       })
       clearComposerDraft(threadId, contextId)
@@ -1056,6 +1062,53 @@ function getComposerText(content: JSONContent): string {
 }
 
 /**
+ * 从 Tiptap JSON 中提取 fileReference 节点携带的 Pi file args。
+ * @param content - Tiptap JSON 内容。
+ * @returns 文件参数列表。
+ */
+function getComposerFileArgs(content: JSONContent): string[] {
+  const fileArgs: string[] = []
+  collectComposerFileArgs(content, fileArgs)
+  return dedupeStrings(fileArgs)
+}
+
+/**
+ * 递归收集 fileReference 节点。
+ * @param node - Tiptap JSON 节点。
+ * @param fileArgs - 文件参数列表。
+ */
+function collectComposerFileArgs(node: JSONContent, fileArgs: string[]): void {
+  if (node.type === 'fileReference') {
+    const fileArg = typeof node.attrs?.fileArg === 'string' ? node.attrs.fileArg : ''
+    if (fileArg) {
+      fileArgs.push(fileArg)
+    }
+    return
+  }
+  for (const child of node.content ?? []) {
+    collectComposerFileArgs(child, fileArgs)
+  }
+}
+
+/**
+ * 按首次出现顺序去重字符串。
+ * @param values - 字符串列表。
+ * @returns 去重结果。
+ */
+function dedupeStrings(values: string[]): string[] {
+  const seen = new Set<string>()
+  const result: string[] = []
+  for (const value of values) {
+    if (seen.has(value)) {
+      continue
+    }
+    seen.add(value)
+    result.push(value)
+  }
+  return result
+}
+
+/**
  * 递归收集 Tiptap 文本节点。
  * @param node - Tiptap JSON 节点。
  * @param parts - 文本片段。
@@ -1063,6 +1116,13 @@ function getComposerText(content: JSONContent): string {
 function collectComposerText(node: JSONContent, parts: string[]): void {
   if (node.type === 'hardBreak') {
     parts.push('\n')
+    return
+  }
+  if (node.type === 'fileReference') {
+    const fileArg = typeof node.attrs?.fileArg === 'string' ? node.attrs.fileArg : ''
+    if (fileArg) {
+      parts.push(formatFileArgForInsertion(fileArg))
+    }
     return
   }
   if (typeof node.text === 'string') {

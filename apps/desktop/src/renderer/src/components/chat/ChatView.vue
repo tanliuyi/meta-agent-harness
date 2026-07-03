@@ -4,8 +4,8 @@
  */
 
 import type { CSSProperties } from 'vue'
-import { computed, nextTick, onMounted, ref, watch } from 'vue'
-import { useElementSize } from '@vueuse/core'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { useElementSize, useResizeObserver } from '@vueuse/core'
 import Composer from './Composer.vue'
 import AssistantMessage from './messages/AssistantMessage.vue'
 import ThinkingMessage from './messages/ThinkingMessage.vue'
@@ -26,6 +26,8 @@ const workspaceProject = useWorkspaceProjectStore()
 
 type TimelineScrollBehavior = 'auto' | 'smooth'
 type ScrollAreaInstance = InstanceType<typeof ScrollArea>
+const NEAR_BOTTOM_DISTANCE = 96
+const STICKY_BOTTOM_DISTANCE = 2
 type TimelineItem =
   | {
       type: 'message'
@@ -40,6 +42,7 @@ type TimelineItem =
       key: string
       message: RenderableThreadMessage
       text: string
+      collapseWhenResponseAppears: boolean
       revision: number
     }
   | {
@@ -99,6 +102,7 @@ const timelineItems = computed<TimelineItem[]>(() => {
 
 /** 消息滚动容器。 */
 const timelineRef = ref<ScrollAreaInstance | null>(null)
+const timelineInnerRef = ref<HTMLElement | null>(null)
 
 /** 底部输入区容器。 */
 const composerRef = ref<HTMLElement | null>(null)
@@ -115,6 +119,7 @@ const jumpBtnStyle = computed<CSSProperties>(() => ({
 
 /** 是否接近消息底部。 */
 const isNearBottom = ref(true)
+const shouldFollowBottom = ref(true)
 const imageSelectionError = ref<string>()
 const selectingImages = ref(false)
 
@@ -309,6 +314,15 @@ function getTimelineItemStreaming(item: TimelineItem): boolean {
 }
 
 /**
+ * 获取 thinking 项是否应在后续响应内容出现后自动收起。
+ * @param item - timeline 项。
+ * @returns 是否自动收起。
+ */
+function getTimelineItemCollapseWhenResponseAppears(item: TimelineItem): boolean {
+  return item.type === 'thinking' ? item.collapseWhenResponseAppears : false
+}
+
+/**
  * 获取 timeline 项工具调用。
  * @param item - timeline 项。
  * @returns 工具调用。
@@ -354,6 +368,7 @@ function getAssistantTimelineItems(
         key: `${message.id}:thinking:${index}`,
         message,
         text: part.thinking,
+        collapseWhenResponseAppears: hasFollowingResponseContent(content, index),
         revision: message.revision
       })
       return
@@ -381,6 +396,23 @@ function getAssistantTimelineItems(
   })
 
   return items
+}
+
+/**
+ * 判断指定 content block 后面是否已经出现正文或工具调用。
+ * @param content - assistant content block 列表。
+ * @param index - 当前 block 下标。
+ * @returns 后续是否存在非空 text block 或 toolCall block。
+ */
+function hasFollowingResponseContent(content: unknown[], index: number): boolean {
+  return content
+    .slice(index + 1)
+    .some(
+      (part) =>
+        isRecord(part) &&
+        ((part.type === 'text' && typeof part.text === 'string' && Boolean(part.text)) ||
+          (part.type === 'toolCall' && typeof part.id === 'string' && Boolean(part.id)))
+    )
 }
 
 /**
@@ -420,11 +452,18 @@ function updateScrollState(): void {
   const metrics = timelineRef.value?.getScrollMetrics()
   if (!metrics) {
     isNearBottom.value = true
+    shouldFollowBottom.value = true
     return
   }
 
   const distanceToBottom = metrics.scrollHeight - metrics.scrollTop - metrics.clientHeight
-  isNearBottom.value = distanceToBottom < 96
+  const nextIsNearBottom = distanceToBottom < NEAR_BOTTOM_DISTANCE
+  isNearBottom.value = shouldFollowBottom.value && isRunning.value ? true : nextIsNearBottom
+  if (distanceToBottom <= STICKY_BOTTOM_DISTANCE) {
+    shouldFollowBottom.value = true
+  } else if (!isRunning.value) {
+    shouldFollowBottom.value = nextIsNearBottom
+  }
 }
 
 /**
@@ -432,12 +471,15 @@ function updateScrollState(): void {
  * @param behavior - 滚动行为。
  */
 function scrollToLatest(behavior: TimelineScrollBehavior = 'smooth'): void {
+  shouldFollowBottom.value = true
   timelineRef.value?.scrollBottom(behavior)
 }
 
 /** 滚动更新 rAF 句柄。 */
 let scrollRafId: number | null = null
 let pendingScrollBehavior: TimelineScrollBehavior = 'smooth'
+let followBottomRafId: number | null = null
+let followBottomSettleFrames = 0
 
 /**
  * 合并滚动更新到下一帧，每帧最多执行一次。
@@ -453,6 +495,56 @@ function scheduleScrollToLatest(behavior: TimelineScrollBehavior = 'smooth'): vo
 }
 
 /**
+ * streaming 期间持续把 timeline 贴到底部，覆盖 Markdown 分批渲染带来的晚到布局变化。
+ */
+function startFollowBottomLoop(settleFrames = 2): void {
+  followBottomSettleFrames = Math.max(followBottomSettleFrames, settleFrames)
+  if (followBottomRafId !== null) return
+
+  followBottomRafId = requestAnimationFrame(() => {
+    followBottomRafId = null
+    if (!shouldFollowBottom.value) {
+      followBottomSettleFrames = 0
+      return
+    }
+
+    keepBottomInCurrentFrame()
+    updateScrollState()
+
+    const shouldKeepFollowing = isRunning.value || followBottomSettleFrames > 0
+    if (followBottomSettleFrames > 0) {
+      followBottomSettleFrames -= 1
+    }
+    if (shouldKeepFollowing) {
+      startFollowBottomLoop(0)
+    }
+  })
+}
+
+/**
+ * 内容高度变化时同步贴底，避免渲染批次之间露出底部空隙。
+ */
+function keepBottomInCurrentFrame(): void {
+  if (!shouldFollowBottom.value) {
+    return
+  }
+  timelineRef.value?.scrollBottom('auto')
+  isNearBottom.value = true
+}
+
+/**
+ * 用户明确向上滚动时退出自动跟随。
+ * @param event - wheel 事件。
+ */
+function handleTimelineWheel(event: WheelEvent): void {
+  if (event.deltaY < 0) {
+    shouldFollowBottom.value = false
+  } else if (isNearBottom.value) {
+    shouldFollowBottom.value = true
+  }
+}
+
+/**
  * 发送当前 Composer 草稿。
  */
 async function sendComposerPrompt(): Promise<void> {
@@ -465,15 +557,22 @@ watch(
     timelineItems.value.length,
     timelineItems.value.at(-1)?.key,
     getTimelineItemRevision(timelineItems.value.at(-1)),
+    composerHeight.value,
     isRunning.value
   ],
   async ([sessionId], [previousSessionId]) => {
     const isSessionChanged = sessionId !== previousSessionId
-    const shouldFollow = isSessionChanged || isNearBottom.value
+    const shouldFollow = isSessionChanged || shouldFollowBottom.value
     await nextTick()
 
     if (shouldFollow) {
-      scheduleScrollToLatest(isSessionChanged ? 'auto' : 'smooth')
+      if (isSessionChanged) {
+        scheduleScrollToLatest('auto')
+      } else if (isRunning.value) {
+        startFollowBottomLoop(4)
+      } else {
+        scheduleScrollToLatest('smooth')
+      }
     } else {
       updateScrollState()
     }
@@ -481,10 +580,21 @@ watch(
   { flush: 'post' }
 )
 
+useResizeObserver(timelineInnerRef, keepBottomInCurrentFrame)
+
 onMounted(async () => {
   await nextTick()
   scheduleScrollToLatest('auto')
   updateScrollState()
+})
+
+onBeforeUnmount(() => {
+  if (scrollRafId !== null) {
+    cancelAnimationFrame(scrollRafId)
+  }
+  if (followBottomRafId !== null) {
+    cancelAnimationFrame(followBottomRafId)
+  }
 })
 
 /**
@@ -500,7 +610,7 @@ function getTimelineItemRevision(item: TimelineItem | undefined): unknown[] {
     return [item.revision]
   }
   if (item.type === 'thinking') {
-    return [item.revision, item.text]
+    return [item.revision, item.text, item.collapseWhenResponseAppears]
   }
   return [
     item.toolCall.status,
@@ -518,8 +628,9 @@ function getTimelineItemRevision(item: TimelineItem | undefined): unknown[] {
       class="chat-view__timeline"
       :class="{ 'chat-view__timeline--empty': !messages.length }"
       @scroll="updateScrollState"
+      @wheel.passive="handleTimelineWheel"
     >
-      <div class="chat-view__timeline-inner" :style="timelineStyle">
+      <div ref="timelineInnerRef" class="chat-view__timeline-inner" :style="timelineStyle">
         <div
           v-for="item in timelineItems"
           :key="item.key"
@@ -533,6 +644,7 @@ function getTimelineItemRevision(item: TimelineItem | undefined): unknown[] {
             :message-id="getTimelineItemMessageId(item)"
             :text="getTimelineItemText(item)"
             :is-streaming="getTimelineItemStreaming(item)"
+            :collapse-when-response-appears="getTimelineItemCollapseWhenResponseAppears(item)"
             :tool-call="getTimelineItemToolCall(item)"
           />
         </div>

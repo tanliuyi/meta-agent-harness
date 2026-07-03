@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { BaseIconButton } from '@renderer/components/base'
+import { BaseContextMenu, BaseIconButton } from '@renderer/components/base'
 import PlusIcon from '@renderer/components/icons/PlusIcon.vue'
 import FolderIcon from '@renderer/components/icons/FolderIcon.vue'
 import SettingIcon from '@renderer/components/icons/SettingIcon.vue'
@@ -7,20 +7,38 @@ import { confirm } from '@renderer/composables/useConfirmDialog'
 import useWorkspaceProjectStore from '@renderer/stores/workspace-project'
 import useWorkspaceSessionStore from '@renderer/stores/workspace-session'
 import type { ProjectSummary, ProjectTrustDecision } from '@shared/coding-agent/types'
+import type { WorkspaceSession } from '@renderer/stores/workspace-session'
+import type { Component } from 'vue'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import ScrollArea from '@/components/ui/scroll-area/ScrollArea.vue'
+import { Archive, Copy } from '@lucide/vue'
 import { RouterLink } from 'vue-router'
+
+type ThreadMenuActionId = 'copy-id' | 'archive'
+
+interface ThreadMenuItem {
+  id: ThreadMenuActionId
+  label: string
+  shortcut?: string
+  icon?: Component
+  disabled?: boolean
+  danger?: boolean
+}
+
+interface ThreadMenuSection {
+  label?: string
+  items: ThreadMenuItem[]
+}
 
 const workspaceProject = useWorkspaceProjectStore()
 const workspaceSession = useWorkspaceSessionStore()
 
 /**
- * 选择 Project，并进入未创建 thread 的新会话草稿态。
+ * 打开 Project，不改变当前 active thread。
  * @param projectId - Project ID。
  */
 async function openProject(projectId: string): Promise<void> {
   await workspaceProject.openProject(projectId)
-  workspaceSession.startNewSession(projectId)
 }
 
 /**
@@ -94,6 +112,46 @@ async function createProject(): Promise<void> {
     await requestProjectTrust(project)
   }
 }
+
+function getThreadMenuSections(): ThreadMenuSection[] {
+  return [
+    {
+      items: [{ id: 'copy-id', label: '复制 Thread ID', icon: Copy }]
+    },
+    {
+      items: [{ id: 'archive', label: '归档会话', icon: Archive, danger: true }]
+    }
+  ]
+}
+
+async function runThreadMenuAction(actionId: string, thread: WorkspaceSession): Promise<void> {
+  switch (actionId) {
+    case 'copy-id':
+      await navigator.clipboard.writeText(thread.threadId)
+      return
+    case 'archive':
+      await archiveThread(thread)
+      return
+  }
+}
+
+async function archiveThread(thread: WorkspaceSession): Promise<void> {
+  const result = await confirm({
+    actions: [{ label: '归档', value: 'archive' }],
+    cancelText: '取消',
+    description: thread.title ? `会话：${thread.title}` : `Thread ID：${thread.threadId}`,
+    id: `archive-thread-${thread.threadId}`,
+    title: '归档这个会话？',
+    tone: 'destructive'
+  })
+
+  if (!result.confirmed) {
+    return
+  }
+
+  await window.api.codingAgent.archiveThread(thread.threadId)
+  await workspaceSession.loadThreads()
+}
 </script>
 
 <template>
@@ -150,18 +208,23 @@ async function createProject(): Promise<void> {
                 </li>
               </template>
 
-              <li
+              <BaseContextMenu
                 v-for="thread in workspaceSession.sessionsByProject[project.projectId] ?? []"
                 :key="thread.threadId"
-                class="session-group__item"
-                :class="{
-                  'is-active': thread.threadId === workspaceSession.activeSessionId
-                }"
-                @click="workspaceSession.setActiveSessionId(thread.threadId)"
+                :sections="getThreadMenuSections()"
+                @select="(item) => runThreadMenuAction(item.id, thread)"
               >
-                <span class="session-group__item-title">{{ thread.title || '新会话' }}</span>
-                <small>{{ thread.status }}</small>
-              </li>
+                <li
+                  class="session-group__item"
+                  :class="{
+                    'is-active': thread.threadId === workspaceSession.activeSessionId
+                  }"
+                  @click="workspaceSession.setActiveSessionId(thread.threadId)"
+                >
+                  <span class="session-group__item-title">{{ thread.title || '新会话' }}</span>
+                  <small>{{ thread.status }}</small>
+                </li>
+              </BaseContextMenu>
             </ul>
           </CollapsibleContent>
         </Collapsible>

@@ -80,4 +80,21 @@ describe('message-format', () => {
     })
     expect(getStandaloneMessageImages(message)).toEqual([])
   })
+
+  it('does not render text @file blocks as expanded attachment rows', () => {
+    const message = {
+      id: 'message-d',
+      role: 'user',
+      text: '<file name="README.md">\nHello\n</file>\n请看 @README.md',
+      raw: {
+        role: 'user',
+        content: '<file name="README.md">\nHello\n</file>\n请看 @README.md',
+        timestamp: 1783036800000
+      },
+      createdAt: '2026-07-03T00:00:00.000Z'
+    } satisfies ThreadMessage
+
+    expect(getMessageFileAttachments(message)).toEqual([])
+    expect(getUserMessageDisplayText(message)).toBe('请看 @README.md')
+  })
 })

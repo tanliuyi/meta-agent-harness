@@ -23,11 +23,11 @@ const props = defineProps<{
 <style lang="scss" scoped>
 .assistant-message {
   width: 100%;
-  padding: var(--space-4);
-  background: color-mix(in srgb, var(--color-surface-raised) 86%, transparent);
-  border: 1px solid color-mix(in srgb, var(--color-border) 74%, transparent);
-  border-radius: var(--radius-md);
-  box-shadow: var(--shadow-sm);
+  // padding: var(--space-4);
+  // background: color-mix(in srgb, var(--color-surface-raised) 86%, transparent);
+  // border: 1px solid color-mix(in srgb, var(--color-border) 74%, transparent);
+  // border-radius: var(--radius-md);
+  // box-shadow: var(--shadow-sm);
   color: var(--color-text);
   font-size: 13px;
   line-height: 1.55;

@@ -2,9 +2,14 @@
  * 本文件实现 prompt、steer、followUp 和 abort 操作。
  */
 
-import type { PromptImage, PromptInput, TextInput } from '@shared/coding-agent/types'
+import type { PromptImage, PromptImageFile, PromptInput, TextInput } from '@shared/coding-agent/types'
 import type { ThreadManagerCore } from './thread-manager-core'
 import { processFileArguments } from '../../../../../packages/coding-agent/src/cli/file-processor'
+import {
+  dedupeFileArgs,
+  parseFileReferenceTokens
+} from '../../../../../packages/coding-agent/src/core/file-reference'
+import { resolveReadPath } from '../../../../../packages/coding-agent/src/core/tools/path-utils'
 
 /**
  * 向线程发送 prompt 消息。
@@ -83,11 +88,28 @@ async function resolvePromptInput(
   core: ThreadManagerCore,
   input: TextInput
 ): Promise<Pick<TextInput, 'message' | 'images'>> {
-  if (!input.imageFiles || input.imageFiles.length === 0) {
+  if (
+    (!input.imageFiles || input.imageFiles.length === 0) &&
+    (!input.fileArgs || input.fileArgs.length === 0) &&
+    !input.message.includes('@')
+  ) {
+    return { message: input.message, images: input.images }
+  }
+  const cwd = getPromptCwd(core, input.threadId)
+  const parsedTokens = await parseFileReferenceTokens(input.message, cwd)
+  const fileArgs = dedupeFileArgs(
+    [
+      ...(input.fileArgs ?? []),
+      ...parsedTokens.map((token) => token.fileArg),
+      ...(input.imageFiles ?? []).map((imageFile) => imageFile.path)
+    ],
+    cwd
+  )
+  if (fileArgs.length === 0) {
     return { message: input.message, images: input.images }
   }
   const autoResizeImages = await core.getAgentSettingsService().getImageAutoResize()
-  const processed = await processPromptImageFiles(input.imageFiles, autoResizeImages)
+  const processed = await processPromptFileArgs(fileArgs, input.imageFiles ?? [], cwd, autoResizeImages)
   const images = [...processed.images, ...(input.images ?? [])]
   return {
     message: `${processed.text}${input.message}`,
@@ -96,29 +118,65 @@ async function resolvePromptInput(
 }
 
 /**
- * 逐个展开图片文件，以便在某个文件 resize/convert 失败时使用桌面粘贴已持有的图片数据兜底。
- * @param imageFiles - 图片文件引用。
+ * 逐个展开文件参数，以便在某个图片文件 resize/convert 失败时使用桌面粘贴已持有的图片数据兜底。
+ * @param fileArgs - Pi @file 参数。
+ * @param imageFiles - 图片文件引用，提供 inline fallback。
+ * @param cwd - prompt cwd。
  * @param autoResizeImages - 是否启用 Pi 图片自动 resize。
  * @returns 展开后的文本与图片。
  */
-async function processPromptImageFiles(
-  imageFiles: NonNullable<TextInput['imageFiles']>,
+async function processPromptFileArgs(
+  fileArgs: string[],
+  imageFiles: PromptImageFile[],
+  cwd: string,
   autoResizeImages: boolean
 ): Promise<{ text: string; images: PromptImage[] }> {
   let text = ''
   const images: PromptImage[] = []
-  for (const imageFile of imageFiles) {
-    const processed = await processFileArguments([imageFile.path], { autoResizeImages })
-    text += getPromptImageFileText(processed.text, imageFile)
+  const imageFallbacks = createImageFallbackMap(imageFiles, cwd)
+  for (const fileArg of fileArgs) {
+    const absolutePath = resolveReadPath(fileArg, cwd)
+    const processed = await processFileArguments([absolutePath], { autoResizeImages })
+    const imageFile = imageFallbacks.get(absolutePath)
+    text += imageFile ? getPromptImageFileText(processed.text, imageFile) : processed.text
     if (processed.images.length > 0) {
       images.push(...processed.images)
       continue
     }
-    if (imageFile.inlineFallback) {
+    if (imageFile?.inlineFallback) {
       images.push(imageFile.inlineFallback)
     }
   }
   return { text, images }
+}
+
+/**
+ * 创建图片 fallback 映射。
+ * @param imageFiles - 图片文件引用。
+ * @param cwd - prompt cwd。
+ * @returns 绝对路径到图片文件引用的映射。
+ */
+function createImageFallbackMap(imageFiles: PromptImageFile[], cwd: string): Map<string, PromptImageFile> {
+  const map = new Map<string, PromptImageFile>()
+  for (const imageFile of imageFiles) {
+    map.set(resolveReadPath(imageFile.path, cwd), imageFile)
+  }
+  return map
+}
+
+/**
+ * 获取 prompt 使用的 cwd。
+ * @param core - thread 管理核心。
+ * @param threadId - thread ID。
+ * @returns prompt cwd。
+ */
+function getPromptCwd(core: ThreadManagerCore, threadId: string): string {
+  const thread = core.requireThread(threadId)
+  try {
+    return core.getThreadCwd(thread)
+  } catch {
+    return process.cwd()
+  }
 }
 
 /**

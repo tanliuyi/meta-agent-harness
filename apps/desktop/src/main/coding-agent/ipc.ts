@@ -28,6 +28,8 @@ import type {
   CreateThreadInput,
   DiagnosticsInput,
   ExportSessionInput,
+  FileReferenceCompletionInput,
+  FileReferenceCompletionResult,
   ExtensionUiResponseInput,
   ForkInput,
   ImportSessionInput,
@@ -51,6 +53,10 @@ import type {
   UpdateModelSettingsInput,
   UpsertCustomProviderInput
 } from '@shared/coding-agent/types'
+import {
+  completeFileReference as completePiFileReference,
+  extractFileReferenceQuery
+} from '../../../../../packages/coding-agent/src/core/file-reference'
 
 /**
  * Coding agent IPC 注册选项。
@@ -175,6 +181,9 @@ export function registerCodingAgentIpc(options: CodingAgentIpcOptions = {}): Cod
   handle(manager, codingAgentChannels.stagePromptImages, (images: PromptImageDraft[]) =>
     stagePromptImages(manager, images)
   )
+  handle(manager, codingAgentChannels.completeFileReference, (input: FileReferenceCompletionInput) =>
+    completeFileReference(manager, input)
+  )
   handle(manager, codingAgentChannels.abort, (threadId: string) => manager.abort(threadId))
   handle(manager, codingAgentChannels.newSession, (input: NewSessionInput) =>
     manager.newSession(input)
@@ -276,6 +285,56 @@ export function registerCodingAgentIpc(options: CodingAgentIpcOptions = {}): Cod
   })
 
   return manager
+}
+
+/**
+ * 补全 prompt 中的 Pi @file 文件引用。
+ * @param manager - thread 管理器。
+ * @param input - 补全输入。
+ * @returns 文件引用候选。
+ */
+async function completeFileReference(
+  manager: CodingThreadManager,
+  input: FileReferenceCompletionInput
+): Promise<FileReferenceCompletionResult> {
+  const query = extractFileReferenceQuery(input.textBeforeCursor)
+  if (!query) {
+    return { candidates: [] }
+  }
+  const cwd = getCompletionCwd(manager, input)
+  if (!cwd) {
+    return { from: query.from, to: query.to, candidates: [] }
+  }
+  const candidates = await completePiFileReference({
+    cwd,
+    query: query.query,
+    limit: input.limit
+  })
+  return {
+    from: query.from,
+    to: query.to,
+    candidates
+  }
+}
+
+/**
+ * 获取文件补全使用的 cwd。
+ * @param manager - thread 管理器。
+ * @param input - 补全输入。
+ * @returns cwd 或 undefined。
+ */
+function getCompletionCwd(
+  manager: CodingThreadManager,
+  input: FileReferenceCompletionInput
+): string | undefined {
+  if (input.threadId) {
+    const thread = manager.requireThread(input.threadId)
+    return manager.getThreadCwd(thread)
+  }
+  if (input.projectId) {
+    return manager.getProject(input.projectId).path
+  }
+  return undefined
 }
 
 /**

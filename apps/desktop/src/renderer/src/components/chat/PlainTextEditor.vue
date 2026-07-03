@@ -4,9 +4,20 @@
  */
 
 import StarterKit from '@tiptap/starter-kit'
+import { Node, mergeAttributes } from '@tiptap/core'
 import { EditorContent, useEditor, type JSONContent } from '@tiptap/vue-3'
-import { ref, watch } from 'vue'
+import { computed, ref, watch } from 'vue'
 import ScrollArea from '../ui/scroll-area/ScrollArea.vue'
+import type {
+  FileReferenceCompletionResult,
+  PromptFileReferenceCandidate
+} from '@shared/coding-agent/types'
+import { formatFileArgForInsertion } from '../../../../../../../packages/coding-agent/src/core/file-reference-format'
+
+export interface FileReferenceCompletionState {
+  candidates: PromptFileReferenceCandidate[]
+  selectedIndex: number
+}
 
 const emptyDocument: JSONContent = {
   type: 'doc',
@@ -23,6 +34,10 @@ const props = withDefaults(
     modelValue?: JSONContent
     /** 空内容提示。 */
     placeholder?: string
+    /** 当前输入区绑定的 thread ID。 */
+    threadId?: string
+    /** 当前未绑定 thread 的 Project ID。 */
+    projectId?: string
   }>(),
   {
     modelValue: () => ({
@@ -33,7 +48,9 @@ const props = withDefaults(
         }
       ]
     }),
-    placeholder: ''
+    placeholder: '',
+    threadId: undefined,
+    projectId: undefined
   }
 )
 
@@ -44,6 +61,10 @@ const emit = defineEmits<{
   'text-change': [value: string]
   /** 粘贴图片文件。 */
   'paste-images': [files: File[]]
+  /** 同步文件引用补全候选。 */
+  'file-reference-completion': [value: FileReferenceCompletionState]
+  /** 同步编辑器焦点状态。 */
+  'focus-change': [value: boolean]
   /** 触发提交快捷键。 */
   submit: [value: { json: JSONContent; text: string }]
 }>()
@@ -51,7 +72,57 @@ const emit = defineEmits<{
 const isApplyingExternalContent = ref(false)
 const isFocused = ref(false)
 const currentText = ref('')
+const completion = ref<FileReferenceCompletionResult | undefined>()
+const selectedCompletionIndex = ref(0)
+let completionTimer: ReturnType<typeof setTimeout> | undefined
+let completionRequestId = 0
 let lastEmittedContent: JSONContent | undefined
+
+const completionCandidates = computed(() => completion.value?.candidates ?? [])
+
+const FileReferenceNode = Node.create({
+  name: 'fileReference',
+  group: 'inline',
+  inline: true,
+  atom: true,
+  selectable: true,
+
+  addAttributes() {
+    return {
+      fileArg: {
+        default: '',
+        parseHTML: (element) => element.getAttribute('data-file-arg') ?? '',
+        renderHTML: (attributes) => ({
+          'data-file-arg': attributes.fileArg
+        })
+      },
+      label: {
+        default: '',
+        parseHTML: (element) => element.getAttribute('data-label') ?? '',
+        renderHTML: (attributes) => ({
+          'data-label': attributes.label
+        })
+      }
+    }
+  },
+
+  parseHTML() {
+    return [{ tag: 'span[data-file-reference]' }]
+  },
+
+  renderHTML({ node, HTMLAttributes }) {
+    const label = String(node.attrs.label || node.attrs.fileArg || '')
+    return [
+      'span',
+      mergeAttributes(HTMLAttributes, {
+        'data-file-reference': '',
+        class: 'file-reference-node'
+      }),
+      ['span', { class: 'file-reference-node__icon' }, '@'],
+      ['span', { class: 'file-reference-node__label' }, label]
+    ]
+  }
+})
 
 const editor = useEditor({
   content: props.modelValue,
@@ -76,7 +147,8 @@ const editor = useEditor({
       strike: false,
       underline: false,
       trailingNode: false
-    })
+    }),
+    FileReferenceNode
   ],
   editorProps: {
     handlePaste(view, event) {
@@ -95,6 +167,33 @@ const editor = useEditor({
     handleKeyDown(_view, event) {
       if (event.isComposing) {
         return false
+      }
+      if (completionCandidates.value.length > 0) {
+        if (event.key === 'ArrowDown') {
+          event.preventDefault()
+          selectedCompletionIndex.value =
+            (selectedCompletionIndex.value + 1) % completionCandidates.value.length
+          emitCompletionState()
+          return true
+        }
+        if (event.key === 'ArrowUp') {
+          event.preventDefault()
+          selectedCompletionIndex.value =
+            (selectedCompletionIndex.value - 1 + completionCandidates.value.length) %
+            completionCandidates.value.length
+          emitCompletionState()
+          return true
+        }
+        if (event.key === 'Enter' || event.key === 'Tab') {
+          event.preventDefault()
+          selectCompletion(completionCandidates.value[selectedCompletionIndex.value])
+          return true
+        }
+        if (event.key === 'Escape') {
+          event.preventDefault()
+          closeCompletion()
+          return true
+        }
       }
       if (event.key !== 'Enter') {
         return false
@@ -120,16 +219,20 @@ const editor = useEditor({
     currentText.value = getPlainText(nextContent)
     emit('update:modelValue', nextContent)
     emit('text-change', currentText.value)
+    scheduleFileReferenceCompletion()
   },
   onCreate({ editor: currentEditor }) {
     currentText.value = getPlainText(currentEditor.getJSON())
     emit('text-change', currentText.value)
+    scheduleFileReferenceCompletion()
   },
   onFocus() {
     isFocused.value = true
+    emit('focus-change', true)
   },
   onBlur() {
     isFocused.value = false
+    emit('focus-change', false)
   }
 })
 
@@ -157,6 +260,13 @@ watch(
   }
 )
 
+watch(
+  () => [props.threadId, props.projectId],
+  () => {
+    closeCompletion()
+  }
+)
+
 /**
  * 提交当前编辑器内容。
  */
@@ -170,6 +280,139 @@ function submitContent(): void {
   emit('submit', {
     json: currentEditor.getJSON(),
     text: getPlainText(currentEditor.getJSON())
+  })
+}
+
+/**
+ * 延迟请求文件引用补全。
+ */
+function scheduleFileReferenceCompletion(): void {
+  if (completionTimer) {
+    clearTimeout(completionTimer)
+  }
+  completionTimer = setTimeout(() => {
+    void refreshFileReferenceCompletion()
+  }, 120)
+}
+
+/**
+ * 刷新 Pi @file 文件引用候选。
+ */
+async function refreshFileReferenceCompletion(): Promise<void> {
+  const currentEditor = editor.value
+  if (!currentEditor || (!props.threadId && !props.projectId)) {
+    closeCompletion()
+    return
+  }
+  const requestId = ++completionRequestId
+  const { state } = currentEditor
+  const textBeforeCursor = state.doc.textBetween(0, state.selection.from, '\n', '\n')
+  if (!textBeforeCursor.includes('@')) {
+    closeCompletion()
+    return
+  }
+  const result = await window.api.codingAgent
+    .completeFileReference({
+      threadId: props.threadId,
+      projectId: props.projectId,
+      textBeforeCursor,
+      limit: 12
+    })
+    .catch(() => undefined)
+  if (requestId !== completionRequestId) {
+    return
+  }
+  if (!result) {
+    closeCompletion()
+    return
+  }
+  completion.value = result.candidates.length > 0 ? result : undefined
+  selectedCompletionIndex.value = 0
+  emitCompletionState()
+}
+
+/**
+ * 选择文件补全候选。
+ * @param candidate - 候选。
+ */
+function selectCompletion(candidate: PromptFileReferenceCandidate | undefined): void {
+  const currentEditor = editor.value
+  const currentCompletion = completion.value
+  if (!candidate || !currentEditor || currentCompletion?.from === undefined) {
+    return
+  }
+  const insertion = {
+    type: 'fileReference',
+    attrs: {
+      fileArg: candidate.fileArg,
+      label: candidate.label
+    }
+  }
+  const textBeforeCursor = currentEditor.state.doc.textBetween(
+    0,
+    currentEditor.state.selection.from,
+    '\n',
+    '\n'
+  )
+  const tokenTextLength = textBeforeCursor.length - currentCompletion.from
+  const from = Math.max(1, currentEditor.state.selection.from - tokenTextLength)
+  currentEditor.commands.insertContentAt(
+    { from, to: currentEditor.state.selection.from },
+    [insertion, { type: 'text', text: ' ' }]
+  )
+  closeCompletion()
+}
+
+/**
+ * 从外层 Composer 选择当前文件补全候选。
+ * @param candidate - 候选。
+ */
+function selectFileReferenceCompletion(candidate: PromptFileReferenceCandidate | undefined): void {
+  selectCompletion(candidate)
+}
+
+/**
+ * 从外层 Composer 同步当前高亮候选。
+ * @param index - 候选索引。
+ */
+function setFileReferenceCompletionIndex(index: number): void {
+  if (index < 0 || index >= completionCandidates.value.length) {
+    return
+  }
+  selectedCompletionIndex.value = index
+  emitCompletionState()
+}
+
+/**
+ * 关闭文件补全。
+ */
+function closeFileReferenceCompletion(): void {
+  closeCompletion()
+}
+
+/**
+ * 将焦点恢复到编辑器。
+ */
+function focusEditor(): void {
+  editor.value?.commands.focus()
+}
+
+/**
+ * 关闭文件补全浮层。
+ */
+function closeCompletion(): void {
+  completion.value = undefined
+  selectedCompletionIndex.value = 0
+  emitCompletionState()
+}
+
+/**
+ * 向 Composer 同步文件补全展示状态。
+ */
+function emitCompletionState(): void {
+  emit('file-reference-completion', {
+    candidates: completionCandidates.value,
+    selectedIndex: selectedCompletionIndex.value
   })
 }
 
@@ -219,6 +462,13 @@ function collectPlainText(node: JSONContent, parts: string[]): void {
     parts.push('\n')
     return
   }
+  if (node.type === 'fileReference') {
+    const fileArg = typeof node.attrs?.fileArg === 'string' ? node.attrs.fileArg : ''
+    if (fileArg) {
+      parts.push(formatFileArgForInsertion(fileArg))
+    }
+    return
+  }
   if (typeof node.text === 'string') {
     parts.push(node.text)
   }
@@ -226,6 +476,13 @@ function collectPlainText(node: JSONContent, parts: string[]): void {
     collectPlainText(child, parts)
   }
 }
+
+defineExpose({
+  closeFileReferenceCompletion,
+  focusEditor,
+  selectFileReferenceCompletion,
+  setFileReferenceCompletionIndex
+})
 </script>
 
 <template>
@@ -298,5 +555,48 @@ function collectPlainText(node: JSONContent, parts: string[]): void {
   p + p {
     margin-top: 0.35em;
   }
+
+  .file-reference-node {
+    display: inline-grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    align-items: center;
+    gap: 6px;
+    width: fit-content;
+    max-width: 100%;
+    margin: 0 2px;
+    padding: 5px 8px;
+    vertical-align: baseline;
+    color: var(--color-text);
+    background: color-mix(in srgb, var(--color-surface) 76%, transparent);
+    border: 1px solid color-mix(in srgb, var(--color-primary) 28%, var(--color-border));
+    border-radius: var(--radius-sm);
+  }
+
+  .file-reference-node.ProseMirror-selectednode {
+    border-color: var(--color-primary);
+    box-shadow: 0 0 0 1px color-mix(in srgb, var(--color-primary) 32%, transparent);
+  }
+
+  .file-reference-node__icon {
+    display: grid;
+    place-items: center;
+    width: 18px;
+    height: 18px;
+    color: var(--color-primary);
+    background: color-mix(in srgb, var(--color-primary) 14%, transparent);
+    border-radius: var(--radius-sm);
+    font-size: 12px;
+    font-weight: 700;
+  }
+
+  .file-reference-node__label {
+    min-width: 0;
+    overflow: hidden;
+    font-size: 12px;
+    line-height: 1.35;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
 }
+
 </style>

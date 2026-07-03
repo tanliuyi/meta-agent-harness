@@ -95,10 +95,13 @@ export function getMessageFileAttachments(message: ThreadMessage): MessageFileAt
     const fileImageSrc = getFileAttachmentImageSrc(name)
     const inlineImage = fileImageSrc ? images[imageIndex++] : undefined
     const imageSrc = inlineImage ? getMessageImageSrc(inlineImage) : fileImageSrc
+    if (!imageSrc) {
+      continue
+    }
     attachments.push({
       name,
-      isImage: Boolean(imageSrc),
-      ...(imageSrc ? { imageSrc } : {}),
+      isImage: true,
+      imageSrc,
       ...(note ? { note } : {})
     })
   }

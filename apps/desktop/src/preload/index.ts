@@ -39,6 +39,8 @@ const codingAgent: CodingAgentApi = {
   followUp: (input) => invokeCodingAgent(codingAgentChannels.followUp, input),
   selectPromptImages: () => invokeCodingAgent(codingAgentChannels.selectPromptImages),
   stagePromptImages: (images) => invokeCodingAgent(codingAgentChannels.stagePromptImages, images),
+  completeFileReference: (input) =>
+    invokeCodingAgent(codingAgentChannels.completeFileReference, input),
   abort: (threadId) => invokeCodingAgent(codingAgentChannels.abort, threadId),
   newSession: (input) => invokeCodingAgent(codingAgentChannels.newSession, input),
   switchSession: (input) => invokeCodingAgent(codingAgentChannels.switchSession, input),

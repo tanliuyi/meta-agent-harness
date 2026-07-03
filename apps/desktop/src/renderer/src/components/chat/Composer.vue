@@ -4,13 +4,29 @@
  */
 
 import type { JSONContent } from '@tiptap/vue-3'
+import { nextTick, ref, watch } from 'vue'
 import { BaseIconButton } from '@renderer/components/base'
 import SendIcon from '@renderer/components/icons/SendIcon.vue'
+import { Command } from '@renderer/components/ui/command'
+import ScrollArea from '@renderer/components/ui/scroll-area/ScrollArea.vue'
+import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectTrigger,
+  SelectValue
+} from '@renderer/components/ui/select'
 import StopIcon from '@renderer/components/icons/StopIcon.vue'
 import { ImagePlus, X } from 'lucide-vue-next'
 import PlainTextEditor from './PlainTextEditor.vue'
 import type { ComposerImageAttachment } from '@renderer/stores/workspace-session'
-import type { ProjectSummary } from '@shared/coding-agent/types'
+import type { ProjectSummary, PromptFileReferenceCandidate } from '@shared/coding-agent/types'
+
+type FileReferenceCompletionState = {
+  candidates: PromptFileReferenceCandidate[]
+  selectedIndex: number
+}
 
 const props = withDefaults(
   defineProps<{
@@ -66,11 +82,146 @@ const emit = defineEmits<{
   abort: []
 }>()
 
+const editorRef = ref<{
+  closeFileReferenceCompletion(): void
+  focusEditor(): void
+  selectFileReferenceCompletion(candidate: PromptFileReferenceCandidate | undefined): void
+  setFileReferenceCompletionIndex(index: number): void
+}>()
+const fileCompletionScrollRef = ref<{
+  getViewport(): HTMLElement | undefined
+}>()
+const composerShellRef = ref<HTMLElement>()
+const isEditorFocused = ref(false)
+const fileReferenceCompletion = ref<FileReferenceCompletionState>({
+  candidates: [],
+  selectedIndex: 0
+})
+
+watch(
+  () => [
+    fileReferenceCompletion.value.selectedIndex,
+    fileReferenceCompletion.value.candidates.length
+  ],
+  () => {
+    void nextTick(scrollSelectedFileReferenceIntoView)
+  }
+)
+
 /**
  * 提交输入内容。
  */
 function handleSubmit(): void {
   emit('submit')
+}
+
+/**
+ * 同步编辑器文件补全候选。
+ * @param state - 补全展示状态。
+ */
+function handleFileReferenceCompletion(state: FileReferenceCompletionState): void {
+  const shouldRestoreFocus = isEditorFocused.value
+  fileReferenceCompletion.value = state
+  if (shouldRestoreFocus) {
+    void nextTick(() => {
+      editorRef.value?.focusEditor()
+    })
+  }
+}
+
+/**
+ * 选择文件补全候选。
+ * @param candidate - 文件候选。
+ */
+function selectFileReferenceCandidate(candidate: PromptFileReferenceCandidate): void {
+  editorRef.value?.selectFileReferenceCompletion(candidate)
+}
+
+/**
+ * 高亮当前鼠标所在的文件补全候选。
+ * @param index - 候选索引。
+ */
+function highlightFileReferenceCandidate(index: number): void {
+  fileReferenceCompletion.value = {
+    ...fileReferenceCompletion.value,
+    selectedIndex: index
+  }
+  editorRef.value?.setFileReferenceCompletionIndex(index)
+}
+
+/**
+ * 同步编辑器焦点状态。
+ * @param focused - 是否聚焦。
+ */
+function handleEditorFocusChange(focused: boolean): void {
+  isEditorFocused.value = focused
+}
+
+/**
+ * 在补全打开时统一处理键盘选择，避免 Command/Listbox 或焦点变化吞掉编辑器按键。
+ * @param event - 键盘事件。
+ */
+function handleFileReferenceKeyDown(event: KeyboardEvent): void {
+  const candidates = fileReferenceCompletion.value.candidates
+  if (event.isComposing || candidates.length === 0) {
+    return
+  }
+
+  if (event.key === 'ArrowDown') {
+    event.preventDefault()
+    event.stopPropagation()
+    const nextIndex = (fileReferenceCompletion.value.selectedIndex + 1) % candidates.length
+    highlightFileReferenceCandidate(nextIndex)
+    void nextTick(scrollSelectedFileReferenceIntoView)
+    return
+  }
+
+  if (event.key === 'ArrowUp') {
+    event.preventDefault()
+    event.stopPropagation()
+    const nextIndex =
+      (fileReferenceCompletion.value.selectedIndex - 1 + candidates.length) % candidates.length
+    highlightFileReferenceCandidate(nextIndex)
+    void nextTick(scrollSelectedFileReferenceIntoView)
+    return
+  }
+
+  if (event.key === 'Enter' || event.key === 'Tab') {
+    event.preventDefault()
+    event.stopPropagation()
+    editorRef.value?.selectFileReferenceCompletion(
+      candidates[fileReferenceCompletion.value.selectedIndex]
+    )
+    return
+  }
+
+  if (event.key === 'Escape') {
+    event.preventDefault()
+    event.stopPropagation()
+    editorRef.value?.closeFileReferenceCompletion()
+  }
+}
+
+/**
+ * 保证键盘高亮的文件候选项处于可视区域。
+ */
+function scrollSelectedFileReferenceIntoView(): void {
+  const viewport = fileCompletionScrollRef.value?.getViewport()
+  const selectedItem = composerShellRef.value?.querySelector(
+    '.composer__file-completion-item.is-selected'
+  )
+  if (!viewport || !(selectedItem instanceof HTMLElement)) {
+    return
+  }
+  const viewportRect = viewport.getBoundingClientRect()
+  const itemRect = selectedItem.getBoundingClientRect()
+  if (itemRect.top < viewportRect.top) {
+    viewport.scrollTop -= viewportRect.top - itemRect.top
+    return
+  }
+  if (itemRect.bottom > viewportRect.bottom) {
+    viewport.scrollTop += itemRect.bottom - viewportRect.bottom
+  }
 }
 
 /**
@@ -94,14 +245,13 @@ function openImagePicker(): void {
 
 /**
  * 选择新会话草稿所属 Project。
- * @param event - select change 事件。
+ * @param value - Project ID。
  */
-function handleProjectChange(event: Event): void {
-  const target = event.target
-  if (!(target instanceof HTMLSelectElement) || !target.value) {
+function handleProjectChange(value: unknown): void {
+  if (typeof value !== 'string' || !value) {
     return
   }
-  emit('select-project', target.value)
+  emit('select-project', value)
 }
 
 /**
@@ -114,86 +264,185 @@ function getImagePreviewSrc(image: ComposerImageAttachment): string {
 </script>
 
 <template>
-  <form class="composer" @submit.prevent="handleSubmit">
-    <div v-if="!threadId" class="composer__project">
-      <label for="composer-project-select">Project</label>
-      <select
-        id="composer-project-select"
-        :value="projectId ?? ''"
-        :disabled="isRunning || projects.length === 0"
-        @change="handleProjectChange"
-      >
-        <option value="" disabled>选择已有 Project</option>
-        <option
-          v-for="project in projects"
-          :key="project.projectId"
-          :value="project.projectId"
-          :disabled="project.status !== 'available'"
-        >
-          {{ project.name }}
-        </option>
-      </select>
-    </div>
-
-    <div v-if="images.length > 0" class="composer__images">
-      <div v-for="image in images" :key="image.id" class="composer__image">
-        <img :src="getImagePreviewSrc(image)" :alt="image.name" />
-        <button
-          type="button"
-          class="composer__image-remove"
-          :aria-label="`移除 ${image.name}`"
-          @click="emit('remove-image', image.id)"
-        >
-          <X :size="14" />
-        </button>
+  <div ref="composerShellRef" class="composer-shell" @keydown.capture="handleFileReferenceKeyDown">
+    <Command
+      v-if="fileReferenceCompletion.candidates.length > 0"
+      class="composer__file-completion"
+    >
+      <ScrollArea ref="fileCompletionScrollRef" class="composer__file-completion-scroll">
+        <div class="composer__file-completion-list" role="listbox">
+          <button
+            v-for="(candidate, index) in fileReferenceCompletion.candidates"
+            :key="candidate.absolutePath"
+            type="button"
+            tabindex="-1"
+            class="composer__file-completion-item"
+            :class="{ 'is-selected': index === fileReferenceCompletion.selectedIndex }"
+            role="option"
+            :aria-selected="index === fileReferenceCompletion.selectedIndex"
+            @mousedown.prevent="selectFileReferenceCandidate(candidate)"
+            @mouseenter="highlightFileReferenceCandidate(index)"
+          >
+            <span class="composer__file-completion-label">{{ candidate.label }}</span>
+          </button>
+        </div>
+      </ScrollArea>
+    </Command>
+    <form class="composer" @submit.prevent="handleSubmit">
+      <div v-if="images.length > 0" class="composer__images">
+        <div v-for="image in images" :key="image.id" class="composer__image">
+          <img :src="getImagePreviewSrc(image)" :alt="image.name" />
+          <button
+            type="button"
+            class="composer__image-remove"
+            :aria-label="`移除 ${image.name}`"
+            @click="emit('remove-image', image.id)"
+          >
+            <X :size="14" />
+          </button>
+        </div>
       </div>
-    </div>
-    <PlainTextEditor
-      :model-value="modelValue"
-      :placeholder="placeholder"
-      @update:model-value="emit('update:modelValue', $event)"
-      @text-change="emit('text-change', $event)"
-      @paste-images="emit('paste-images', $event, threadId)"
-      @submit="handleSubmit"
-    />
-    <div class="composer__actions">
-      <p v-if="imageError" class="composer__image-error" role="alert">{{ imageError }}</p>
-      <BaseIconButton
-        type="button"
-        size="large"
-        class="composer__attach"
-        label="添加图片"
-        :disabled="isRunning || selectingImages"
-        @click="openImagePicker"
-      >
-        <ImagePlus :size="18" />
-      </BaseIconButton>
-      <BaseIconButton
-        type="button"
-        size="large"
-        class="composer__action"
-        :class="{ 'is-stop': isRunning }"
-        :label="isRunning ? '停止' : '发送'"
-        :disabled="isRunning ? false : !canSend"
-        @click="handleActionClick"
-      >
-        <StopIcon v-if="isRunning" />
-        <SendIcon v-else />
-      </BaseIconButton>
-    </div>
-  </form>
+      <PlainTextEditor
+        ref="editorRef"
+        :model-value="modelValue"
+        :placeholder="placeholder"
+        :thread-id="threadId"
+        :project-id="projectId"
+        @update:model-value="emit('update:modelValue', $event)"
+        @text-change="emit('text-change', $event)"
+        @paste-images="emit('paste-images', $event, threadId)"
+        @file-reference-completion="handleFileReferenceCompletion"
+        @focus-change="handleEditorFocusChange"
+        @submit="handleSubmit"
+      />
+      <div class="composer__actions">
+        <p v-if="imageError" class="composer__image-error" role="alert">{{ imageError }}</p>
+        <Select
+          v-if="!threadId"
+          :model-value="projectId ?? ''"
+          :disabled="isRunning || projects.length === 0"
+          @update:model-value="handleProjectChange"
+        >
+          <SelectTrigger class="composer__project-select" size="sm" aria-label="选择 Project">
+            <SelectValue placeholder="选择 Project" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectGroup>
+              <SelectItem
+                v-for="project in projects"
+                :key="project.projectId"
+                :value="project.projectId"
+                :disabled="project.status !== 'available'"
+              >
+                {{ project.name }}
+              </SelectItem>
+            </SelectGroup>
+          </SelectContent>
+        </Select>
+        <BaseIconButton
+          type="button"
+          size="large"
+          class="composer__attach"
+          label="添加图片"
+          :disabled="isRunning || selectingImages"
+          @click="openImagePicker"
+        >
+          <ImagePlus :size="18" />
+        </BaseIconButton>
+        <BaseIconButton
+          type="button"
+          size="large"
+          class="composer__action"
+          :class="{ 'is-stop': isRunning }"
+          :label="isRunning ? '停止' : '发送'"
+          :disabled="isRunning ? false : !canSend"
+          @click="handleActionClick"
+        >
+          <StopIcon v-if="isRunning" />
+          <SendIcon v-else />
+        </BaseIconButton>
+      </div>
+    </form>
+  </div>
 </template>
 
 <style lang="scss" scoped>
+.composer-shell {
+  position: relative;
+  margin-top: auto;
+}
+
 .composer {
   display: grid;
   gap: var(--space-2);
-  margin-top: auto;
   padding: var(--space-3);
   background: var(--color-surface-raised);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-md);
   box-shadow: var(--shadow-sm);
+}
+
+.composer__file-completion {
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + var(--space-2));
+  left: 0;
+  z-index: 12;
+  height: 112px;
+  padding: 6px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-md);
+  overflow: hidden;
+}
+
+.composer__file-completion-scroll {
+  width: 100%;
+  height: 100%;
+}
+
+.composer__file-completion-scroll :deep([data-slot='scroll-area-viewport']) {
+  height: 100%;
+  padding-right: 12px;
+}
+
+.composer__file-completion-scroll :deep([data-slot='scroll-area-scrollbar']) {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  height: auto;
+}
+
+.composer__file-completion-list {
+  display: grid;
+  gap: 1px;
+  min-width: 0;
+}
+
+.composer__file-completion-item {
+  min-width: 0;
+  width: 100%;
+  padding: 7px 8px;
+  color: var(--color-text);
+  text-align: left;
+  background: transparent;
+  border: 0;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+
+  &.is-selected {
+    background: color-mix(in srgb, var(--color-primary) 16%, transparent);
+  }
+}
+
+.composer__file-completion-label {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .composer__actions {
@@ -203,39 +452,10 @@ function getImagePreviewSrc(image: ComposerImageAttachment): string {
   gap: var(--space-2);
 }
 
-.composer__project {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
-  align-items: center;
-  gap: var(--space-2);
-
-  label {
-    color: var(--color-text-muted);
-    font-size: 11px;
-    font-weight: 700;
-    text-transform: uppercase;
-  }
-
-  select {
-    min-width: 0;
-    height: 30px;
-    padding: 0 var(--space-3);
-    color: var(--color-text);
-    background: var(--color-surface);
-    border: 1px solid var(--color-border);
-    border-radius: var(--radius-sm);
-    outline: none;
-
-    &:focus {
-      border-color: var(--color-primary);
-    }
-
-    &:disabled {
-      color: var(--color-text-muted);
-      cursor: not-allowed;
-      opacity: 0.72;
-    }
-  }
+.composer__project-select {
+  width: 160px;
+  min-width: 0;
+  flex: 0 1 160px;
 }
 
 .composer__image-error {

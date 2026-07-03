@@ -37,6 +37,8 @@ export const codingAgentChannels = {
   selectPromptImages: 'coding-agent:select-prompt-images',
   /** 暂存并处理 prompt 图片附件。 */
   stagePromptImages: 'coding-agent:stage-prompt-images',
+  /** 补全 prompt 中的 Pi @file 文件引用。 */
+  completeFileReference: 'coding-agent:complete-file-reference',
   /** 中止线程当前运行。 */
   abort: 'coding-agent:abort',
   /** 创建新会话。 */

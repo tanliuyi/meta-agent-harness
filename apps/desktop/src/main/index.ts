@@ -39,7 +39,15 @@ function createWindow(): void {
     }
   })
 
+  mainWindow.webContents.on('before-input-event', (event, input) => {
+    if (input.key === 'Alt' && !input.control && !input.meta && !input.shift) {
+      event.preventDefault()
+      mainWindow.setMenuBarVisibility(false)
+    }
+  })
+
   mainWindow.on('ready-to-show', () => {
+    mainWindow.setMenuBarVisibility(false)
     mainWindow.show()
   })
 

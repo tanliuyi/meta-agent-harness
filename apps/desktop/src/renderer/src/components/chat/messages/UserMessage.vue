@@ -17,8 +17,8 @@ defineProps<{
   <div class="user-message">
     <div v-if="getMessageFileAttachments(message).length > 0" class="user-message__attachments">
       <div
-        v-for="attachment in getMessageFileAttachments(message)"
-        :key="attachment.name"
+        v-for="(attachment, index) in getMessageFileAttachments(message)"
+        :key="`${attachment.name}-${index}`"
         class="user-message__attachment"
       >
         <img

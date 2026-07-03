@@ -157,6 +157,40 @@ export type PromptImageAttachment = PromptImage & {
   hints: string[]
 }
 
+/** Prompt 文件引用候选。 */
+export interface PromptFileReferenceCandidate {
+  /** 传给 Pi @file 处理链路的文件参数。 */
+  fileArg: string
+  /** 相对 Project cwd 的展示路径。 */
+  relativePath: string
+  /** 文件绝对路径。 */
+  absolutePath: string
+  /** 候选展示标签。 */
+  label: string
+}
+
+/** 文件引用补全输入。 */
+export interface FileReferenceCompletionInput {
+  /** 当前绑定的 thread ID。 */
+  threadId?: string
+  /** 未创建 thread 时使用的 Project ID。 */
+  projectId?: string
+  /** 光标前文本。 */
+  textBeforeCursor: string
+  /** 最大候选数。 */
+  limit?: number
+}
+
+/** 文件引用补全结果。 */
+export interface FileReferenceCompletionResult {
+  /** 当前 @file token 起始位置；无补全上下文时为 undefined。 */
+  from?: number
+  /** 当前 @file token 结束位置；无补全上下文时为 undefined。 */
+  to?: number
+  /** 候选文件。 */
+  candidates: PromptFileReferenceCandidate[]
+}
+
 /** 将 Pi AgentMessage 转换为不含 ID 的 Desktop message 内容。 */
 export const toDesktopMessageContent = toPackageDesktopMessageContent
 
@@ -173,6 +207,8 @@ export interface ThreadIdInput {
 export interface PromptInput extends ThreadIdInput {
   /** 用户消息文本。 */
   message: string
+  /** Pi @file 文件参数，由后端按 Pi @file 语义展开。 */
+  fileArgs?: string[]
   /** 附加图片数据。 */
   images?: PromptImage[]
   /** 附加图片文件，由后端按 Pi @file 语义展开。 */
@@ -185,6 +221,8 @@ export interface PromptInput extends ThreadIdInput {
 export interface TextInput extends ThreadIdInput {
   /** 用户消息文本。 */
   message: string
+  /** Pi @file 文件参数，由后端按 Pi @file 语义展开。 */
+  fileArgs?: string[]
   /** 附加图片数据。 */
   images?: PromptImage[]
   /** 附加图片文件，由后端按 Pi @file 语义展开。 */
@@ -867,6 +905,10 @@ export interface CodingAgentApi {
   selectPromptImages(): Promise<PromptImageAttachment[] | undefined>
   /** 暂存并处理 prompt 图片附件。 */
   stagePromptImages(images: PromptImageDraft[]): Promise<PromptImageAttachment[]>
+  /** 补全 prompt 中的 Pi @file 文件引用。 */
+  completeFileReference(
+    input: FileReferenceCompletionInput
+  ): Promise<FileReferenceCompletionResult>
   /** 中止当前运行。 */
   abort(threadId: string): Promise<void>
   /** 创建新会话。 */

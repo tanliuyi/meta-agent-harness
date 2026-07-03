@@ -11,6 +11,7 @@ const props = defineProps<{
   messageId?: string
   text?: string
   isStreaming?: boolean
+  collapseWhenResponseAppears?: boolean
 }>()
 
 const thinkingText = computed(
@@ -23,12 +24,12 @@ const open = ref(props.isStreaming ?? false)
 const scrollAreaRef = ref<InstanceType<typeof ScrollArea> | null>(null)
 
 /**
- * 流式输出期间保持展开；完成后默认折叠，用户仍可手动展开。
+ * 流式输出期间保持展开；正文或工具调用出现后自动收起，用户仍可手动展开。
  */
 watch(
-  () => props.isStreaming,
-  (isStreaming) => {
-    open.value = Boolean(isStreaming)
+  () => [props.isStreaming, props.collapseWhenResponseAppears],
+  ([isStreaming, collapseWhenResponseAppears]) => {
+    open.value = Boolean(isStreaming) && !collapseWhenResponseAppears
   }
 )
 
