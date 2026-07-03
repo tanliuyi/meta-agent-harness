@@ -173,20 +173,16 @@ onBeforeUnmount(() => {
   gap: var(--space-2);
   width: fit-content;
   max-width: 100%;
-  padding: var(--space-1) var(--space-2);
   color: var(--color-text-muted);
   font-family: var(--font-mono);
   font-size: 13px;
   letter-spacing: 0;
   text-align: left;
   background: transparent;
-  border: 1px dashed color-mix(in srgb, var(--color-border) 70%, transparent);
-  border-radius: var(--radius-sm);
   cursor: pointer;
 
   &:hover {
     color: var(--color-text);
-    background: color-mix(in srgb, var(--color-surface-raised) 50%, transparent);
   }
 
   &:focus-visible {
@@ -215,6 +211,7 @@ onBeforeUnmount(() => {
   color: var(--color-text-subtle);
   text-overflow: ellipsis;
   white-space: nowrap;
+  font-size: 12px;
 }
 
 .thinking-message__content {
@@ -250,5 +247,4 @@ onBeforeUnmount(() => {
     line-height: 1.6;
   }
 }
-
 </style>
