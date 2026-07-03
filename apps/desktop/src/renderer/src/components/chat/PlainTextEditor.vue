@@ -111,7 +111,7 @@ const FileReferenceNode = Node.create({
   },
 
   renderHTML({ node, HTMLAttributes }) {
-    const label = String(node.attrs.label || node.attrs.fileArg || '')
+    const label = getFileReferenceDisplayName(String(node.attrs.label || node.attrs.fileArg || ''))
     return [
       'span',
       mergeAttributes(HTMLAttributes, {
@@ -123,6 +123,17 @@ const FileReferenceNode = Node.create({
     ]
   }
 })
+
+/**
+ * 获取文件引用在编辑器 chip 中展示的末级名称。
+ * @param value - 文件路径或 label。
+ * @returns 末级文件/文件夹名。
+ */
+function getFileReferenceDisplayName(value: string): string {
+  const normalized = value.replace(/\\/g, '/').replace(/\/+$/, '')
+  const separatorIndex = normalized.lastIndexOf('/')
+  return separatorIndex >= 0 ? normalized.slice(separatorIndex + 1) : normalized
+}
 
 const editor = useEditor({
   content: props.modelValue,
@@ -401,6 +412,11 @@ function focusEditor(): void {
  * 关闭文件补全浮层。
  */
 function closeCompletion(): void {
+  completionRequestId++
+  if (completionTimer) {
+    clearTimeout(completionTimer)
+    completionTimer = undefined
+  }
   completion.value = undefined
   selectedCompletionIndex.value = 0
   emitCompletionState()

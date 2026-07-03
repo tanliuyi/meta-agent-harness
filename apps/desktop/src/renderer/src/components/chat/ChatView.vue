@@ -710,7 +710,7 @@ function getTimelineItemRevision(item: TimelineItem | undefined): unknown[] {
 .chat-view__timeline-inner {
   display: flex;
   flex-direction: column;
-  gap: var(--space-3);
+  gap: var(--space-5);
   max-width: 768px;
   min-height: 100%;
   margin: 0 auto;

@@ -159,12 +159,12 @@ function findUnquotedTokenStart(text: string): number {
 }
 
 function isFileReferencePrefixBoundary(char: string | undefined): boolean {
-	return char === " " || char === "\t";
+	return char === undefined || char === " " || char === "\t" || char === "\n";
 }
 
 function findFileReferenceTokens(text: string): Array<{ raw: string; fileArg: string; from: number; to: number }> {
 	const matches: Array<{ raw: string; fileArg: string; from: number; to: number }> = [];
-	const pattern = /([ \t])@(?:"((?:\\"|[^"])*)"|([^\s"'<>]+))/g;
+	const pattern = /(^|[ \t\n])@(?:"((?:\\"|[^"])*)"|([^\s"'<>]+))/g;
 	let match: RegExpExecArray | null;
 	while ((match = pattern.exec(text))) {
 		const boundary = match[1] ?? "";

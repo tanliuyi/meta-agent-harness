@@ -36,7 +36,18 @@ describe("file-reference", () => {
 			from: 5,
 			quoted: true,
 		});
-		expect(extractFileReferenceQuery("@src/a.ts")).toBeUndefined();
+		expect(extractFileReferenceQuery("@src/a.ts")).toMatchObject({
+			raw: "@src/a.ts",
+			query: "src/a.ts",
+			from: 0,
+			quoted: false,
+		});
+		expect(extractFileReferenceQuery('read\n@"docs/a b.md')).toMatchObject({
+			raw: '@"docs/a b.md',
+			query: "docs/a b.md",
+			from: 5,
+			quoted: true,
+		});
 		expect(extractFileReferenceQuery("(@src/a.ts")).toBeUndefined();
 		expect(extractFileReferenceQuery("mail me@site.test")).toBeUndefined();
 		expect(extractFileReferenceQuery("word@src/a.ts")).toBeUndefined();
@@ -67,10 +78,18 @@ describe("file-reference", () => {
 		expect(tokens.map((token) => token.fileArg)).toEqual(["exists.ts"]);
 	});
 
-	it("requires whitespace before file reference tokens", async () => {
+	it("parses file references at text start and line start", async () => {
 		await writeFile(join(testDir, "exists.ts"), "source");
 
-		const tokens = await parseFileReferenceTokens("@exists.ts\n@exists.ts (@exists.ts word@exists.ts", testDir);
+		const tokens = await parseFileReferenceTokens("@exists.ts\n@exists.ts", testDir);
+
+		expect(tokens.map((token) => token.fileArg)).toEqual(["exists.ts", "exists.ts"]);
+	});
+
+	it("requires a token boundary before file reference tokens", async () => {
+		await writeFile(join(testDir, "exists.ts"), "source");
+
+		const tokens = await parseFileReferenceTokens("(@exists.ts word@exists.ts", testDir);
 
 		expect(tokens).toEqual([]);
 	});
