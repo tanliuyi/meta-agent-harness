@@ -423,7 +423,10 @@ function getProjectTrustIcon(project: ProjectSummary): Component | undefined {
               <template v-else>
                 <!-- 显示前 5 条，或者全部 -->
                 <BaseContextMenu
-                  v-for="threadItem in projectItem.threads.slice(0, getProjectExpansion(projectItem.project.projectId).displayCount)"
+                  v-for="threadItem in projectItem.threads.slice(
+                    0,
+                    getProjectExpansion(projectItem.project.projectId).displayCount
+                  )"
                   :key="threadItem.thread.threadId"
                   :sections="threadMenuSections"
                   @select="(item) => runThreadMenuAction(item.id, threadItem.thread)"
@@ -471,15 +474,33 @@ function getProjectTrustIcon(project: ProjectSummary): Component | undefined {
                 </BaseContextMenu>
 
                 <!-- 展开/收起按钮 -->
-                <li v-if="getProjectExpansion(projectItem.project.projectId).displayCount < projectItem.threads.length" class="session-group__expand-collapse">
+                <li
+                  v-if="
+                    getProjectExpansion(projectItem.project.projectId).displayCount <
+                      projectItem.threads.length ||
+                    (getProjectExpansion(projectItem.project.projectId).hasExpanded &&
+                      getProjectExpansion(projectItem.project.projectId).displayCount > 5)
+                  "
+                  class="session-group__expand-collapse"
+                >
                   <button
                     class="expand-collapse-btn"
-                    @click="expandProject(projectItem.project.projectId, projectItem.threads.length)"
+                    @click="
+                      expandProject(projectItem.project.projectId, projectItem.threads.length)
+                    "
                   >
-                    {{ getExpandButtonText(projectItem.threads.length, getProjectExpansion(projectItem.project.projectId).displayCount) }}
+                    {{
+                      getExpandButtonText(
+                        projectItem.threads.length,
+                        getProjectExpansion(projectItem.project.projectId).displayCount
+                      )
+                    }}
                   </button>
                   <button
-                    v-if="getProjectExpansion(projectItem.project.projectId).hasExpanded && getProjectExpansion(projectItem.project.projectId).displayCount > 5"
+                    v-if="
+                      getProjectExpansion(projectItem.project.projectId).hasExpanded &&
+                      getProjectExpansion(projectItem.project.projectId).displayCount > 5
+                    "
                     class="expand-collapse-btn collapse-btn"
                     @click="collapseProject(projectItem.project.projectId)"
                   >
