@@ -62,14 +62,14 @@ const workspaceProject = useWorkspaceProjectStore()
 const workspaceSession = useWorkspaceSessionStore()
 const expandedProjects = ref<Record<string, { displayCount: number; hasExpanded: boolean }>>({})
 
-function getProjectExpansion(projectId: string) {
+function getProjectExpansion(projectId: string): { displayCount: number; hasExpanded: boolean } {
   if (!expandedProjects.value[projectId]) {
     expandedProjects.value[projectId] = { displayCount: 5, hasExpanded: false }
   }
   return expandedProjects.value[projectId]
 }
 
-function expandProject(projectId: string, totalCount: number, increment: number = 10) {
+function expandProject(projectId: string, totalCount: number, increment: number = 10): void {
   const expansion = getProjectExpansion(projectId)
   const remaining = totalCount - expansion.displayCount
   const toAdd = Math.min(increment, remaining)
@@ -77,7 +77,7 @@ function expandProject(projectId: string, totalCount: number, increment: number 
   expansion.hasExpanded = true
 }
 
-function collapseProject(projectId: string) {
+function collapseProject(projectId: string): void {
   const expansion = getProjectExpansion(projectId)
   expansion.displayCount = 5
 }
