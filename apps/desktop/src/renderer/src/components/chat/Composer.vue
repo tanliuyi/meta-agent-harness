@@ -20,8 +20,15 @@ import {
 import StopIcon from '@renderer/components/icons/StopIcon.vue'
 import { ImagePlus, X } from 'lucide-vue-next'
 import PlainTextEditor from './PlainTextEditor.vue'
+import Usage from './Usage.vue'
+import type { TokenUsage } from './Usage.vue'
 import type { ComposerImageAttachment } from '@renderer/stores/workspace-session'
-import type { ProjectSummary, PromptFileReferenceCandidate } from '@shared/coding-agent/types'
+import type {
+  ProjectSummary,
+  PromptFileReferenceCandidate,
+  ThinkingLevel,
+  ThreadSnapshot
+} from '@shared/coding-agent/types'
 
 type FileReferenceCompletionState = {
   candidates: PromptFileReferenceCandidate[]
@@ -33,6 +40,18 @@ type RunningMessageDelivery = 'steer' | 'followUp'
 type ComposerImagePreview = ComposerImageAttachment & {
   previewSrc: string
 }
+
+type SessionModel = NonNullable<ThreadSnapshot['model']>
+type SessionModelOption = Pick<SessionModel, 'provider' | 'id' | 'displayName'>
+
+const thinkingOptions: Array<{ label: string; value: ThinkingLevel }> = [
+  { label: 'Off', value: 'off' },
+  { label: 'Minimal', value: 'minimal' },
+  { label: 'Low', value: 'low' },
+  { label: 'Medium', value: 'medium' },
+  { label: 'High', value: 'high' },
+  { label: 'XHigh', value: 'xhigh' }
+]
 
 const props = withDefaults(
   defineProps<{
@@ -54,6 +73,20 @@ const props = withDefaults(
     imageError?: string
     /** 是否正在选择/处理图片。 */
     selectingImages?: boolean
+    /** 当前会话的 token usage 信息。 */
+    usage?: TokenUsage
+    /** 当前会话模型。 */
+    currentModel?: SessionModel
+    /** 当前会话可切换模型。 */
+    modelOptions?: SessionModelOption[]
+    /** 是否正在加载模型列表。 */
+    loadingModelOptions?: boolean
+    /** 是否禁用模型选择。 */
+    modelSelectDisabled?: boolean
+    /** 当前会话 thinking level。 */
+    currentThinkingLevel?: ThinkingLevel
+    /** 是否禁用 thinking 选择。 */
+    thinkingSelectDisabled?: boolean
     /** Agent 运行中提交消息时的交付方式。 */
     runningDelivery?: RunningMessageDelivery
     /** 输入提示。 */
@@ -67,6 +100,13 @@ const props = withDefaults(
     images: () => [],
     imageError: undefined,
     selectingImages: false,
+    usage: undefined,
+    currentModel: undefined,
+    modelOptions: () => [],
+    loadingModelOptions: false,
+    modelSelectDisabled: false,
+    currentThinkingLevel: 'medium',
+    thinkingSelectDisabled: false,
     runningDelivery: 'steer',
     placeholder: ''
   }
@@ -79,6 +119,10 @@ const emit = defineEmits<{
   'text-change': [value: string]
   /** 发送当前草稿。 */
   submit: []
+  /** 选择当前会话模型。 */
+  'select-model': [provider: string, modelId: string]
+  /** 选择当前会话 thinking level。 */
+  'select-thinking-level': [level: ThinkingLevel]
   /** 同步运行中消息交付方式。 */
   'update:runningDelivery': [value: RunningMessageDelivery]
   /** 选择新会话草稿所属 Project。 */
@@ -114,6 +158,31 @@ const imagePreviews = computed<ComposerImagePreview[]>(() =>
     ...image,
     previewSrc: `data:${image.mimeType};base64,${image.data}`
   }))
+)
+
+/** 当前模型选择器值。 */
+const currentModelValue = computed(() =>
+  props.currentModel ? createModelValue(props.currentModel.provider, props.currentModel.id) : ''
+)
+
+/** 当前模型展示文本。 */
+const currentModelLabel = computed(() => {
+  if (!props.currentModel) {
+    return props.loadingModelOptions ? '加载模型...' : '选择模型'
+  }
+  return formatModelLabel(props.currentModel)
+})
+
+/** 模型选择器是否禁用。 */
+const isModelSelectDisabled = computed(
+  () => props.modelSelectDisabled || props.loadingModelOptions || props.modelOptions.length === 0
+)
+
+/** 当前 thinking level 展示文本。 */
+const currentThinkingLabel = computed(
+  () =>
+    thinkingOptions.find((option) => option.value === props.currentThinkingLevel)?.label ??
+    props.currentThinkingLevel
 )
 
 watch(
@@ -280,6 +349,42 @@ function handleRunningDeliveryChange(value: unknown): void {
 }
 
 /**
+ * 处理会话模型变化。
+ * @param value - Select value。
+ */
+function handleModelChange(value: unknown): void {
+  if (typeof value !== 'string' || !value || value === currentModelValue.value) {
+    return
+  }
+  const parsed = parseModelValue(value)
+  if (!parsed) {
+    return
+  }
+  emit('select-model', parsed.provider, parsed.modelId)
+}
+
+/**
+ * 处理会话 thinking level 变化。
+ * @param value - Select value。
+ */
+function handleThinkingLevelChange(value: unknown): void {
+  if (
+    value !== 'off' &&
+    value !== 'minimal' &&
+    value !== 'low' &&
+    value !== 'medium' &&
+    value !== 'high' &&
+    value !== 'xhigh'
+  ) {
+    return
+  }
+  if (value === props.currentThinkingLevel) {
+    return
+  }
+  emit('select-thinking-level', value)
+}
+
+/**
  * 打开图片选择器。
  */
 function openImagePicker(): void {
@@ -297,6 +402,46 @@ function handleProjectChange(value: unknown): void {
   emit('select-project', value)
 }
 
+/**
+ * 创建模型选择器 value。
+ * @param provider - provider。
+ * @param modelId - 模型 ID。
+ * @returns Select value。
+ */
+function createModelValue(provider: string, modelId: string): string {
+  return JSON.stringify([provider, modelId])
+}
+
+/**
+ * 解析模型选择器 value。
+ * @param value - Select value。
+ * @returns provider 和 modelId。
+ */
+function parseModelValue(value: string): { provider: string; modelId: string } | undefined {
+  try {
+    const parsed = JSON.parse(value) as unknown
+    if (
+      Array.isArray(parsed) &&
+      parsed.length === 2 &&
+      typeof parsed[0] === 'string' &&
+      typeof parsed[1] === 'string'
+    ) {
+      return { provider: parsed[0], modelId: parsed[1] }
+    }
+  } catch {
+    return undefined
+  }
+  return undefined
+}
+
+/**
+ * 格式化模型展示文本。
+ * @param model - 模型。
+ * @returns 展示文本。
+ */
+function formatModelLabel(model: Pick<SessionModel, 'provider' | 'id'>): string {
+  return `${model.provider}/${model.id}`
+}
 </script>
 
 <template>
@@ -350,28 +495,62 @@ function handleProjectChange(value: unknown): void {
       />
       <div class="composer__actions">
         <p v-if="imageError" class="composer__image-error" role="alert">{{ imageError }}</p>
+
         <Select
-          v-if="!threadId"
-          :model-value="projectId ?? ''"
-          :disabled="isRunning || projects.length === 0"
-          @update:model-value="handleProjectChange"
+          :model-value="currentModelValue"
+          :disabled="isModelSelectDisabled"
+          @update:model-value="handleModelChange"
         >
-          <SelectTrigger class="composer__project-select" size="sm" aria-label="选择 Project">
-            <SelectValue placeholder="选择 Project" />
+          <SelectTrigger
+            class="composer__model-select"
+            variant="borderless"
+            size="sm"
+            :hide-icon="true"
+            aria-label="选择当前会话模型"
+          >
+            <span class="composer__model-label">{{ currentModelLabel }}</span>
           </SelectTrigger>
           <SelectContent>
             <SelectGroup>
               <SelectItem
-                v-for="project in projects"
-                :key="project.projectId"
-                :value="project.projectId"
-                :disabled="project.status !== 'available'"
+                v-for="model in modelOptions"
+                :key="`${model.provider}:${model.id}`"
+                :value="createModelValue(model.provider, model.id)"
               >
-                {{ project.name }}
+                {{ formatModelLabel(model) }}
               </SelectItem>
             </SelectGroup>
           </SelectContent>
         </Select>
+
+        <Select
+          :model-value="currentThinkingLevel"
+          :disabled="thinkingSelectDisabled"
+          @update:model-value="handleThinkingLevelChange"
+        >
+          <SelectTrigger
+            class="composer__thinking-select"
+            variant="borderless"
+            size="sm"
+            :hide-icon="true"
+            aria-label="选择当前会话 Thinking level"
+          >
+            <span class="composer__thinking-label">{{ currentThinkingLabel }}</span>
+          </SelectTrigger>
+
+          <SelectContent>
+            <SelectGroup>
+              <SelectItem
+                v-for="option in thinkingOptions"
+                :key="option.value"
+                :value="option.value"
+              >
+                {{ option.label }}
+              </SelectItem>
+            </SelectGroup>
+          </SelectContent>
+        </Select>
+
         <Select
           v-if="isRunning && canSend"
           :model-value="runningDelivery"
@@ -391,19 +570,20 @@ function handleProjectChange(value: unknown): void {
             </SelectGroup>
           </SelectContent>
         </Select>
+        <Usage v-if="usage" :usage="usage" />
         <BaseIconButton
           type="button"
-          size="large"
+          size="medium"
           class="composer__attach"
           label="添加图片"
           :disabled="selectingImages"
           @click="openImagePicker"
         >
-          <ImagePlus :size="18" />
+          <ImagePlus :size="16" />
         </BaseIconButton>
         <BaseIconButton
           type="button"
-          size="large"
+          size="medium"
           class="composer__action"
           :class="{ 'is-stop': isRunning && !canSend }"
           :label="isRunning && !canSend ? '停止' : isRunning ? '发送到队列' : '发送'"
@@ -415,6 +595,37 @@ function handleProjectChange(value: unknown): void {
         </BaseIconButton>
       </div>
     </form>
+
+    <div class="composer-footer">
+      <Select
+        v-if="!threadId"
+        :model-value="projectId ?? ''"
+        :disabled="isRunning || projects.length === 0"
+        @update:model-value="handleProjectChange"
+      >
+        <SelectTrigger
+          class="composer__project-select"
+          variant="borderless"
+          size="sm"
+          aria-label="选择 Project"
+        >
+          <SelectValue placeholder="选择 Project" />
+        </SelectTrigger>
+
+        <SelectContent>
+          <SelectGroup>
+            <SelectItem
+              v-for="project in projects"
+              :key="project.projectId"
+              :value="project.projectId"
+              :disabled="project.status !== 'available'"
+            >
+              {{ project.name }}
+            </SelectItem>
+          </SelectGroup>
+        </SelectContent>
+      </Select>
+    </div>
   </div>
 </template>
 
@@ -425,6 +636,7 @@ function handleProjectChange(value: unknown): void {
 }
 
 .composer {
+  position: relative;
   display: grid;
   gap: var(--space-2);
   padding: var(--space-3);
@@ -432,6 +644,7 @@ function handleProjectChange(value: unknown): void {
   border: 1px solid var(--color-border);
   border-radius: var(--radius-md);
   box-shadow: var(--shadow-sm);
+  z-index: 2;
 }
 
 .composer__file-completion {
@@ -505,15 +718,52 @@ function handleProjectChange(value: unknown): void {
 }
 
 .composer__project-select {
-  width: 160px;
   min-width: 0;
-  flex: 0 1 160px;
+  flex: 0 1 auto;
 }
 
 .composer__delivery-select {
   width: 128px;
   min-width: 0;
   flex: 0 1 128px;
+}
+
+.composer__model-select {
+  flex: 0 1 auto;
+  height: 28px;
+  padding: 0 8px;
+}
+
+.composer__model-select:hover {
+  background: var(--color-surface-hover) !important;
+}
+
+.composer__thinking-select {
+  flex: 0 0 auto;
+  height: 28px;
+  padding: 0 8px;
+}
+
+.composer__thinking-select:hover {
+  background: var(--color-surface-hover) !important;
+}
+
+.composer__model-label {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--font-size-ui-xs);
+}
+
+.composer__thinking-label {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--font-size-ui-xs);
 }
 
 .composer__image-error {
@@ -577,14 +827,9 @@ function handleProjectChange(value: unknown): void {
   }
 }
 
-.composer__attach {
-  border-color: var(--color-border);
-  background: var(--color-surface);
-}
-
 .composer__action {
   color: var(--color-primary-ink);
-  background: var(--color-primary);
+  background: var(--color-primary) !important;
   border-color: var(--color-primary);
 
   &:hover:not(:disabled) {
@@ -600,5 +845,12 @@ function handleProjectChange(value: unknown): void {
       background: color-mix(in srgb, var(--color-danger) 88%, black);
     }
   }
+}
+
+.composer-footer {
+  background: var(--color-canvas);
+  margin-top: -8px;
+  padding-top: 8px;
+  border-radius: 0 0 var(--radius-md) var(--radius-md);
 }
 </style>

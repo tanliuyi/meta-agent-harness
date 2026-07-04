@@ -144,7 +144,7 @@ describe('applyEventToSessions', () => {
     expect(sessions['thread-a']?.snapshot?.messages[0]?.text).toBeUndefined()
   })
 
-  it('保留同时包含 thinking、text 与 toolCall 的 assistant message', () => {
+  it('保留 assistant thinking/text，但不把 toolCall block 暴露给消息展示', () => {
     const sessions = createSessions()
 
     applyEventToSessions(sessions, {
@@ -163,12 +163,12 @@ describe('applyEventToSessions', () => {
         id: 'assistant-2026-07-01T00:00:00.000Z',
         role: 'assistant',
         text: '我会先检查文件。',
+        toolCallIds: ['tool-a'],
         raw: {
           role: 'assistant',
           content: [
             { type: 'thinking', thinking: '需要先定位入口。' },
-            { type: 'text', text: '我会先检查文件。' },
-            { type: 'toolCall', id: 'tool-a', name: 'read' }
+            { type: 'text', text: '我会先检查文件。' }
           ]
         },
         createdAt: '2026-07-01T00:00:00.000Z'
@@ -176,7 +176,7 @@ describe('applyEventToSessions', () => {
     ])
   })
 
-  it('保留只有 toolCall 的 assistant message 供前端拆块渲染工具项', () => {
+  it('保留只有 toolCall 的 assistant message，但 raw content 不重复展示 toolCall', () => {
     const sessions = createSessions()
 
     applyEventToSessions(sessions, {
@@ -194,9 +194,10 @@ describe('applyEventToSessions', () => {
       {
         id: 'assistant-2026-07-01T00:00:00.000Z',
         role: 'assistant',
+        toolCallIds: ['tool-a'],
         raw: {
           role: 'assistant',
-          content: [{ type: 'toolCall', id: 'tool-a', name: 'read' }]
+          content: []
         },
         createdAt: '2026-07-01T00:00:00.000Z'
       }
@@ -348,8 +349,9 @@ describe('applyEventToSessions', () => {
     expect(sessions['thread-a']?.snapshot?.status).toBe('idle')
   })
 
-  it('根据后端真实 thinking 与 queue event 更新运行状态投影', () => {
+  it('根据后端真实 model、thinking 与 queue event 更新运行状态投影', () => {
     const sessions = createSessions()
+    const model = createModel('gpt-5.1')
 
     applyEventToSessions(sessions, {
       type: 'queue_update',
@@ -362,10 +364,17 @@ describe('applyEventToSessions', () => {
       threadId: 'thread-a',
       level: 'high'
     })
+    applyEventToSessions(sessions, {
+      type: 'model_changed',
+      threadId: 'thread-a',
+      model,
+      source: 'set'
+    })
 
     const snapshot = sessions['thread-a']?.snapshot
     expect(snapshot?.queue).toEqual({ steering: ['interrupt'], followUp: ['next'] })
     expect(snapshot?.thinkingLevel).toBe('high')
+    expect(snapshot?.model).toEqual(model)
   })
 
   it('将 projection event 应用到 snapshot runtime projections', () => {
@@ -1272,6 +1281,90 @@ describe('workspace-session Project-first actions', () => {
       finishedAt: expect.any(String)
     })
   })
+
+  it('从具名 assistant toolCall message_update 第一时间同步工具结构', async () => {
+    vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
+      callback(0)
+      return 1
+    })
+    vi.stubGlobal('cancelAnimationFrame', vi.fn())
+    installCodingAgentApi({})
+    const store = useWorkspaceSessionStore()
+
+    capturedEventListener?.({
+      type: 'threadSnapshot',
+      threadId: 'thread-a',
+      snapshot: createSnapshot()
+    })
+    capturedEventListener?.({
+      type: 'message_update',
+      threadId: 'thread-a',
+      message: createAssistantToolOnlyMessage(fixtureTimestamp),
+      assistantMessageEvent: {
+        type: 'toolcall_start',
+        contentIndex: 0,
+        partial: createAssistantToolOnlyMessage(fixtureTimestamp)
+      }
+    })
+
+    expect(store.activeToolCallStructures).toMatchObject([
+      {
+        toolCallId: 'tool-a',
+        toolName: 'read',
+        args: { path: 'README.md' }
+      }
+    ])
+    expect(store.activeToolCallsById['tool-a']).toMatchObject({
+      toolCallId: 'tool-a',
+      toolName: 'read',
+      status: 'queued'
+    })
+  })
+
+  it('后续通用 tool execution event 不覆盖 assistant toolCall 的具名工具身份', async () => {
+    vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
+      callback(0)
+      return 1
+    })
+    vi.stubGlobal('cancelAnimationFrame', vi.fn())
+    installCodingAgentApi({})
+    const store = useWorkspaceSessionStore()
+
+    capturedEventListener?.({
+      type: 'threadSnapshot',
+      threadId: 'thread-a',
+      snapshot: createSnapshot()
+    })
+    capturedEventListener?.({
+      type: 'message_update',
+      threadId: 'thread-a',
+      message: createAssistantToolOnlyMessage(fixtureTimestamp),
+      assistantMessageEvent: {
+        type: 'toolcall_start',
+        contentIndex: 0,
+        partial: createAssistantToolOnlyMessage(fixtureTimestamp)
+      }
+    })
+    capturedEventListener?.({
+      type: 'tool_execution_end',
+      threadId: 'thread-a',
+      toolCallId: 'tool-a',
+      toolName: 'tool',
+      result: { content: 'ok' },
+      isError: false
+    })
+
+    expect(store.activeToolCallsById['tool-a']).toMatchObject({
+      toolCallId: 'tool-a',
+      toolName: 'read',
+      status: 'succeeded',
+      result: { content: 'ok' }
+    })
+    expect(store.activeToolCallStructures[0]).toMatchObject({
+      toolCallId: 'tool-a',
+      toolName: 'read'
+    })
+  })
 })
 
 /**
@@ -1309,6 +1402,31 @@ function createSnapshot(): ThreadSnapshot {
     approvals: [],
     queue: { steering: [], followUp: [] },
     diagnostics: []
+  }
+}
+
+/**
+ * 创建 Pi model fixture。
+ * @param id - 模型 ID。
+ * @returns model fixture。
+ */
+function createModel(id: string) {
+  return {
+    id,
+    name: id,
+    api: 'openai-responses' as const,
+    provider: 'openai' as const,
+    baseUrl: 'https://api.openai.com/v1',
+    reasoning: true,
+    input: ['text' as const],
+    cost: {
+      input: 0,
+      output: 0,
+      cacheRead: 0,
+      cacheWrite: 0
+    },
+    contextWindow: 128000,
+    maxTokens: 16384
   }
 }
 

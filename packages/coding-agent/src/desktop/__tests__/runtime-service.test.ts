@@ -4,6 +4,7 @@
 
 import { describe, expect, it } from "vitest";
 import type { AgentSessionRuntime } from "../../core/agent-session-runtime.ts";
+import type { AgentSessionEvent } from "../../core/agent-session.ts";
 import { RuntimeDesktopWorkerService } from "../worker/runtime-service.ts";
 import type { StartThreadInput } from "../protocol/thread.ts";
 import type { WorkerEventEnvelope } from "../protocol/envelope.ts";
@@ -68,7 +69,8 @@ describe("RuntimeDesktopWorkerService", () => {
 
 	/** 验证绑定 runtime 后原样转发 canonical event。 */
 	it("绑定 runtime 后原样转发 canonical event", async () => {
-		let listener: ((event: { type: "thinking_level_changed"; level: "high" }) => void) | undefined;
+		let listener: ((event: AgentSessionEvent) => void) | undefined;
+		const model = createModel("gpt-5.1");
 		const events: WorkerEventEnvelope[] = [];
 		const service = new RuntimeDesktopWorkerService(async () =>
 			createRuntime({
@@ -84,6 +86,7 @@ describe("RuntimeDesktopWorkerService", () => {
 		await service.startThread({ threadId: "thread-1", cwd: "H:/repo" });
 
 		listener?.({ type: "thinking_level_changed", level: "high" });
+		listener?.({ type: "model_changed", model, source: "set" });
 
 		expect(events).toEqual([
 			{
@@ -97,6 +100,12 @@ describe("RuntimeDesktopWorkerService", () => {
 				eventType: "canonical",
 				threadId: "thread-1",
 				event: { type: "thinking_level_changed", level: "high" },
+			},
+			{
+				kind: "event",
+				eventType: "canonical",
+				threadId: "thread-1",
+				event: { type: "model_changed", model, source: "set" },
 			},
 		]);
 	});
@@ -177,4 +186,24 @@ function createRuntime(overrides: Partial<AgentSessionRuntime> = {}): AgentSessi
 		dispose: async () => {},
 		...rest,
 	} as AgentSessionRuntime;
+}
+
+function createModel(id: string) {
+	return {
+		id,
+		name: id,
+		api: "openai-responses" as const,
+		provider: "openai" as const,
+		baseUrl: "https://api.openai.com/v1",
+		reasoning: true,
+		input: ["text" as const],
+		cost: {
+			input: 0,
+			output: 0,
+			cacheRead: 0,
+			cacheWrite: 0,
+		},
+		contextWindow: 128000,
+		maxTokens: 16384,
+	};
 }

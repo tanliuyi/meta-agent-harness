@@ -470,8 +470,20 @@ Model 命令：
 ```ts
 model.list
 model.set
+model.cycle
 thinking.set
 ```
+
+模型切换链路必须保持 Pi/core 为唯一事实源：
+
+- Desktop 的模型设置/轮换入口只路由到 canonical `set_model` / `cycle_model` command。
+- worker 内必须调用同一个 `AgentSession.setModel()` / `AgentSession.cycleModel()`，
+  不在 Electron main、preload 或 renderer store 中重建模型选择逻辑。
+- `AgentSession` 完成切换后写入 Pi-compatible JSONL `model_change` session entry，并发出
+  canonical `model_changed` session event。
+- Electron main/preload 只原样转发 canonical event；renderer 展示当前模型时从
+  `model_changed` 或 `get_state` / snapshot 派生，不定义 `model.changed` 之类第二套
+  desktop projection event。
 
 Workspace 和安全命令：
 
@@ -578,6 +590,8 @@ Live 阶段：
   `toDesktopMessages()` 转换派生。
 - model list、model cycle、thinking cycle、slash command list 等 IPC 返回类型从 Pi
   `RpcResponse` 提取，不在 Desktop shared types 中重新声明第二套协议。
+- model set/cycle 通过 canonical command 进入 `AgentSession`；live UI 使用
+  canonical `model_changed` 或 `get_state` 中的 `model`，不维护 desktop-only active model。
 - `message_start` 创建或显示消息占位。
 - `message_update` 更新同一个 live assistant message，用于 text/thinking/tool call delta
   展示和外部订阅。
@@ -590,7 +604,8 @@ Live 阶段：
 - 与 Pi 一样，普通 user/assistant/toolResult/custom message 只在 `message_end` 后通过
   `SessionManager.appendMessage()` 或对应 append API 写入 JSONL。
 - bash、compaction、branch summary、session info、model/thinking change 等使用 Pi
-  已有 session entry 类型和写入时机。
+  已有 session entry 类型和写入时机；模型切换必须写入 `model_change`，不能写入
+  desktop-only metadata。
 - JSONL session 是 durable conversation log 和 branching graph。
 - Electron main 可以在内存中维护 tool/file/approval projection、diagnostics 和 thread
   metadata；需要跨重启保留的 conversation 内容必须写入 JSONL session。

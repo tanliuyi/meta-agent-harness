@@ -13,9 +13,11 @@ import type {
   ApprovalRequest,
   ApprovalResponse,
   CodingAgentIpcEvent,
+  ModelInfo,
   PromptImage,
   PromptImageFile,
   PromptImageAttachment,
+  ThinkingLevel,
   ThreadSnapshot,
   ThreadMessage,
   ThreadSummary
@@ -60,6 +62,15 @@ export type WorkspaceSessionContext = {
   activeThreadId?: string
   /** 未绑定 thread 的新会话草稿所属 Project。 */
   selectedProjectId?: string
+  /** 未绑定 thread 的新会话草稿模型。 */
+  orphanModel?: {
+    /** provider。 */
+    provider: string
+    /** 模型 ID。 */
+    modelId: string
+  }
+  /** 未绑定 thread 的新会话草稿 thinking level。 */
+  orphanThinkingLevel?: ThinkingLevel
   /** 未选中会话时的临时 Composer 草稿。 */
   orphanDraftMessage: JSONContent
   /** 当前上下文内每个 thread 独立的 Composer 草稿。 */
@@ -123,6 +134,7 @@ const agentSessionEventTypes = new Set<AgentSessionIpcEvent['type']>([
   'compaction_start',
   'session_info_changed',
   'thinking_level_changed',
+  'model_changed',
   'compaction_end',
   'auto_retry_start',
   'auto_retry_end'
@@ -179,9 +191,15 @@ export default defineStore('workspace-session', () => {
   const toolCallsByThreadId = shallowReactive<Record<string, WorkspaceToolCallsById>>({})
 
   /** 每个 thread 的工具调用结构列表，避免 timeline 订阅流式 result。 */
-  const toolCallStructuresByThreadId = shallowReactive<Record<string, WorkspaceToolCallStructure[]>>(
-    {}
-  )
+  const toolCallStructuresByThreadId = shallowReactive<
+    Record<string, WorkspaceToolCallStructure[]>
+  >({})
+
+  /** 每个 thread 的可用模型列表。 */
+  const modelOptionsByThreadId = shallowReactive<Record<string, ModelInfo[]>>({})
+
+  /** 每个 thread 的模型列表加载状态。 */
+  const modelOptionsLoadingByThreadId = shallowReactive<Record<string, boolean>>({})
 
   const workspaceProject = useWorkspaceProjectStore()
 
@@ -451,6 +469,16 @@ export default defineStore('workspace-session', () => {
         delete toolCallStructuresByThreadId[threadId]
       }
     }
+    for (const threadId of Object.keys(modelOptionsByThreadId)) {
+      if (!existingThreadIds.has(threadId)) {
+        delete modelOptionsByThreadId[threadId]
+      }
+    }
+    for (const threadId of Object.keys(modelOptionsLoadingByThreadId)) {
+      if (!existingThreadIds.has(threadId)) {
+        delete modelOptionsLoadingByThreadId[threadId]
+      }
+    }
     for (const context of Object.values(contexts)) {
       if (context.activeThreadId && !existingThreadIds.has(context.activeThreadId)) {
         context.activeThreadId = undefined
@@ -518,6 +546,7 @@ export default defineStore('workspace-session', () => {
       applyEventToSessions(sessions, event, (messageId, renderState) => {
         bumpMessageRevision(event.threadId, messageId, renderState)
       })
+      syncToolCallsFromMessageEvent(event)
     }
   }
 
@@ -546,13 +575,29 @@ export default defineStore('workspace-session', () => {
       applyEventToSessions(sessions, event, (messageId, renderState) => {
         bumpMessageRevision(event.threadId, messageId, renderState)
       })
+      syncToolCallsFromMessageEvent(event)
       return
     }
 
+    syncToolCallsFromMessageEvent(event)
     const messageId = getPiMessageId(snapshot.messages, content)
     pendingMessageEvents.set(getMessageRenderStateKey(event.threadId, messageId), event)
     if (messageEventFlushId === null) {
       messageEventFlushId = requestAnimationFrame(flushPendingMessageEvents)
+    }
+  }
+
+  /**
+   * 从 assistant message event 中同步已具名工具结构。
+   * @param event - agent message IPC 事件。
+   */
+  function syncToolCallsFromMessageEvent(event: AgentMessageIpcEvent): void {
+    const snapshot = sessions[event.threadId]?.snapshot
+    if (snapshot) {
+      applyAssistantToolCallBlocks(snapshot, event.message)
+    }
+    for (const toolCallId of getNamedAssistantToolCallIds(event.message)) {
+      syncToolCallByIdFromSession(event.threadId, toolCallId)
     }
   }
 
@@ -650,6 +695,22 @@ export default defineStore('workspace-session', () => {
 
   /** 当前活跃会话的最近事件。 */
   const activeEvents = computed(() => activeRuntime.value?.events ?? [])
+
+  /** 当前活跃会话的可用模型。 */
+  const activeModelOptions = computed<ModelInfo[]>(() =>
+    activeSessionId.value ? (modelOptionsByThreadId[activeSessionId.value] ?? []) : []
+  )
+
+  /** 当前活跃会话是否正在加载可用模型。 */
+  const activeModelOptionsLoading = computed(() =>
+    activeSessionId.value ? Boolean(modelOptionsLoadingByThreadId[activeSessionId.value]) : false
+  )
+
+  /** 新会话草稿模型。 */
+  const orphanModel = computed(() => mainContext.value.orphanModel)
+
+  /** 新会话草稿 thinking level。 */
+  const orphanThinkingLevel = computed(() => mainContext.value.orphanThinkingLevel)
 
   /** 当前活跃会话的 Composer 草稿，按 session 隔离。 */
   const draftMessage = computed({
@@ -822,6 +883,68 @@ export default defineStore('workspace-session', () => {
   }
 
   /**
+   * 加载指定会话可用模型列表。
+   * @param threadId - 目标 thread ID，默认当前活跃会话。
+   */
+  const loadModelOptions = async (threadId = activeSessionId.value): Promise<void> => {
+    if (!threadId) {
+      return
+    }
+    modelOptionsLoadingByThreadId[threadId] = true
+    ensureRuntime(threadId).errorMessage = undefined
+    try {
+      modelOptionsByThreadId[threadId] = await window.api.codingAgent.listModels(threadId)
+    } catch (error) {
+      ensureRuntime(threadId).errorMessage = error instanceof Error ? error.message : String(error)
+    } finally {
+      modelOptionsLoadingByThreadId[threadId] = false
+    }
+  }
+
+  /**
+   * 设置当前活跃会话模型。
+   * @param provider - provider。
+   * @param modelId - 模型 ID。
+   */
+  const setActiveModel = async (
+    provider: string,
+    modelId: string,
+    threadId = activeSessionId.value
+  ): Promise<void> => {
+    if (!threadId) {
+      mainContext.value.orphanModel = { provider, modelId }
+      return
+    }
+    ensureRuntime(threadId).errorMessage = undefined
+    try {
+      await window.api.codingAgent.setModel({ threadId, provider, modelId })
+    } catch (error) {
+      ensureRuntime(threadId).errorMessage = error instanceof Error ? error.message : String(error)
+    }
+  }
+
+  /**
+   * 设置当前活跃会话 thinking level。
+   * @param level - thinking level。
+   * @param threadId - 目标 thread ID。
+   */
+  const setActiveThinkingLevel = async (
+    level: ThinkingLevel,
+    threadId = activeSessionId.value
+  ): Promise<void> => {
+    if (!threadId) {
+      mainContext.value.orphanThinkingLevel = level
+      return
+    }
+    ensureRuntime(threadId).errorMessage = undefined
+    try {
+      await window.api.codingAgent.setThinkingLevel({ threadId, level })
+    } catch (error) {
+      ensureRuntime(threadId).errorMessage = error instanceof Error ? error.message : String(error)
+    }
+  }
+
+  /**
    * 向当前活跃会话发送 prompt。
    */
   const sendPrompt = async (
@@ -853,6 +976,8 @@ export default defineStore('workspace-session', () => {
         loadingThreads.value = true
         const orphanDraft = context.orphanDraftMessage
         const orphanImages = [...context.orphanImageAttachments]
+        const orphanModel = context.orphanModel
+        const orphanThinkingLevel = context.orphanThinkingLevel
         const snapshot = await window.api.codingAgent.createThread({
           projectId: context.selectedProjectId!
         })
@@ -868,6 +993,19 @@ export default defineStore('workspace-session', () => {
         context.composerImageAttachments[createdThreadId] = orphanImages
         runtime = ensureRuntime(createdThreadId)
         runtime.errorMessage = undefined
+        if (orphanModel) {
+          await window.api.codingAgent.setModel({
+            threadId: createdThreadId,
+            provider: orphanModel.provider,
+            modelId: orphanModel.modelId
+          })
+        }
+        if (orphanThinkingLevel) {
+          await window.api.codingAgent.setThinkingLevel({
+            threadId: createdThreadId,
+            level: orphanThinkingLevel
+          })
+        }
       }
       if (!threadId) {
         return
@@ -908,6 +1046,8 @@ export default defineStore('workspace-session', () => {
       clearComposerImages(targetThreadId, contextId)
       context.orphanDraftMessage = createEmptyComposerContent()
       context.orphanImageAttachments = []
+      context.orphanModel = undefined
+      context.orphanThinkingLevel = undefined
       if (session) {
         session.status = 'running'
       }
@@ -1014,6 +1154,8 @@ export default defineStore('workspace-session', () => {
       delete runtimeByThreadId[threadId]
       delete toolCallsByThreadId[threadId]
       delete toolCallStructuresByThreadId[threadId]
+      delete modelOptionsByThreadId[threadId]
+      delete modelOptionsLoadingByThreadId[threadId]
       await loadThreads(contextId, { selectLatestActiveProjectThread: true })
     } catch (error) {
       globalErrorMessage.value = error instanceof Error ? error.message : String(error)
@@ -1187,8 +1329,7 @@ export default defineStore('workspace-session', () => {
     })
     if (
       threadId &&
-      (event.type === 'tool_execution_start' ||
-        event.type === 'tool_execution_end')
+      (event.type === 'tool_execution_start' || event.type === 'tool_execution_end')
     ) {
       syncToolCallByIdFromSession(threadId, event.toolCallId)
     }
@@ -1211,6 +1352,8 @@ export default defineStore('workspace-session', () => {
     addComposerImages,
     archiveThread,
     activeEvents,
+    activeModelOptions,
+    activeModelOptionsLoading,
     activePendingApprovals,
     activeProjectId,
     activeRuntime,
@@ -1236,10 +1379,13 @@ export default defineStore('workspace-session', () => {
     hasDraftMessage,
     isNewSessionActive,
     loadThreads,
+    loadModelOptions,
     loading,
     loadingThreads,
     maxSessionPanelWidth,
     minSessionPanelWidth,
+    orphanModel,
+    orphanThinkingLevel,
     pendingApprovals: activePendingApprovals,
     refreshSnapshot,
     removeComposerImage,
@@ -1250,6 +1396,8 @@ export default defineStore('workspace-session', () => {
     sessionsByProject,
     sessions,
     setActiveComposerDraft,
+    setActiveModel,
+    setActiveThinkingLevel,
     setContextActiveThreadId,
     setActiveProjectId,
     setActiveSessionId,
@@ -1640,6 +1788,9 @@ function applyAgentSessionEvent(
     case 'thinking_level_changed':
       snapshot.thinkingLevel = event.level
       return undefined
+    case 'model_changed':
+      snapshot.model = event.model
+      return undefined
     case 'queue_update':
       snapshot.queue = {
         steering: [...event.steering],
@@ -1649,6 +1800,7 @@ function applyAgentSessionEvent(
     case 'message_start':
     case 'message_end':
     case 'message_update':
+      applyAssistantToolCallBlocks(snapshot, event.message)
       return upsertMessageEvent(snapshot, event)
     case 'tool_execution_start':
     case 'tool_execution_update':
@@ -1682,6 +1834,76 @@ function upsertMessageEvent(
 }
 
 /**
+ * 从 assistant message 的 toolCall block 预先派生工具调用结构。
+ * @param snapshot - snapshot。
+ * @param message - agent message。
+ */
+function applyAssistantToolCallBlocks(
+  snapshot: ThreadSnapshot,
+  message: AgentMessageIpcEvent['message']
+): void {
+  if (message.role !== 'assistant' || !('content' in message) || !Array.isArray(message.content)) {
+    return
+  }
+  for (const block of message.content) {
+    if (
+      !isRecord(block) ||
+      block.type !== 'toolCall' ||
+      typeof block.id !== 'string' ||
+      !hasDisplayToolName(block.name)
+    ) {
+      continue
+    }
+    const existing = snapshot.toolCalls.find((item) => item.toolCallId === block.id)
+    upsertUnknown(
+      snapshot.toolCalls,
+      {
+        threadId: snapshot.threadId,
+        toolCallId: block.id,
+        toolName: block.name,
+        status: existing?.status ?? 'queued',
+        args: 'arguments' in block ? block.arguments : existing?.args,
+        startedAt: existing?.startedAt,
+        finishedAt: existing?.finishedAt
+      },
+      'toolCallId'
+    )
+  }
+}
+
+/**
+ * 获取 assistant message 中已具名的 toolCallId。
+ * @param message - agent message。
+ * @returns toolCallId 列表。
+ */
+function getNamedAssistantToolCallIds(message: AgentMessageIpcEvent['message']): string[] {
+  if (message.role !== 'assistant' || !('content' in message) || !Array.isArray(message.content)) {
+    return []
+  }
+  const ids: string[] = []
+  for (const block of message.content) {
+    if (
+      isRecord(block) &&
+      block.type === 'toolCall' &&
+      typeof block.id === 'string' &&
+      hasDisplayToolName(block.name)
+    ) {
+      ids.push(block.id)
+    }
+  }
+  return ids
+}
+
+/**
+ * 判断工具名是否可展示。
+ * @param value - 原始工具名。
+ * @returns 是否非空字符串。
+ */
+function hasDisplayToolName(value: unknown): value is string {
+  return typeof value === 'string' && value.trim().length > 0
+}
+
+/**
  * 应用 agent tool execution event，保留原始事件结构。
  * @param snapshot - snapshot。
  * @param event - agent tool execution event。
@@ -1694,12 +1916,12 @@ function upsertToolExecutionEvent(
   >
 ): void {
   const existing = snapshot.toolCalls.find((item) => item.toolCallId === event.toolCallId)
+  const toolName = getCanonicalToolName(existing?.toolName, event.toolName)
   const base = {
     threadId: snapshot.threadId,
     toolCallId: event.toolCallId,
-    toolName: event.toolName,
-    args:
-      'args' in event ? mergeToolArgs(existing?.args, event.args, event.toolName) : existing?.args,
+    toolName,
+    args: 'args' in event ? mergeToolArgs(existing?.args, event.args, toolName) : existing?.args,
     rawEvent: event
   } satisfies Partial<ThreadSnapshot['toolCalls'][number]> & { rawEvent: typeof event }
 
@@ -1740,6 +1962,36 @@ function upsertToolExecutionEvent(
     },
     'toolCallId'
   )
+}
+
+/**
+ * 获取工具调用的 canonical 展示名。
+ * assistant toolCall.name 是工具身份来源；tool execution/result 只能补充状态和结果，
+ * 不能用通用 tool 名称覆盖已经具名的工具调用。
+ * @param existingName - 已有工具名。
+ * @param incomingName - 事件工具名。
+ * @returns 合并后的工具名。
+ */
+function getCanonicalToolName(existingName: unknown, incomingName: unknown): string {
+  if (hasDisplayToolName(existingName) && isGenericToolName(incomingName)) {
+    return existingName
+  }
+  if (hasDisplayToolName(incomingName)) {
+    return incomingName
+  }
+  if (hasDisplayToolName(existingName)) {
+    return existingName
+  }
+  return 'tool'
+}
+
+/**
+ * 判断是否为低置信通用工具名。
+ * @param value - 原始工具名。
+ * @returns 是否为通用工具名。
+ */
+function isGenericToolName(value: unknown): boolean {
+  return !hasDisplayToolName(value) || value === 'tool'
 }
 
 /**

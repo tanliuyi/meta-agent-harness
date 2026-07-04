@@ -124,6 +124,18 @@ describe("buildSnapshotFromSession", () => {
 				resultSummary: "ok",
 			},
 		]);
+		expect(snapshot.messages).toMatchObject([
+			{
+				role: "assistant",
+				toolCallIds: ["tool-a"],
+				raw: {
+					role: "assistant",
+					content: [],
+				},
+			},
+		]);
+		expect(snapshot.messages.some((message) => message.role === "tool")).toBe(false);
+		expect(snapshot.toolCalls.some((toolCall) => toolCall.toolName === "tool")).toBe(false);
 	});
 
 	it("从 edit tool result 重建文件 diff/patch 变更", () => {

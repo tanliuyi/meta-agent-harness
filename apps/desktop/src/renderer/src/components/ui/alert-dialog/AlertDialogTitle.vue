@@ -9,15 +9,11 @@ import { cn } from '@/lib/utils'
 const props = defineProps<AlertDialogTitleProps & { class?: HTMLAttributes['class'] }>()
 
 const delegatedProps = reactiveOmit(props, 'class')
-const rootClass = computed(() => cn('text-lg font-semibold', props.class))
+const rootClass = computed(() => cn('text-base font-semibold leading-5', props.class))
 </script>
 
 <template>
-  <AlertDialogTitle
-    data-slot="alert-dialog-title"
-    v-bind="delegatedProps"
-    :class="rootClass"
-  >
+  <AlertDialogTitle data-slot="alert-dialog-title" v-bind="delegatedProps" :class="rootClass">
     <slot />
   </AlertDialogTitle>
 </template>

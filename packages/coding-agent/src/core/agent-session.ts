@@ -138,6 +138,12 @@ export type AgentSessionEvent =
 	| { type: "session_info_changed"; name: string | undefined }
 	| { type: "thinking_level_changed"; level: ThinkingLevel }
 	| {
+			type: "model_changed";
+			model: Model<any>;
+			previousModel?: Model<any>;
+			source: "set" | "cycle";
+	  }
+	| {
 			type: "compaction_end";
 			reason: "manual" | "threshold" | "overflow";
 			result: CompactionResult | undefined;
@@ -1463,6 +1469,7 @@ export class AgentSession {
 
 		// Re-clamp thinking level for new model's capabilities
 		this.setThinkingLevel(thinkingLevel);
+		this._emit({ type: "model_changed", model, previousModel, source: "set" });
 
 		await this._emitModelSelect(model, previousModel, "set");
 	}
@@ -1503,6 +1510,7 @@ export class AgentSession {
 		// - Undefined scoped model thinking level inherits the current session preference
 		// setThinkingLevel clamps to model capabilities.
 		this.setThinkingLevel(thinkingLevel);
+		this._emit({ type: "model_changed", model: next.model, previousModel: currentModel, source: "cycle" });
 
 		await this._emitModelSelect(next.model, currentModel, "cycle");
 
@@ -1528,6 +1536,7 @@ export class AgentSession {
 
 		// Re-clamp thinking level for new model's capabilities
 		this.setThinkingLevel(thinkingLevel);
+		this._emit({ type: "model_changed", model: nextModel, previousModel: currentModel, source: "cycle" });
 
 		await this._emitModelSelect(nextModel, currentModel, "cycle");
 

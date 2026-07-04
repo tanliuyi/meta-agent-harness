@@ -30,7 +30,7 @@ const open = ref(props.defaultOpen)
     :class="{ 'tool-group--error': isError }"
     :data-status="status"
   >
-    <CollapsibleTrigger class="tool-group__trigger" v-memo="[name, summary, status, isError]">
+    <CollapsibleTrigger class="tool-group__trigger">
       <span class="tool-group__leading-icon">
         <slot name="icon"><ToolGroupIcon :size="14" /></slot>
       </span>

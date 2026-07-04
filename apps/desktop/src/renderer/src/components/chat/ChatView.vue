@@ -4,15 +4,7 @@
  */
 
 import type { CSSProperties } from 'vue'
-import {
-  computed,
-  nextTick,
-  onBeforeUnmount,
-  onMounted,
-  provide,
-  ref,
-  watch
-} from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useElementSize, useResizeObserver } from '@vueuse/core'
 import { ChevronDown } from 'lucide-vue-next'
 import Composer from './Composer.vue'
@@ -23,8 +15,6 @@ import ToolMessage from './messages/ToolMessage.vue'
 import UserMessage from './messages/UserMessage.vue'
 import ExploreToolGroup from './messages/tools/ExploreToolGroup.vue'
 import MutationToolGroup from './messages/tools/MutationToolGroup.vue'
-import ToolMessageById from './messages/tools/ToolMessageById.vue'
-import { toolCallsByIdKey, type ToolCallsById } from './messages/tools/tool-call-context'
 import {
   getToolGroupStatus,
   groupTimelineTools,
@@ -35,6 +25,7 @@ import {
 import { getMessageRawRecord, getMessageText, isRecord } from './messages/message-format'
 import { toRenderableMessage, type RenderableThreadMessage } from './messages/renderable-message'
 import useAgentSettingsStore from '@renderer/stores/agent-settings'
+import useModelSettingsStore from '@renderer/stores/model-settings'
 import useWorkspaceSessionStore from '@renderer/stores/workspace-session'
 import useWorkspaceProjectStore from '@renderer/stores/workspace-project'
 import type { DesktopToolCall } from '../../../../../../../packages/coding-agent/src/desktop/protocol/tool.ts'
@@ -43,11 +34,17 @@ import type {
   ComposerImageAttachment,
   WorkspaceToolCallStructure
 } from '@renderer/stores/workspace-session'
-import type { PromptImageAttachment, PromptImageDraft } from '@shared/coding-agent/types'
+import type {
+  PromptImageAttachment,
+  PromptImageDraft,
+  ThinkingLevel
+} from '@shared/coding-agent/types'
+import type { TokenUsage } from './Usage.vue'
 
 const workspaceSession = useWorkspaceSessionStore()
 const workspaceProject = useWorkspaceProjectStore()
 const agentSettings = useAgentSettingsStore()
+const modelSettings = useModelSettingsStore()
 
 type TimelineScrollBehavior = 'auto' | 'smooth'
 type ScrollAreaInstance = InstanceType<typeof ScrollArea>
@@ -81,7 +78,7 @@ type TimelineItem =
   | {
       type: 'tool'
       key: string
-      toolCall: WorkspaceToolCallStructure
+      toolCall: DesktopToolCall
     }
   | ToolGroupTimelineItem
 type UngroupedTimelineItem = Exclude<TimelineItem, ToolGroupTimelineItem>
@@ -94,11 +91,9 @@ type TimelineItemComponent =
   | typeof ThinkingMessage
   | typeof MutationToolGroup
   | typeof ExploreToolGroup
-  | typeof ToolMessageById
 type TimelineViewItem = {
   key: string
   item: TimelineItem
-  revision: unknown[]
   className: string
   isCollapsedHistory: boolean
   collapsedItem?: CollapsedHistoryTimelineItem
@@ -114,8 +109,8 @@ type TimelineViewItem = {
   isStreaming: boolean
   collapseWhenResponseAppears: boolean
   toolCall?: DesktopToolCall
-  toolCallId?: string
   toolCallIds?: string[]
+  toolCalls?: ToolCall[]
   summary?: string
   status?: ToolGroupStatus
 }
@@ -138,12 +133,77 @@ const messages = computed<RenderableThreadMessage[]>(() => {
 /** 当前会话的工具调用结构列表。 */
 const toolCallStructures = computed(() => workspaceSession.activeToolCallStructures)
 const toolCallsById = computed(() => workspaceSession.activeToolCallsById)
-provide(toolCallsByIdKey, toolCallsById as ToolCallsById)
 
 /** 当前会话的待交付消息队列。 */
 const pendingQueue = computed(
   () => workspaceSession.activeSnapshot?.queue ?? { steering: [], followUp: [] }
 )
+
+/** 当前会话的 token usage 信息。 */
+const tokenUsage = computed<TokenUsage | undefined>(() => {
+  const snapshot = workspaceSession.activeSnapshot
+  const context = snapshot?.context
+  if (!context || !context.contextWindow) {
+    return undefined
+  }
+  return {
+    tokens: context.tokens,
+    contextWindow: context.contextWindow,
+    percent: context.percent,
+    autoCompactionEnabled: snapshot?.autoCompactionEnabled ?? false
+  }
+})
+
+/** 当前会话模型。 */
+const activeModel = computed(() => {
+  if (workspaceSession.activeSnapshot?.model) {
+    return workspaceSession.activeSnapshot.model
+  }
+  const selected = workspaceSession.orphanModel
+  if (selected) {
+    return { provider: selected.provider, id: selected.modelId }
+  }
+  const defaultModel = modelSettings.snapshot?.settings
+  if (defaultModel?.defaultProvider && defaultModel.defaultModel) {
+    return {
+      provider: defaultModel.defaultProvider,
+      id: defaultModel.defaultModel
+    }
+  }
+  return undefined
+})
+
+/** 当前模型选择器可选项。 */
+const modelOptions = computed(() => {
+  if (workspaceSession.activeSessionId) {
+    return workspaceSession.activeModelOptions
+  }
+  return modelSettings.models
+    .filter((model) => model.status === 'available')
+    .map((model) => ({
+      provider: model.provider,
+      id: model.id,
+      displayName: model.displayName
+    }))
+})
+
+/** 当前模型列表是否加载中。 */
+const loadingModelOptions = computed(() =>
+  workspaceSession.activeSessionId
+    ? workspaceSession.activeModelOptionsLoading
+    : modelSettings.loading
+)
+
+/** 当前会话 thinking level。 */
+const activeThinkingLevel = computed<ThinkingLevel>(() => {
+  if (workspaceSession.activeSnapshot?.thinkingLevel) {
+    return workspaceSession.activeSnapshot.thinkingLevel
+  }
+  if (workspaceSession.orphanThinkingLevel) {
+    return workspaceSession.orphanThinkingLevel
+  }
+  return modelSettings.snapshot?.settings.defaultThinkingLevel ?? 'medium'
+})
 
 /** 是否隐藏 assistant thinking block。 */
 const hideThinkingBlock = computed(() => agentSettings.snapshot?.display.hideThinkingBlock ?? false)
@@ -155,17 +215,28 @@ const hasPendingQueue = computed(
 
 /** 当前会话的统一时间线。 */
 const timelineItems = computed<TimelineItem[]>(() => {
-  const resultToolCallIds = new Set<string>()
-  const toolResultMessageIds = collectToolResultMessageIds(messages.value)
+  const consumedToolCallIds = new Set<string>()
   const items: UngroupedTimelineItem[] = []
   for (const message of messages.value) {
     if (message.role === 'assistant') {
-      items.push(...getAssistantTimelineItems(message, resultToolCallIds, toolResultMessageIds))
+      items.push(...getAssistantTimelineItems(message))
+      for (const toolCallId of message.toolCallIds ?? []) {
+        const toolCall = resolveTimelineToolCall(toolCallId)
+        if (!toolCall) {
+          continue
+        }
+        consumedToolCallIds.add(toolCall.toolCallId)
+        items.push({
+          type: 'tool',
+          key: `tool-${toolCall.toolCallId}`,
+          toolCall
+        })
+      }
       continue
     }
     const toolCall = message.role === 'tool' ? getToolResultMessageToolCall(message) : undefined
     if (toolCall) {
-      resultToolCallIds.add(toolCall.toolCallId)
+      consumedToolCallIds.add(toolCall.toolCallId)
     }
     items.push({
       type: 'message',
@@ -176,13 +247,17 @@ const timelineItems = computed<TimelineItem[]>(() => {
     })
   }
   for (const toolCall of toolCallStructures.value) {
-    if (resultToolCallIds.has(toolCall.toolCallId)) {
+    if (consumedToolCallIds.has(toolCall.toolCallId)) {
+      continue
+    }
+    const resolvedToolCall = resolveTimelineToolCall(toolCall.toolCallId)
+    if (!resolvedToolCall) {
       continue
     }
     items.push({
       type: 'tool',
-      key: `tool-${toolCall.toolCallId}`,
-      toolCall
+      key: `tool-${resolvedToolCall.toolCallId}`,
+      toolCall: resolvedToolCall
     })
   }
   return groupTimelineTools(items)
@@ -432,9 +507,7 @@ function fileToPromptImageDraft(file: File): Promise<PromptImageDraft> {
  * @param item - timeline 项。
  * @returns Vue component。
  */
-function getTimelineItemComponent(
-  item: TimelineItem
-): TimelineItemComponent {
+function getTimelineItemComponent(item: TimelineItem): TimelineItemComponent {
   if (item.type === 'collapsed-history') {
     return SystemMessage
   }
@@ -445,7 +518,7 @@ function getTimelineItemComponent(
     return item.groupKind === 'mutation' ? MutationToolGroup : ExploreToolGroup
   }
   if (item.type === 'tool') {
-    return ToolMessageById
+    return ToolMessage
   }
   return getMessageComponent(item.message.role)
 }
@@ -518,16 +591,7 @@ function getTimelineItemCollapseWhenResponseAppears(item: TimelineItem): boolean
  * @returns 工具调用。
  */
 function getTimelineItemToolCall(item: TimelineItem): DesktopToolCall | undefined {
-  return item.type === 'message' ? item.toolCall : undefined
-}
-
-/**
- * 获取 timeline 项工具调用 ID。
- * @param item - timeline 项。
- * @returns 工具调用 ID。
- */
-function getTimelineItemToolCallId(item: TimelineItem): string | undefined {
-  return item.type === 'tool' ? item.toolCall.toolCallId : undefined
+  return item.type === 'message' || item.type === 'tool' ? item.toolCall : undefined
 }
 
 /**
@@ -537,6 +601,15 @@ function getTimelineItemToolCallId(item: TimelineItem): string | undefined {
  */
 function getTimelineItemToolCallIds(item: TimelineItem): string[] | undefined {
   return item.type === 'tool-group' ? item.toolCallIds : undefined
+}
+
+/**
+ * 获取 timeline 项工具调用列表。
+ * @param item - timeline 项。
+ * @returns 工具调用列表。
+ */
+function getTimelineItemToolCalls(item: TimelineItem): ToolCall[] | undefined {
+  return item.type === 'tool-group' ? item.toolCalls : undefined
 }
 
 /**
@@ -557,10 +630,7 @@ function getTimelineItemToolGroupStatus(item: TimelineItem): ToolGroupStatus | u
   if (item.type !== 'tool-group') {
     return undefined
   }
-  const toolCalls = item.toolCallIds
-    .map((toolCallId) => toolCallsById.value[toolCallId])
-    .filter((toolCall): toolCall is ToolCall => Boolean(toolCall))
-  return getToolGroupStatus(toolCalls)
+  return getToolGroupStatus(item.toolCalls)
 }
 
 /**
@@ -574,7 +644,6 @@ function toTimelineViewItem(item: TimelineItem): TimelineViewItem {
   return {
     key: item.key,
     item,
-    revision: getTimelineItemRevision(item),
     className: `chat-view__message--${getTimelineItemClassSuffix(item)}`,
     isCollapsedHistory,
     collapsedItem: isCollapsedHistory ? item : undefined,
@@ -592,8 +661,8 @@ function toTimelineViewItem(item: TimelineItem): TimelineViewItem {
     isStreaming: getTimelineItemStreaming(item),
     collapseWhenResponseAppears: getTimelineItemCollapseWhenResponseAppears(item),
     toolCall: getTimelineItemToolCall(item),
-    toolCallId: getTimelineItemToolCallId(item),
     toolCallIds: getTimelineItemToolCallIds(item),
+    toolCalls: getTimelineItemToolCalls(item),
     summary: getTimelineItemToolGroupSummary(item),
     status: getTimelineItemToolGroupStatus(item)
   }
@@ -633,16 +702,11 @@ function isCollapsedHistoryOpen(
 }
 
 /**
- * 将 assistant message 的 thinking、text、toolCall content 拆成 timeline 项。
+ * 将 assistant message 的 thinking、text content 拆成 timeline 项。
  * @param message - assistant message。
- * @param resultToolCallIds - 已在时间线中消费的工具调用 ID。
  * @returns timeline 项。
  */
-function getAssistantTimelineItems(
-  message: RenderableThreadMessage,
-  resultToolCallIds: Set<string>,
-  toolResultMessageIds: Set<string>
-): UngroupedTimelineItem[] {
+function getAssistantTimelineItems(message: RenderableThreadMessage): UngroupedTimelineItem[] {
   const content = getMessageRawRecord(message).content
   if (!Array.isArray(content)) {
     const text = getMessageText(message)
@@ -675,7 +739,11 @@ function getAssistantTimelineItems(
         key: `${message.id}:thinking:${index}`,
         message,
         text: part.thinking,
-        collapseWhenResponseAppears: hasFollowingResponseContent(content, index),
+        collapseWhenResponseAppears: hasFollowingResponseContent(
+          content,
+          index,
+          Boolean(message.toolCallIds?.length)
+        ),
         revision: message.revision
       })
       return
@@ -690,42 +758,9 @@ function getAssistantTimelineItems(
       })
       return
     }
-    if (part.type === 'toolCall' && typeof part.id === 'string') {
-      if (toolResultMessageIds.has(part.id)) {
-        return
-      }
-      const toolCall =
-        toolCallStructures.value.find((item) => item.toolCallId === part.id) ??
-        createPendingToolCall(part)
-      resultToolCallIds.add(toolCall.toolCallId)
-      items.push({
-        type: 'tool',
-        key: `${message.id}:tool:${toolCall.toolCallId}`,
-        toolCall
-      })
-    }
   })
 
   return items
-}
-
-/**
- * 收集已落地为 tool result message 的工具调用 ID。
- * @param items - 当前消息列表。
- * @returns tool result 关联的 toolCallId 集合。
- */
-function collectToolResultMessageIds(items: RenderableThreadMessage[]): Set<string> {
-  const ids = new Set<string>()
-  for (const message of items) {
-    if (message.role !== 'tool') {
-      continue
-    }
-    const raw = getMessageRawRecord(message)
-    if (typeof raw.toolCallId === 'string') {
-      ids.add(raw.toolCallId)
-    }
-  }
-  return ids
 }
 
 /**
@@ -785,13 +820,7 @@ function isUserMessageItem(item: TimelineItem | undefined): boolean {
  * @returns 是否包含 toolCall block。
  */
 function hasAssistantToolCall(message: RenderableThreadMessage): boolean {
-  const content = getMessageRawRecord(message).content
-  return (
-    Array.isArray(content) &&
-    content.some(
-      (part) => isRecord(part) && part.type === 'toolCall' && typeof part.id === 'string'
-    )
-  )
+  return Boolean(message.toolCallIds?.length)
 }
 
 /**
@@ -847,9 +876,7 @@ function getTimelineItemStartTime(item: TimelineItem | undefined): number | unde
     return parseTime(item.toolCall.startedAt)
   }
   if (item.type === 'tool-group') {
-    return item.toolCallIds
-      .map(findToolCallStructureById)
-      .filter((toolCall): toolCall is WorkspaceToolCallStructure => Boolean(toolCall))
+    return item.toolCalls
       .map((toolCall) => parseTime(toolCall.startedAt))
       .find((time) => time !== undefined)
   }
@@ -869,10 +896,8 @@ function getTimelineItemEndTime(item: TimelineItem | undefined): number | undefi
     return parseTime(item.toolCall.finishedAt ?? item.toolCall.startedAt)
   }
   if (item.type === 'tool-group') {
-    return [...item.toolCallIds]
+    return [...item.toolCalls]
       .reverse()
-      .map(findToolCallStructureById)
-      .filter((toolCall): toolCall is WorkspaceToolCallStructure => Boolean(toolCall))
       .map((toolCall) => parseTime(toolCall.finishedAt ?? toolCall.startedAt))
       .find((time) => time !== undefined)
   }
@@ -886,6 +911,51 @@ function getTimelineItemEndTime(item: TimelineItem | undefined): number | undefi
  */
 function findToolCallStructureById(toolCallId: string): WorkspaceToolCallStructure | undefined {
   return toolCallStructures.value.find((toolCall) => toolCall.toolCallId === toolCallId)
+}
+
+/**
+ * 解析 timeline 展示用工具调用。
+ * full map 承载 result/status，structure 承载稳定的 timeline 身份；当 full map 中
+ * 工具名退化为通用 tool 时，以 structure 的具名工具身份为准。
+ * @param toolCallId - 工具调用 ID。
+ * @returns timeline 工具调用。
+ */
+function resolveTimelineToolCall(toolCallId: string): DesktopToolCall | undefined {
+  const full = toolCallsById.value[toolCallId]
+  const structure = findToolCallStructureById(toolCallId)
+  if (!full) {
+    if (!structure) {
+      return undefined
+    }
+    return {
+      threadId: structure.threadId,
+      toolCallId: structure.toolCallId,
+      toolName: structure.toolName,
+      status: 'queued',
+      args: structure.args,
+      startedAt: structure.startedAt,
+      finishedAt: structure.finishedAt
+    }
+  }
+  if (!structure || !isGenericToolName(full.toolName)) {
+    return full
+  }
+  return {
+    ...full,
+    toolName: structure.toolName,
+    args: full.args ?? structure.args,
+    startedAt: full.startedAt ?? structure.startedAt,
+    finishedAt: full.finishedAt ?? structure.finishedAt
+  }
+}
+
+/**
+ * 判断是否为通用工具名。
+ * @param value - 工具名。
+ * @returns 是否通用工具名。
+ */
+function isGenericToolName(value: unknown): boolean {
+  return typeof value !== 'string' || value.trim() === '' || value === 'tool'
 }
 
 /**
@@ -907,30 +977,20 @@ function parseTime(value: string | undefined): number | undefined {
  * @param index - 当前 block 下标。
  * @returns 后续是否存在非空 text block 或 toolCall block。
  */
-function hasFollowingResponseContent(content: unknown[], index: number): boolean {
-  return content
-    .slice(index + 1)
-    .some(
+function hasFollowingResponseContent(
+  content: unknown[],
+  index: number,
+  hasToolCalls: boolean
+): boolean {
+  return (
+    content.slice(index + 1).some(
       (part) =>
         isRecord(part) &&
-        ((part.type === 'text' && typeof part.text === 'string' && Boolean(part.text)) ||
-          (part.type === 'toolCall' && typeof part.id === 'string' && Boolean(part.id)))
-    )
-}
-
-/**
- * 从 assistant toolCall block 创建等待中的工具投影。
- * @param block - toolCall content block。
- * @returns 工具投影。
- */
-function createPendingToolCall(block: Record<string, unknown>): DesktopToolCall {
-  return {
-    threadId: workspaceSession.activeSessionId ?? '',
-    toolCallId: String(block.id),
-    toolName: typeof block.name === 'string' ? block.name : 'tool',
-    status: 'queued',
-    args: 'arguments' in block ? block.arguments : undefined
-  }
+        part.type === 'text' &&
+        typeof part.text === 'string' &&
+        Boolean(part.text)
+    ) || hasToolCalls
+  )
 }
 
 /**
@@ -1090,6 +1150,33 @@ async function sendComposerPrompt(): Promise<void> {
   await workspaceSession.sendPrompt(workspaceSession.defaultSessionContextId, runningDelivery.value)
 }
 
+/**
+ * 设置当前会话模型。
+ * @param provider - provider。
+ * @param modelId - 模型 ID。
+ */
+async function handleSelectModel(provider: string, modelId: string): Promise<void> {
+  await workspaceSession.setActiveModel(provider, modelId)
+}
+
+/**
+ * 设置当前会话 thinking level。
+ * @param level - thinking level。
+ */
+async function handleSelectThinkingLevel(level: ThinkingLevel): Promise<void> {
+  await workspaceSession.setActiveThinkingLevel(level)
+}
+
+watch(
+  () => workspaceSession.activeSessionId,
+  (threadId) => {
+    if (threadId) {
+      void workspaceSession.loadModelOptions(threadId)
+    }
+  },
+  { immediate: true }
+)
+
 watch(
   () => [
     workspaceSession.activeSessionId,
@@ -1143,6 +1230,9 @@ onMounted(async () => {
   if (!agentSettings.snapshot) {
     void agentSettings.load()
   }
+  if (!modelSettings.snapshot) {
+    void modelSettings.load()
+  }
   await nextTick()
   scheduleScrollToLatest('auto')
   updateScrollState()
@@ -1185,7 +1275,12 @@ function getTimelineItemRevision(item: TimelineItem | undefined): unknown[] {
     return [item.revision, item.text, item.collapseWhenResponseAppears]
   }
   if (item.type === 'tool-group') {
-    return [item.groupKind, item.summary, getTimelineItemToolGroupStatus(item), ...item.toolCallIds]
+    return [
+      item.groupKind,
+      item.summary,
+      getTimelineItemToolGroupStatus(item),
+      ...item.toolCalls.flatMap((toolCall) => [toolCall.toolCallId, toolCall.toolName, toolCall.args])
+    ]
   }
   return [
     item.toolCall.toolCallId,
@@ -1196,11 +1291,7 @@ function getTimelineItemRevision(item: TimelineItem | undefined): unknown[] {
   ]
 }
 
-/**
- * 获取工具调用渲染依赖，避免 v-memo 跳过 tool result 状态/结果更新。
- * @param toolCall - 工具调用。
- * @returns 更新依赖。
- */
+/** 获取工具调用渲染依赖。 */
 function getToolCallRevision(toolCall: DesktopToolCall | undefined): unknown[] {
   if (!toolCall) {
     return []
@@ -1231,7 +1322,6 @@ function getToolCallRevision(toolCall: DesktopToolCall | undefined): unknown[] {
         <div
           v-for="viewItem in displayTimelineViewItems"
           :key="viewItem.key"
-          v-memo="viewItem.revision"
           class="chat-view__message"
           :class="viewItem.className"
         >
@@ -1265,8 +1355,8 @@ function getToolCallRevision(toolCall: DesktopToolCall | undefined): unknown[] {
             :is-streaming="viewItem.isStreaming"
             :collapse-when-response-appears="viewItem.collapseWhenResponseAppears"
             :tool-call="viewItem.toolCall"
-            :tool-call-id="viewItem.toolCallId"
             :tool-call-ids="viewItem.toolCallIds"
+            :tool-calls="viewItem.toolCalls"
             :summary="viewItem.summary"
             :status="viewItem.status"
           />
@@ -1307,8 +1397,17 @@ function getToolCallRevision(toolCall: DesktopToolCall | undefined): unknown[] {
         :images="workspaceSession.draftImages"
         :image-error="imageSelectionError"
         :selecting-images="selectingImages"
+        :usage="tokenUsage"
+        :current-model="activeModel"
+        :model-options="modelOptions"
+        :loading-model-options="loadingModelOptions"
+        :model-select-disabled="isRunning || (!workspaceSession.activeSessionId && !workspaceSession.activeProjectId)"
+        :current-thinking-level="activeThinkingLevel"
+        :thinking-select-disabled="isRunning || (!workspaceSession.activeSessionId && !workspaceSession.activeProjectId)"
         placeholder="描述你想让 Agent 完成的事"
         @submit="sendComposerPrompt"
+        @select-model="handleSelectModel"
+        @select-thinking-level="handleSelectThinkingLevel"
         @select-project="workspaceSession.startNewSession"
         @select-images="handleSelectImages"
         @paste-images="handlePasteImages"

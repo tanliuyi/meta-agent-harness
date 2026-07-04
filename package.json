@@ -4,13 +4,25 @@
   "description": "",
   "private": true,
   "scripts": {
-    "build": "pnpm -r build",
-    "dev": "pnpm -r --parallel dev",
-    "lint": "pnpm -r lint",
-    "test": "pnpm -r test"
+    "build": "corepack pnpm -r build",
+    "dev": "corepack pnpm -r --parallel dev",
+    "lint": "corepack pnpm -r lint",
+    "test": "corepack pnpm -r test"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
-  "packageManager": "pnpm@10.19.0"
+  "packageManager": "pnpm@10.19.0",
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "@google/genai",
+      "@parcel/watcher",
+      "canvas",
+      "electron",
+      "electron-winstaller",
+      "esbuild",
+      "protobufjs",
+      "vue-demi"
+    ]
+  }
 }

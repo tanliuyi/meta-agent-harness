@@ -8,6 +8,7 @@ import type {
   ThreadLiveState,
   ThreadMessagesResponse
 } from '../../../../../packages/coding-agent/src/desktop/protocol/thread'
+import type { ContextUsage } from '../../../../../packages/coding-agent/src/core/extensions/types'
 import type { ThreadWorkerRegistry } from './thread-worker-registry'
 import type { CodingThreadStore } from './thread-store'
 import type { ProjectStore } from './project-store'
@@ -270,7 +271,9 @@ export class ThreadManagerCore {
         steering: [],
         followUp: []
       },
-      diagnostics: []
+      diagnostics: [],
+      autoCompactionEnabled: state.autoCompactionEnabled,
+      context: buildContextUsage(state.contextUsage)
     }
   }
 
@@ -481,4 +484,20 @@ function normalizeInactiveThread(thread: ThreadSummary): ThreadSummary {
 
 function sortThreadsByUpdatedAt(threads: ThreadSummary[]): ThreadSummary[] {
   return [...threads].sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))
+}
+
+/**
+ * 将 worker 返回的 ContextUsage 转换为 ThreadSnapshot 的 context 字段。
+ * @param usage - worker 的上下文用量。
+ * @returns ThreadSnapshot 可用的上下文数据；没有窗口信息时返回 undefined。
+ */
+function buildContextUsage(usage: ContextUsage | undefined): ThreadSnapshot['context'] {
+  if (!usage) {
+    return undefined
+  }
+  return {
+    tokens: usage.tokens === null ? undefined : usage.tokens,
+    contextWindow: usage.contextWindow,
+    percent: usage.percent === null ? undefined : Math.round(usage.percent)
+  }
 }

@@ -6,16 +6,11 @@ import { cn } from '@/lib/utils'
 const props = defineProps<{
   class?: HTMLAttributes['class']
 }>()
-const rootClass = computed(() =>
-  cn('flex flex-col-reverse gap-2 sm:flex-row sm:justify-end', props.class)
-)
+const rootClass = computed(() => cn('flex flex-row flex-wrap justify-end gap-2', props.class))
 </script>
 
 <template>
-  <div
-    data-slot="alert-dialog-footer"
-    :class="rootClass"
-  >
+  <div data-slot="alert-dialog-footer" :class="rootClass">
     <slot />
   </div>
 </template>

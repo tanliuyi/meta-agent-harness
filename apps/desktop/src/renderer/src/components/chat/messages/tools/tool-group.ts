@@ -11,6 +11,7 @@ export interface ToolGroupTimelineItem {
   key: string
   groupKind: ToolGroupKind
   toolCallIds: string[]
+  toolCalls: ToolCall[]
   summary: string
 }
 
@@ -18,13 +19,13 @@ export type GroupableTimelineItem<TMessage = unknown> =
   | {
       type: 'tool'
       key: string
-      toolCall: GroupableToolCall
+      toolCall: ToolCall
     }
   | {
       type: 'message'
       key: string
       message: TMessage
-      toolCall?: GroupableToolCall
+      toolCall?: ToolCall
     }
   | {
       type: string
@@ -62,7 +63,7 @@ export function groupTimelineTools<TItem extends GroupableTimelineItem>(
   const result: Array<GroupedTimelineItem<TItem>> = []
   let pendingKind: ToolGroupKind | undefined
   let pendingItems: TItem[] = []
-  let pendingToolCalls: GroupableToolCall[] = []
+  let pendingToolCalls: ToolCall[] = []
 
   const flushPending = (): void => {
     if (pendingItems.length === 0) {
@@ -170,7 +171,7 @@ export function getToolCallPath(toolCall: GroupableToolCall): string | undefined
 
 function createToolGroupItem(
   kind: ToolGroupKind,
-  toolCalls: GroupableToolCall[]
+  toolCalls: ToolCall[]
 ): ToolGroupTimelineItem {
   const toolCallIds = toolCalls.map((toolCall) => toolCall.toolCallId)
   return {
@@ -178,6 +179,7 @@ function createToolGroupItem(
     key: `tool-group:${kind}:${toolCallIds[0] ?? 'empty'}`,
     groupKind: kind,
     toolCallIds,
+    toolCalls,
     summary:
       kind === 'mutation'
         ? summarizeMutationToolGroup(toolCalls)
@@ -185,7 +187,7 @@ function createToolGroupItem(
   }
 }
 
-function getTimelineItemToolCall(item: GroupableTimelineItem): GroupableToolCall | undefined {
+function getTimelineItemToolCall(item: GroupableTimelineItem): ToolCall | undefined {
   if (item.type === 'tool' && 'toolCall' in item) {
     return item.toolCall
   }

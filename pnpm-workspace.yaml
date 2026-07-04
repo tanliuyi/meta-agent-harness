@@ -2,15 +2,15 @@ packages:
   - "apps/*"
   - "packages/*"
 
-allowBuilds:
-  '@google/genai': true
-  '@parcel/watcher': true
-  canvas: true
-  electron: true
-  electron-winstaller: true
-  esbuild: true
-  protobufjs: true
-  vue-demi: true
+onlyBuiltDependencies:
+  - '@google/genai'
+  - '@parcel/watcher'
+  - canvas
+  - electron
+  - electron-winstaller
+  - esbuild
+  - protobufjs
+  - vue-demi
 
 overrides:
   linkify-it: 5.0.1

@@ -20,6 +20,8 @@ export interface DesktopMessage {
 	text?: string;
 	/** 原始 Agent message，供 renderer 消费非文本结构。 */
 	raw: AgentMessage;
+	/** 该 assistant message 发起的工具调用 ID 列表。 */
+	toolCallIds?: string[];
 	/** 创建时间（ISO 8601）。 */
 	createdAt?: string;
 }
@@ -55,6 +57,8 @@ export interface ThreadSnapshot {
 		/** Follow-up 队列。 */
 		followUp: string[];
 	};
+	/** 是否启用自动上下文压缩。 */
+	autoCompactionEnabled?: boolean;
 	/** 上下文使用情况。 */
 	context?: {
 		/** 已使用 token 数。 */

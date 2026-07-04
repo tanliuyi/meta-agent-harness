@@ -270,6 +270,26 @@ describe('CodingThreadManager lifecycle', () => {
 
     const snapshot = await manager.getSnapshot('thread-a')
 
+    expect(snapshot.messages).toMatchObject([
+      {
+        role: 'assistant',
+        toolCallIds: ['tool-edit'],
+        raw: {
+          role: 'assistant',
+          content: []
+        }
+      }
+    ])
+    expect(snapshot.messages.some((message) => message.role === 'tool')).toBe(false)
+    expect(snapshot.toolCalls).toMatchObject([
+      {
+        toolCallId: 'tool-edit',
+        toolName: 'edit',
+        status: 'succeeded',
+        args: { path: 'src/app.ts' }
+      }
+    ])
+    expect(snapshot.toolCalls.some((toolCall) => toolCall.toolName === 'tool')).toBe(false)
     expect(snapshot.fileChanges).toMatchObject([
       {
         threadId: 'thread-a',

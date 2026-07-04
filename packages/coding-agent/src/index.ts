@@ -322,6 +322,7 @@ export {
 	runRpcMode,
 } from "./modes/index.ts";
 // Clipboard utilities
+export { formatTokens } from "./utils/format.ts";
 export { copyToClipboard } from "./utils/clipboard.ts";
 export { parseFrontmatter, stripFrontmatter } from "./utils/frontmatter.ts";
 export { convertToPng } from "./utils/image-convert.ts";

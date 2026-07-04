@@ -23,7 +23,11 @@ describe('tool-group', () => {
       {
         type: 'tool-group',
         groupKind: 'mutation',
-        toolCallIds: ['edit-a', 'write-b']
+        toolCallIds: ['edit-a', 'write-b'],
+        toolCalls: [
+          { toolCallId: 'edit-a', toolName: 'edit' },
+          { toolCallId: 'write-b', toolName: 'write' }
+        ]
       }
     ])
   })
@@ -39,7 +43,12 @@ describe('tool-group', () => {
       {
         type: 'tool-group',
         groupKind: 'explore',
-        toolCallIds: ['read-a', 'grep-a', 'ls-a']
+        toolCallIds: ['read-a', 'grep-a', 'ls-a'],
+        toolCalls: [
+          { toolCallId: 'read-a', toolName: 'read' },
+          { toolCallId: 'grep-a', toolName: 'grep' },
+          { toolCallId: 'ls-a', toolName: 'ls' }
+        ]
       }
     ])
   })

@@ -508,7 +508,10 @@ describe('CodingThreadStore', () => {
     sessionManager.appendMessage({ role: 'user', content: 'hello', timestamp: 1 })
     sessionManager.appendMessage({
       role: 'assistant',
-      content: [{ type: 'text', text: 'world' }],
+      content: [
+        { type: 'text', text: 'world' },
+        { type: 'toolCall', id: 'tool-read', name: 'read', arguments: { path: 'README.md' } }
+      ],
       api: 'openai-responses',
       provider: 'openai',
       model: 'gpt-test',
@@ -523,6 +526,13 @@ describe('CodingThreadStore', () => {
       stopReason: 'stop',
       timestamp: 2
     })
+    sessionManager.appendMessage({
+      role: 'toolResult',
+      toolCallId: 'tool-read',
+      content: [{ type: 'text', text: 'ok' }],
+      isError: false,
+      timestamp: 3
+    } as Parameters<typeof sessionManager.appendMessage>[0])
     sessionManager.appendThinkingLevelChange('high')
     sessionManager.appendSessionInfo('JSONL session')
     const sessionFile = sessionManager.getSessionFile()
@@ -557,6 +567,18 @@ describe('CodingThreadStore', () => {
       { role: 'user', text: 'hello' },
       { role: 'assistant', text: 'world' }
     ])
+    expect(snapshot.messages.some((message) => message.role === 'tool')).toBe(false)
+    expect(snapshot.messages[1]?.toolCallIds).toEqual(['tool-read'])
+    expect(snapshot.toolCalls).toMatchObject([
+      {
+        toolCallId: 'tool-read',
+        toolName: 'read',
+        status: 'succeeded',
+        args: { path: 'README.md' },
+        resultSummary: 'ok'
+      }
+    ])
+    expect(snapshot.toolCalls.some((toolCall) => toolCall.toolName === 'tool')).toBe(false)
     store.close()
     projectStore.close()
     rmSync(root, { recursive: true, force: true })

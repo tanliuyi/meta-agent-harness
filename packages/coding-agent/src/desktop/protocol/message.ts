@@ -30,7 +30,8 @@ export function toDesktopMessageContent(message: AgentMessage): DesktopMessageCo
 	return {
 		role,
 		text,
-		raw: message,
+		raw: toDesktopMessageRaw(message),
+		toolCallIds: getAssistantToolCallIds(message),
 		createdAt: hasTimestamp(message) ? normalizeTimestamp(message.timestamp) : undefined,
 	};
 }
@@ -77,7 +78,7 @@ export function toDesktopToolCalls(messages: AgentMessage[], threadId: ThreadId)
 					...existing,
 					threadId,
 					toolCallId: block.id,
-					toolName: typeof block.name === "string" ? block.name : existing?.toolName ?? "tool",
+					toolName: hasDisplayToolName(block.name) ? block.name : existing?.toolName ?? "tool",
 					status: existing?.status ?? "queued",
 					args: "arguments" in block ? block.arguments : existing?.args,
 				});
@@ -86,11 +87,14 @@ export function toDesktopToolCalls(messages: AgentMessage[], threadId: ThreadId)
 		}
 		if (message.role === "toolResult" && typeof message.toolCallId === "string") {
 			const existing = toolCalls.get(message.toolCallId);
+			if (!existing) {
+				continue;
+			}
 			toolCalls.set(message.toolCallId, {
 				...existing,
 				threadId,
 				toolCallId: message.toolCallId,
-				toolName: typeof message.toolName === "string" ? message.toolName : existing?.toolName ?? "tool",
+				toolName: hasDisplayToolName(message.toolName) ? message.toolName : existing?.toolName ?? "tool",
 				status: message.isError ? "failed" : "succeeded",
 				args: existing?.args,
 				result: { content: message.content, details: readMessageDetails(message) },
@@ -109,7 +113,7 @@ export function toDesktopToolCalls(messages: AgentMessage[], threadId: ThreadId)
  * @returns desktop 文件变更列表。
  */
 export function toDesktopFileChanges(messages: AgentMessage[], threadId: ThreadId): DesktopFileChange[] {
-	const toolArgs = new Map<string, unknown>();
+	const toolCalls = new Map<string, { toolName: string; args: unknown }>();
 	const changes: DesktopFileChange[] = [];
 	for (const message of messages) {
 		if (message.role === "assistant" && hasContent(message) && Array.isArray(message.content)) {
@@ -117,20 +121,25 @@ export function toDesktopFileChanges(messages: AgentMessage[], threadId: ThreadI
 				if (!isRecord(block) || block.type !== "toolCall" || typeof block.id !== "string") {
 					continue;
 				}
-				if ("arguments" in block) {
-					toolArgs.set(block.id, block.arguments);
-				}
+				const existing = toolCalls.get(block.id);
+				toolCalls.set(block.id, {
+					toolName: hasDisplayToolName(block.name) ? block.name : existing?.toolName ?? "tool",
+					args: Object.prototype.hasOwnProperty.call(block, "arguments")
+						? block["arguments"]
+						: existing?.args,
+				});
 			}
 			continue;
 		}
 		if (message.role !== "toolResult" || typeof message.toolCallId !== "string") {
 			continue;
 		}
+		const toolCall = toolCalls.get(message.toolCallId);
 		const change = createDesktopFileChangeFromEditResult({
 			threadId,
 			toolCallId: message.toolCallId,
-			toolName: typeof message.toolName === "string" ? message.toolName : "tool",
-			args: toolArgs.get(message.toolCallId),
+			toolName: hasDisplayToolName(message.toolName) ? message.toolName : toolCall?.toolName ?? "tool",
+			args: toolCall?.args,
 			result: { content: hasContent(message) ? message.content : undefined, details: readMessageDetails(message) },
 			isError: Boolean(message.isError),
 			createdAt: hasTimestamp(message) ? normalizeTimestamp(message.timestamp) : undefined,
@@ -153,7 +162,7 @@ function mapRole(role: AgentMessage["role"]): DesktopMessage["role"] | undefined
 		case "assistant":
 			return role;
 		case "toolResult":
-			return "tool";
+			return undefined;
 		case "bashExecution":
 		case "custom":
 		case "branchSummary":
@@ -180,6 +189,44 @@ function hasContent(message: AgentMessage): message is AgentMessage & { content:
  */
 function hasTimestamp(message: AgentMessage): message is AgentMessage & { timestamp: unknown } {
 	return "timestamp" in message;
+}
+
+/**
+ * 判断工具名是否可展示。
+ * @param value - 原始工具名。
+ * @returns 是否非空字符串。
+ */
+function hasDisplayToolName(value: unknown): value is string {
+	return typeof value === "string" && value.trim().length > 0;
+}
+
+/**
+ * 生成 renderer 展示用 raw message。
+ * 工具调用由 DesktopToolCall projection 展示，assistant raw 中不再重复暴露 toolCall block。
+ * @param message - 原始 agent message。
+ * @returns 展示用 raw message。
+ */
+function toDesktopMessageRaw(message: AgentMessage): AgentMessage {
+	if (message.role !== "assistant" || !hasContent(message) || !Array.isArray(message.content)) {
+		return message;
+	}
+	const content = message.content.filter((part) => !isRecord(part) || part.type !== "toolCall");
+	return { ...message, content } as AgentMessage;
+}
+
+/**
+ * 获取 assistant message 发起的工具调用 ID。
+ * @param message - 原始 agent message。
+ * @returns 工具调用 ID 列表；非 assistant 或无工具调用时返回 undefined。
+ */
+function getAssistantToolCallIds(message: AgentMessage): string[] | undefined {
+	if (message.role !== "assistant" || !hasContent(message) || !Array.isArray(message.content)) {
+		return undefined;
+	}
+	const ids = message.content.flatMap((part) =>
+		isRecord(part) && part.type === "toolCall" && typeof part.id === "string" ? [part.id] : [],
+	);
+	return ids.length > 0 ? ids : undefined;
 }
 
 function readMessageDetails(message: AgentMessage): unknown {

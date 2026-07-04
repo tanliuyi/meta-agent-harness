@@ -5,12 +5,16 @@ import { computed } from 'vue'
 import { reactiveOmit } from '@vueuse/core'
 import { AlertDialogAction } from 'reka-ui'
 import { cn } from '@/lib/utils'
-import { buttonVariants } from '@/components/ui/button'
+import { buttonVariants, type ButtonVariants } from '@/components/ui/button'
 
-const props = defineProps<AlertDialogActionProps & { class?: HTMLAttributes['class'] }>()
+const props = defineProps<
+  AlertDialogActionProps & { class?: HTMLAttributes['class']; variant?: ButtonVariants['variant'] }
+>()
 
-const delegatedProps = reactiveOmit(props, 'class')
-const rootClass = computed(() => cn(buttonVariants(), props.class))
+const delegatedProps = reactiveOmit(props, 'class', 'variant')
+const rootClass = computed(() =>
+  cn(buttonVariants({ variant: props.variant, size: 'sm' }), props.class)
+)
 </script>
 
 <template>

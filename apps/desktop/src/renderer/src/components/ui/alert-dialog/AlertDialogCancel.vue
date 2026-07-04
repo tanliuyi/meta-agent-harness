@@ -11,7 +11,7 @@ const props = defineProps<AlertDialogCancelProps & { class?: HTMLAttributes['cla
 
 const delegatedProps = reactiveOmit(props, 'class')
 const rootClass = computed(() =>
-  cn(buttonVariants({ variant: 'outline' }), 'mt-2 sm:mt-0', props.class)
+  cn(buttonVariants({ variant: 'outline', size: 'sm' }), props.class)
 )
 </script>
 

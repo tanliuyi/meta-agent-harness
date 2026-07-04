@@ -9,7 +9,7 @@ import { cn } from '@/lib/utils'
 const props = defineProps<AlertDialogDescriptionProps & { class?: HTMLAttributes['class'] }>()
 
 const delegatedProps = reactiveOmit(props, 'class')
-const rootClass = computed(() => cn('text-muted-foreground text-sm', props.class))
+const rootClass = computed(() => cn('text-muted-foreground text-xs leading-5', props.class))
 </script>
 
 <template>

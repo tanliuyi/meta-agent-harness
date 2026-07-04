@@ -268,6 +268,7 @@ function createSession(overrides: Record<string, unknown> = {}): RuntimeCommandH
 		autoCompactionEnabled: true,
 		messages: [],
 		pendingMessageCount: 0,
+		getContextUsage: () => undefined,
 		modelRegistry: {
 			getAvailable: async () => [{ provider: "openai", id: "gpt-test" }],
 		},

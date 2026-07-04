@@ -25,6 +25,7 @@ export function buildRuntimeState(session: AgentSession): ThreadLiveState {
 		autoCompactionEnabled: session.autoCompactionEnabled,
 		messageCount: session.messages.length,
 		pendingMessageCount: session.pendingMessageCount,
+		contextUsage: session.getContextUsage(),
 	};
 }
 
