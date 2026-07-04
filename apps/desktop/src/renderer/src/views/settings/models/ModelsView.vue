@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import ScrollArea from '@/components/ui/scroll-area/ScrollArea.vue'
 import useModelSettingsStore from '@renderer/stores/model-settings'
-import { onMounted } from 'vue'
+import { computed, onMounted } from 'vue'
 import { RouterLink, RouterView } from 'vue-router'
 
 const modelSettings = useModelSettingsStore()
@@ -15,6 +15,27 @@ const links = [
   { to: '/settings/models/providers', label: '自定义 Provider' },
   { to: '/settings/models/diagnostics', label: '诊断' }
 ]
+
+const defaultModelLabel = computed(() => {
+  const { provider, modelId } = modelSettings.draft.defaultModel
+  if (!provider || !modelId) return '未配置默认模型'
+  return `${provider}/${modelId}`
+})
+
+const availableModelCount = computed(
+  () => modelSettings.models.filter((model) => model.status === 'available').length
+)
+
+const credentialIssueCount = computed(
+  () =>
+    modelSettings.credentialStatuses.filter(
+      (credential) => credential.status === 'missing' || credential.status === 'invalid'
+    ).length
+)
+
+const modelIssueCount = computed(
+  () => modelSettings.diagnostics.filter((item) => item.severity !== 'info').length
+)
 
 onMounted(() => {
   if (!modelSettings.snapshot) {
@@ -30,6 +51,24 @@ onMounted(() => {
         <h1>模型</h1>
         <p>每个配置项独立保存，切换页面会保留当前编辑状态。</p>
       </div>
+      <section class="models-shell__summary" aria-label="模型配置概览">
+        <div>
+          <span>Default</span>
+          <strong>{{ defaultModelLabel }}</strong>
+        </div>
+        <div>
+          <span>Available</span>
+          <strong>{{ availableModelCount }}</strong>
+        </div>
+        <div :class="{ 'has-warning': credentialIssueCount > 0 }">
+          <span>Credentials</span>
+          <strong>{{ credentialIssueCount }}</strong>
+        </div>
+        <div :class="{ 'has-warning': modelIssueCount > 0 }">
+          <span>Diagnostics</span>
+          <strong>{{ modelIssueCount }}</strong>
+        </div>
+      </section>
       <RouterLink
         v-for="link in links"
         :key="link.to"

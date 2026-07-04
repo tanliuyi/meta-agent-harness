@@ -37,6 +37,30 @@ type ModelProviderGroup = {
 
 const modelCount = computed(() => modelSettings.models.length)
 const hasModels = computed(() => modelCount.value > 0)
+const availableCount = computed(
+  () => modelSettings.models.filter((model) => model.status === 'available').length
+)
+const missingAuthCount = computed(
+  () => modelSettings.models.filter((model) => model.status === 'missingAuth').length
+)
+const invalidCount = computed(
+  () => modelSettings.models.filter((model) => model.status === 'invalid').length
+)
+const disabledCount = computed(
+  () => modelSettings.models.filter((model) => model.status === 'disabled').length
+)
+const providerCount = computed(
+  () => new Set(modelSettings.models.map((model) => model.provider)).size
+)
+const toolsCount = computed(
+  () => modelSettings.models.filter((model) => model.supportsTools).length
+)
+const imagesCount = computed(
+  () => modelSettings.models.filter((model) => model.supportsImages).length
+)
+const reasoningCount = computed(
+  () => modelSettings.models.filter((model) => model.supportsReasoning).length
+)
 const filteredModels = computed(() => {
   const query = searchQuery.value.trim().toLowerCase()
   return modelSettings.models.filter((model) => {
@@ -65,6 +89,34 @@ function badgeToneForStatus(status: ModelStatus): 'neutral' | 'success' | 'warni
   if (status === 'available') return 'success'
   if (status === 'missingAuth' || status === 'invalid') return 'warning'
   return 'neutral'
+}
+
+function formatTokenLimit(value: number | undefined, fallback: string): string {
+  return value ? `${value.toLocaleString()} tokens` : fallback
+}
+
+function formatSource(source: string | undefined): string {
+  switch (source) {
+    case 'builtin':
+      return '内置'
+    case 'global':
+      return 'Global'
+    case 'project':
+      return 'Project'
+    case 'custom':
+      return 'Custom'
+    case 'extension':
+      return 'Extension'
+    case 'runtime':
+      return 'Runtime'
+    default:
+      return source ?? '未知来源'
+  }
+}
+
+function formatThinkingLevels(levels: string[] | undefined): string {
+  if (!levels || levels.length === 0) return '未声明 thinking levels'
+  return levels.join(' / ')
 }
 </script>
 
@@ -96,6 +148,33 @@ function badgeToneForStatus(status: ModelStatus): 'neutral' | 'success' | 'warni
         <SettingsSelectField v-model="statusFilter" label="状态 Status" :options="statusFilters" />
       </div>
 
+      <div v-if="hasModels" class="registry-summary" aria-label="模型注册表摘要">
+        <div>
+          <span>Provider</span>
+          <strong>{{ providerCount }}</strong>
+        </div>
+        <div>
+          <span>可用</span>
+          <strong>{{ availableCount }}</strong>
+        </div>
+        <div :class="{ 'has-warning': missingAuthCount > 0 }">
+          <span>缺凭据</span>
+          <strong>{{ missingAuthCount }}</strong>
+        </div>
+        <div :class="{ 'has-warning': invalidCount > 0 }">
+          <span>无效</span>
+          <strong>{{ invalidCount }}</strong>
+        </div>
+        <div>
+          <span>禁用</span>
+          <strong>{{ disabledCount }}</strong>
+        </div>
+        <div>
+          <span>能力覆盖</span>
+          <strong>{{ toolsCount }}T / {{ imagesCount }}I / {{ reasoningCount }}R</strong>
+        </div>
+      </div>
+
       <div v-if="!hasModels" class="empty-state">
         <Database :size="22" />
         <strong>没有可展示的模型</strong>
@@ -111,11 +190,25 @@ function badgeToneForStatus(status: ModelStatus): 'neutral' | 'success' | 'warni
       <div v-else class="provider-list">
         <section v-for="group in modelGroups" :key="group.provider" class="provider-group">
           <h3>{{ group.provider }}</h3>
-          <ul class="plain-list">
+          <ul class="plain-list registry-list">
             <li v-for="item in group.items" :key="`${item.model.provider}:${item.model.id}`">
-              <div>
+              <div class="registry-list__copy">
                 <strong>{{ item.model.displayName ?? item.model.id }}</strong>
                 <span>{{ item.model.provider }}/{{ item.model.id }}</span>
+                <div class="model-meta">
+                  <span>
+                    Context
+                    {{ formatTokenLimit(item.model.contextWindow, '未知') }}
+                  </span>
+                  <span>
+                    Output
+                    {{ formatTokenLimit(item.model.maxOutputTokens, '未知') }}
+                  </span>
+                  <span>{{ formatSource(item.model.source) }}</span>
+                </div>
+                <div v-if="item.model.supportsReasoning" class="model-meta">
+                  <span>{{ formatThinkingLevels(item.model.thinkingLevels) }}</span>
+                </div>
               </div>
               <div class="model-badges">
                 <BaseBadge :tone="item.badgeTone">

@@ -13,6 +13,9 @@ importers:
 
   apps/desktop:
     dependencies:
+      '@chenglou/pretext':
+        specifier: 0.0.8
+        version: 0.0.8
       '@electron-toolkit/preload':
         specifier: ^3.0.2
         version: 3.0.2(electron@41.9.2)

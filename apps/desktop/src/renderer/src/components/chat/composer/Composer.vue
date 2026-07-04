@@ -5,7 +5,7 @@
 
 import type { JSONContent } from '@tiptap/vue-3'
 import { computed, nextTick, ref, watch } from 'vue'
-import { BaseIconButton } from '@renderer/components/base'
+import { BaseButton, BaseIconButton } from '@renderer/components/base'
 import SendIcon from '@renderer/components/icons/SendIcon.vue'
 import { Command } from '@renderer/components/ui/command'
 import ScrollArea from '@renderer/components/ui/scroll-area/ScrollArea.vue'
@@ -18,12 +18,14 @@ import {
   SelectValue
 } from '@renderer/components/ui/select'
 import StopIcon from '@renderer/components/icons/StopIcon.vue'
-import { X } from 'lucide-vue-next'
+import { Command as CommandIcon, X } from 'lucide-vue-next'
 import PlainTextEditor from './PlainTextEditor.vue'
 import Usage from './Usage.vue'
 import type { TokenUsage } from './Usage.vue'
 import type { ComposerImageAttachment } from '@renderer/stores/workspace-session'
 import type {
+  CommandInfo,
+  ExtensionUiRequest,
   ProjectSummary,
   PromptFileReferenceCandidate,
   ThinkingLevel,
@@ -40,6 +42,11 @@ type RunningMessageDelivery = 'steer' | 'followUp'
 
 type ComposerImagePreview = ComposerImageAttachment & {
   previewSrc: string
+}
+
+type ComposerExtensionWidget = {
+  lines: string[]
+  placement?: 'aboveEditor' | 'belowEditor'
 }
 
 type SessionModel = NonNullable<ThreadSnapshot['model']>
@@ -88,6 +95,14 @@ const props = withDefaults(
     currentThinkingLevel?: ThinkingLevel
     /** 是否禁用 thinking 选择。 */
     thinkingSelectDisabled?: boolean
+    /** 当前会话可用 commands。 */
+    commands?: CommandInfo[]
+    /** 是否正在加载 commands。 */
+    loadingCommands?: boolean
+    /** 扩展注入到 Composer 附近的小组件。 */
+    extensionWidgets?: Record<string, ComposerExtensionWidget>
+    /** 待响应的 extension UI 请求。 */
+    extensionRequests?: Record<string, ExtensionUiRequest>
     /** Agent 运行中提交消息时的交付方式。 */
     runningDelivery?: RunningMessageDelivery
     /** 输入提示。 */
@@ -108,6 +123,10 @@ const props = withDefaults(
     modelSelectDisabled: false,
     currentThinkingLevel: 'medium',
     thinkingSelectDisabled: false,
+    commands: () => [],
+    loadingCommands: false,
+    extensionWidgets: () => ({}),
+    extensionRequests: () => ({}),
     runningDelivery: 'steer',
     placeholder: ''
   }
@@ -134,6 +153,18 @@ const emit = defineEmits<{
   'paste-images': [files: File[], threadId?: string]
   /** 删除图片附件。 */
   'remove-image': [id: string]
+  /** 清空图片附件。 */
+  'clear-images': []
+  /** 关闭图片处理错误。 */
+  'dismiss-image-error': []
+  /** 加载 command palette 列表。 */
+  'load-commands': []
+  /** 运行 command。 */
+  'run-command': [command: string]
+  /** 响应 extension UI 请求。 */
+  'respond-extension-request': [request: ExtensionUiRequest, value?: string | boolean]
+  /** 取消 extension UI 请求。 */
+  'cancel-extension-request': [request: ExtensionUiRequest]
   /** 中止当前任务。 */
   abort: []
 }>()
@@ -148,7 +179,12 @@ const fileCompletionScrollRef = ref<{
   getViewport(): HTMLElement | undefined
 }>()
 const composerShellRef = ref<HTMLElement>()
+const commandSearchInputRef = ref<HTMLInputElement>()
 const isEditorFocused = ref(false)
+const commandPaletteOpen = ref(false)
+const commandSearch = ref('')
+const selectedCommandIndex = ref(0)
+const extensionDrafts = ref<Record<string, string>>({})
 const fileReferenceCompletion = ref<FileReferenceCompletionState>({
   candidates: [],
   selectedIndex: 0
@@ -160,6 +196,31 @@ const imagePreviews = computed<ComposerImagePreview[]>(() =>
     previewSrc: `data:${image.mimeType};base64,${image.data}`
   }))
 )
+
+/** 图片附件总大小。 */
+const imageTotalSizeLabel = computed(() =>
+  formatFileSize(props.images.reduce((total, image) => total + image.size, 0))
+)
+
+/** 图片附件状态摘要。 */
+const imageAttachmentSummary = computed(() => {
+  if (props.selectingImages) {
+    return '正在处理图片'
+  }
+  if (props.images.length === 0) {
+    return ''
+  }
+  return `${props.images.length} 张图片 · ${imageTotalSizeLabel.value}`
+})
+
+const extensionWidgetEntries = computed(() => Object.entries(props.extensionWidgets))
+const widgetsAboveEditor = computed(() =>
+  extensionWidgetEntries.value.filter(([, widget]) => widget.placement === 'aboveEditor')
+)
+const widgetsBelowEditor = computed(() =>
+  extensionWidgetEntries.value.filter(([, widget]) => widget.placement !== 'aboveEditor')
+)
+const extensionRequestEntries = computed(() => Object.values(props.extensionRequests))
 
 /** 当前模型选择器值。 */
 const currentModelValue = computed(() =>
@@ -186,6 +247,24 @@ const currentThinkingLabel = computed(
     props.currentThinkingLevel
 )
 
+/** command palette 是否可用。 */
+const canOpenCommandPalette = computed(() => Boolean(props.threadId))
+
+/** command palette 过滤结果。 */
+const filteredCommands = computed(() => {
+  const query = commandSearch.value.trim().toLowerCase()
+  if (!query) {
+    return props.commands
+  }
+  return props.commands.filter((command) =>
+    [command.name, command.description, command.source]
+      .filter(Boolean)
+      .join(' ')
+      .toLowerCase()
+      .includes(query)
+  )
+})
+
 watch(
   () => [
     fileReferenceCompletion.value.selectedIndex,
@@ -193,6 +272,33 @@ watch(
   ],
   () => {
     void nextTick(scrollSelectedFileReferenceIntoView)
+  }
+)
+
+watch(commandPaletteOpen, (isOpen) => {
+  if (!isOpen) {
+    commandSearch.value = ''
+    selectedCommandIndex.value = 0
+    return
+  }
+  selectedCommandIndex.value = 0
+  void nextTick(() => {
+    commandSearchInputRef.value?.focus()
+  })
+})
+
+watch(commandSearch, () => {
+  selectedCommandIndex.value = 0
+})
+
+watch(
+  () => filteredCommands.value.length,
+  (length) => {
+    if (length === 0) {
+      selectedCommandIndex.value = 0
+      return
+    }
+    selectedCommandIndex.value = Math.min(selectedCommandIndex.value, length - 1)
   }
 )
 
@@ -324,6 +430,89 @@ function handleActionClick(): void {
 }
 
 /**
+ * 切换 command palette。
+ */
+function toggleCommandPalette(): void {
+  if (!canOpenCommandPalette.value) {
+    return
+  }
+  commandPaletteOpen.value = !commandPaletteOpen.value
+  if (commandPaletteOpen.value) {
+    emit('load-commands')
+  }
+}
+
+/**
+ * 关闭 command palette。
+ */
+function closeCommandPalette(): void {
+  commandPaletteOpen.value = false
+}
+
+/**
+ * 高亮 command palette 项。
+ * @param index - command index。
+ */
+function highlightPaletteCommand(index: number): void {
+  selectedCommandIndex.value = index
+}
+
+/**
+ * 运行 command palette 中的命令。
+ * @param command - command 名称。
+ */
+function runPaletteCommand(command: string): void {
+  emit('run-command', command)
+  closeCommandPalette()
+}
+
+/**
+ * 运行当前高亮的 command。
+ */
+function runSelectedPaletteCommand(): void {
+  const command = filteredCommands.value[selectedCommandIndex.value]
+  if (!command) {
+    return
+  }
+  runPaletteCommand(command.name)
+}
+
+/**
+ * 处理 command palette 键盘导航。
+ * @param event - 键盘事件。
+ */
+function handleCommandPaletteKeyDown(event: KeyboardEvent): void {
+  if (event.isComposing) {
+    return
+  }
+  if (event.key === 'Escape') {
+    event.preventDefault()
+    event.stopPropagation()
+    closeCommandPalette()
+    return
+  }
+  if (filteredCommands.value.length === 0) {
+    return
+  }
+  if (event.key === 'ArrowDown') {
+    event.preventDefault()
+    selectedCommandIndex.value = (selectedCommandIndex.value + 1) % filteredCommands.value.length
+    return
+  }
+  if (event.key === 'ArrowUp') {
+    event.preventDefault()
+    selectedCommandIndex.value =
+      (selectedCommandIndex.value - 1 + filteredCommands.value.length) %
+      filteredCommands.value.length
+    return
+  }
+  if (event.key === 'Enter') {
+    event.preventDefault()
+    runSelectedPaletteCommand()
+  }
+}
+
+/**
  * 处理 Composer 范围内的快捷键。
  * @param event - 键盘事件。
  */
@@ -336,6 +525,12 @@ function handleComposerKeyDown(event: KeyboardEvent): void {
     event.preventDefault()
     event.stopPropagation()
     emit('abort')
+    return
+  }
+  if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k') {
+    event.preventDefault()
+    event.stopPropagation()
+    toggleCommandPalette()
   }
 }
 
@@ -393,6 +588,30 @@ function openImagePicker(): void {
 }
 
 /**
+ * 格式化附件文件大小。
+ * @param bytes - 字节数。
+ * @returns 展示文本。
+ */
+function formatFileSize(bytes: number): string {
+  if (bytes < 1024) {
+    return `${bytes} B`
+  }
+  if (bytes < 1024 * 1024) {
+    return `${(bytes / 1024).toFixed(bytes < 10 * 1024 ? 1 : 0)} KB`
+  }
+  return `${(bytes / (1024 * 1024)).toFixed(bytes < 10 * 1024 * 1024 ? 1 : 0)} MB`
+}
+
+/**
+ * 获取图片附件的处理提示。
+ * @param image - 图片附件。
+ * @returns 提示文本。
+ */
+function getImageHintLabel(image: ComposerImageAttachment): string {
+  return image.hints.length > 0 ? image.hints.join(' · ') : '原图已暂存'
+}
+
+/**
  * 选择新会话草稿所属 Project。
  * @param value - Project ID。
  */
@@ -443,6 +662,44 @@ function parseModelValue(value: string): { provider: string; modelId: string } |
 function formatModelLabel(model: Pick<SessionModel, 'provider' | 'id'>): string {
   return `${model.provider}/${model.id}`
 }
+
+function getExtensionRequestTitle(request: ExtensionUiRequest): string {
+  return 'title' in request ? request.title : request.type
+}
+
+function getExtensionDraft(request: ExtensionUiRequest): string {
+  if (extensionDrafts.value[request.id] === undefined) {
+    extensionDrafts.value[request.id] = request.type === 'editor' ? (request.prefill ?? '') : ''
+  }
+  return extensionDrafts.value[request.id]
+}
+
+function setExtensionDraft(id: string, value: string): void {
+  extensionDrafts.value = {
+    ...extensionDrafts.value,
+    [id]: value
+  }
+}
+
+function submitExtensionRequest(request: ExtensionUiRequest, value?: string | boolean): void {
+  emit(
+    'respond-extension-request',
+    request,
+    typeof value === 'string' || typeof value === 'boolean' ? value : getExtensionDraft(request)
+  )
+  clearExtensionDraft(request.id)
+}
+
+function cancelExtensionRequest(request: ExtensionUiRequest): void {
+  emit('cancel-extension-request', request)
+  clearExtensionDraft(request.id)
+}
+
+function clearExtensionDraft(id: string): void {
+  const next = { ...extensionDrafts.value }
+  delete next[id]
+  extensionDrafts.value = next
+}
 </script>
 
 <template>
@@ -467,19 +724,140 @@ function formatModelLabel(model: Pick<SessionModel, 'provider' | 'id'>): string 
         </div>
       </ScrollArea>
     </Command>
-    <form class="composer" @submit.prevent="handleSubmit">
-      <div v-if="imagePreviews.length > 0" class="composer__images">
-        <div v-for="image in imagePreviews" :key="image.id" class="composer__image">
-          <img :src="image.previewSrc" :alt="image.name" />
+    <div v-if="commandPaletteOpen" class="composer__command-palette">
+      <header class="composer__command-palette-header">
+        <CommandIcon :size="14" />
+        <input
+          ref="commandSearchInputRef"
+          v-model="commandSearch"
+          type="search"
+          placeholder="Search commands"
+          @keydown="handleCommandPaletteKeyDown"
+        />
+      </header>
+      <ScrollArea class="composer__command-palette-scroll">
+        <div v-if="loadingCommands" class="composer__command-empty">Loading commands...</div>
+        <div v-else-if="filteredCommands.length === 0" class="composer__command-empty">
+          No commands
+        </div>
+        <div v-else class="composer__command-list">
           <button
+            v-for="(command, index) in filteredCommands"
+            :key="`${command.source}:${command.name}`"
             type="button"
-            class="composer__image-remove"
-            :aria-label="`移除 ${image.name}`"
-            @click="emit('remove-image', image.id)"
+            class="composer__command-item"
+            :class="{ 'is-selected': index === selectedCommandIndex }"
+            @mouseenter="highlightPaletteCommand(index)"
+            @click="runPaletteCommand(command.name)"
           >
-            <X :size="10" />
+            <span>/{{ command.name }}</span>
+            <small>{{ command.description || command.source }}</small>
           </button>
         </div>
+      </ScrollArea>
+    </div>
+    <form class="composer" @submit.prevent="handleSubmit">
+      <div v-if="extensionRequestEntries.length > 0" class="composer__extension-requests">
+        <article
+          v-for="request in extensionRequestEntries"
+          :key="request.id"
+          class="composer__extension-request"
+        >
+          <header class="composer__extension-request-header">
+            <div>
+              <strong>{{ getExtensionRequestTitle(request) }}</strong>
+              <span>{{ request.type }}</span>
+            </div>
+            <BaseButton size="sm" variant="ghost" @click="cancelExtensionRequest(request)">
+              取消
+            </BaseButton>
+          </header>
+
+          <p v-if="request.type === 'confirm'" class="composer__extension-request-message">
+            {{ request.message }}
+          </p>
+
+          <div v-if="request.type === 'select'" class="composer__extension-request-options">
+            <BaseButton
+              v-for="option in request.options"
+              :key="option"
+              size="sm"
+              variant="secondary"
+              @click="submitExtensionRequest(request, option)"
+            >
+              {{ option }}
+            </BaseButton>
+          </div>
+
+          <input
+            v-if="request.type === 'input'"
+            class="composer__extension-request-input"
+            :value="getExtensionDraft(request)"
+            :placeholder="request.placeholder"
+            @input="setExtensionDraft(request.id, ($event.target as HTMLInputElement).value)"
+            @keydown.enter.prevent="submitExtensionRequest(request)"
+          />
+
+          <textarea
+            v-if="request.type === 'editor'"
+            class="composer__extension-request-editor"
+            :value="getExtensionDraft(request)"
+            @input="setExtensionDraft(request.id, ($event.target as HTMLTextAreaElement).value)"
+          />
+
+          <div
+            v-if="request.type === 'confirm' || request.type === 'input' || request.type === 'editor'"
+            class="composer__extension-request-actions"
+          >
+            <BaseButton
+              v-if="request.type === 'confirm'"
+              size="sm"
+              variant="primary"
+              @click="submitExtensionRequest(request, true)"
+            >
+              确认
+            </BaseButton>
+            <BaseButton v-else size="sm" variant="primary" @click="submitExtensionRequest(request)">
+              提交
+            </BaseButton>
+          </div>
+        </article>
+      </div>
+
+      <div v-if="imagePreviews.length > 0 || selectingImages" class="composer__attachments">
+        <div class="composer__attachments-header">
+          <span>{{ imageAttachmentSummary }}</span>
+          <button
+            v-if="imagePreviews.length > 0"
+            type="button"
+            @click="emit('clear-images')"
+          >
+            清空
+          </button>
+        </div>
+        <div v-if="imagePreviews.length > 0" class="composer__images">
+          <div v-for="image in imagePreviews" :key="image.id" class="composer__image">
+            <img :src="image.previewSrc" :alt="image.name" />
+            <div class="composer__image-meta">
+              <strong>{{ image.name }}</strong>
+              <span>{{ formatFileSize(image.size) }} · {{ getImageHintLabel(image) }}</span>
+            </div>
+            <button
+              type="button"
+              class="composer__image-remove"
+              :aria-label="`移除 ${image.name}`"
+              @click="emit('remove-image', image.id)"
+            >
+              <X :size="10" />
+            </button>
+          </div>
+        </div>
+      </div>
+      <div v-if="widgetsAboveEditor.length > 0" class="composer__extension-widgets is-above">
+        <article v-for="[key, widget] in widgetsAboveEditor" :key="key" class="composer__extension-widget">
+          <strong>{{ key }}</strong>
+          <span>{{ widget.lines.join(' · ') }}</span>
+        </article>
       </div>
       <PlainTextEditor
         ref="editorRef"
@@ -494,19 +872,43 @@ function formatModelLabel(model: Pick<SessionModel, 'provider' | 'id'>): string 
         @focus-change="handleEditorFocusChange"
         @submit="handleSubmit"
       />
+      <div v-if="widgetsBelowEditor.length > 0" class="composer__extension-widgets is-below">
+        <article v-for="[key, widget] in widgetsBelowEditor" :key="key" class="composer__extension-widget">
+          <strong>{{ key }}</strong>
+          <span>{{ widget.lines.join(' · ') }}</span>
+        </article>
+      </div>
       <div class="composer__actions">
-        <p v-if="imageError" class="composer__image-error" role="alert">{{ imageError }}</p>
+        <div v-if="imageError" class="composer__image-error" role="alert">
+          <span>{{ imageError }}</span>
+          <button type="button" aria-label="关闭图片错误" @click="emit('dismiss-image-error')">
+            <X :size="12" />
+          </button>
+        </div>
         <div style="margin-right: auto">
-          <BaseIconButton
-            type="button"
-            size="medium"
-            class="composer__attach"
-            label="添加图片"
-            :disabled="selectingImages"
-            @click="openImagePicker"
-          >
-            <PlusIcon :size="16" />
-          </BaseIconButton>
+          <div class="composer__left-actions">
+            <BaseIconButton
+              type="button"
+              size="medium"
+              class="composer__attach"
+              label="添加图片"
+              :disabled="selectingImages"
+              @click="openImagePicker"
+            >
+              <PlusIcon :size="16" />
+            </BaseIconButton>
+            <BaseIconButton
+              type="button"
+              size="medium"
+              class="composer__commands"
+              label="打开命令面板"
+              :active="commandPaletteOpen"
+              :disabled="!canOpenCommandPalette"
+              @click="toggleCommandPalette"
+            >
+              <CommandIcon :size="15" />
+            </BaseIconButton>
+          </div>
         </div>
         <Select
           :model-value="currentModelValue"
@@ -645,7 +1047,7 @@ function formatModelLabel(model: Pick<SessionModel, 'provider' | 'id'>): string 
   padding: var(--space-2);
   background: var(--color-surface-raised);
   border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-lg);
   box-shadow: var(--shadow-sm);
   z-index: 2;
 }
@@ -660,7 +1062,7 @@ function formatModelLabel(model: Pick<SessionModel, 'provider' | 'id'>): string 
   padding: 6px;
   background: var(--color-surface);
   border: 1px solid var(--color-border);
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-md);
   box-shadow: var(--shadow-md);
   overflow: hidden;
 }
@@ -697,7 +1099,7 @@ function formatModelLabel(model: Pick<SessionModel, 'provider' | 'id'>): string 
   text-align: left;
   background: transparent;
   border: 0;
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-md);
   cursor: pointer;
 
   &.is-selected {
@@ -713,12 +1115,120 @@ function formatModelLabel(model: Pick<SessionModel, 'provider' | 'id'>): string 
   white-space: nowrap;
 }
 
+.composer__command-palette {
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + var(--space-2));
+  left: 0;
+  z-index: 13;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  height: 240px;
+  min-width: 0;
+  overflow: hidden;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-md);
+}
+
+.composer__command-palette-header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+  padding: 8px;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.composer__command-palette-header svg {
+  flex: 0 0 auto;
+  color: var(--color-text-muted);
+}
+
+.composer__command-palette-header input {
+  width: 100%;
+  min-width: 0;
+  height: 28px;
+  padding: 0;
+  color: var(--color-text);
+  font: inherit;
+  font-size: var(--font-size-ui-sm);
+  background: transparent;
+  border: 0;
+  outline: 0;
+}
+
+.composer__command-palette-scroll {
+  min-width: 0;
+  min-height: 0;
+}
+
+.composer__command-palette-scroll :deep([data-slot='scroll-area-viewport']) {
+  height: 100%;
+  padding: 6px;
+}
+
+.composer__command-list {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.composer__command-item {
+  display: grid;
+  gap: 2px;
+  width: 100%;
+  min-width: 0;
+  padding: 7px 8px;
+  text-align: left;
+  background: transparent;
+  border: 0;
+  border-radius: var(--radius-md);
+  cursor: pointer;
+}
+
+.composer__command-item:hover,
+.composer__command-item.is-selected {
+  background: var(--composer-selection-bg);
+}
+
+.composer__command-item span,
+.composer__command-item small {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.composer__command-item span {
+  color: var(--color-text);
+  font-size: var(--font-size-ui-sm);
+  font-weight: 650;
+}
+
+.composer__command-item small,
+.composer__command-empty {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-ui-xs);
+}
+
+.composer__command-empty {
+  padding: 8px;
+}
+
 .composer__actions {
   display: flex;
   align-items: center;
   justify-content: flex-end;
   gap: var(--space-2);
   min-height: var(--composer-action-control-height);
+}
+
+.composer__left-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
 }
 
 .composer__project-select {
@@ -791,6 +1301,7 @@ function formatModelLabel(model: Pick<SessionModel, 'provider' | 'id'>): string 
 }
 
 .composer__attach,
+.composer__commands,
 .composer__action {
   width: var(--composer-action-control-height) !important;
   height: var(--composer-action-control-height) !important;
@@ -802,44 +1313,144 @@ function formatModelLabel(model: Pick<SessionModel, 'provider' | 'id'>): string 
 }
 
 .composer__image-error {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
   min-width: 0;
   margin: 0 auto 0 0;
   color: var(--color-danger);
   font-size: var(--font-size-ui-sm);
   line-height: 1.4;
+
+  span {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  button {
+    display: grid;
+    flex: 0 0 auto;
+    width: 20px;
+    height: 20px;
+    place-items: center;
+    padding: 0;
+    color: inherit;
+    background: transparent;
+    border: 0;
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+
+    &:hover {
+      background: color-mix(in srgb, var(--color-danger) 12%, transparent);
+    }
+  }
+}
+
+.composer__attachments {
+  display: grid;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.composer__attachments-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  min-width: 0;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-ui-xs);
+
+  span {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  button {
+    flex: 0 0 auto;
+    height: 22px;
+    padding: 0 var(--space-2);
+    color: var(--color-text-muted);
+    font: inherit;
+    font-size: var(--font-size-ui-2xs);
+    font-weight: 650;
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: var(--radius-md);
+    cursor: pointer;
+
+    &:hover {
+      color: var(--color-text);
+      background: var(--color-surface-hover);
+      border-color: var(--color-border);
+    }
+  }
 }
 
 .composer__images {
-  display: flex;
-  flex-wrap: wrap;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(184px, 1fr));
   gap: var(--space-2);
+  min-width: 0;
 }
 
 .composer__image {
   position: relative;
-  width: 72px;
-  height: 72px;
+  display: grid;
+  grid-template-columns: 44px minmax(0, 1fr) 18px;
+  gap: var(--space-2);
+  align-items: center;
+  min-width: 0;
+  min-height: 56px;
+  padding: 5px 6px;
   overflow: hidden;
   background: var(--color-control-track);
   border: 1px solid var(--color-border);
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-md);
 
   img {
-    width: 100%;
-    height: 100%;
-    object-fit: cover;
     display: block;
+    width: 44px;
+    height: 44px;
+    object-fit: cover;
+    border-radius: calc(var(--radius-md) - 2px);
+  }
+}
+
+.composer__image-meta {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+
+  strong,
+  span {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  strong {
+    color: var(--color-text);
+    font-size: var(--font-size-ui-xs);
+    font-weight: 650;
+  }
+
+  span {
+    color: var(--color-text-muted);
+    font-size: var(--font-size-ui-2xs);
   }
 }
 
 .composer__image-remove {
-  position: absolute;
-  top: 2px;
-  right: 2px;
   display: grid;
   place-items: center;
-  width: 16px;
-  height: 16px;
+  width: 18px;
+  height: 18px;
   padding: 0;
   color: var(--color-text);
   background: var(--composer-image-remove-bg);
@@ -859,6 +1470,141 @@ function formatModelLabel(model: Pick<SessionModel, 'provider' | 'id'>): string 
     color: var(--color-danger-ink);
     background: var(--color-danger);
     border-color: var(--color-danger);
+  }
+}
+
+.composer__extension-requests {
+  display: grid;
+  gap: var(--space-2);
+  min-width: 0;
+  margin-bottom: var(--space-2);
+}
+
+.composer__extension-request {
+  display: grid;
+  gap: var(--space-2);
+  min-width: 0;
+  padding: var(--space-2);
+  color: var(--color-text);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+}
+
+.composer__extension-request-header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+
+  > div {
+    display: flex;
+    flex: 1 1 auto;
+    align-items: baseline;
+    gap: var(--space-2);
+    min-width: 0;
+  }
+
+  strong,
+  span {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  strong {
+    color: var(--color-text);
+    font-size: var(--font-size-ui-sm);
+    font-weight: 700;
+  }
+
+  span {
+    color: var(--color-text-subtle);
+    font-size: var(--font-size-ui-xs);
+  }
+}
+
+.composer__extension-request-message {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-ui-sm);
+  line-height: 1.35;
+}
+
+.composer__extension-request-options,
+.composer__extension-request-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+  min-width: 0;
+}
+
+.composer__extension-request-input,
+.composer__extension-request-editor {
+  width: 100%;
+  min-width: 0;
+  color: var(--color-text);
+  background: var(--color-canvas);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  font: inherit;
+  font-size: var(--font-size-ui-sm);
+
+  &:focus {
+    outline: none;
+    box-shadow: var(--shadow-focus);
+  }
+}
+
+.composer__extension-request-input {
+  height: 30px;
+  padding: 0 var(--space-2);
+}
+
+.composer__extension-request-editor {
+  min-height: 84px;
+  max-height: 160px;
+  padding: var(--space-2);
+  resize: vertical;
+  line-height: 1.45;
+}
+
+.composer__extension-widgets {
+  display: grid;
+  gap: var(--space-1);
+  min-width: 0;
+}
+
+.composer__extension-widget {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+  min-height: 26px;
+  padding: 0 var(--space-2);
+  color: var(--color-text-muted);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border-muted);
+  border-radius: var(--radius-md);
+
+  strong,
+  span {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: var(--font-size-ui-xs);
+  }
+
+  strong {
+    flex: 0 0 auto;
+    color: var(--color-text);
+    font-weight: 700;
+  }
+
+  span {
+    flex: 1 1 auto;
   }
 }
 
@@ -886,6 +1632,6 @@ function formatModelLabel(model: Pick<SessionModel, 'provider' | 'id'>): string 
   background: var(--color-canvas);
   margin-top: -8px;
   padding-top: 8px;
-  border-radius: 0 0 var(--radius-md) var(--radius-md);
+  border-radius: 0 0 var(--radius-lg) var(--radius-lg);
 }
 </style>

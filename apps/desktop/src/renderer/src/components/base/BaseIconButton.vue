@@ -52,7 +52,7 @@ const buttonClasses = computed(() => {
   color: var(--color-text-muted);
   background: transparent;
   border: 1px solid transparent;
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-md);
   cursor: pointer;
   pointer-events: auto;
   transition:

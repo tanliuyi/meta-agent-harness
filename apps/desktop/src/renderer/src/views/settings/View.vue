@@ -34,6 +34,7 @@ const settingsGridAreas = computed(() => {
 const settingsTitle = computed(() => {
   if (route.path.startsWith('/settings/models')) return '模型'
   if (route.path.startsWith('/settings/agent')) return 'Agent'
+  if (route.path.startsWith('/settings/diagnostics')) return '诊断'
   if (route.path.startsWith('/settings/archive')) return '归档'
   return '通用'
 })

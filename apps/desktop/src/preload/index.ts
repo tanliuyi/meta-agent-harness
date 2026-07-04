@@ -51,6 +51,7 @@ const codingAgent: CodingAgentApi = {
   selectPromptImages: () => invokeCodingAgent(codingAgentChannels.selectPromptImages),
   stagePromptImages: (images) => invokeCodingAgent(codingAgentChannels.stagePromptImages, images),
   selectResourcePath: (input) => invokeCodingAgent(codingAgentChannels.selectResourcePath, input),
+  selectSessionFile: (input) => invokeCodingAgent(codingAgentChannels.selectSessionFile, input),
   revealResourcePath: (input) => invokeCodingAgent(codingAgentChannels.revealResourcePath, input),
   completeFileReference: (input) =>
     invokeCodingAgent(codingAgentChannels.completeFileReference, input),
@@ -91,9 +92,22 @@ const codingAgent: CodingAgentApi = {
   deleteCustomProvider: (provider) =>
     invokeCodingAgent(codingAgentChannels.deleteCustomProvider, provider),
   setProviderApiKey: (input) => invokeCodingAgent(codingAgentChannels.setProviderApiKey, input),
+  loginProviderOAuth: (input) =>
+    invokeCodingAgent(codingAgentChannels.loginProviderOAuth, input),
+  respondModelOAuthPrompt: (input) =>
+    invokeCodingAgent(codingAgentChannels.respondModelOAuthPrompt, input),
   refreshModelRegistry: () => invokeCodingAgent(codingAgentChannels.refreshModelRegistry),
   getAgentSettings: () => invokeCodingAgent(codingAgentChannels.getAgentSettings),
   updateAgentSettings: (input) => invokeCodingAgent(codingAgentChannels.updateAgentSettings, input),
+  getResourceSnapshot: () => invokeCodingAgent(codingAgentChannels.getResourceSnapshot),
+  listResourcePackages: () => invokeCodingAgent(codingAgentChannels.listResourcePackages),
+  addResourcePackage: (input) => invokeCodingAgent(codingAgentChannels.addResourcePackage, input),
+  installResourcePackage: (input) =>
+    invokeCodingAgent(codingAgentChannels.installResourcePackage, input),
+  removeResourcePackage: (input) =>
+    invokeCodingAgent(codingAgentChannels.removeResourcePackage, input),
+  updateResourcePackage: (input) =>
+    invokeCodingAgent(codingAgentChannels.updateResourcePackage, input),
   onEvent: (listener) => {
     const handler = (_event: Electron.IpcRendererEvent, payload: CodingAgentIpcEvent): void =>
       listener(payload)

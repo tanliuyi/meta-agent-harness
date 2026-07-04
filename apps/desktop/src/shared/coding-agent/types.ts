@@ -9,7 +9,10 @@ import type {
 import type { AgentSessionEvent as PackageAgentSessionEvent } from '../../../../../packages/coding-agent/src/core/agent-session'
 import type { DesktopProjectionEvent as PackageDesktopProjectionEvent } from '../../../../../packages/coding-agent/src/desktop/protocol/events/projection'
 import type { WorkerLifecycleEvent as PackageWorkerLifecycleEvent } from '../../../../../packages/coding-agent/src/desktop/protocol/events/worker'
-import type { ExtensionUiResponse as PackageExtensionUiResponse } from '../../../../../packages/coding-agent/src/desktop/protocol/extension-ui'
+import type {
+  ExtensionUiRequest as PackageExtensionUiRequest,
+  ExtensionUiResponse as PackageExtensionUiResponse
+} from '../../../../../packages/coding-agent/src/desktop/protocol/extension-ui'
 import type { AgentMessage, ThinkingLevel as PiThinkingLevel } from '@earendil-works/pi-agent-core'
 import { toDesktopMessageContent as toPackageDesktopMessageContent } from '../../../../../packages/coding-agent/src/desktop/protocol/message'
 import type {
@@ -23,6 +26,7 @@ import type {
 } from '../../../../../packages/coding-agent/src/desktop/protocol/thread'
 import type { RpcResponse } from '../../../../../packages/coding-agent/src/modes/rpc/rpc-types'
 import type { ImageContent } from '@earendil-works/pi-ai'
+import type { ResourcesSnapshot as PackageResourcesSnapshot } from '../../../../../packages/coding-agent/src/core/resource-snapshot'
 
 /** 线程状态。 */
 export type ThreadStatus = ThreadRuntimeState
@@ -252,10 +256,20 @@ export interface SelectResourcePathInput {
   defaultPath?: string
 }
 
+/** Session 文件选择输入。 */
+export interface SelectSessionFileInput {
+  /** 选择器标题。 */
+  title?: string
+  /** 默认路径。 */
+  defaultPath?: string
+}
+
 /** 显示资源路径输入。 */
 export interface RevealResourcePathInput {
   /** 要在资源管理器中显示或打开的路径。 */
   path: string
+  /** 操作模式：打开文件/目录，或在资源管理器中显示。 */
+  mode?: 'open' | 'reveal'
 }
 
 /** 新建会话输入。 */
@@ -433,6 +447,8 @@ export interface ProviderCredentialStatus {
   status: ProviderCredentialState
   /** 凭据来源。 */
   source?: ProviderCredentialSource
+  /** 是否支持 OAuth 登录。 */
+  oauthAvailable?: boolean
   /** 面向用户的状态说明。 */
   message?: string
 }
@@ -611,6 +627,67 @@ export interface SetProviderApiKeyInput {
   env?: Record<string, string>
 }
 
+/** Provider OAuth 登录输入。 */
+export interface LoginProviderOAuthInput {
+  /** Provider ID。 */
+  provider: string
+  /** OAuth provider 要求选择登录方式时的选项 ID；为空时使用第一项。 */
+  selectOptionId?: string
+}
+
+/** OAuth 登录过程中需要 renderer 输入的请求。 */
+export interface ModelOAuthPromptRequest {
+  /** 请求 ID，用于响应关联。 */
+  requestId: string
+  /** Provider ID。 */
+  provider: string
+  /** 提示文案。 */
+  message: string
+  /** 输入框占位符。 */
+  placeholder?: string
+  /** 是否允许提交空值。 */
+  allowEmpty?: boolean
+  /** 是否为 OAuth callback/manual code fallback。 */
+  manualCode?: boolean
+}
+
+/** OAuth prompt 响应。 */
+export interface ModelOAuthPromptResponseInput {
+  /** 请求 ID。 */
+  requestId: string
+  /** Provider ID。 */
+  provider: string
+  /** 用户输入；取消时可为空。 */
+  value?: string
+  /** 用户是否取消。 */
+  cancelled?: boolean
+}
+
+/** Provider OAuth 登录事件。 */
+export type ModelOAuthLoginEvent =
+  | { type: 'started'; provider: string; providerName?: string }
+  | { type: 'authUrl'; provider: string; url: string; instructions?: string }
+  | {
+      type: 'deviceCode'
+      provider: string
+      userCode: string
+      verificationUri: string
+      intervalSeconds?: number
+      expiresInSeconds?: number
+    }
+  | { type: 'progress'; provider: string; message: string }
+  | {
+      type: 'selection'
+      provider: string
+      message: string
+      selectedOptionId?: string
+      options: Array<{ id: string; label: string }>
+    }
+  | ({ type: 'promptRequested' } & ModelOAuthPromptRequest)
+  | { type: 'promptResolved'; provider: string; requestId: string }
+  | { type: 'succeeded'; provider: string }
+  | { type: 'failed'; provider: string; message: string }
+
 /** Pi 消息排队模式。 */
 export type AgentQueueMode = 'all' | 'one-at-a-time'
 
@@ -638,6 +715,40 @@ export interface AgentSettingsDiagnostic {
   message: string
   /** 详情。 */
   details?: string
+}
+
+/** Desktop 资源包摘要。 */
+export interface ResourcePackageSummary {
+  /** 原始 package source。 */
+  source: string
+  /** 配置作用域。 */
+  scope: 'user' | 'project'
+  /** 是否被当前环境过滤。 */
+  filtered: boolean
+  /** 已安装路径。 */
+  installedPath?: string
+}
+
+/** 资源包操作输入。 */
+export interface ResourcePackageInput {
+  /** package source。 */
+  source: string
+  /** 是否写入 Project 本地 settings。 */
+  local?: boolean
+}
+
+/** 资源包更新输入。 */
+export interface UpdateResourcePackageInput {
+  /** 不传表示更新全部配置包。 */
+  source?: string
+}
+
+/** 资源包进度事件。 */
+export interface ResourcePackageProgressEvent {
+  type: 'start' | 'progress' | 'complete' | 'error'
+  action: 'install' | 'remove' | 'update' | 'clone' | 'pull'
+  source: string
+  message?: string
 }
 
 /** Pi-compatible agent 设置快照。 */
@@ -778,6 +889,9 @@ export interface AgentSettingsSnapshot {
   diagnostics: AgentSettingsDiagnostic[]
 }
 
+/** Pi-compatible resource / extension 发现快照。 */
+export type ResourceSnapshot = PackageResourcesSnapshot
+
 /** 更新 Pi-compatible agent 设置。 */
 export interface UpdateAgentSettingsInput {
   delivery?: Partial<AgentSettingsSnapshot['delivery']>
@@ -811,6 +925,9 @@ export interface ExtensionUiResponseInput {
   /** 响应内容。 */
   response: PackageExtensionUiResponse
 }
+
+/** 扩展 UI 请求。 */
+export type ExtensionUiRequest = PackageExtensionUiRequest
 
 /** 审批响应输入。 */
 export interface ApprovalResponseInput {
@@ -907,6 +1024,18 @@ export type CodingAgentIpcEvent =
       /** Project 事件载荷。 */
       event: ProjectIpcEvent
     }
+  | {
+      /** 模型设置 OAuth 登录事件。 */
+      type: 'modelOAuth'
+      /** OAuth 事件载荷。 */
+      event: ModelOAuthLoginEvent
+    }
+  | {
+      /** 资源包安装/更新进度事件。 */
+      type: 'resourcePackage'
+      /** 资源包事件载荷。 */
+      event: ResourcePackageProgressEvent
+    }
 
 /** Coding Agent 渲染进程与主进程之间的 API 契约。 */
 export interface CodingAgentApi {
@@ -946,6 +1075,8 @@ export interface CodingAgentApi {
   stagePromptImages(images: PromptImageDraft[]): Promise<PromptImageAttachment[]>
   /** 选择资源路径；用户取消时返回 undefined。 */
   selectResourcePath(input?: SelectResourcePathInput): Promise<string[] | undefined>
+  /** 选择 Pi-compatible session 文件；用户取消时返回 undefined。 */
+  selectSessionFile(input?: SelectSessionFileInput): Promise<string | undefined>
   /** 在系统资源管理器中显示资源路径。 */
   revealResourcePath(input: RevealResourcePathInput): Promise<void>
   /** 补全 prompt 中的 Pi @file 文件引用。 */
@@ -1018,12 +1149,28 @@ export interface CodingAgentApi {
   deleteCustomProvider(provider: string): Promise<ModelSettingsSnapshot>
   /** 保存 provider API key 到 Pi-compatible auth.json。 */
   setProviderApiKey(input: SetProviderApiKeyInput): Promise<ModelSettingsSnapshot>
+  /** 使用 OAuth 登录 provider。 */
+  loginProviderOAuth(input: LoginProviderOAuthInput): Promise<ModelSettingsSnapshot>
+  /** 响应 OAuth 登录过程中的 renderer 输入请求。 */
+  respondModelOAuthPrompt(input: ModelOAuthPromptResponseInput): Promise<void>
   /** 刷新模型 registry。 */
   refreshModelRegistry(): Promise<ModelSettingsSnapshot>
   /** 获取 Pi-compatible agent 设置。 */
   getAgentSettings(): Promise<AgentSettingsSnapshot>
   /** 更新 Pi-compatible agent 设置。 */
   updateAgentSettings(input: UpdateAgentSettingsInput): Promise<AgentSettingsSnapshot>
+  /** 获取 Pi-compatible resource / extension 发现快照。 */
+  getResourceSnapshot(): Promise<ResourceSnapshot>
+  /** 列出 Pi package manager 配置包。 */
+  listResourcePackages(): Promise<ResourcePackageSummary[]>
+  /** 新增并持久化 package source。 */
+  addResourcePackage(input: ResourcePackageInput): Promise<ResourcePackageSummary[]>
+  /** 安装并持久化 package source。 */
+  installResourcePackage(input: ResourcePackageInput): Promise<ResourcePackageSummary[]>
+  /** 移除并持久化 package source。 */
+  removeResourcePackage(input: ResourcePackageInput): Promise<ResourcePackageSummary[]>
+  /** 更新已配置 package source。 */
+  updateResourcePackage(input?: UpdateResourcePackageInput): Promise<ResourcePackageSummary[]>
   /** 注册事件监听器，返回取消订阅函数。 */
   onEvent(listener: (event: CodingAgentIpcEvent) => void): () => void
 }

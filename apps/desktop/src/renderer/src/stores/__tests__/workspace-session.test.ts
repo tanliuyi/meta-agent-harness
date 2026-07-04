@@ -7,13 +7,25 @@ import { createPinia, setActivePinia } from 'pinia'
 import { applyEventToSessions, type WorkspaceSession } from '../workspace-session'
 import useWorkspaceProjectStore from '../workspace-project'
 import useWorkspaceSessionStore from '../workspace-session'
-import type { ThreadSnapshot } from '@shared/coding-agent/types'
+import type { ExtensionUiRequest, ThreadSnapshot } from '@shared/coding-agent/types'
 import type { AgentMessage } from '../../../../../../../packages/agent/src/types'
+
+const toastMock = vi.hoisted(() => ({
+  error: vi.fn(),
+  info: vi.fn(),
+  success: vi.fn(),
+  warning: vi.fn()
+}))
+
+vi.mock('@renderer/composables/useToast', () => ({
+  useToast: () => toastMock
+}))
 
 const fixtureTimestamp = Date.parse('2026-07-01T00:00:00.000Z')
 
 beforeEach(() => {
   setActivePinia(createPinia())
+  vi.clearAllMocks()
 })
 
 describe('applyEventToSessions', () => {
@@ -907,6 +919,42 @@ describe('workspace-session Project-first actions', () => {
     expect(store.getComposerImages('thread-b')).toHaveLength(0)
   })
 
+  it('清空当前 Composer 图片草稿', async () => {
+    installCodingAgentApi({})
+    const store = useWorkspaceSessionStore()
+    store.sessions['thread-a'] = snapshotToWorkspaceSession(createSnapshot())
+
+    await store.setActiveSessionId('thread-a')
+    store.addComposerImages([
+      {
+        id: 'image-a',
+        path: '/tmp/a.png',
+        name: 'a.png',
+        size: 3,
+        type: 'image',
+        mimeType: 'image/png',
+        data: 'abc',
+        hints: []
+      },
+      {
+        id: 'image-b',
+        path: '/tmp/b.png',
+        name: 'b.png',
+        size: 4,
+        type: 'image',
+        mimeType: 'image/png',
+        data: 'def',
+        hints: []
+      }
+    ])
+
+    expect(store.draftImages).toHaveLength(2)
+
+    store.clearComposerImages()
+
+    expect(store.draftImages).toEqual([])
+  })
+
   it('按 context 隔离 active thread、Composer 草稿与会话面板 UI', async () => {
     const snapshotA = createSnapshot()
     const snapshotB = {
@@ -936,7 +984,7 @@ describe('workspace-session Project-first actions', () => {
     expect(store.getComposerDraft('thread-b', 'right-pane')).toEqual(
       createComposerContent('right draft')
     )
-    expect(store.contexts['left-pane'].panel).toEqual({ panelOpen: true, panelWidth: 260 })
+    expect(store.contexts['left-pane'].panel).toEqual({ panelOpen: true, panelWidth: 300 })
     expect(store.contexts['right-pane'].panel).toEqual({ panelOpen: false, panelWidth: 420 })
   })
 
@@ -968,6 +1016,337 @@ describe('workspace-session Project-first actions', () => {
     expect(store.activeEvents.map((event) => ('threadId' in event ? event.threadId : ''))).toEqual([
       'thread-b'
     ])
+  })
+
+  it('响应审批时允许 UI 选择一次、线程或工作区作用域', async () => {
+    const respondApproval = vi.fn().mockResolvedValue(undefined)
+    installCodingAgentApi({ respondApproval })
+    const store = useWorkspaceSessionStore()
+    store.sessions['thread-a'] = snapshotToWorkspaceSession(createSnapshot())
+    await store.setActiveSessionId('thread-a')
+
+    capturedEventListener?.(createApprovalRequestedEvent('thread-a', 'approval-a'))
+    const approval = store.activePendingApprovals['approval-a']
+
+    await store.respondApproval(approval, { allow: true, scope: 'workspace' })
+
+    expect(respondApproval).toHaveBeenCalledWith({
+      threadId: 'thread-a',
+      response: {
+        approvalId: 'approval-a',
+        allow: true,
+        scope: 'workspace',
+        choice: undefined,
+        reason: undefined
+      }
+    })
+    expect(store.activePendingApprovals['approval-a']).toBeUndefined()
+  })
+
+  it('右侧栏运行态处理 active thread 的 extension UI 请求和状态投影', async () => {
+    const respondUi = vi.fn().mockResolvedValue(undefined)
+    installCodingAgentApi({ respondUi })
+    const store = useWorkspaceSessionStore()
+    store.sessions['thread-a'] = snapshotToWorkspaceSession(createSnapshot())
+    store.sessions['thread-b'] = snapshotToWorkspaceSession({
+      ...createSnapshot(),
+      threadId: 'thread-b'
+    })
+    await store.setActiveSessionId('thread-a')
+
+    capturedEventListener?.(createExtensionUiRequestedEvent('thread-a', {
+      type: 'input',
+      id: 'ui-input',
+      title: 'Name',
+      placeholder: 'Project name'
+    }))
+    capturedEventListener?.(createExtensionUiRequestedEvent('thread-a', {
+      type: 'setStatus',
+      id: 'ui-status',
+      statusKey: 'sync',
+      statusText: 'Ready'
+    }))
+    capturedEventListener?.(createExtensionUiRequestedEvent('thread-a', {
+      type: 'setWidget',
+      id: 'ui-widget',
+      widgetKey: 'notes',
+      widgetLines: ['one', 'two']
+    }))
+    capturedEventListener?.(createExtensionUiRequestedEvent('thread-a', {
+      type: 'setEditorText',
+      id: 'ui-editor-text',
+      text: 'hello\nworld'
+    }))
+    capturedEventListener?.(createExtensionUiRequestedEvent('thread-a', {
+      type: 'notify',
+      id: 'ui-notify',
+      message: 'Extension finished',
+      notifyType: 'warning'
+    }))
+    capturedEventListener?.(createExtensionUiRequestedEvent('thread-b', {
+      type: 'confirm',
+      id: 'ui-confirm',
+      title: 'Other thread',
+      message: 'Continue?'
+    }))
+
+    expect(Object.keys(store.activeExtensionUiRequests)).toEqual(['ui-input'])
+    expect(store.activeExtensionStatuses).toEqual({ sync: 'Ready' })
+    expect(store.activeExtensionWidgets).toEqual({
+      notes: { lines: ['one', 'two'], placement: undefined }
+    })
+    expect(store.draftMessage).toEqual(createComposerContentWithHardBreak('hello', 'world'))
+    expect(toastMock.warning).toHaveBeenCalledWith('Extension', 'Extension finished')
+
+    await store.respondExtensionUi('thread-a', { id: 'ui-input', value: 'Meta Agent' })
+
+    expect(respondUi).toHaveBeenCalledWith({
+      threadId: 'thread-a',
+      response: { id: 'ui-input', value: 'Meta Agent' }
+    })
+    expect(store.activeExtensionUiRequests).toEqual({})
+  })
+
+  it('加载并运行 command 时复用 preload API', async () => {
+    const getCommands = vi.fn().mockResolvedValue([
+      {
+        name: 'skill:test',
+        description: 'Run test skill',
+        source: 'skill',
+        sourceInfo: {
+          path: '/tmp/skill',
+          source: 'test',
+          scope: 'temporary',
+          origin: 'top-level'
+        }
+      }
+    ])
+    const runCommand = vi.fn().mockResolvedValue(undefined)
+    installCodingAgentApi({ getCommands, runCommand })
+    const store = useWorkspaceSessionStore()
+    store.sessions['thread-a'] = snapshotToWorkspaceSession(createSnapshot())
+    await store.setActiveSessionId('thread-a')
+
+    await store.loadCommands()
+    await store.runCommand('skill:test')
+
+    expect(getCommands).toHaveBeenCalledWith('thread-a')
+    expect(store.activeCommands.map((command) => command.name)).toEqual(['skill:test'])
+    expect(runCommand).toHaveBeenCalledWith({ threadId: 'thread-a', command: 'skill:test' })
+    expect(store.activeSessionActionMessage).toBe('已运行 skill:test')
+  })
+
+  it('暴露 compact、export、clone 和 fork session 操作', async () => {
+    const compact = vi.fn().mockResolvedValue({ cancelled: false })
+    const exportSession = vi.fn().mockResolvedValue({ path: '/tmp/session.html' })
+    const revealResourcePath = vi.fn().mockResolvedValue(undefined)
+    const clone = vi.fn().mockResolvedValue(createSnapshot())
+    const fork = vi.fn().mockResolvedValue(createSnapshot())
+    const getSnapshot = vi.fn().mockResolvedValue(createSnapshot())
+    installCodingAgentApi({ compact, exportSession, revealResourcePath, clone, fork, getSnapshot })
+    const store = useWorkspaceSessionStore()
+    store.sessions['thread-a'] = snapshotToWorkspaceSession(createSnapshot())
+    await store.setActiveSessionId('thread-a')
+
+    await store.compactActive()
+    await store.exportActiveSession()
+    await store.openActiveExport()
+    await store.revealActiveExport()
+    await store.cloneActiveSession()
+    await store.forkActiveSession('assistant-a')
+
+    expect(compact).toHaveBeenCalledWith({ threadId: 'thread-a', customInstructions: undefined })
+    expect(exportSession).toHaveBeenCalledWith({ threadId: 'thread-a' })
+    expect(store.activeExportResult).toEqual({ path: '/tmp/session.html' })
+    expect(revealResourcePath).toHaveBeenNthCalledWith(1, {
+      path: '/tmp/session.html',
+      mode: 'open'
+    })
+    expect(revealResourcePath).toHaveBeenNthCalledWith(2, {
+      path: '/tmp/session.html',
+      mode: 'reveal'
+    })
+    expect(clone).toHaveBeenCalledWith('thread-a')
+    expect(fork).toHaveBeenCalledWith({
+      threadId: 'thread-a',
+      entryId: 'assistant-a',
+      position: 'at'
+    })
+    expect(store.activeSessionActionMessage).toBe('已从选中消息分叉')
+  })
+
+  it('消费 compaction 事件并刷新持久化后的 snapshot', async () => {
+    const getSnapshot = vi.fn().mockResolvedValue(createSnapshot())
+    installCodingAgentApi({ getSnapshot })
+    const store = useWorkspaceSessionStore()
+    store.sessions['thread-a'] = snapshotToWorkspaceSession(createSnapshot())
+    await store.setActiveSessionId('thread-a')
+    getSnapshot.mockClear()
+
+    capturedEventListener?.({
+      type: 'compaction_start',
+      threadId: 'thread-a',
+      reason: 'manual'
+    })
+
+    expect(store.activeCompactionState).toMatchObject({
+      reason: 'manual',
+      running: true
+    })
+    expect(store.activeSessionActionMessage).toBe('正在压缩上下文')
+
+    capturedEventListener?.({
+      type: 'compaction_end',
+      threadId: 'thread-a',
+      reason: 'manual',
+      result: {
+        summary: 'compressed',
+        firstKeptEntryId: 'message-a',
+        tokensBefore: 120000,
+        estimatedTokensAfter: 16000
+      },
+      aborted: false,
+      willRetry: false
+    })
+
+    expect(store.activeCompactionState).toMatchObject({
+      reason: 'manual',
+      running: false,
+      aborted: false
+    })
+    expect(store.activeSessionActionMessage).toBe('上下文已压缩')
+    expect(getSnapshot).toHaveBeenCalledWith('thread-a')
+  })
+
+  it('暴露 new、import 和 switch session 操作', async () => {
+    const newSnapshot = {
+      ...createSnapshot(),
+      sessionFile: '/tmp/new-session.jsonl'
+    }
+    const importedSnapshot = {
+      ...createSnapshot(),
+      sessionFile: '/tmp/imported.jsonl'
+    }
+    const switchedSnapshot = {
+      ...createSnapshot(),
+      sessionFile: '/tmp/existing.jsonl'
+    }
+    const newSession = vi.fn().mockResolvedValue(newSnapshot)
+    const selectSessionFile = vi.fn().mockResolvedValue('/tmp/imported.jsonl')
+    const importSession = vi.fn().mockResolvedValue(importedSnapshot)
+    const switchSession = vi.fn().mockResolvedValue(switchedSnapshot)
+    installCodingAgentApi({
+      newSession,
+      selectSessionFile,
+      importSession,
+      switchSession
+    })
+    const store = useWorkspaceSessionStore()
+    store.sessions['thread-a'] = snapshotToWorkspaceSession(createSnapshot())
+    await store.setActiveSessionId('thread-a')
+
+    await store.newActiveSession()
+    await store.importActiveSessionFromPicker()
+    await store.switchActiveSessionPath('/tmp/existing.jsonl')
+
+    expect(newSession).toHaveBeenCalledWith({ threadId: 'thread-a', parentSession: undefined })
+    expect(selectSessionFile).toHaveBeenCalledWith({ title: '导入 Pi Session' })
+    expect(importSession).toHaveBeenCalledWith({
+      threadId: 'thread-a',
+      inputPath: '/tmp/imported.jsonl'
+    })
+    expect(switchSession).toHaveBeenCalledWith({
+      threadId: 'thread-a',
+      sessionPath: '/tmp/existing.jsonl'
+    })
+    expect(store.activeSnapshot?.sessionFile).toBe('/tmp/existing.jsonl')
+    expect(store.activeSessionActionMessage).toBe('已切换到 /tmp/existing.jsonl')
+  })
+
+  it('暴露模型、thinking 和 runtime control 操作', async () => {
+    const cycledSnapshot = {
+      ...createSnapshot(),
+      model: {
+        provider: 'openai',
+        id: 'gpt-5',
+        displayName: 'GPT-5'
+      },
+      thinkingLevel: 'high' as const
+    }
+    const cycleModel = vi.fn().mockResolvedValue({
+      model: {
+        provider: 'openai',
+        id: 'gpt-5',
+        displayName: 'GPT-5'
+      },
+      thinkingLevel: 'high',
+      isScoped: false
+    })
+    const cycleThinkingLevel = vi.fn().mockResolvedValue({ level: 'high' })
+    const setAutoCompaction = vi.fn().mockResolvedValue(undefined)
+    const setAutoRetry = vi.fn().mockResolvedValue(undefined)
+    const abortRetry = vi.fn().mockResolvedValue(undefined)
+    const getSnapshot = vi.fn().mockResolvedValue(cycledSnapshot)
+    installCodingAgentApi({
+      cycleModel,
+      cycleThinkingLevel,
+      setAutoCompaction,
+      setAutoRetry,
+      abortRetry,
+      getSnapshot
+    })
+    const store = useWorkspaceSessionStore()
+    store.sessions['thread-a'] = snapshotToWorkspaceSession(createSnapshot())
+    await store.setActiveSessionId('thread-a')
+
+    await store.cycleActiveModel()
+    await store.cycleActiveThinkingLevel()
+    await store.setActiveAutoCompaction(false)
+    await store.setActiveAutoRetry(false)
+    await store.abortActiveRetry()
+
+    expect(cycleModel).toHaveBeenCalledWith('thread-a')
+    expect(cycleThinkingLevel).toHaveBeenCalledWith('thread-a')
+    expect(setAutoCompaction).toHaveBeenCalledWith({ threadId: 'thread-a', enabled: false })
+    expect(setAutoRetry).toHaveBeenCalledWith({ threadId: 'thread-a', enabled: false })
+    expect(abortRetry).toHaveBeenCalledWith('thread-a')
+    expect(store.activeSnapshot?.model?.displayName).toBe('GPT-5')
+    expect(store.activeSnapshot?.thinkingLevel).toBe('high')
+    expect(store.activeSessionActionMessage).toBe('已中止自动重试')
+  })
+
+  it('投影 auto retry 事件到当前 runtime 状态', async () => {
+    installCodingAgentApi({})
+    const store = useWorkspaceSessionStore()
+    store.sessions['thread-a'] = snapshotToWorkspaceSession(createSnapshot())
+    await store.setActiveSessionId('thread-a')
+
+    capturedEventListener?.({
+      type: 'auto_retry_start',
+      threadId: 'thread-a',
+      attempt: 2,
+      maxAttempts: 4,
+      delayMs: 1500,
+      errorMessage: 'provider overloaded'
+    })
+
+    expect(store.activeRetryState).toMatchObject({
+      attempt: 2,
+      maxAttempts: 4,
+      delayMs: 1500,
+      errorMessage: 'provider overloaded'
+    })
+
+    capturedEventListener?.({
+      type: 'auto_retry_end',
+      threadId: 'thread-a',
+      success: false,
+      attempt: 2,
+      finalError: 'cancelled'
+    })
+
+    expect(store.activeRetryState).toBeUndefined()
+    expect(store.activeSessionActionMessage).toBe('自动重试结束：cancelled')
   })
 
   it('发送成功后清空当前 thread 的 Composer JSON 草稿', async () => {
@@ -1650,6 +2029,27 @@ function createApprovalRequestedEvent(
         defaultAction: 'deny',
         createdAt: '2026-07-01T00:00:00.000Z'
       }
+    }
+  }
+}
+
+/**
+ * 创建 extension UI requested IPC event fixture。
+ * @param threadId - thread ID。
+ * @param request - extension UI 请求。
+ * @returns IPC event。
+ */
+function createExtensionUiRequestedEvent(
+  threadId: string,
+  request: ExtensionUiRequest
+): Parameters<Parameters<typeof window.api.codingAgent.onEvent>[0]>[0] {
+  return {
+    type: 'projection',
+    threadId,
+    event: {
+      type: 'extensionUi.requested',
+      threadId,
+      request
     }
   }
 }

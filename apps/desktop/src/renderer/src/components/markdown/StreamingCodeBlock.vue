@@ -151,7 +151,7 @@ watch(
   margin: var(--markdown-code-gap) 0;
   background: var(--color-canvas);
   border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-lg);
   overflow: hidden;
 }
 

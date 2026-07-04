@@ -13,10 +13,11 @@ import type { Component } from 'vue'
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import ScrollArea from '@/components/ui/scroll-area/ScrollArea.vue'
-import { Archive, Copy } from '@lucide/vue'
+import { Archive, Copy, ShieldAlert, ShieldCheck, ShieldOff } from '@lucide/vue'
 import { RouterLink } from 'vue-router'
 
 type ThreadMenuActionId = 'copy-id' | 'archive'
+type ProjectMenuActionId = 'new-thread' | 'project-trust'
 
 interface ThreadMenuItem {
   id: ThreadMenuActionId
@@ -30,6 +31,19 @@ interface ThreadMenuItem {
 interface ThreadMenuSection {
   label?: string
   items: ThreadMenuItem[]
+}
+
+interface ProjectMenuItem {
+  id: ProjectMenuActionId
+  label: string
+  icon?: Component
+  disabled?: boolean
+  danger?: boolean
+}
+
+interface ProjectMenuSection {
+  label?: string
+  items: ProjectMenuItem[]
 }
 
 interface ThreadListItem {
@@ -46,6 +60,37 @@ interface ProjectListItem {
 
 const workspaceProject = useWorkspaceProjectStore()
 const workspaceSession = useWorkspaceSessionStore()
+const expandedProjects = ref<Record<string, { isExpanded: boolean; hasExpanded: boolean }>>({})
+
+function getProjectExpansion(projectId: string) {
+  if (!expandedProjects.value[projectId]) {
+    expandedProjects.value[projectId] = { isExpanded: false, hasExpanded: false }
+  }
+  return expandedProjects.value[projectId]
+}
+
+function toggleExpandProject(projectId: string, expand: boolean) {
+  const expansion = getProjectExpansion(projectId)
+  expansion.isExpanded = expand
+  if (expand) {
+    expansion.hasExpanded = true
+  }
+}
+
+function collapseProject(projectId: string) {
+  const expansion = getProjectExpansion(projectId)
+  expansion.isExpanded = false
+}
+
+function getExpandButtonText(totalCount: number): string {
+  const remaining = totalCount - 5
+  if (remaining >= 10) {
+    return `展开 10 条 (${remaining} 条)`
+  } else {
+    return `展开 ${remaining} 条`
+  }
+}
+
 const currentTime = ref(Date.now())
 let currentTimeTimer: number | undefined
 
@@ -80,15 +125,6 @@ onBeforeUnmount(() => {
 })
 
 /**
- * 打开 Project，并激活该 Project 下最近更新的 thread。
- * @param projectId - Project ID。
- */
-async function openProject(projectId: string): Promise<void> {
-  await workspaceProject.openProject(projectId)
-  await workspaceSession.setActiveProjectId(projectId)
-}
-
-/**
  * 在指定 Project 下开始一个新会话草稿。
  * @param projectId - Project ID。
  */
@@ -119,27 +155,27 @@ function shouldRequestProjectTrust(project: ProjectSummary): boolean {
  * @param project - Project。
  */
 async function requestProjectTrust(project: ProjectSummary): Promise<void> {
-  if (!shouldRequestProjectTrust(project)) {
+  if (!project.trust?.requiresTrust) {
     return
   }
 
-  const actions: Array<{ label: string; value: ProjectTrustDecision }> = [
-    { label: '信任 Project', value: 'trustProject' },
-    { label: '本次信任', value: 'trustSession' },
-    { label: '不信任', value: 'doNotTrust' }
-  ]
-
-  if (project.trust?.parentPath) {
-    actions.splice(1, 0, { label: '信任父目录', value: 'trustParent' })
+  const actions: Array<{ label: string; value: ProjectTrustDecision; tone?: 'destructive' }> = []
+  if (project.trust.state !== 'trusted') {
+    actions.push({ label: '信任 Project', value: 'trustProject' })
+    if (project.trust.parentPath) {
+      actions.push({ label: '信任父目录', value: 'trustParent' })
+    }
+    actions.push({ label: '本次信任', value: 'trustSession' })
   }
+  actions.push({ label: '不信任', value: 'doNotTrust', tone: 'destructive' })
 
   const result = await confirm({
     actions,
-    cancelText: '稍后再说',
-    description: `Project 路径：${project.path}`,
+    cancelText: '取消',
+    description: `${getProjectTrustDescription(project)}。Project 路径：${project.path}`,
     id: `project-trust-${project.projectId}`,
-    title: '是否信任此 Project？',
-    tone: 'destructive'
+    title: `${project.name}：${getProjectTrustStateLabel(project)}`,
+    tone: project.trust.state === 'untrusted' ? 'destructive' : 'default'
   })
 
   if (!result.confirmed || !result.action) {
@@ -150,12 +186,11 @@ async function requestProjectTrust(project: ProjectSummary): Promise<void> {
 }
 
 /**
- * 创建 Project，并在需要 trust 时弹出确认对话框。
+ * 创建 Project。
  */
 async function createProject(): Promise<void> {
   const project = await workspaceProject.createProject()
-
-  if (project) {
+  if (project && shouldRequestProjectTrust(project)) {
     await requestProjectTrust(project)
   }
 }
@@ -186,6 +221,48 @@ async function archiveThread(thread: WorkspaceSession): Promise<void> {
   }
 
   await workspaceSession.archiveThread(thread.threadId)
+}
+
+async function runProjectMenuAction(actionId: string, project: ProjectSummary): Promise<void> {
+  switch (actionId) {
+    case 'new-thread':
+      createThreadInProject(project.projectId)
+      return
+    case 'project-trust':
+      await requestProjectTrust(project)
+      return
+  }
+}
+
+function getProjectMenuSections(project: ProjectSummary): ProjectMenuSection[] {
+  const sections: ProjectMenuSection[] = [
+    {
+      items: [
+        {
+          id: 'new-thread',
+          label: '新建 Thread',
+          disabled: project.status !== 'available',
+          icon: PlusIcon
+        }
+      ]
+    }
+  ]
+
+  if (project.trust?.requiresTrust) {
+    sections.push({
+      label: 'Project trust',
+      items: [
+        {
+          id: 'project-trust',
+          label: getProjectTrustStateLabel(project) ?? '管理信任',
+          icon: getProjectTrustIcon(project),
+          danger: project.trust.state === 'untrusted'
+        }
+      ]
+    })
+  }
+
+  return sections
 }
 
 function getThreadStatusIndicator(
@@ -232,6 +309,53 @@ function formatUpdatedAtDistance(updatedAt: string): string | undefined {
 
   return `${minutes} 分`
 }
+
+function getProjectTrustStateLabel(project: ProjectSummary): string | undefined {
+  const trust = project.trust
+  if (!trust?.requiresTrust) {
+    return undefined
+  }
+
+  if (trust.state === 'trusted') {
+    return trust.sessionOnly ? '本次已信任' : '已信任'
+  }
+
+  if (trust.state === 'untrusted') {
+    return '不信任'
+  }
+
+  return '未信任'
+}
+
+function getProjectTrustDescription(project: ProjectSummary): string | undefined {
+  const trust = project.trust
+  if (!trust?.requiresTrust) {
+    return undefined
+  }
+
+  if (trust.state === 'trusted') {
+    return '本地 agent 资源已启用'
+  }
+
+  return '本地 agent 资源已禁用'
+}
+
+function getProjectTrustIcon(project: ProjectSummary): Component | undefined {
+  const state = project.trust?.state
+  if (!project.trust?.requiresTrust) {
+    return undefined
+  }
+
+  if (state === 'trusted') {
+    return ShieldCheck
+  }
+
+  if (state === 'untrusted') {
+    return ShieldOff
+  }
+
+  return ShieldAlert
+}
 </script>
 
 <template>
@@ -263,22 +387,28 @@ function formatUpdatedAtDistance(updatedAt: string): string | undefined {
           default-open
           class="project-tree__item"
         >
-          <CollapsibleTrigger>
-            <div class="project-tree__project" @click="openProject(projectItem.project.projectId)">
-              <FolderIcon v-if="!open" :size="12" />
-              <FolderOpenIcon v-else :size="12" />
-              <span>{{ projectItem.project.name }}</span>
-              <BaseIconButton
-                label="创建 Thread"
-                size="small"
-                :disabled="projectItem.project.status !== 'available'"
-                class="thread__add-btn"
-                @click.stop="createThreadInProject(projectItem.project.projectId)"
-              >
-                <PlusIcon :size="14" />
-              </BaseIconButton>
-            </div>
-          </CollapsibleTrigger>
+          <BaseContextMenu
+            :sections="getProjectMenuSections(projectItem.project)"
+            @select="(item) => runProjectMenuAction(item.id, projectItem.project)"
+          >
+            <CollapsibleTrigger>
+              <!-- Project row only toggles the tree; thread selection belongs to thread items. -->
+              <div class="project-tree__project">
+                <FolderIcon v-if="!open" :size="12" />
+                <FolderOpenIcon v-else :size="12" />
+                <span>{{ projectItem.project.name }}</span>
+                <BaseIconButton
+                  label="创建 Thread"
+                  size="small"
+                  :disabled="projectItem.project.status !== 'available'"
+                  class="thread__add-btn"
+                  @click.stop="createThreadInProject(projectItem.project.projectId)"
+                >
+                  <PlusIcon :size="14" />
+                </BaseIconButton>
+              </div>
+            </CollapsibleTrigger>
+          </BaseContextMenu>
 
           <CollapsibleContent>
             <ul class="session-group">
@@ -288,53 +418,74 @@ function formatUpdatedAtDistance(updatedAt: string): string | undefined {
                 </li>
               </template>
 
-              <BaseContextMenu
-                v-for="threadItem in projectItem.threads"
-                :key="threadItem.thread.threadId"
-                :sections="threadMenuSections"
-                @select="(item) => runThreadMenuAction(item.id, threadItem.thread)"
-              >
-                <li
-                  class="session-group__item"
-                  :class="{
-                    'is-active': threadItem.thread.threadId === workspaceSession.activeSessionId
-                  }"
-                  @click="workspaceSession.setActiveSessionId(threadItem.thread.threadId)"
+              <template v-else>
+                <!-- 显示前 5 条，或者全部 -->
+                <BaseContextMenu
+                  v-for="threadItem in (getProjectExpansion(projectItem.project.projectId).isExpanded ? projectItem.threads : projectItem.threads.slice(0, 5))"
+                  :key="threadItem.thread.threadId"
+                  :sections="threadMenuSections"
+                  @select="(item) => runThreadMenuAction(item.id, threadItem.thread)"
                 >
-                  <span class="session-group__item-title">
-                    {{ threadItem.thread.title || '新会话' }}
-                  </span>
-                  <span
-                    v-if="threadItem.statusIndicator"
-                    class="thread-status"
-                    :class="`is-${threadItem.statusIndicator}`"
-                    :aria-label="threadItem.statusLabel"
-                    role="img"
+                  <li
+                    class="session-group__item"
+                    :class="{
+                      'is-active': threadItem.thread.threadId === workspaceSession.activeSessionId
+                    }"
+                    @click="workspaceSession.setActiveSessionId(threadItem.thread.threadId)"
                   >
-                    <svg
-                      v-if="threadItem.statusIndicator === 'running'"
-                      class="thread-status__svg"
-                      viewBox="0 0 16 16"
-                      aria-hidden="true"
+                    <span class="session-group__item-title">
+                      {{ threadItem.thread.title || '新会话' }}
+                    </span>
+                    <span
+                      v-if="threadItem.statusIndicator"
+                      class="thread-status"
+                      :class="`is-${threadItem.statusIndicator}`"
+                      :aria-label="threadItem.statusLabel"
+                      role="img"
                     >
-                      <circle class="thread-status__track" cx="8" cy="8" r="6.25" />
-                      <circle class="thread-status__runner" cx="8" cy="8" r="6.25" />
-                    </svg>
-                    <svg v-else class="thread-status__svg" viewBox="0 0 16 16" aria-hidden="true">
-                      <circle class="thread-status__error-ring" cx="8" cy="8" r="6.25" />
-                      <path class="thread-status__error-mark" d="M8 4.75v4.2" />
-                      <circle class="thread-status__error-dot" cx="8" cy="11.35" r="0.7" />
-                    </svg>
-                  </span>
-                  <time
-                    v-else-if="threadItem.updatedAtDistance"
-                    class="thread-updated-at"
-                    :datetime="threadItem.thread.updatedAt"
+                      <svg
+                        v-if="threadItem.statusIndicator === 'running'"
+                        class="thread-status__svg"
+                        viewBox="0 0 16 16"
+                        aria-hidden="true"
+                      >
+                        <circle class="thread-status__track" cx="8" cy="8" r="6.25" />
+                        <circle class="thread-status__runner" cx="8" cy="8" r="6.25" />
+                      </svg>
+                      <svg v-else class="thread-status__svg" viewBox="0 0 16 16" aria-hidden="true">
+                        <circle class="thread-status__error-ring" cx="8" cy="8" r="6.25" />
+                        <path class="thread-status__error-mark" d="M8 4.75v4.2" />
+                        <circle class="thread-status__error-dot" cx="8" cy="11.35" r="0.7" />
+                      </svg>
+                    </span>
+                    <time
+                      v-else-if="threadItem.updatedAtDistance"
+                      class="thread-updated-at"
+                      :datetime="threadItem.thread.updatedAt"
+                    >
+                      {{ threadItem.updatedAtDistance }}
+                    </time>
+                  </li>
+                </BaseContextMenu>
+
+                <!-- 展开/收起按钮 -->
+                <li v-if="projectItem.threads.length > 5" class="session-group__expand-collapse">
+                  <button
+                    v-if="!getProjectExpansion(projectItem.project.projectId).isExpanded"
+                    class="expand-collapse-btn"
+                    @click="toggleExpandProject(projectItem.project.projectId, true)"
                   >
-                    {{ threadItem.updatedAtDistance }}
-                  </time>
+                    {{ getExpandButtonText(projectItem.threads.length) }}
+                  </button>
+                  <button
+                    v-if="getProjectExpansion(projectItem.project.projectId).hasExpanded"
+                    class="expand-collapse-btn collapse-btn"
+                    @click="collapseProject(projectItem.project.projectId)"
+                  >
+                    收起
+                  </button>
                 </li>
-              </BaseContextMenu>
+              </template>
             </ul>
           </CollapsibleContent>
         </Collapsible>
@@ -471,7 +622,7 @@ function formatUpdatedAtDistance(updatedAt: string): string | undefined {
   margin: 0 var(--space-2);
   padding: 0 var(--space-3) 0 var(--space-8);
   border: 1px solid transparent;
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-lg);
   color: var(--color-text-muted);
   cursor: default;
   transition:
@@ -508,6 +659,39 @@ function formatUpdatedAtDistance(updatedAt: string): string | undefined {
 
 .session-group__item {
   height: 28px;
+}
+
+.session-group__expand-collapse {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: var(--space-2);
+  margin: 0 var(--space-2);
+  padding: 0 var(--space-3) 0 var(--space-8);
+}
+
+.expand-collapse-btn {
+  background: none;
+  border: none;
+  padding: 0;
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-ui-sm);
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+
+  &:hover {
+    color: var(--color-text);
+  }
+}
+
+.collapse-btn {
+  color: var(--color-text-subtle);
+
+  &:hover {
+    color: var(--color-text);
+  }
 }
 
 .thread-status {
@@ -622,7 +806,7 @@ function formatUpdatedAtDistance(updatedAt: string): string | undefined {
   margin: 0 var(--space-2) var(--space-2);
   padding: 0 var(--space-3);
   border: 1px solid transparent;
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-lg);
   color: var(--color-text-muted);
   font: inherit;
   text-decoration: none;

@@ -16,7 +16,7 @@
   white-space: nowrap;
   background: var(--color-primary);
   border: 1px solid transparent;
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-md);
   cursor: default;
   transition:
     background-color var(--duration-fast) var(--ease-standard),
@@ -127,7 +127,7 @@
   font-size: var(--font-size-ui-sm);
   background: transparent;
   border: 1px solid var(--color-border);
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-md);
   transition:
     border-color var(--duration-fast) var(--ease-standard),
     box-shadow var(--duration-fast) var(--ease-standard);
@@ -282,7 +282,7 @@
   font-size: var(--font-size-ui-sm);
   background: transparent;
   border: 1px solid var(--color-border);
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-md);
 
   &:focus-visible {
     outline: none;
@@ -320,7 +320,7 @@
   color: var(--color-text);
   background: var(--color-surface-raised);
   border: 1px solid var(--color-border);
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-lg);
   box-shadow: var(--shadow-md);
 }
 
@@ -334,7 +334,7 @@
   padding: 0 var(--space-2);
   color: var(--color-text);
   font-size: var(--font-size-ui-sm);
-  border-radius: var(--radius-xs);
+  border-radius: var(--radius-lg);
   outline: none;
   cursor: default;
   user-select: none;
@@ -555,7 +555,7 @@
   color: var(--color-primary-ink);
   font-size: var(--font-size-ui-xs);
   background: var(--color-primary);
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-md);
 }
 
 [data-slot='tooltip-arrow'] {
@@ -581,7 +581,7 @@
   color: var(--color-text);
   background: var(--color-canvas);
   border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-lg);
   box-shadow: var(--shadow-md);
   transform: translate(-50%, -50%);
 }
@@ -618,7 +618,7 @@
   overflow: hidden;
   color: var(--color-text);
   background: var(--color-surface-raised);
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-md);
 }
 
 [data-slot='command-group'],

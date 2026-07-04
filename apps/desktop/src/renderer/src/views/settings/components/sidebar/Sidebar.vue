@@ -5,11 +5,13 @@ import { RouterLink, useRouter } from 'vue-router'
 import useWorkspaceSession from '@/stores/workspace-session'
 
 const router = useRouter()
-const { activeSessionId } = useWorkspaceSession()
+const workspaceSession = useWorkspaceSession()
 
 const goBack = (): void => {
-  console.log(activeSessionId)
-  router.replace({ name: 'Workspace', params: { sessionid: activeSessionId ?? 'new' } })
+  router.replace({
+    name: 'Workspace',
+    params: { sessionid: workspaceSession.activeSessionId ?? 'new' }
+  })
 }
 </script>
 
@@ -29,6 +31,9 @@ const goBack = (): void => {
       <RouterLink class="settings-link" to="/settings/agent">
         <span>Agent</span>
       </RouterLink>
+      <RouterLink class="settings-link" to="/settings/diagnostics">
+        <span>诊断</span>
+      </RouterLink>
       <RouterLink class="settings-link" to="/settings/archive">
         <span>归档</span>
       </RouterLink>
@@ -46,7 +51,6 @@ const goBack = (): void => {
   padding: var(--space-2) 0;
   overflow: hidden;
   color: var(--color-text);
-  border-right: 1px solid var(--color-border-subtle);
   backdrop-filter: blur(16px);
 }
 
@@ -75,7 +79,7 @@ const goBack = (): void => {
   margin: 0 var(--space-2);
   padding: 0 var(--space-3);
   color: var(--color-text-muted);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-lg);
   cursor: pointer;
   transition:
     background var(--duration-fast) var(--ease-standard),
@@ -95,7 +99,7 @@ const goBack = (): void => {
   margin: var(--space-1) var(--space-2) 0;
   padding: 0 var(--space-3);
   border: 1px solid transparent;
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-lg);
   color: var(--color-text-muted);
   font-size: var(--font-size-ui-sm);
   font-weight: 650;

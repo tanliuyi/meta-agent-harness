@@ -39,6 +39,8 @@ export const codingAgentChannels = {
   stagePromptImages: 'coding-agent:stage-prompt-images',
   /** 选择资源路径。 */
   selectResourcePath: 'coding-agent:select-resource-path',
+  /** 选择 Pi-compatible session 文件。 */
+  selectSessionFile: 'coding-agent:select-session-file',
   /** 在系统资源管理器中显示资源路径。 */
   revealResourcePath: 'coding-agent:reveal-resource-path',
   /** 补全 prompt 中的 Pi @file 文件引用。 */
@@ -111,12 +113,28 @@ export const codingAgentChannels = {
   deleteCustomProvider: 'coding-agent:delete-custom-provider',
   /** 保存 provider API key 到 Pi-compatible auth.json。 */
   setProviderApiKey: 'coding-agent:set-provider-api-key',
+  /** 使用 OAuth 登录 provider。 */
+  loginProviderOAuth: 'coding-agent:login-provider-oauth',
+  /** 响应 OAuth 登录过程中的 renderer 输入请求。 */
+  respondModelOAuthPrompt: 'coding-agent:respond-model-oauth-prompt',
   /** 刷新模型 registry。 */
   refreshModelRegistry: 'coding-agent:refresh-model-registry',
   /** 获取 Pi-compatible agent 设置快照。 */
   getAgentSettings: 'coding-agent:get-agent-settings',
   /** 更新 Pi-compatible agent 设置。 */
   updateAgentSettings: 'coding-agent:update-agent-settings',
+  /** 获取 Pi-compatible resource / extension 发现快照。 */
+  getResourceSnapshot: 'coding-agent:get-resource-snapshot',
+  /** 列出 Pi package manager 配置包。 */
+  listResourcePackages: 'coding-agent:list-resource-packages',
+  /** 新增并持久化 package source。 */
+  addResourcePackage: 'coding-agent:add-resource-package',
+  /** 安装并持久化 package source。 */
+  installResourcePackage: 'coding-agent:install-resource-package',
+  /** 移除并持久化 package source。 */
+  removeResourcePackage: 'coding-agent:remove-resource-package',
+  /** 更新已配置 package source。 */
+  updateResourcePackage: 'coding-agent:update-resource-package',
   /** 事件通道。 */
   event: 'coding-agent:event'
 } as const

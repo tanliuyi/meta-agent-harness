@@ -23,19 +23,24 @@ export function toDesktopMessageContent(message: AgentMessage): DesktopMessageCo
 	if (!role) {
 		return undefined;
 	}
-	const text = hasContent(message)
+	const systemEvent = getSystemEvent(message);
+	const text = getSystemEventText(message) ?? (hasContent(message)
 		? extractText(message.content) ?? extractAssistantErrorText(message)
-		: extractAssistantErrorText(message);
+		: extractAssistantErrorText(message));
 	if (role === "assistant" && !text?.trim() && !hasAssistantBlockContent(message)) {
 		return undefined;
 	}
-	return {
+	const content: DesktopMessageContent = {
 		role,
 		text,
 		raw: toDesktopMessageRaw(message),
 		toolCallIds: getAssistantToolCallIds(message),
 		createdAt: hasTimestamp(message) ? normalizeTimestamp(message.timestamp) : undefined,
 	};
+	if (systemEvent) {
+		content.systemEvent = systemEvent;
+	}
+	return content;
 }
 
 /**
@@ -169,7 +174,68 @@ function mapRole(role: AgentMessage["role"]): DesktopMessage["role"] | undefined
 		case "custom":
 		case "branchSummary":
 		case "compactionSummary":
-			return "user";
+			return "system";
+		default:
+			return undefined;
+	}
+}
+
+/**
+ * 获取系统消息产品语义。
+ * @param message - 原始消息。
+ * @returns 系统事件语义。
+ */
+function getSystemEvent(message: AgentMessage): DesktopMessageContent["systemEvent"] | undefined {
+	switch (message.role) {
+		case "compactionSummary":
+			return {
+				kind: "compaction",
+				title: "上下文已压缩",
+				description: "之前的对话历史已压缩为摘要，并保留在当前 session 中。",
+				meta: [`压缩前 ${message.tokensBefore.toLocaleString()} tokens`],
+			};
+		case "branchSummary":
+			return {
+				kind: "branchSummary",
+				title: "分支摘要",
+				description: "从其他分支返回时保留的上下文摘要。",
+				meta: [`from ${message.fromId}`],
+			};
+		case "bashExecution":
+			return {
+				kind: "bashExecution",
+				title: "Shell 命令记录",
+				description: message.cancelled ? "命令已取消" : "通过 shell 运行的持久化命令输出。",
+				meta: [
+					`exit ${message.exitCode ?? "unknown"}`,
+					...(message.truncated ? ["output truncated"] : []),
+				],
+			};
+		case "custom":
+			return {
+				kind: "custom",
+				title: `Extension: ${message.customType}`,
+				description: "Extension 写入的上下文消息。",
+			};
+		default:
+			return undefined;
+	}
+}
+
+/**
+ * 获取系统消息正文。
+ * @param message - 原始消息。
+ * @returns 系统消息正文。
+ */
+function getSystemEventText(message: AgentMessage): string | undefined {
+	switch (message.role) {
+		case "compactionSummary":
+		case "branchSummary":
+			return message.summary;
+		case "bashExecution":
+			return message.output;
+		case "custom":
+			return hasContent(message) ? extractText(message.content) : undefined;
 		default:
 			return undefined;
 	}

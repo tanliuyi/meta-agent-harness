@@ -3,6 +3,7 @@
  */
 
 import type { AgentSession } from "../../core/agent-session.ts";
+import { toDesktopSessionTree } from "../storage/session-snapshot.ts";
 import type { ThreadLiveState } from "../protocol/thread.ts";
 
 /**
@@ -22,6 +23,8 @@ export function buildRuntimeState(session: AgentSession): ThreadLiveState {
 		sessionFile: session.sessionFile,
 		sessionId: session.sessionId,
 		sessionName: session.sessionName,
+		sessionTree: toDesktopSessionTree(session.sessionManager.getTree()),
+		currentEntryId: session.sessionManager.getLeafId(),
 		autoCompactionEnabled: session.autoCompactionEnabled,
 		messageCount: session.messages.length,
 		pendingMessageCount: session.pendingMessageCount,

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import { CircleAlert, CircleCheck, X } from 'lucide-vue-next'
+import { AlertTriangle, CircleAlert, CircleCheck, X } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
 import { useToast } from '@/composables/useToast'
 
@@ -18,6 +18,7 @@ const toastMessages = computed(() => [...toast.toasts.value])
       role="status"
     >
       <CircleCheck v-if="item.type === 'success'" class="toast-item__icon" />
+      <AlertTriangle v-else-if="item.type === 'warning'" class="toast-item__icon" />
       <CircleAlert v-else class="toast-item__icon" />
       <div class="toast-item__content">
         <strong>{{ item.title }}</strong>
@@ -61,7 +62,7 @@ const toastMessages = computed(() => [...toast.toasts.value])
   color: var(--color-text);
   background: color-mix(in srgb, var(--color-surface) 92%, transparent);
   border: 1px solid var(--color-border-muted);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-lg);
   box-shadow: var(--shadow-md);
   backdrop-filter: blur(18px);
   pointer-events: auto;
@@ -75,6 +76,18 @@ const toastMessages = computed(() => [...toast.toasts.value])
   &[data-type='error'] {
     .toast-item__icon {
       color: var(--color-danger);
+    }
+  }
+
+  &[data-type='warning'] {
+    .toast-item__icon {
+      color: var(--color-warning, var(--color-text-muted));
+    }
+  }
+
+  &[data-type='info'] {
+    .toast-item__icon {
+      color: var(--color-info);
     }
   }
 }
@@ -107,7 +120,7 @@ const toastMessages = computed(() => [...toast.toasts.value])
   width: 24px;
   height: 24px;
   color: var(--color-text-subtle);
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-md);
 
   svg {
     width: 14px;

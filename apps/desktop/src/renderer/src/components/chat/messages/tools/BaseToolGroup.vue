@@ -52,7 +52,7 @@ const open = ref(props.defaultOpen)
   flex: 1;
   min-width: 0;
   width: min(720px, 100%);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-lg);
 }
 
 .tool-group__trigger {
@@ -141,7 +141,7 @@ const open = ref(props.defaultOpen)
   margin: 0;
   overflow: hidden;
   background: var(--color-canvas);
-  border-radius: 0 0 var(--radius-md) var(--radius-md);
+  border-radius: 0 0 var(--radius-lg) var(--radius-lg);
 }
 
 .tool-group__list {

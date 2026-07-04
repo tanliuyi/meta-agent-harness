@@ -159,7 +159,7 @@ onBeforeUnmount(() => {
 .thinking-message {
   width: 100%;
   color: var(--color-text-muted);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-lg);
 
   &[data-state='open'] {
     background: var(--color-canvas);
@@ -196,7 +196,7 @@ onBeforeUnmount(() => {
     background: var(--color-canvas);
     border: 0;
     border-bottom: 1px solid var(--color-border);
-    border-radius: var(--radius-md) var(--radius-md) 0 0;
+    border-radius: var(--radius-lg) var(--radius-lg) 0 0;
   }
 }
 
@@ -220,7 +220,7 @@ onBeforeUnmount(() => {
   max-height: 200px;
   overflow: hidden;
   background: var(--color-canvas);
-  border-radius: 0 0 var(--radius-md) var(--radius-md);
+  border-radius: 0 0 var(--radius-lg) var(--radius-lg);
 }
 
 :deep(.thinking-message__scroll) {

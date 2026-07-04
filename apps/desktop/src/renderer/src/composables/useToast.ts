@@ -2,7 +2,7 @@ import { readonly, ref } from 'vue'
 
 export interface ToastMessage {
   id: number
-  type: 'success' | 'error'
+  type: 'success' | 'error' | 'info' | 'warning'
   title: string
   description?: string
 }
@@ -25,6 +25,9 @@ export function useToast() {
     toasts: readonly(toasts),
     dismissToast,
     success: (title: string, description?: string) => showToast({ type: 'success', title, description }),
-    error: (title: string, description?: string) => showToast({ type: 'error', title, description })
+    error: (title: string, description?: string) => showToast({ type: 'error', title, description }),
+    info: (title: string, description?: string) => showToast({ type: 'info', title, description }),
+    warning: (title: string, description?: string) =>
+      showToast({ type: 'warning', title, description })
   }
 }

@@ -876,13 +876,47 @@ Phase 5：产品化 sessions 和 settings
 - 集成 desktop UI 到 Pi-compatible auth 和 model settings
 - 支持 resume、fork、clone、rename 和 archive
 
+### Extensions 管理计划
+
+Extensions 管理必须以 Pi-compatible resource/settings 语义为真相源。Desktop 不另建
+extension registry、plan mode runtime 或 package schema；所有发现、启用、禁用、安装、
+更新、诊断和 reload 行为都应复用 `packages/coding-agent` 中的 `SettingsManager`、
+`ResourceLoader`、package manager、`ExtensionRunner` 和 `AgentSession`。
+
+Desktop 的职责是把这些 core 能力产品化为管理入口和运行态呈现：
+
+- Settings / Agent / Resources 管理资源来源，包括 packages、local extensions、skills、
+  prompt templates 和 themes；保存时写入 Pi-compatible `settings.json`。
+- Project trust 管理 Project 本地 `.pi/settings.json`、`.pi/extensions`、`.pi/skills`、
+  `.pi/prompts`、`.pi/themes` 和 package-managed resources 的加载权限。
+- Thread command palette 展示 Pi core 发现到的 prompt templates、skills 和 extension
+  commands，并通过 `/command` 进入同一条 `AgentSession` 执行链路。
+- SessionPanel / Composer 只展示当前 thread 的 extension runtime activity，例如 pending
+  UI requests、status、widget、title、notify 和 editor text request；不承担安装或启用管理。
+- Extension diagnostics 由 core resource loading / extension loading 结果派生，Desktop 只
+  渲染 path、scope、source、冲突和错误，不在 renderer 重新解析 extension package 规则。
+
+Extensions 产品化分阶段推进：
+
+1. 在 `packages/coding-agent` 补齐可供 Desktop 消费的 resource/extension snapshot，
+   包含已配置来源、已发现 extensions、commands、tools、flags、sourceInfo、scope 和
+   diagnostics。该 snapshot 是 core adapter，不是 desktop-only registry。
+2. 在 desktop worker/main/preload 增加 typed IPC，桥接 add/install/update/remove package、
+   保存 resource paths、reload resources、读取 diagnostics 等操作。Electron main 不实现
+   package discovery 或 extension loading 规则。
+3. 升级 Settings UI：展示 installed packages、local extensions、discovered extensions、
+   enable/disable 状态、诊断和 reload action；所有状态都映射回 Pi-compatible settings。
+4. 对齐 Pi TUI 兼容验收：同一 `agentDir`、`cwd` 和 trust 状态下，Pi TUI 与 Desktop 应发现
+   相同 resources；同一 extension command 在 TUI 和 Desktop 进入同一 `AgentSession` 语义；
+   untrusted Project 必须在两端都跳过 Project 本地 resources。
+
 ## 待决问题
 
 - 每个 thread 是否始终持有一个 worker process，还是 idle thread 只保留 snapshot，
   直到恢复时再启动 worker？
 - utility process worker 是否采用 one-shot 还是可复用 reset 模型？
-- 旧 Pi extension system 保留多少？哪些能力应该升级为 desktop first-class
-  integrations？
+- Pi extension system 的 core 语义必须保留；待决的是哪些 extension activity 应升级为
+  desktop first-class UI 呈现，哪些仅保留在 command palette、diagnostics 或通用 tool UI 中。
 - file changes 只从工具结果追踪，还是 worker 同时 watch filesystem 以捕获外部修改？
 - Windows、macOS、Linux 的第一版 credential backend 分别是什么？
 

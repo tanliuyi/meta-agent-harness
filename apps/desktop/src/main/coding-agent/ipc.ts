@@ -35,6 +35,8 @@ import type {
   ImportSessionInput,
   IpcResult,
   ListThreadsInput,
+  LoginProviderOAuthInput,
+  ModelOAuthPromptResponseInput,
   NewSessionInput,
   PromptImageDraft,
   PromptImageAttachment,
@@ -42,8 +44,10 @@ import type {
   ApprovalResponseInput,
   RenameProjectInput,
   RenameThreadInput,
+  ResourcePackageInput,
   RevealResourcePathInput,
   SelectResourcePathInput,
+  SelectSessionFileInput,
   SetThreadTitleInput,
   SetProviderApiKeyInput,
   SetProjectTrustInput,
@@ -54,6 +58,7 @@ import type {
   ToggleInput,
   UpdateAgentSettingsInput,
   UpdateModelSettingsInput,
+  UpdateResourcePackageInput,
   UpsertCustomProviderInput
 } from '@shared/coding-agent/types'
 import {
@@ -187,6 +192,9 @@ export function registerCodingAgentIpc(options: CodingAgentIpcOptions = {}): Cod
   handle(manager, codingAgentChannels.selectResourcePath, (input?: SelectResourcePathInput) =>
     selectResourcePath(input)
   )
+  handle(manager, codingAgentChannels.selectSessionFile, (input?: SelectSessionFileInput) =>
+    selectSessionFile(input)
+  )
   handle(manager, codingAgentChannels.revealResourcePath, (input: RevealResourcePathInput) =>
     revealResourcePath(input)
   )
@@ -279,10 +287,38 @@ export function registerCodingAgentIpc(options: CodingAgentIpcOptions = {}): Cod
   handle(manager, codingAgentChannels.setProviderApiKey, (input: SetProviderApiKeyInput) =>
     manager.setProviderApiKey(input)
   )
+  handle(manager, codingAgentChannels.loginProviderOAuth, (input: LoginProviderOAuthInput) =>
+    manager.loginProviderOAuth(input, (event) => {
+      publishCodingAgentEvent(subscribers, { type: 'modelOAuth', event })
+    })
+  )
+  handle(
+    manager,
+    codingAgentChannels.respondModelOAuthPrompt,
+    (input: ModelOAuthPromptResponseInput) => manager.respondModelOAuthPrompt(input)
+  )
   handle(manager, codingAgentChannels.refreshModelRegistry, () => manager.refreshModelRegistry())
   handle(manager, codingAgentChannels.getAgentSettings, () => manager.getAgentSettings())
   handle(manager, codingAgentChannels.updateAgentSettings, (input: UpdateAgentSettingsInput) =>
     manager.updateAgentSettings(input)
+  )
+  handle(manager, codingAgentChannels.getResourceSnapshot, () => manager.getResourceSnapshot())
+  handle(manager, codingAgentChannels.listResourcePackages, () => manager.listResourcePackages())
+  handle(manager, codingAgentChannels.addResourcePackage, (input: ResourcePackageInput) =>
+    manager.addResourcePackage(input)
+  )
+  handle(manager, codingAgentChannels.installResourcePackage, (input: ResourcePackageInput) =>
+    manager.installResourcePackage(input, (event) => {
+      publishCodingAgentEvent(subscribers, { type: 'resourcePackage', event })
+    })
+  )
+  handle(manager, codingAgentChannels.removeResourcePackage, (input: ResourcePackageInput) =>
+    manager.removeResourcePackage(input)
+  )
+  handle(manager, codingAgentChannels.updateResourcePackage, (input?: UpdateResourcePackageInput) =>
+    manager.updateResourcePackage(input, (event) => {
+      publishCodingAgentEvent(subscribers, { type: 'resourcePackage', event })
+    })
   )
   ipcMain.on(codingAgentChannels.event, (event, action: 'subscribe' | 'unsubscribe') => {
     if (action === 'subscribe') {
@@ -479,12 +515,43 @@ async function selectResourcePath(
 }
 
 /**
+ * 打开系统选择器选择 Pi-compatible session 文件。
+ * @param input - 选择器选项。
+ * @returns 选中的 session 文件路径；用户取消时返回 undefined。
+ */
+async function selectSessionFile(
+  input: SelectSessionFileInput = {}
+): Promise<string | undefined> {
+  const result = await dialog.showOpenDialog({
+    title: input.title ?? '选择 Session 文件',
+    defaultPath: input.defaultPath,
+    properties: ['openFile'],
+    filters: [
+      { name: 'Pi sessions', extensions: ['jsonl', 'json'] },
+      { name: 'All files', extensions: ['*'] }
+    ]
+  })
+  if (result.canceled || !result.filePaths[0]) {
+    return undefined
+  }
+  return result.filePaths[0]
+}
+
+/**
  * 在系统资源管理器中显示指定资源路径。
  * @param input - 路径输入。
  */
 async function revealResourcePath(input: RevealResourcePathInput): Promise<void> {
   const targetPath = input.path.trim()
   if (!targetPath) {
+    return
+  }
+
+  if (input.mode === 'open') {
+    const error = await shell.openPath(targetPath)
+    if (error) {
+      throw new Error(error)
+    }
     return
   }
 

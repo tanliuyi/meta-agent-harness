@@ -14,9 +14,12 @@ import type {
   ExtensionUiResponseInput,
   ForkInput,
   ImportSessionInput,
+  LoginProviderOAuthInput,
   CustomProviderSummary,
+  ModelOAuthPromptResponseInput,
   ModelCycleResult,
   ModelInfo,
+  ModelOAuthLoginEvent,
   ModelRegistrySnapshot,
   ModelSettingsDiagnostic,
   ModelSettingsSnapshot,
@@ -27,6 +30,10 @@ import type {
   RenameThreadInput,
   RenameProjectInput,
   ApprovalResponseInput,
+  ResourcePackageInput,
+  ResourcePackageProgressEvent,
+  ResourcePackageSummary,
+  ResourceSnapshot,
   SetThreadTitleInput,
   SetProjectTrustInput,
   SetModelInput,
@@ -40,6 +47,7 @@ import type {
   ToggleInput,
   AgentSettingsSnapshot,
   UpdateAgentSettingsInput,
+  UpdateResourcePackageInput,
   UpdateModelSettingsInput,
   UpsertCustomProviderInput
 } from '@shared/coding-agent/types'
@@ -483,6 +491,27 @@ export class CodingThreadManager extends ThreadManagerCore {
   }
 
   /**
+   * 使用 OAuth 登录 provider。
+   * @param input - OAuth 登录输入。
+   * @param onEvent - OAuth 登录事件回调。
+   * @returns 模型设置快照。
+   */
+  loginProviderOAuth(
+    input: LoginProviderOAuthInput,
+    onEvent?: (event: ModelOAuthLoginEvent) => void
+  ): Promise<ModelSettingsSnapshot> {
+    return this.getModelSettingsService().loginProviderOAuth(input, onEvent)
+  }
+
+  /**
+   * 响应 OAuth 登录过程中的 renderer 输入请求。
+   * @param input - OAuth prompt 响应。
+   */
+  respondModelOAuthPrompt(input: ModelOAuthPromptResponseInput): void {
+    this.getModelSettingsService().respondOAuthPrompt(input)
+  }
+
+  /**
    * 刷新模型 registry。
    * @returns 模型设置快照。
    */
@@ -505,6 +534,42 @@ export class CodingThreadManager extends ThreadManagerCore {
    */
   updateAgentSettings(input: UpdateAgentSettingsInput): Promise<AgentSettingsSnapshot> {
     return this.getAgentSettingsService().updateAgentSettings(input)
+  }
+
+  /** 列出 Pi package manager 配置包。 */
+  listResourcePackages(): Promise<ResourcePackageSummary[]> {
+    return this.getAgentSettingsService().listResourcePackages()
+  }
+
+  /** 获取 Pi-compatible resource / extension 发现快照。 */
+  getResourceSnapshot(): Promise<ResourceSnapshot> {
+    return this.getAgentSettingsService().getResourceSnapshot()
+  }
+
+  /** 新增并持久化 package source。 */
+  addResourcePackage(input: ResourcePackageInput): Promise<ResourcePackageSummary[]> {
+    return this.getAgentSettingsService().addResourcePackage(input)
+  }
+
+  /** 安装并持久化 package source。 */
+  installResourcePackage(
+    input: ResourcePackageInput,
+    onEvent?: (event: ResourcePackageProgressEvent) => void
+  ): Promise<ResourcePackageSummary[]> {
+    return this.getAgentSettingsService().installResourcePackage(input, onEvent)
+  }
+
+  /** 移除并持久化 package source。 */
+  removeResourcePackage(input: ResourcePackageInput): Promise<ResourcePackageSummary[]> {
+    return this.getAgentSettingsService().removeResourcePackage(input)
+  }
+
+  /** 更新已配置 package source。 */
+  updateResourcePackage(
+    input?: UpdateResourcePackageInput,
+    onEvent?: (event: ResourcePackageProgressEvent) => void
+  ): Promise<ResourcePackageSummary[]> {
+    return this.getAgentSettingsService().updateResourcePackage(input, onEvent)
   }
 
   /**

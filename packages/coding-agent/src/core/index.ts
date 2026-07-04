@@ -74,3 +74,12 @@ export {
 	type WorkingIndicatorOptions,
 } from "./extensions/index.ts";
 export { createSyntheticSourceInfo } from "./source-info.ts";
+export {
+	buildResourcesSnapshot,
+	type ExtensionCommandSnapshot,
+	type ExtensionFlagSnapshot,
+	type ExtensionSnapshot,
+	type ExtensionToolSnapshot,
+	type ResourcePathSnapshot,
+	type ResourcesSnapshot,
+} from "./resource-snapshot.ts";

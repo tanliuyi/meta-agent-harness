@@ -167,6 +167,28 @@ describe('ModelSettingsService', () => {
     )
   })
 
+  it('标记支持 OAuth 的 provider，并拒绝不支持 OAuth 的 provider 登录', async () => {
+    const dir = createTempDir()
+    const service = new ModelSettingsService({
+      agentDir: join(dir, 'agent'),
+      cwd: dir
+    })
+
+    const snapshot = await service.getModelSettings()
+
+    expect(snapshot.credentials).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          provider: 'openai-codex',
+          oauthAvailable: true
+        })
+      ])
+    )
+    await expect(service.loginProviderOAuth({ provider: 'openai' })).rejects.toThrow(
+      'provider does not support OAuth'
+    )
+  })
+
   it('支持按配置项局部保存 thinking 和 enabledModels，不要求默认模型同时有效', async () => {
     const dir = createTempDir()
     const service = new ModelSettingsService({

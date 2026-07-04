@@ -53,7 +53,7 @@ defineEmits<{
   margin: 0;
   background: var(--color-control-track);
   border: 1px solid var(--color-border);
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-md);
 }
 
 .base-segmented-control__item {

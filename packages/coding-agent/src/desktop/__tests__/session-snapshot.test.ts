@@ -32,6 +32,7 @@ describe("buildSnapshotFromSession", () => {
 		manager.appendModelChange("openai", "gpt-test");
 		manager.appendThinkingLevelChange("high");
 		manager.appendSessionInfo("测试会话");
+		const leafId = manager.getLeafId();
 		const sessionFile = manager.getSessionFile();
 		if (!sessionFile) {
 			throw new Error("session file is required");
@@ -60,6 +61,19 @@ describe("buildSnapshotFromSession", () => {
 		expect(snapshot.messages.map((message) => ({ role: message.role, text: message.text }))).toEqual([
 			{ role: "user", text: "hello" },
 			{ role: "assistant", text: "world" },
+		]);
+		expect(snapshot.currentEntryId).toBe(leafId);
+		expect(snapshot.sessionTree).toMatchObject([
+			{
+				type: "message",
+				title: "user: hello",
+				children: [
+					{
+						type: "message",
+						title: "assistant: world",
+					},
+				],
+			},
 		]);
 		expect(resolveSessionCwd(sessionFile, join(root, "fallback"))).toBe(cwd);
 		expect(resolveSessionCwd(sessionFile, join(root, "fallback"), join(root, "override"))).toBe(
@@ -216,6 +230,56 @@ describe("buildSnapshotFromSession", () => {
 				},
 			},
 		]);
+	});
+
+	it("从 Pi compaction entry 重建 desktop system message", () => {
+		const root = mkdtempSync(join(tmpdir(), "desktop-session-"));
+		roots.push(root);
+		const cwd = join(root, "repo");
+		const sessionDir = join(root, "sessions");
+		const manager = SessionManager.create(cwd, sessionDir);
+		const firstMessageId = manager.appendMessage({ role: "user", content: "first", timestamp: 1 });
+		manager.appendMessage({ role: "assistant", content: "answer", timestamp: 2 });
+		manager.appendCompaction("压缩后的上下文摘要", firstMessageId, 128000);
+		const sessionFile = manager.getSessionFile();
+		if (!sessionFile) {
+			throw new Error("session file is required");
+		}
+
+		const snapshot = buildSnapshotFromSession({
+			thread: {
+				threadId: "thread-1",
+				cwd,
+				status: "stopped",
+				createdAt: "2026-07-01T00:00:00.000Z",
+				updatedAt: "2026-07-01T00:00:00.000Z",
+			},
+			sessionFile,
+		});
+
+		expect(snapshot.messages[0]).toMatchObject({
+			role: "system",
+			text: "压缩后的上下文摘要",
+			systemEvent: {
+				kind: "compaction",
+				title: "上下文已压缩",
+				meta: ["压缩前 128,000 tokens"],
+			},
+		});
+		expect(snapshot.sessionTree?.[0]).toMatchObject({
+			type: "message",
+			children: [
+				{
+					type: "message",
+					children: [
+						{
+							type: "compaction",
+							title: "compaction",
+						},
+					],
+				},
+			],
+		});
 	});
 
 	/** 验证 cwd 解析复用完整 JSONL parser，不依赖短读 header。 */

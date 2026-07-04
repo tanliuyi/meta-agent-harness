@@ -13,6 +13,9 @@ import {
   type PackageSource,
   type TransportSetting
 } from '../../../../../packages/coding-agent/src/core/settings-manager'
+import { DefaultPackageManager } from '../../../../../packages/coding-agent/src/core/package-manager'
+import { buildResourcesSnapshot } from '../../../../../packages/coding-agent/src/core/resource-snapshot'
+import type { ProgressEvent as PackageProgressEvent } from '../../../../../packages/coding-agent/src/core/package-manager'
 import { getAgentDir } from '../../../../../packages/coding-agent/src/config'
 import type {
   AgentDefaultProjectTrust,
@@ -22,6 +25,11 @@ import type {
   AgentSettingsSnapshot,
   AgentTransportMode,
   AgentTreeFilterMode,
+  ResourcePackageInput,
+  ResourcePackageProgressEvent,
+  ResourcePackageSummary,
+  ResourceSnapshot,
+  UpdateResourcePackageInput,
   UpdateAgentSettingsInput
 } from '@shared/coding-agent/types'
 
@@ -30,12 +38,16 @@ export interface AgentSettingsServiceOptions {
   cwd?: string
 }
 
+export type ResourcePackageEventHandler = (event: ResourcePackageProgressEvent) => void
+
 /** Desktop 全局 Pi agent 设置服务。 */
 export class AgentSettingsService {
   private readonly agentDir: string
   private readonly cwd: string
   private readonly settingsPath: string
   private readonly settingsManager: SettingsManager
+  private readonly packageManager: DefaultPackageManager
+  private packageOperationQueue: Promise<void> = Promise.resolve()
 
   constructor(options: AgentSettingsServiceOptions = {}) {
     this.agentDir = options.agentDir ?? getAgentDir()
@@ -43,6 +55,11 @@ export class AgentSettingsService {
     this.settingsPath = join(this.agentDir, 'settings.json')
     this.settingsManager = SettingsManager.create(this.cwd, this.agentDir, {
       projectTrusted: false
+    })
+    this.packageManager = new DefaultPackageManager({
+      cwd: this.cwd,
+      agentDir: this.agentDir,
+      settingsManager: this.settingsManager
     })
   }
 
@@ -64,6 +81,74 @@ export class AgentSettingsService {
     this.applyAdvanced(input.advanced)
     await this.settingsManager.flush()
     return this.getAgentSettings()
+  }
+
+  /** 列出 Pi package manager 配置包。 */
+  async listResourcePackages(): Promise<ResourcePackageSummary[]> {
+    await this.settingsManager.reload()
+    return this.createResourcePackageSummaries()
+  }
+
+  /** 获取 Pi-compatible resource / extension 发现快照。 */
+  async getResourceSnapshot(): Promise<ResourceSnapshot> {
+    return buildResourcesSnapshot({
+      cwd: this.cwd,
+      agentDir: this.agentDir,
+      settingsManager: this.settingsManager,
+      packageManager: this.packageManager
+    })
+  }
+
+  /** 新增并持久化 package source。 */
+  async addResourcePackage(input: ResourcePackageInput): Promise<ResourcePackageSummary[]> {
+    const source = this.requirePackageSource(input.source)
+    return this.runPackageOperation(async () => {
+      await this.settingsManager.reload()
+      this.packageManager.addSourceToSettings(source, { local: input.local })
+      await this.settingsManager.flush()
+      return this.listResourcePackages()
+    })
+  }
+
+  /** 安装并持久化 package source。 */
+  async installResourcePackage(
+    input: ResourcePackageInput,
+    onEvent?: ResourcePackageEventHandler
+  ): Promise<ResourcePackageSummary[]> {
+    const source = this.requirePackageSource(input.source)
+    return this.runPackageOperation(async () => {
+      await this.settingsManager.reload()
+      await this.withPackageProgress(onEvent, async () => {
+        await this.packageManager.installAndPersist(source, { local: input.local })
+        await this.settingsManager.flush()
+      })
+      return this.listResourcePackages()
+    })
+  }
+
+  /** 移除并持久化 package source。 */
+  async removeResourcePackage(input: ResourcePackageInput): Promise<ResourcePackageSummary[]> {
+    const source = this.requirePackageSource(input.source)
+    return this.runPackageOperation(async () => {
+      await this.settingsManager.reload()
+      this.packageManager.removeSourceFromSettings(source, { local: input.local })
+      await this.settingsManager.flush()
+      return this.listResourcePackages()
+    })
+  }
+
+  /** 更新已配置 package source。 */
+  async updateResourcePackage(
+    input: UpdateResourcePackageInput = {},
+    onEvent?: ResourcePackageEventHandler
+  ): Promise<ResourcePackageSummary[]> {
+    return this.runPackageOperation(async () => {
+      await this.settingsManager.reload()
+      await this.withPackageProgress(onEvent, async () => {
+        await this.packageManager.update(input.source)
+      })
+      return this.listResourcePackages()
+    })
   }
 
   /** 获取图片是否自动缩放。 */
@@ -342,6 +427,55 @@ export class AgentSettingsService {
 
   private packageSourcesToStrings(packages: PackageSource[]): string[] {
     return packages.map((source) => (typeof source === 'string' ? source : JSON.stringify(source)))
+  }
+
+  private createResourcePackageSummaries(): ResourcePackageSummary[] {
+    return this.packageManager.listConfiguredPackages().map((item) => ({
+      source: item.source,
+      scope: item.scope,
+      filtered: item.filtered,
+      installedPath: item.installedPath
+    }))
+  }
+
+  private async withPackageProgress<T>(
+    onEvent: ResourcePackageEventHandler | undefined,
+    operation: () => Promise<T>
+  ): Promise<T> {
+    this.packageManager.setProgressCallback(
+      onEvent ? (event) => onEvent(this.toResourcePackageProgressEvent(event)) : undefined
+    )
+    try {
+      return await operation()
+    } finally {
+      this.packageManager.setProgressCallback(undefined)
+    }
+  }
+
+  private async runPackageOperation<T>(operation: () => Promise<T>): Promise<T> {
+    const run = this.packageOperationQueue.then(operation, operation)
+    this.packageOperationQueue = run.then(
+      () => undefined,
+      () => undefined
+    )
+    return run
+  }
+
+  private toResourcePackageProgressEvent(event: PackageProgressEvent): ResourcePackageProgressEvent {
+    return {
+      type: event.type,
+      action: event.action,
+      source: event.source,
+      message: event.message
+    }
+  }
+
+  private requirePackageSource(source: string): string {
+    const trimmed = source.trim()
+    if (!trimmed) {
+      throw new Error('package source is required')
+    }
+    return trimmed
   }
 
   private stringsToPackageSources(packages: string[]): PackageSource[] {

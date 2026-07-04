@@ -35,6 +35,7 @@ import type {
   WorkspaceToolCallStructure
 } from '@renderer/stores/workspace-session'
 import type {
+  ExtensionUiRequest,
   PromptImageAttachment,
   PromptImageDraft,
   ThinkingLevel
@@ -107,6 +108,10 @@ type TimelineViewItem = {
   messageId: string
   text?: string
   isStreaming: boolean
+  /** 是否是最终回复（无工具调用的 assistant 消息）。 */
+  isFinalReply: boolean
+  /** 消息更新是否已完成。 */
+  isDone: boolean
   collapseWhenResponseAppears: boolean
   toolCall?: DesktopToolCall
   toolCallIds?: string[]
@@ -213,12 +218,21 @@ const hasPendingQueue = computed(
   () => pendingQueue.value.steering.length > 0 || pendingQueue.value.followUp.length > 0
 )
 
-/** 当前会话是否正在执行。 */
-const isRunning = computed(() =>
+/** 当前 thread 是否处于运行态。 */
+const isThreadRunning = computed(() =>
   ['queued', 'starting', 'running', 'stopping'].includes(
     workspaceSession.activeSession?.status ?? ''
   )
 )
+
+/** 当前会话是否正在压缩上下文。 */
+const isCompacting = computed(() => Boolean(workspaceSession.activeCompactionState?.running))
+
+/** 当前会话是否正在执行。 */
+const isRunning = computed(() => isThreadRunning.value || isCompacting.value)
+
+/** 当前会话 activity 文案。 */
+const activityLabel = computed(() => (isCompacting.value ? '正在压缩上下文' : 'Agent 正在工作'))
 
 /** 当前处理耗时 ticker。 */
 const processingNow = ref(Date.now())
@@ -283,10 +297,17 @@ type ProcessingCollapseContext = {
   collapsible: boolean
 }
 
+/** 处理段上下文与最终回复 key 集合。 */
+interface ProcessingCollapseResult {
+  contexts: ProcessingCollapseContext[]
+  finalReplyKeys: Set<string>
+}
+
 /** 当前会话内所有 user prompt/steer/follow-up 对应的处理段。 */
-const processingCollapseContexts = computed<ProcessingCollapseContext[]>(() => {
+const processingCollapseResult = computed<ProcessingCollapseResult>(() => {
   const items = timelineItems.value
   const contexts: ProcessingCollapseContext[] = []
+  const finalReplyKeys = new Set<string>()
   for (let index = 0; index < items.length; index += 1) {
     if (!isUserMessageItem(items[index])) {
       continue
@@ -301,6 +322,9 @@ const processingCollapseContexts = computed<ProcessingCollapseContext[]>(() => {
     const isActiveSegment = segmentEndIndex < 0 && !hasFinalReply && isRunning.value
     if (hiddenItems.length === 0 && !isActiveSegment) {
       continue
+    }
+    if (hasFinalReply) {
+      finalReplyKeys.add(items[finalReplyIndex].key)
     }
     contexts.push({
       key: `${workspaceSession.activeSessionId ?? 'session'}:${boundaryIndex}`,
@@ -320,8 +344,16 @@ const processingCollapseContexts = computed<ProcessingCollapseContext[]>(() => {
       collapsible: hasFinalReply || segmentEndIndex >= 0
     })
   }
-  return contexts
+  return { contexts, finalReplyKeys }
 })
+
+/** 当前会话内所有 user prompt/steer/follow-up 对应的处理段。 */
+const processingCollapseContexts = computed<ProcessingCollapseContext[]>(
+  () => processingCollapseResult.value.contexts
+)
+
+/** 最终回复消息的 key 集合，用于标记 isFinalReply。 */
+const finalReplyKeys = computed<Set<string>>(() => processingCollapseResult.value.finalReplyKeys)
 
 /** 实际渲染的时间线；运行开始即展示 trigger，最终回复开始后才收起过程项。 */
 const displayTimelineItems = computed<TimelineItem[]>(() => {
@@ -466,6 +498,21 @@ async function handlePasteImages(files: File[], threadId?: string): Promise<void
   } finally {
     selectingImages.value = false
   }
+}
+
+/**
+ * 清空当前 Composer 图片附件。
+ */
+function handleClearImages(): void {
+  workspaceSession.clearComposerImages()
+  imageSelectionError.value = undefined
+}
+
+/**
+ * 关闭图片处理错误提示。
+ */
+function handleDismissImageError(): void {
+  imageSelectionError.value = undefined
 }
 
 /**
@@ -643,6 +690,7 @@ function getTimelineItemToolGroupStatus(item: TimelineItem): ToolGroupStatus | u
 function toTimelineViewItem(item: TimelineItem): TimelineViewItem {
   const isCollapsedHistory = isCollapsedHistoryItem(item)
   const collapsedOpen = isCollapsedHistory ? isCollapsedHistoryOpen(item) : false
+  const isStreaming = getTimelineItemStreaming(item)
   return {
     key: item.key,
     item,
@@ -660,7 +708,9 @@ function toTimelineViewItem(item: TimelineItem): TimelineViewItem {
     message: getTimelineItemMessage(item),
     messageId: getTimelineItemMessageId(item),
     text: getTimelineItemText(item),
-    isStreaming: getTimelineItemStreaming(item),
+    isStreaming,
+    isFinalReply: finalReplyKeys.value.has(item.key),
+    isDone: !isStreaming,
     collapseWhenResponseAppears: getTimelineItemCollapseWhenResponseAppears(item),
     toolCall: getTimelineItemToolCall(item),
     toolCallIds: getTimelineItemToolCallIds(item),
@@ -1148,6 +1198,13 @@ function handleTimelineWheel(event: WheelEvent): void {
 }
 
 /**
+ * 用户拖动滚动条时退出自动跟随。
+ */
+function handleTimelineScrollbarPointerDown(): void {
+  holdUserScroll()
+}
+
+/**
  * 发送当前 Composer 草稿。
  */
 async function sendComposerPrompt(): Promise<void> {
@@ -1169,6 +1226,41 @@ async function handleSelectModel(provider: string, modelId: string): Promise<voi
  */
 async function handleSelectThinkingLevel(level: ThinkingLevel): Promise<void> {
   await workspaceSession.setActiveThinkingLevel(level)
+}
+
+async function handleRespondExtensionRequest(
+  request: ExtensionUiRequest,
+  value?: string | boolean
+): Promise<void> {
+  const threadId = workspaceSession.activeSessionId
+  if (!threadId) {
+    return
+  }
+  if (request.type === 'confirm') {
+    await workspaceSession.respondExtensionUi(threadId, {
+      id: request.id,
+      confirmed: value === true
+    })
+    return
+  }
+  if (typeof value !== 'string') {
+    return
+  }
+  await workspaceSession.respondExtensionUi(threadId, {
+    id: request.id,
+    value
+  })
+}
+
+async function handleCancelExtensionRequest(request: ExtensionUiRequest): Promise<void> {
+  const threadId = workspaceSession.activeSessionId
+  if (!threadId) {
+    return
+  }
+  await workspaceSession.respondExtensionUi(threadId, {
+    id: request.id,
+    cancelled: true
+  })
 }
 
 watch(
@@ -1323,7 +1415,10 @@ function getToolCallRevision(toolCall: DesktopToolCall | undefined): unknown[] {
       ref="timelineRef"
       class="chat-view__timeline"
       :class="{ 'chat-view__timeline--empty': !messages.length }"
+      :vertical-offset="4"
+      :vertical-size="7"
       @scroll="updateScrollState"
+      @scrollbar-pointer-down="handleTimelineScrollbarPointerDown"
       @wheel.passive="handleTimelineWheel"
     >
       <div ref="timelineInnerRef" class="chat-view__timeline-inner" :style="timelineStyle">
@@ -1361,6 +1456,8 @@ function getToolCallRevision(toolCall: DesktopToolCall | undefined): unknown[] {
             :message-id="viewItem.messageId"
             :text="viewItem.text"
             :is-streaming="viewItem.isStreaming"
+            :is-final-reply="viewItem.isFinalReply"
+            :is-done="viewItem.isDone"
             :collapse-when-response-appears="viewItem.collapseWhenResponseAppears"
             :tool-call="viewItem.toolCall"
             :tool-call-ids="viewItem.toolCallIds"
@@ -1373,7 +1470,7 @@ function getToolCallRevision(toolCall: DesktopToolCall | undefined): unknown[] {
         <div v-if="isRunning" class="chat-view__activity" aria-live="polite">
           <span />
           <span>
-            Agent 正在工作
+            {{ activityLabel }}
             <template v-if="hasPendingQueue">
               · 已排队 {{ pendingQueue.steering.length }} 条 steer /
               {{ pendingQueue.followUp.length }} 条 follow-up
@@ -1409,6 +1506,10 @@ function getToolCallRevision(toolCall: DesktopToolCall | undefined): unknown[] {
         :current-model="activeModel"
         :model-options="modelOptions"
         :loading-model-options="loadingModelOptions"
+        :commands="workspaceSession.activeCommands"
+        :loading-commands="workspaceSession.activeCommandsLoading"
+        :extension-widgets="workspaceSession.activeExtensionWidgets"
+        :extension-requests="workspaceSession.activeExtensionUiRequests"
         :model-select-disabled="
           isRunning || (!workspaceSession.activeSessionId && !workspaceSession.activeProjectId)
         "
@@ -1424,6 +1525,12 @@ function getToolCallRevision(toolCall: DesktopToolCall | undefined): unknown[] {
         @select-images="handleSelectImages"
         @paste-images="handlePasteImages"
         @remove-image="workspaceSession.removeComposerImage"
+        @clear-images="handleClearImages"
+        @dismiss-image-error="handleDismissImageError"
+        @load-commands="workspaceSession.loadCommands()"
+        @run-command="workspaceSession.runCommand"
+        @respond-extension-request="handleRespondExtensionRequest"
+        @cancel-extension-request="handleCancelExtensionRequest"
         @abort="workspaceSession.abortActive"
       />
     </div>

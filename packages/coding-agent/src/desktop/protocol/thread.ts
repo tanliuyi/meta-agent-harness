@@ -4,6 +4,7 @@
 
 import type { CwdPath, IsoTime, SessionFile, ThreadId } from "./identity.ts";
 import type { RpcResponse, RpcSessionState } from "../../modes/rpc/rpc-types.ts";
+import type { DesktopSessionTreeNode } from "./snapshot.ts";
 
 /** Thread 运行时状态。 */
 export type ThreadRuntimeState = "new" | "queued" | "starting" | "idle" | "running" | "stopping" | "stopped" | "error";
@@ -48,6 +49,10 @@ export interface ThreadSummary {
 export type ThreadLiveState = RpcSessionState & {
 	/** 当前 runtime cwd，resume 时来自 Pi session header 或 cwdOverride。 */
 	cwd: CwdPath;
+	/** 当前 session tree。 */
+	sessionTree?: DesktopSessionTreeNode[];
+	/** 当前 leaf entry ID。 */
+	currentEntryId?: string | null;
 };
 
 /** get_messages 命令返回的 Pi live messages。 */

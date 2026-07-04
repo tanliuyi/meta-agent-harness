@@ -10,12 +10,36 @@ import type { ApprovalRequest } from "./approval.ts";
 import type { DesktopFileChange, DesktopToolCall } from "./tool.ts";
 import type { ThreadRuntimeState } from "./thread.ts";
 
+/** Desktop session tree 节点。 */
+export interface DesktopSessionTreeNode {
+	/** Session entry ID。 */
+	id: string;
+	/** 父 entry ID。 */
+	parentId: string | null;
+	/** Entry 类型。 */
+	type: string;
+	/** 创建时间（ISO 8601）。 */
+	timestamp: string;
+	/** 简短展示标题。 */
+	title: string;
+	/** 可选摘要文本。 */
+	summary?: string;
+	/** 用户标签。 */
+	label?: string;
+	/** 标签时间。 */
+	labelTimestamp?: string;
+	/** 子节点。 */
+	children: DesktopSessionTreeNode[];
+}
+
 /** Desktop 消息。 */
 export interface DesktopMessage {
 	/** 消息 ID。 */
 	id: string;
 	/** 消息角色。 */
 	role: "user" | "assistant" | "tool" | "system";
+	/** Agent 系统事件语义，用于展示非用户/工具/AI 正文的持久化事件。 */
+	systemEvent?: DesktopSystemEvent;
 	/** 派生文本内容，仅供简化 UI 展示。 */
 	text?: string;
 	/** 原始 Agent message，供 renderer 消费非文本结构。 */
@@ -24,6 +48,18 @@ export interface DesktopMessage {
 	toolCallIds?: string[];
 	/** 创建时间（ISO 8601）。 */
 	createdAt?: string;
+}
+
+/** Desktop 系统消息语义。 */
+export interface DesktopSystemEvent {
+	/** 系统事件类型。 */
+	kind: "compaction" | "branchSummary" | "bashExecution" | "custom" | "agentEvent";
+	/** 面向用户的事件标题。 */
+	title: string;
+	/** 可选摘要说明。 */
+	description?: string;
+	/** 短元信息标签。 */
+	meta?: string[];
 }
 
 /** Thread snapshot。 */
@@ -44,6 +80,10 @@ export interface ThreadSnapshot {
 	thinkingLevel: ThinkingLevel;
 	/** 消息列表。 */
 	messages: DesktopMessage[];
+	/** 当前 session tree。 */
+	sessionTree?: DesktopSessionTreeNode[];
+	/** 当前 leaf entry ID。 */
+	currentEntryId?: string | null;
 	/** 工具调用列表。 */
 	toolCalls: DesktopToolCall[];
 	/** 文件变更列表。 */

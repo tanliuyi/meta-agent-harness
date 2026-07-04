@@ -5,9 +5,10 @@
  * 配置，并向 renderer 返回不包含密钥明文的 UI projection。
  */
 
-import { app } from 'electron'
+import { app, shell } from 'electron'
 import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
+import { randomUUID } from 'node:crypto'
 import { AuthStorage } from '../../../../../packages/coding-agent/src/core/auth-storage'
 import { ModelRegistry } from '../../../../../packages/coding-agent/src/core/model-registry'
 import { SettingsManager } from '../../../../../packages/coding-agent/src/core/settings-manager'
@@ -19,9 +20,12 @@ import type {
   ModelSettingsDiagnostic,
   ModelSettingsModelItem,
   ModelSettingsSnapshot,
+  ModelOAuthLoginEvent,
+  ModelOAuthPromptResponseInput,
   ProviderCredentialState,
   ProviderCredentialStatus,
   ThinkingLevel,
+  LoginProviderOAuthInput,
   SetProviderApiKeyInput,
   UpdateModelSettingsInput,
   UpsertCustomProviderInput
@@ -48,6 +52,14 @@ export interface ModelSettingsServiceOptions {
   cwd?: string
 }
 
+export type ModelOAuthEventHandler = (event: ModelOAuthLoginEvent) => void
+
+interface PendingOAuthPrompt {
+  provider: string
+  resolve: (value: string) => void
+  reject: (error: Error) => void
+}
+
 /** Desktop 全局模型设置服务。 */
 export class ModelSettingsService {
   private readonly agentDir: string
@@ -59,6 +71,7 @@ export class ModelSettingsService {
   private readonly settingsManager: SettingsManager
   private readonly modelRegistry: ModelRegistry
   private modelsJsonLoadError: Error | undefined
+  private readonly pendingOAuthPrompts = new Map<string, PendingOAuthPrompt>()
 
   constructor(options: ModelSettingsServiceOptions = {}) {
     this.agentDir = options.agentDir ?? getAgentDir()
@@ -176,10 +189,164 @@ export class ModelSettingsService {
     return this.getModelSettings()
   }
 
+  /** 使用 OAuth 登录 provider，并写入 Pi-compatible auth.json。 */
+  async loginProviderOAuth(
+    input: LoginProviderOAuthInput,
+    onEvent?: ModelOAuthEventHandler
+  ): Promise<ModelSettingsSnapshot> {
+    const providerId = input.provider.trim()
+    if (!providerId) {
+      throw new Error('provider is required')
+    }
+    this.modelRegistry.refresh()
+    const provider = this.authStorage.getOAuthProviders().find((item) => item.id === providerId)
+    if (!provider) {
+      throw new Error(`provider does not support OAuth: ${providerId}`)
+    }
+
+    onEvent?.({ type: 'started', provider: providerId, providerName: provider.name })
+    try {
+      await this.authStorage.login(providerId, {
+        onAuth: (info) => {
+          onEvent?.({
+            type: 'authUrl',
+            provider: providerId,
+            url: info.url,
+            instructions: info.instructions
+          })
+          void shell.openExternal(info.url).catch((error) => {
+            onEvent?.({
+              type: 'progress',
+              provider: providerId,
+              message: `浏览器打开失败：${error instanceof Error ? error.message : String(error)}`
+            })
+          })
+        },
+        onDeviceCode: (info) => {
+          onEvent?.({
+            type: 'deviceCode',
+            provider: providerId,
+            userCode: info.userCode,
+            verificationUri: info.verificationUri,
+            intervalSeconds: info.intervalSeconds,
+            expiresInSeconds: info.expiresInSeconds
+          })
+          void shell.openExternal(info.verificationUri).catch((error) => {
+            onEvent?.({
+              type: 'progress',
+              provider: providerId,
+              message: `浏览器打开失败：${error instanceof Error ? error.message : String(error)}`
+            })
+          })
+        },
+        onProgress: (message) => {
+          onEvent?.({ type: 'progress', provider: providerId, message })
+        },
+        onSelect: async (prompt) => {
+          const selectedOptionId =
+            prompt.options.find((option) => option.id === input.selectOptionId)?.id ??
+            prompt.options[0]?.id
+          onEvent?.({
+            type: 'selection',
+            provider: providerId,
+            message: prompt.message,
+            selectedOptionId,
+            options: prompt.options.map((option) => ({ id: option.id, label: option.label }))
+          })
+          return selectedOptionId
+        },
+        onPrompt: async (prompt) => {
+          return this.requestOAuthPrompt(providerId, prompt, onEvent)
+        },
+        onManualCodeInput: async () => {
+          return this.requestOAuthPrompt(
+            providerId,
+            {
+              message: '粘贴授权回调 URL 或授权码',
+              placeholder: 'http://127.0.0.1:.../?code=... 或 code',
+              allowEmpty: false,
+              manualCode: true
+            },
+            onEvent
+          )
+        }
+      })
+      this.authStorage.reload()
+      this.modelRegistry.refresh()
+      onEvent?.({ type: 'succeeded', provider: providerId })
+      return this.getModelSettings()
+    } catch (error) {
+      onEvent?.({
+        type: 'failed',
+        provider: providerId,
+        message: error instanceof Error ? error.message : String(error)
+      })
+      throw error
+    } finally {
+      this.rejectPendingOAuthPrompts(providerId)
+    }
+  }
+
+  /** 响应 OAuth 登录过程中的 renderer 输入请求。 */
+  respondOAuthPrompt(input: ModelOAuthPromptResponseInput): void {
+    const pending = this.pendingOAuthPrompts.get(input.requestId)
+    if (!pending || pending.provider !== input.provider) {
+      throw new Error(`OAuth prompt request not found: ${input.requestId}`)
+    }
+    this.pendingOAuthPrompts.delete(input.requestId)
+    if (input.cancelled) {
+      pending.reject(new Error('OAuth 输入已取消'))
+      return
+    }
+    pending.resolve(input.value ?? '')
+  }
+
   /** 强制刷新模型 registry。 */
   async refreshModelRegistry(): Promise<ModelSettingsSnapshot> {
     this.modelRegistry.refresh()
     return this.getModelSettings()
+  }
+
+  private requestOAuthPrompt(
+    provider: string,
+    prompt: {
+      message: string
+      placeholder?: string
+      allowEmpty?: boolean
+      manualCode?: boolean
+    },
+    onEvent?: ModelOAuthEventHandler
+  ): Promise<string> {
+    const requestId = randomUUID()
+    return new Promise<string>((resolve, reject) => {
+      this.pendingOAuthPrompts.set(requestId, { provider, resolve, reject })
+      onEvent?.({
+        type: 'promptRequested',
+        provider,
+        requestId,
+        message: prompt.message,
+        placeholder: prompt.placeholder,
+        allowEmpty: prompt.allowEmpty,
+        manualCode: prompt.manualCode
+      })
+    }).then((value) => {
+      this.pendingOAuthPrompts.delete(requestId)
+      if (prompt.allowEmpty === false && !value.trim()) {
+        throw new Error(`${prompt.message} 不能为空`)
+      }
+      onEvent?.({ type: 'promptResolved', provider, requestId })
+      return value
+    })
+  }
+
+  private rejectPendingOAuthPrompts(provider?: string): void {
+    for (const [requestId, pending] of this.pendingOAuthPrompts) {
+      if (provider && pending.provider !== provider) {
+        continue
+      }
+      this.pendingOAuthPrompts.delete(requestId)
+      pending.reject(new Error('OAuth 登录已结束'))
+    }
   }
 
   private createSnapshot(): ModelSettingsSnapshot {
@@ -263,12 +430,14 @@ export class ModelSettingsService {
   }
 
   private createCredentialStatuses(providers: ModelProviderSummary[]): ProviderCredentialStatus[] {
+    const oauthProviders = new Set(this.authStorage.getOAuthProviders().map((provider) => provider.id))
     return providers.map((provider) => {
       const authStatus = this.modelRegistry.getProviderAuthStatus(provider.id)
       return {
         provider: provider.id,
         status: this.mapAuthStatus(provider.id),
         source: this.mapCredentialSource(authStatus.source),
+        oauthAvailable: oauthProviders.has(provider.id),
         message: authStatus.label
       }
     })
@@ -456,6 +625,7 @@ export class ModelSettingsService {
 
   /** 测试清理用。 */
   dispose(): void {
+    this.rejectPendingOAuthPrompts()
     try {
       rmSync(this.agentDir, { recursive: true, force: true })
     } catch {

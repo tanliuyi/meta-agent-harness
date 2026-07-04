@@ -144,13 +144,13 @@ const contentStyle = computed(() => ({ maxHeight: props.maxContentHeight }))
   flex: 1;
   min-width: 0;
   width: min(720px, 100%);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-lg);
 
   & :deep(.tool-message__content) {
     margin: 0;
     overflow: hidden;
     background: var(--color-canvas);
-    border-radius: 0 0 var(--radius-md) var(--radius-md);
+    border-radius: 0 0 var(--radius-lg) var(--radius-lg);
 
     .tool-message__result,
     .tool-message__content-inner {

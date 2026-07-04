@@ -1,12 +1,29 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { measureLineStats, prepareWithSegments, type PreparedTextWithSegments } from '@chenglou/pretext'
+import {
+  measureRichInlineStats,
+  prepareRichInline,
+  type PreparedRichInline,
+  type RichInlineItem
+} from '@chenglou/pretext/rich-inline'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import type { RenderableThreadMessage } from './renderable-message'
 import {
+  formatMessageTime,
   getMessageFileAttachments,
   getMessageImageSrc,
+  getMessageText,
+  getUserMessageDisplayText,
   getStandaloneMessageImages,
   getUserMessageDisplaySegments
 } from './message-format'
+import BaseIconButton from '@/components/base/BaseIconButton.vue'
+import { Check, Copy } from 'lucide-vue-next'
+
+const COLLAPSED_MAX_HEIGHT = 320
+const USER_MESSAGE_MAX_WIDTH = 640
+const USER_MESSAGE_MAX_RATIO = 0.88
+const FILE_REFERENCE_FALLBACK_EXTRA_WIDTH = 36
 
 const props = defineProps<{
   message: RenderableThreadMessage
@@ -15,49 +32,351 @@ const props = defineProps<{
 const fileAttachments = computed(() => getMessageFileAttachments(props.message))
 const standaloneImages = computed(() => getStandaloneMessageImages(props.message))
 const displaySegments = computed(() => getUserMessageDisplaySegments(props.message))
+const displaySegmentsKey = computed(() => JSON.stringify(displaySegments.value))
+const displayText = computed(() => getUserMessageDisplayText(props.message) ?? '')
+const shouldMeasureBubble = computed(
+  () =>
+    displayText.value.length > 0 &&
+    fileAttachments.value.length === 0 &&
+    standaloneImages.value.length === 0
+)
+const formattedTime = computed(() => formatMessageTime(props.message.createdAt))
+
+const isCopied = ref(false)
+let copyTimeout: ReturnType<typeof setTimeout> | null = null
+
+async function copyMessageText(): Promise<void> {
+  const text = getMessageText(props.message)
+  if (!text) return
+
+  try {
+    await navigator.clipboard.writeText(text)
+    isCopied.value = true
+    if (copyTimeout) clearTimeout(copyTimeout)
+    copyTimeout = setTimeout(() => {
+      isCopied.value = false
+    }, 1000)
+  } catch (err) {
+    console.error('Failed to copy message:', err)
+  }
+}
+
+const isExpanded = ref(false)
+const isOverflowing = ref(false)
+const contentRef = ref<HTMLElement>()
+const measuredBubbleWidth = ref<string>()
+let resizeObserver: ResizeObserver | null = null
+let measureRaf: number | null = null
+let preparedCache:
+  | {
+      font: string
+      letterSpacing: number
+      key: string
+      prepared: PreparedMessageText
+    }
+  | null = null
+
+type PreparedMessageText =
+  | {
+      kind: 'plain'
+      value: PreparedTextWithSegments
+    }
+  | {
+      kind: 'rich'
+      value: PreparedRichInline
+    }
+
+function checkOverflow(): void {
+  if (!contentRef.value) return
+  const body = contentRef.value.querySelector('.user-message__body')
+  if (!body) return
+  isOverflowing.value = body.scrollHeight > COLLAPSED_MAX_HEIGHT + 1
+}
+
+function scheduleMeasure(): void {
+  if (measureRaf !== null) return
+  measureRaf = window.requestAnimationFrame(() => {
+    measureRaf = null
+    measureBubbleWidth()
+  })
+}
+
+function measureBubbleWidth(): void {
+  const bubble = contentRef.value
+  if (!bubble || !shouldMeasureBubble.value) {
+    measuredBubbleWidth.value = undefined
+    void nextTick(checkOverflow)
+    return
+  }
+
+  const textElement = bubble.querySelector<HTMLElement>('.user-message__text')
+  const containerWidth = getMessageLaneWidth(bubble)
+  if (!textElement || containerWidth <= 0) {
+    measuredBubbleWidth.value = undefined
+    void nextTick(checkOverflow)
+    return
+  }
+
+  const bubbleStyle = window.getComputedStyle(bubble)
+  const textStyle = window.getComputedStyle(textElement)
+  const maxBubbleWidth = Math.min(USER_MESSAGE_MAX_WIDTH, Math.floor(containerWidth * USER_MESSAGE_MAX_RATIO))
+  const horizontalChrome =
+    readPixelValue(bubbleStyle.paddingLeft) +
+    readPixelValue(bubbleStyle.paddingRight) +
+    readPixelValue(bubbleStyle.borderLeftWidth) +
+    readPixelValue(bubbleStyle.borderRightWidth)
+  const maxContentWidth = Math.max(1, maxBubbleWidth - horizontalChrome)
+  const letterSpacing = readLetterSpacing(textStyle.letterSpacing)
+  const prepared = getPreparedText(textElement, getCanvasFont(textStyle), letterSpacing)
+  const tightContentWidth = findTightContentWidth(prepared, maxContentWidth)
+  const bubbleWidth = Math.min(maxBubbleWidth, Math.ceil(tightContentWidth + horizontalChrome))
+
+  const nextWidth = `${Math.max(1, bubbleWidth)}px`
+  if (measuredBubbleWidth.value !== nextWidth) {
+    measuredBubbleWidth.value = nextWidth
+  }
+  void nextTick(checkOverflow)
+}
+
+function getMessageLaneWidth(bubble: HTMLElement): number {
+  const lane = bubble.closest<HTMLElement>('.chat-view__message')
+  return lane?.getBoundingClientRect().width ?? bubble.parentElement?.getBoundingClientRect().width ?? 0
+}
+
+function getPreparedText(
+  textElement: HTMLElement,
+  font: string,
+  letterSpacing: number
+): PreparedMessageText {
+  const key = getPreparedCacheKey(font, letterSpacing)
+  if (
+    preparedCache?.key === key &&
+    preparedCache.font === font &&
+    preparedCache.letterSpacing === letterSpacing
+  ) {
+    return preparedCache.prepared
+  }
+
+  const richItems = getRichInlineItems(textElement, font, letterSpacing)
+  const prepared =
+    richItems === null
+      ? ({
+          kind: 'plain',
+          value: prepareWithSegments(displayText.value, font, {
+            letterSpacing,
+            whiteSpace: 'pre-wrap'
+          })
+        } satisfies PreparedMessageText)
+      : ({
+          kind: 'rich',
+          value: prepareRichInline(richItems)
+        } satisfies PreparedMessageText)
+  preparedCache = { font, key, letterSpacing, prepared }
+  return prepared
+}
+
+function getPreparedCacheKey(font: string, letterSpacing: number): string {
+  return JSON.stringify({
+    font,
+    letterSpacing,
+    segments: displaySegmentsKey.value
+  })
+}
+
+function getRichInlineItems(
+  textElement: HTMLElement,
+  textFont: string,
+  textLetterSpacing: number
+): RichInlineItem[] | null {
+  if (!displaySegments.value.some((segment) => segment.type === 'fileReference')) {
+    return null
+  }
+
+  const fileReferenceElement = textElement.querySelector<HTMLElement>('.file-reference-node')
+  const fileReferenceLabel = textElement.querySelector<HTMLElement>('.file-reference-node__label')
+  const fileReferenceStyle = fileReferenceElement
+    ? window.getComputedStyle(fileReferenceElement)
+    : null
+  const fileReferenceLabelStyle = fileReferenceLabel
+    ? window.getComputedStyle(fileReferenceLabel)
+    : null
+  const fileReferenceFont = fileReferenceLabelStyle ? getCanvasFont(fileReferenceLabelStyle) : textFont
+  const fileReferenceLetterSpacing = fileReferenceLabelStyle
+    ? readLetterSpacing(fileReferenceLabelStyle.letterSpacing)
+    : textLetterSpacing
+  const fileReferenceExtraWidth =
+    fileReferenceElement && fileReferenceLabel
+      ? Math.max(0, fileReferenceElement.getBoundingClientRect().width - fileReferenceLabel.getBoundingClientRect().width)
+      : FILE_REFERENCE_FALLBACK_EXTRA_WIDTH
+  const fileReferenceMargin =
+    fileReferenceStyle === null
+      ? 0
+      : readPixelValue(fileReferenceStyle.marginLeft) + readPixelValue(fileReferenceStyle.marginRight)
+
+  return displaySegments.value.map((segment) =>
+    segment.type === 'text'
+      ? {
+          font: textFont,
+          letterSpacing: textLetterSpacing,
+          text: segment.text
+        }
+      : {
+          break: 'never',
+          extraWidth: fileReferenceExtraWidth + fileReferenceMargin,
+          font: fileReferenceFont,
+          letterSpacing: fileReferenceLetterSpacing,
+          text: segment.label
+        }
+  )
+}
+
+function findTightContentWidth(prepared: PreparedMessageText, maxWidth: number): number {
+  const initialLineCount = measureTextStats(prepared, maxWidth).lineCount
+  if (initialLineCount === 0) return 0
+
+  let lo = 1
+  let hi = Math.max(1, Math.ceil(maxWidth))
+  while (lo < hi) {
+    const mid = Math.floor((lo + hi) / 2)
+    const lineCount = measureTextStats(prepared, mid).lineCount
+    if (lineCount <= initialLineCount) {
+      hi = mid
+    } else {
+      lo = mid + 1
+    }
+  }
+
+  return measureTextStats(prepared, lo).maxLineWidth
+}
+
+function measureTextStats(prepared: PreparedMessageText, maxWidth: number): {
+  lineCount: number
+  maxLineWidth: number
+} {
+  return prepared.kind === 'plain'
+    ? measureLineStats(prepared.value, maxWidth)
+    : measureRichInlineStats(prepared.value, maxWidth)
+}
+
+function getCanvasFont(style: CSSStyleDeclaration): string {
+  if (style.font) return style.font
+  const fontStyle = style.fontStyle || 'normal'
+  const fontVariant = style.fontVariant || 'normal'
+  const fontWeight = style.fontWeight || '400'
+  const fontSize = style.fontSize || '14px'
+  const fontFamily = style.fontFamily || 'sans-serif'
+  return `${fontStyle} ${fontVariant} ${fontWeight} ${fontSize} ${fontFamily}`
+}
+
+function readLetterSpacing(value: string): number {
+  return value === 'normal' ? 0 : readPixelValue(value)
+}
+
+function readPixelValue(value: string): number {
+  const parsed = Number.parseFloat(value)
+  return Number.isFinite(parsed) ? parsed : 0
+}
+
+watch(
+  [displayText, shouldMeasureBubble, displaySegmentsKey],
+  () => {
+    preparedCache = null
+    void nextTick(scheduleMeasure)
+  }
+)
+
+onMounted(() => {
+  scheduleMeasure()
+  resizeObserver = new ResizeObserver(scheduleMeasure)
+  const lane = contentRef.value?.closest<HTMLElement>('.chat-view__message')
+  if (lane) {
+    resizeObserver.observe(lane)
+  } else if (contentRef.value?.parentElement) {
+    resizeObserver.observe(contentRef.value.parentElement)
+  }
+  void document.fonts.ready.then(scheduleMeasure)
+})
+
+onBeforeUnmount(() => {
+  if (copyTimeout) clearTimeout(copyTimeout)
+  if (measureRaf !== null) window.cancelAnimationFrame(measureRaf)
+  resizeObserver?.disconnect()
+})
+
+function toggleExpand(): void {
+  isExpanded.value = !isExpanded.value
+}
 </script>
 
 <template>
-  <div class="user-message">
-    <div v-if="fileAttachments.length > 0" class="user-message__attachments">
-      <div
-        v-for="(attachment, index) in fileAttachments"
-        :key="`${attachment.name}-${index}`"
-        :class="[
-          'user-message__attachment',
-          { 'user-message__attachment--image': attachment.imageSrc }
-        ]"
-      >
-        <img
-          v-if="attachment.imageSrc"
-          class="user-message__attachment-image"
-          :src="attachment.imageSrc"
-          alt=""
-        />
-        <span v-if="!attachment.imageSrc" class="user-message__attachment-name">{{
-          attachment.name
-        }}</span>
-        <span v-if="attachment.note" class="user-message__attachment-note">
-          {{ attachment.note }}
-        </span>
+  <div class="message is-user-message">
+    <div
+      ref="contentRef"
+      class="user-message"
+      :class="{ 'user-message--collapsed': isOverflowing && !isExpanded }"
+      :style="{ '--user-message-tight-width': measuredBubbleWidth }"
+    >
+      <div class="user-message__body">
+        <div v-if="fileAttachments.length > 0" class="user-message__attachments">
+          <div
+            v-for="(attachment, index) in fileAttachments"
+            :key="`${attachment.name}-${index}`"
+            :class="[
+              'user-message__attachment',
+              { 'user-message__attachment--image': attachment.imageSrc }
+            ]"
+          >
+            <img
+              v-if="attachment.imageSrc"
+              class="user-message__attachment-image"
+              :src="attachment.imageSrc"
+              alt=""
+            />
+            <span v-if="!attachment.imageSrc" class="user-message__attachment-name">{{
+              attachment.name
+            }}</span>
+            <span v-if="attachment.note" class="user-message__attachment-note">
+              {{ attachment.note }}
+            </span>
+          </div>
+        </div>
+        <div v-if="standaloneImages.length > 0" class="user-message__images">
+          <img
+            v-for="(image, index) in standaloneImages"
+            :key="`${image.mimeType}-${index}`"
+            :src="getMessageImageSrc(image)"
+            alt=""
+          />
+        </div>
+        <div v-if="displaySegments.length > 0" class="user-message__text">
+          <template v-for="(segment, index) in displaySegments" :key="index">
+            <span v-if="segment.type === 'text'">{{ segment.text }}</span>
+            <span v-else class="file-reference-node" :title="segment.fileArg">
+              <span class="file-reference-node__icon">@</span>
+              <span class="file-reference-node__label">{{ segment.label }}</span>
+            </span>
+          </template>
+        </div>
       </div>
+      <button
+        v-if="isOverflowing"
+        type="button"
+        class="user-message__expand-btn"
+        @click="toggleExpand"
+      >
+        {{ isExpanded ? '收起' : '展开全部' }}
+      </button>
     </div>
-    <div v-if="standaloneImages.length > 0" class="user-message__images">
-      <img
-        v-for="(image, index) in standaloneImages"
-        :key="`${image.mimeType}-${index}`"
-        :src="getMessageImageSrc(image)"
-        alt=""
-      />
-    </div>
-    <div v-if="displaySegments.length > 0" class="user-message__text">
-      <template v-for="(segment, index) in displaySegments" :key="index">
-        <span v-if="segment.type === 'text'">{{ segment.text }}</span>
-        <span v-else class="file-reference-node" :title="segment.fileArg">
-          <span class="file-reference-node__icon">@</span>
-          <span class="file-reference-node__label">{{ segment.label }}</span>
-        </span>
-      </template>
+    <div class="message__actions">
+      <span class="message__time">{{ formattedTime }}</span>
+      <BaseIconButton
+        :label="isCopied ? '已复制' : '复制消息'"
+        size="small"
+        @click="copyMessageText"
+      >
+        <Check v-if="isCopied" :size="14" />
+        <Copy v-else :size="14" />
+      </BaseIconButton>
     </div>
   </div>
 </template>
@@ -65,31 +384,111 @@ const displaySegments = computed(() => getUserMessageDisplaySegments(props.messa
 <style lang="scss" scoped>
 @use '../file-reference-node';
 
+.message {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+
+  &__actions {
+    display: flex;
+    flex-direction: row;
+    justify-content: flex-end;
+    gap: var(--space-1);
+  }
+}
+
+.message__actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: var(--space-1) 0;
+  opacity: 0;
+  transition: opacity var(--duration-fast) var(--ease-standard);
+
+  .message:hover & {
+    opacity: 1;
+  }
+}
+
+.message__time {
+  font-size: var(--font-size-ui-xs);
+  color: var(--color-text-muted);
+}
+
 .user-message {
   display: flex;
   flex-direction: column;
   align-self: flex-end;
-  width: fit-content;
-  min-width: 0;
-  max-width: min(640px, 88%);
+  box-sizing: border-box;
+  inline-size: var(--user-message-tight-width, max-content);
+  max-inline-size: min(640px, 88%);
+  min-inline-size: 0;
   padding: var(--space-1) var(--space-2);
   background: var(--user-message-bg);
   border: 1px solid var(--user-message-border);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-lg);
   box-shadow: var(--shadow-sm);
   color: var(--color-text);
   font-size: var(--font-size-ui);
   line-height: 1.6;
-  word-break: break-all;
-  overflow-wrap: anywhere;
+  line-break: auto;
+  word-break: normal;
+  overflow-wrap: break-word;
+
+  &--collapsed {
+    .user-message__body {
+      max-height: 320px;
+      overflow: hidden;
+      position: relative;
+
+      &::after {
+        content: '';
+        position: absolute;
+        bottom: 0;
+        left: 0;
+        right: 0;
+        height: 64px;
+        background: linear-gradient(to bottom, transparent, var(--user-message-bg));
+        pointer-events: none;
+      }
+    }
+  }
+}
+
+.user-message__expand-btn {
+  align-self: flex-start;
+  padding: var(--space-1) 0 0;
+  color: var(--color-primary);
+  font-size: var(--font-size-ui-xs);
+  background: none;
+  border: none;
+  cursor: pointer;
+  transition: opacity var(--duration-fast) var(--ease-standard);
+
+  &:hover {
+    opacity: 0.8;
+  }
+}
+
+.user-message__body,
+.user-message__text {
+  max-width: 100%;
+  min-width: 0;
 }
 
 .user-message__text {
+  line-break: inherit;
+  overflow-wrap: inherit;
   white-space: pre-wrap;
+  word-break: inherit;
 }
 
 .file-reference-node {
   @include file-reference-node.file-reference-node;
+  white-space: nowrap;
 }
 
 .file-reference-node__icon {
@@ -115,7 +514,7 @@ const displaySegments = computed(() => getUserMessageDisplaySegments(props.messa
     max-height: 180px;
     object-fit: cover;
     border: 1px solid var(--user-message-media-border);
-    border-radius: var(--radius-md);
+    border-radius: var(--radius-lg);
   }
 }
 
@@ -136,7 +535,7 @@ const displaySegments = computed(() => getUserMessageDisplaySegments(props.messa
   padding: 6px 8px;
   background: var(--user-message-attachment-bg);
   border: 1px solid var(--user-message-attachment-border);
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-md);
 
   &--image {
     justify-self: end;
@@ -154,7 +553,7 @@ const displaySegments = computed(() => getUserMessageDisplaySegments(props.messa
   object-fit: cover;
   background: var(--color-surface);
   border: 1px solid var(--user-message-media-border);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-lg);
 
   .user-message__attachment--image & {
     width: 96px;

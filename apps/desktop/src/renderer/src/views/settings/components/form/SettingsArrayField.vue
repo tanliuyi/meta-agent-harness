@@ -201,6 +201,6 @@ function normalizeItems(items: string[]): string[] {
   padding: var(--space-3);
   background: var(--color-surface-raised);
   border: 1px solid var(--color-border);
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-md);
 }
 </style>

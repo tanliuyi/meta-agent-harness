@@ -11,6 +11,10 @@ const props = withDefaults(
     ScrollAreaRootProps & {
       class?: HTMLAttributes['class']
       scrollbars?: 'vertical' | 'horizontal' | 'both'
+      verticalOffset?: number
+      horizontalOffset?: number
+      verticalSize?: number
+      horizontalSize?: number
     }
   >(),
   {
@@ -19,9 +23,18 @@ const props = withDefaults(
 )
 const emit = defineEmits<{
   scroll: [event: Event]
+  scrollbarPointerDown: [event: PointerEvent]
 }>()
 
-const delegatedProps = reactiveOmit(props, 'class', 'scrollbars')
+const delegatedProps = reactiveOmit(
+  props,
+  'class',
+  'scrollbars',
+  'verticalOffset',
+  'verticalSize',
+  'horizontalSize',
+  'horizontalOffset'
+)
 
 type ScrollAreaViewportInstance = {
   viewportElement?: HTMLElement
@@ -124,6 +137,19 @@ function getScrollMetrics(): ScrollAreaMetrics | undefined {
   }
 }
 
+/**
+ * 仅把滚动条上的 pointer down 视作用户滚动意图。
+ */
+function handlePointerDown(event: PointerEvent): void {
+  const target = event.target
+  if (!(target instanceof Element)) {
+    return
+  }
+  if (target.closest('[data-slot="scroll-area-scrollbar"], [data-slot="scroll-area-thumb"]')) {
+    emit('scrollbarPointerDown', event)
+  }
+}
+
 defineExpose({
   getScrollMetrics,
   getViewport,
@@ -140,6 +166,7 @@ defineExpose({
     data-slot="scroll-area"
     v-bind="delegatedProps"
     :class="props.class"
+    @pointerdown.capture="handlePointerDown"
   >
     <ScrollAreaViewport
       ref="viewportRef"
@@ -148,10 +175,16 @@ defineExpose({
     >
       <slot />
     </ScrollAreaViewport>
-    <ScrollBar v-if="props.scrollbars === 'vertical' || props.scrollbars === 'both'" />
+    <ScrollBar
+      v-if="props.scrollbars === 'vertical' || props.scrollbars === 'both'"
+      :offset="props.verticalOffset"
+      :size="props.verticalSize"
+    />
     <ScrollBar
       v-if="props.scrollbars === 'horizontal' || props.scrollbars === 'both'"
       orientation="horizontal"
+      :offset="props.horizontalOffset"
+      :size="props.horizontalSize"
     />
     <ScrollAreaCorner />
   </ScrollAreaRoot>

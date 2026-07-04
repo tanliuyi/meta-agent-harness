@@ -5,6 +5,7 @@
 import { defineStore } from 'pinia'
 import { computed, reactive, ref, shallowReactive } from 'vue'
 import useWorkspaceProjectStore from './workspace-project'
+import { useToast } from '@renderer/composables/useToast'
 import { formatFileArgForInsertion } from '@shared/coding-agent/file-reference-format'
 import { toDesktopMessageContent } from '@shared/coding-agent/types'
 import type { JSONContent } from '@tiptap/vue-3'
@@ -13,6 +14,10 @@ import type {
   ApprovalRequest,
   ApprovalResponse,
   CodingAgentIpcEvent,
+  CommandInfo,
+  ExtensionUiRequest,
+  ExtensionUiResponseInput,
+  ExportSessionResult,
   ModelInfo,
   PromptImage,
   PromptImageFile,
@@ -87,14 +92,58 @@ export type WorkspaceSessionContext = {
 export type WorkspaceSessionRuntime = {
   /** 待处理的审批请求。 */
   approvals: Record<string, ApprovalRequest>
+  /** 待处理的 extension UI 请求。 */
+  extensionUiRequests: Record<string, ExtensionUiRequest>
+  /** extension 设置的状态文本。 */
+  extensionStatuses: Record<string, string | undefined>
+  /** extension 设置的小组件文本。 */
+  extensionWidgets: Record<string, { lines: string[]; placement?: 'aboveEditor' | 'belowEditor' }>
+  /** extension 设置的会话标题提示。 */
+  extensionTitle?: string
   /** 最近接收到的 IPC 事件列表。 */
   events: CodingAgentIpcEvent[]
   /** 消息渲染状态，key 为 messageId。 */
   renderState: Record<string, MessageRenderState>
+  /** 当前自动重试状态。 */
+  retry?: WorkspaceRetryState
+  /** 当前上下文压缩状态。 */
+  compaction?: WorkspaceCompactionState
+  /** 最近一次导出结果。 */
+  lastExport?: ExportSessionResult
   /** 是否正在刷新当前 thread snapshot。 */
   loadingSnapshot: boolean
   /** 当前 thread 最近一次错误。 */
   errorMessage?: string
+}
+
+/** 当前 thread 的自动重试状态。 */
+export interface WorkspaceRetryState {
+  /** 当前重试序号。 */
+  attempt: number
+  /** 最大重试次数。 */
+  maxAttempts: number
+  /** 下次重试延迟。 */
+  delayMs: number
+  /** 触发重试的错误摘要。 */
+  errorMessage: string
+}
+
+/** 当前 thread 的上下文压缩状态。 */
+export interface WorkspaceCompactionState {
+  /** 触发原因。 */
+  reason: 'manual' | 'threshold' | 'overflow'
+  /** 是否正在压缩。 */
+  running: boolean
+  /** 开始时间。 */
+  startedAt: string
+  /** 完成时间。 */
+  finishedAt?: string
+  /** 是否被中止。 */
+  aborted?: boolean
+  /** 是否会重试。 */
+  willRetry?: boolean
+  /** 错误信息。 */
+  error?: string
 }
 
 /** 按 toolCallId 归一化的工具调用索引。 */
@@ -107,10 +156,10 @@ export type WorkspaceToolCallStructure = Pick<
 >
 
 /** 会话面板最小宽度。 */
-const minSessionPanelWidth = 220
+const minSessionPanelWidth = 300
 
 /** 会话面板最大宽度。 */
-const maxSessionPanelWidth = 460
+const maxSessionPanelWidth = 720
 
 /** 默认会话上下文 ID。 */
 const defaultSessionContextId = 'main'
@@ -146,7 +195,7 @@ const agentSessionEventTypes = new Set<AgentSessionIpcEvent['type']>([
  */
 const createUiState = (): SessionUiState => ({
   panelOpen: true,
-  panelWidth: 300
+  panelWidth: 420
 })
 
 /**
@@ -163,6 +212,33 @@ const createEmptyComposerContent = (): JSONContent => ({
 })
 
 /**
+ * 从纯文本创建 Composer 文档。
+ * @param text - 纯文本。
+ * @returns Tiptap 文档。
+ */
+const createComposerContentFromText = (text: string): JSONContent => {
+  const lines = text.split('\n')
+  return {
+    type: 'doc',
+    content: [
+      {
+        type: 'paragraph',
+        content: lines.flatMap((line, index) => {
+          const nodes: JSONContent[] = []
+          if (index > 0) {
+            nodes.push({ type: 'hardBreak' })
+          }
+          if (line) {
+            nodes.push({ type: 'text', text: line })
+          }
+          return nodes
+        })
+      }
+    ]
+  }
+}
+
+/**
  * Composer 文本缓存，避免频繁从同一份 Tiptap JSON 递归取文本。
  */
 const composerTextCache = new WeakMap<JSONContent, string>()
@@ -172,6 +248,8 @@ const composerTextCache = new WeakMap<JSONContent, string>()
  * 负责加载、创建、管理 thread，处理 IPC 事件以及审批请求。
  */
 export default defineStore('workspace-session', () => {
+  const toast = useToast()
+
   /** 全局错误提示信息。 */
   const globalErrorMessage = ref<string>()
 
@@ -200,6 +278,15 @@ export default defineStore('workspace-session', () => {
 
   /** 每个 thread 的模型列表加载状态。 */
   const modelOptionsLoadingByThreadId = shallowReactive<Record<string, boolean>>({})
+
+  /** 每个 thread 的命令列表。 */
+  const commandsByThreadId = shallowReactive<Record<string, CommandInfo[]>>({})
+
+  /** 每个 thread 的命令列表加载状态。 */
+  const commandsLoadingByThreadId = shallowReactive<Record<string, boolean>>({})
+
+  /** 每个 thread 的最近一次 session 操作结果。 */
+  const sessionActionMessageByThreadId = shallowReactive<Record<string, string | undefined>>({})
 
   const workspaceProject = useWorkspaceProjectStore()
 
@@ -239,6 +326,9 @@ export default defineStore('workspace-session', () => {
   function ensureRuntime(threadId: string): WorkspaceSessionRuntime {
     runtimeByThreadId[threadId] ??= reactive({
       approvals: {},
+      extensionUiRequests: {},
+      extensionStatuses: {},
+      extensionWidgets: {},
       events: [],
       renderState: {},
       loadingSnapshot: false
@@ -693,6 +783,27 @@ export default defineStore('workspace-session', () => {
   /** 当前活跃会话的审批请求。 */
   const activePendingApprovals = computed(() => activeRuntime.value?.approvals ?? {})
 
+  /** 当前活跃会话的 extension UI 请求。 */
+  const activeExtensionUiRequests = computed(() => activeRuntime.value?.extensionUiRequests ?? {})
+
+  /** 当前活跃会话的 extension 状态文本。 */
+  const activeExtensionStatuses = computed(() => activeRuntime.value?.extensionStatuses ?? {})
+
+  /** 当前活跃会话的 extension 小组件。 */
+  const activeExtensionWidgets = computed(() => activeRuntime.value?.extensionWidgets ?? {})
+
+  /** 当前活跃会话的 extension 标题。 */
+  const activeExtensionTitle = computed(() => activeRuntime.value?.extensionTitle)
+
+  /** 当前活跃会话的自动重试状态。 */
+  const activeRetryState = computed(() => activeRuntime.value?.retry)
+
+  /** 当前活跃会话的上下文压缩状态。 */
+  const activeCompactionState = computed(() => activeRuntime.value?.compaction)
+
+  /** 当前活跃会话最近一次导出结果。 */
+  const activeExportResult = computed(() => activeRuntime.value?.lastExport)
+
   /** 当前活跃会话的最近事件。 */
   const activeEvents = computed(() => activeRuntime.value?.events ?? [])
 
@@ -704,6 +815,21 @@ export default defineStore('workspace-session', () => {
   /** 当前活跃会话是否正在加载可用模型。 */
   const activeModelOptionsLoading = computed(() =>
     activeSessionId.value ? Boolean(modelOptionsLoadingByThreadId[activeSessionId.value]) : false
+  )
+
+  /** 当前活跃会话的可用命令。 */
+  const activeCommands = computed<CommandInfo[]>(() =>
+    activeSessionId.value ? (commandsByThreadId[activeSessionId.value] ?? []) : []
+  )
+
+  /** 当前活跃会话命令列表是否加载中。 */
+  const activeCommandsLoading = computed(() =>
+    activeSessionId.value ? Boolean(commandsLoadingByThreadId[activeSessionId.value]) : false
+  )
+
+  /** 当前活跃会话最近一次 session 操作结果。 */
+  const activeSessionActionMessage = computed(() =>
+    activeSessionId.value ? sessionActionMessageByThreadId[activeSessionId.value] : undefined
   )
 
   /** 新会话草稿模型。 */
@@ -918,8 +1044,31 @@ export default defineStore('workspace-session', () => {
     ensureRuntime(threadId).errorMessage = undefined
     try {
       await window.api.codingAgent.setModel({ threadId, provider, modelId })
+      await refreshSnapshot(threadId)
     } catch (error) {
       ensureRuntime(threadId).errorMessage = error instanceof Error ? error.message : String(error)
+    }
+  }
+
+  /**
+   * 循环切换当前活跃会话模型。
+   */
+  const cycleActiveModel = async (threadId = activeSessionId.value): Promise<void> => {
+    if (!threadId) {
+      return
+    }
+    const runtime = ensureRuntime(threadId)
+    runtime.errorMessage = undefined
+    try {
+      const result = await window.api.codingAgent.cycleModel(threadId)
+      if (result) {
+        sessionActionMessageByThreadId[threadId] = `已切换模型到 ${getModelLabel(result.model)}`
+      } else {
+        sessionActionMessageByThreadId[threadId] = '没有可切换的模型'
+      }
+      await refreshSnapshot(threadId)
+    } catch (error) {
+      runtime.errorMessage = error instanceof Error ? error.message : String(error)
     }
   }
 
@@ -940,6 +1089,26 @@ export default defineStore('workspace-session', () => {
     runtime.errorMessage = undefined
     try {
       await window.api.codingAgent.setThinkingLevel({ threadId, level })
+      await refreshSnapshot(threadId)
+    } catch (error) {
+      runtime.errorMessage = error instanceof Error ? error.message : String(error)
+    }
+  }
+
+  /**
+   * 循环切换当前活跃会话 thinking level。
+   */
+  const cycleActiveThinkingLevel = async (threadId = activeSessionId.value): Promise<void> => {
+    if (!threadId) {
+      return
+    }
+    const runtime = ensureRuntime(threadId)
+    runtime.errorMessage = undefined
+    try {
+      const result = await window.api.codingAgent.cycleThinkingLevel(threadId)
+      sessionActionMessageByThreadId[threadId] = result
+        ? `Thinking 已切换到 ${result.level}`
+        : '当前模型不支持切换 thinking'
       await refreshSnapshot(threadId)
     } catch (error) {
       runtime.errorMessage = error instanceof Error ? error.message : String(error)
@@ -1091,19 +1260,310 @@ export default defineStore('workspace-session', () => {
    */
   const respondApproval = async (
     approval: ApprovalRequest,
-    input: Pick<ApprovalResponse, 'allow' | 'choice' | 'reason'>
+    input: Pick<ApprovalResponse, 'allow' | 'choice' | 'reason'> & {
+      scope?: ApprovalResponse['scope']
+    }
   ): Promise<void> => {
     await window.api.codingAgent.respondApproval({
       threadId: approval.threadId,
       response: {
         approvalId: approval.approvalId,
         allow: input.allow,
-        scope: approval.scope,
+        scope: input.scope ?? approval.scope,
         choice: input.choice,
         reason: input.reason
       }
     })
     delete ensureRuntime(approval.threadId).approvals[approval.approvalId]
+  }
+
+  /**
+   * 响应 extension UI 请求。
+   * @param threadId - 所属 thread ID。
+   * @param response - UI 响应。
+   */
+  const respondExtensionUi = async (
+    threadId: string,
+    response: ExtensionUiResponseInput['response']
+  ): Promise<void> => {
+    await window.api.codingAgent.respondUi({ threadId, response })
+    delete ensureRuntime(threadId).extensionUiRequests[response.id]
+  }
+
+  /**
+   * 加载当前活跃会话可运行的 slash/custom commands。
+   */
+  const loadCommands = async (threadId = activeSessionId.value): Promise<void> => {
+    if (!threadId) {
+      return
+    }
+    commandsLoadingByThreadId[threadId] = true
+    try {
+      commandsByThreadId[threadId] = await window.api.codingAgent.getCommands(threadId)
+    } catch (error) {
+      ensureRuntime(threadId).errorMessage = error instanceof Error ? error.message : String(error)
+    } finally {
+      commandsLoadingByThreadId[threadId] = false
+    }
+  }
+
+  /**
+   * 运行当前 thread 的 slash/custom command。
+   * @param command - command 名称。
+   */
+  const runCommand = async (command: string, threadId = activeSessionId.value): Promise<void> => {
+    if (!threadId) {
+      return
+    }
+    try {
+      await window.api.codingAgent.runCommand({ threadId, command })
+      sessionActionMessageByThreadId[threadId] = `已运行 ${command}`
+    } catch (error) {
+      ensureRuntime(threadId).errorMessage = error instanceof Error ? error.message : String(error)
+    }
+  }
+
+  /**
+   * 手动压缩当前 thread 上下文。
+   */
+  const compactActive = async (customInstructions?: string): Promise<void> => {
+    const threadId = activeSessionId.value
+    if (!threadId) {
+      return
+    }
+    const runtime = ensureRuntime(threadId)
+    runtime.compaction = {
+      reason: 'manual',
+      running: true,
+      startedAt: new Date().toISOString()
+    }
+    try {
+      const result = await window.api.codingAgent.compact({ threadId, customInstructions })
+      runtime.compaction = {
+        ...runtime.compaction,
+        reason: runtime.compaction?.reason ?? 'manual',
+        running: false,
+        startedAt: runtime.compaction?.startedAt ?? new Date().toISOString(),
+        finishedAt: new Date().toISOString(),
+        aborted: Boolean(result.cancelled)
+      }
+      sessionActionMessageByThreadId[threadId] = result.cancelled ? '压缩已取消' : '上下文已压缩'
+      await refreshSnapshot(threadId)
+    } catch (error) {
+      runtime.compaction = {
+        ...runtime.compaction,
+        reason: runtime.compaction?.reason ?? 'manual',
+        running: false,
+        startedAt: runtime.compaction?.startedAt ?? new Date().toISOString(),
+        finishedAt: new Date().toISOString(),
+        error: error instanceof Error ? error.message : String(error)
+      }
+      ensureRuntime(threadId).errorMessage = error instanceof Error ? error.message : String(error)
+    }
+  }
+
+  /**
+   * 设置当前 thread 自动压缩开关。
+   */
+  const setActiveAutoCompaction = async (
+    enabled: boolean,
+    threadId = activeSessionId.value
+  ): Promise<void> => {
+    if (!threadId) {
+      return
+    }
+    try {
+      await window.api.codingAgent.setAutoCompaction({ threadId, enabled })
+      sessionActionMessageByThreadId[threadId] = enabled ? '自动压缩已启用' : '自动压缩已关闭'
+      await refreshSnapshot(threadId)
+    } catch (error) {
+      ensureRuntime(threadId).errorMessage = error instanceof Error ? error.message : String(error)
+    }
+  }
+
+  /**
+   * 设置当前 thread 自动重试开关。
+   */
+  const setActiveAutoRetry = async (
+    enabled: boolean,
+    threadId = activeSessionId.value
+  ): Promise<void> => {
+    if (!threadId) {
+      return
+    }
+    try {
+      await window.api.codingAgent.setAutoRetry({ threadId, enabled })
+      sessionActionMessageByThreadId[threadId] = enabled ? '自动重试已启用' : '自动重试已关闭'
+      await refreshSnapshot(threadId)
+    } catch (error) {
+      ensureRuntime(threadId).errorMessage = error instanceof Error ? error.message : String(error)
+    }
+  }
+
+  /**
+   * 中止当前 thread 正在等待的自动重试。
+   */
+  const abortActiveRetry = async (threadId = activeSessionId.value): Promise<void> => {
+    if (!threadId) {
+      return
+    }
+    try {
+      await window.api.codingAgent.abortRetry(threadId)
+      ensureRuntime(threadId).retry = undefined
+      sessionActionMessageByThreadId[threadId] = '已中止自动重试'
+      await refreshSnapshot(threadId)
+    } catch (error) {
+      ensureRuntime(threadId).errorMessage = error instanceof Error ? error.message : String(error)
+    }
+  }
+
+  /**
+   * 导出当前 session。
+   */
+  const exportActiveSession = async (): Promise<void> => {
+    const threadId = activeSessionId.value
+    if (!threadId) {
+      return
+    }
+    try {
+      const result = await window.api.codingAgent.exportSession({ threadId })
+      ensureRuntime(threadId).lastExport = result
+      sessionActionMessageByThreadId[threadId] = 'Session 已导出'
+    } catch (error) {
+      ensureRuntime(threadId).errorMessage = error instanceof Error ? error.message : String(error)
+    }
+  }
+
+  /**
+   * 打开最近一次导出的 session 文件。
+   */
+  const openActiveExport = async (): Promise<void> => {
+    const path = activeRuntime.value?.lastExport?.path
+    if (!path) {
+      return
+    }
+    await window.api.codingAgent.revealResourcePath({ path, mode: 'open' })
+  }
+
+  /**
+   * 在系统资源管理器中显示最近一次导出的 session 文件。
+   */
+  const revealActiveExport = async (): Promise<void> => {
+    const path = activeRuntime.value?.lastExport?.path
+    if (!path) {
+      return
+    }
+    await window.api.codingAgent.revealResourcePath({ path, mode: 'reveal' })
+  }
+
+  /**
+   * 在当前 thread 内创建新的 Pi session。
+   */
+  const newActiveSession = async (parentSession?: string): Promise<void> => {
+    const threadId = activeSessionId.value
+    if (!threadId) {
+      return
+    }
+    try {
+      const snapshot = await window.api.codingAgent.newSession({ threadId, parentSession })
+      mergeSnapshot(sessions, snapshot)
+      syncToolCallsByIdFromSnapshot(snapshot)
+      syncRenderStateFromSnapshot(snapshot)
+      setContextActiveThreadId(snapshot.threadId)
+      sessionActionMessageByThreadId[threadId] = '已创建新 session'
+    } catch (error) {
+      ensureRuntime(threadId).errorMessage = error instanceof Error ? error.message : String(error)
+    }
+  }
+
+  /**
+   * 通过系统文件选择器导入 Pi-compatible session。
+   */
+  const importActiveSessionFromPicker = async (): Promise<void> => {
+    const threadId = activeSessionId.value
+    if (!threadId) {
+      return
+    }
+    try {
+      const inputPath = await window.api.codingAgent.selectSessionFile({
+        title: '导入 Pi Session'
+      })
+      if (!inputPath) {
+        return
+      }
+      const snapshot = await window.api.codingAgent.importSession({ threadId, inputPath })
+      mergeSnapshot(sessions, snapshot)
+      syncToolCallsByIdFromSnapshot(snapshot)
+      syncRenderStateFromSnapshot(snapshot)
+      setContextActiveThreadId(snapshot.threadId)
+      sessionActionMessageByThreadId[threadId] = `已导入 ${inputPath}`
+    } catch (error) {
+      ensureRuntime(threadId).errorMessage = error instanceof Error ? error.message : String(error)
+    }
+  }
+
+  /**
+   * 切换当前 thread 到指定 session 文件。
+   * @param sessionPath - Pi-compatible session 文件路径。
+   */
+  const switchActiveSessionPath = async (sessionPath: string): Promise<void> => {
+    const threadId = activeSessionId.value
+    const nextPath = sessionPath.trim()
+    if (!threadId || !nextPath) {
+      return
+    }
+    try {
+      const snapshot = await window.api.codingAgent.switchSession({
+        threadId,
+        sessionPath: nextPath
+      })
+      mergeSnapshot(sessions, snapshot)
+      syncToolCallsByIdFromSnapshot(snapshot)
+      syncRenderStateFromSnapshot(snapshot)
+      setContextActiveThreadId(snapshot.threadId)
+      sessionActionMessageByThreadId[threadId] = `已切换到 ${nextPath}`
+    } catch (error) {
+      ensureRuntime(threadId).errorMessage = error instanceof Error ? error.message : String(error)
+    }
+  }
+
+  /**
+   * 克隆当前 session 并刷新 snapshot。
+   */
+  const cloneActiveSession = async (): Promise<void> => {
+    const threadId = activeSessionId.value
+    if (!threadId) {
+      return
+    }
+    try {
+      const snapshot = await window.api.codingAgent.clone(threadId)
+      mergeSnapshot(sessions, snapshot)
+      syncToolCallsByIdFromSnapshot(snapshot)
+      syncRenderStateFromSnapshot(snapshot)
+      sessionActionMessageByThreadId[threadId] = '当前 session 已克隆'
+    } catch (error) {
+      ensureRuntime(threadId).errorMessage = error instanceof Error ? error.message : String(error)
+    }
+  }
+
+  /**
+   * 从指定消息 entry 分叉当前 session。
+   * @param entryId - Pi session entry/message ID。
+   */
+  const forkActiveSession = async (entryId: string): Promise<void> => {
+    const threadId = activeSessionId.value
+    if (!threadId || !entryId) {
+      return
+    }
+    try {
+      const snapshot = await window.api.codingAgent.fork({ threadId, entryId, position: 'at' })
+      mergeSnapshot(sessions, snapshot)
+      syncToolCallsByIdFromSnapshot(snapshot)
+      syncRenderStateFromSnapshot(snapshot)
+      sessionActionMessageByThreadId[threadId] = '已从选中消息分叉'
+    } catch (error) {
+      ensureRuntime(threadId).errorMessage = error instanceof Error ? error.message : String(error)
+    }
   }
 
   /**
@@ -1162,6 +1622,9 @@ export default defineStore('workspace-session', () => {
       delete toolCallStructuresByThreadId[threadId]
       delete modelOptionsByThreadId[threadId]
       delete modelOptionsLoadingByThreadId[threadId]
+      delete commandsByThreadId[threadId]
+      delete commandsLoadingByThreadId[threadId]
+      delete sessionActionMessageByThreadId[threadId]
       await loadThreads(contextId, { selectLatestActiveProjectThread: true })
     } catch (error) {
       globalErrorMessage.value = error instanceof Error ? error.message : String(error)
@@ -1282,6 +1745,71 @@ export default defineStore('workspace-session', () => {
   }
 
   /**
+   * 应用 extension UI 请求。
+   * 交互类请求进入待响应队列；状态类请求直接投影到当前 thread runtime。
+   * @param threadId - 所属 thread ID。
+   * @param request - extension UI 请求。
+   */
+  function applyExtensionUiRequest(threadId: string, request: ExtensionUiRequest): void {
+    const runtime = ensureRuntime(threadId)
+    switch (request.type) {
+      case 'select':
+      case 'confirm':
+      case 'input':
+      case 'editor':
+        runtime.extensionUiRequests[request.id] = request
+        return
+      case 'notify':
+        sessionActionMessageByThreadId[threadId] = request.message
+        showExtensionToast(request)
+        return
+      case 'setStatus':
+        runtime.extensionStatuses[request.statusKey] = request.statusText
+        return
+      case 'setWidget':
+        if (request.widgetLines && request.widgetLines.length > 0) {
+          runtime.extensionWidgets[request.widgetKey] = {
+            lines: [...request.widgetLines],
+            placement: request.widgetPlacement
+          }
+          return
+        }
+        delete runtime.extensionWidgets[request.widgetKey]
+        return
+      case 'setTitle':
+        runtime.extensionTitle = request.title
+        return
+      case 'setEditorText': {
+        const draft = createComposerContentFromText(request.text)
+        if (activeSessionId.value === threadId) {
+          draftMessage.value = draft
+          return
+        }
+        ensureSessionContext(defaultSessionContextId).composerDrafts[threadId] = draft
+        return
+      }
+  }
+
+  /**
+   * 将 extension notify 映射为桌面端 toast。
+   * @param request - extension notify 请求。
+   */
+  function showExtensionToast(request: Extract<ExtensionUiRequest, { type: 'notify' }>): void {
+    switch (request.notifyType) {
+      case 'error':
+        toast.error('Extension', request.message)
+        return
+      case 'warning':
+        toast.warning('Extension', request.message)
+        return
+      case 'info':
+      default:
+        toast.info('Extension', request.message)
+    }
+  }
+  }
+
+  /**
    * 处理来自主进程的 coding agent 事件。
    * 更新会话快照、状态以及待处理审批请求。
    * @param event - IPC 事件。
@@ -1292,6 +1820,41 @@ export default defineStore('workspace-session', () => {
       const runtime = ensureRuntime(threadId)
       runtime.events.unshift(event)
       runtime.events = runtime.events.slice(0, 80)
+      if (event.type === 'auto_retry_start') {
+        runtime.retry = {
+          attempt: event.attempt,
+          maxAttempts: event.maxAttempts,
+          delayMs: event.delayMs,
+          errorMessage: event.errorMessage
+        }
+      } else if (event.type === 'auto_retry_end') {
+        runtime.retry = undefined
+        sessionActionMessageByThreadId[threadId] = event.success
+          ? '自动重试已恢复'
+          : `自动重试结束${event.finalError ? `：${event.finalError}` : ''}`
+      } else if (event.type === 'compaction_start') {
+        runtime.compaction = {
+          reason: event.reason,
+          running: true,
+          startedAt: new Date().toISOString()
+        }
+        sessionActionMessageByThreadId[threadId] = '正在压缩上下文'
+      } else if (event.type === 'compaction_end') {
+        runtime.compaction = {
+          ...runtime.compaction,
+          reason: event.reason,
+          running: false,
+          startedAt: runtime.compaction?.startedAt ?? new Date().toISOString(),
+          finishedAt: new Date().toISOString(),
+          aborted: event.aborted,
+          willRetry: event.willRetry,
+          error: event.errorMessage
+        }
+        sessionActionMessageByThreadId[threadId] = event.aborted
+          ? `压缩已中止${event.errorMessage ? `：${event.errorMessage}` : ''}`
+          : '上下文已压缩'
+        void refreshSnapshot(threadId)
+      }
     }
     switch (event.type) {
       case 'threadSnapshot': {
@@ -1326,6 +1889,9 @@ export default defineStore('workspace-session', () => {
           ensureRuntime(event.threadId).approvals[event.event.approval.approvalId] =
             event.event.approval
         }
+        if (event.event.type === 'extensionUi.requested') {
+          applyExtensionUiRequest(event.threadId, event.event.request)
+        }
         break
     }
     applyEventToSessions(sessions, event, (messageId, renderState) => {
@@ -1355,15 +1921,26 @@ export default defineStore('workspace-session', () => {
 
   return {
     abortActive,
+    abortActiveRetry,
     addComposerImages,
     archiveThread,
+    activeCommands,
+    activeCommandsLoading,
+    activeCompactionState,
     activeEvents,
+    activeExportResult,
+    activeExtensionStatuses,
+    activeExtensionTitle,
+    activeExtensionUiRequests,
+    activeExtensionWidgets,
     activeModelOptions,
     activeModelOptionsLoading,
     activePendingApprovals,
     activeProjectId,
+    activeRetryState,
     activeRuntime,
     activeSession,
+    activeSessionActionMessage,
     activeSessionId,
     activeSessionPanel,
     activeSnapshot,
@@ -1372,6 +1949,9 @@ export default defineStore('workspace-session', () => {
     contexts,
     createThread,
     clearComposerDraft,
+    clearComposerImages,
+    cloneActiveSession,
+    compactActive,
     defaultSessionContextId,
     draftImages,
     draftMessage,
@@ -1385,6 +1965,7 @@ export default defineStore('workspace-session', () => {
     hasDraftMessage,
     isNewSessionActive,
     loadThreads,
+    loadCommands,
     loadModelOptions,
     loading,
     loadingThreads,
@@ -1392,23 +1973,36 @@ export default defineStore('workspace-session', () => {
     minSessionPanelWidth,
     orphanModel,
     orphanThinkingLevel,
+    openActiveExport,
     pendingApprovals: activePendingApprovals,
     refreshSnapshot,
     removeComposerImage,
+    revealActiveExport,
     respondApproval,
+    respondExtensionUi,
     runtimeByThreadId,
+    runCommand,
     sendPrompt,
     sessionList,
     sessionsByProject,
     sessions,
     setActiveComposerDraft,
+    exportActiveSession,
+    importActiveSessionFromPicker,
+    forkActiveSession,
+    cycleActiveModel,
+    cycleActiveThinkingLevel,
+    newActiveSession,
     setActiveModel,
+    setActiveAutoCompaction,
+    setActiveAutoRetry,
     setActiveThinkingLevel,
     setContextActiveThreadId,
     setActiveProjectId,
     setActiveSessionId,
     setActiveSessionPanelOpen,
     setActiveSessionPanelWidth,
+    switchActiveSessionPath,
     startNewSession,
     unsubscribe
   }
@@ -1674,6 +2268,12 @@ function mergeSnapshot(
 
 function sortSessionsByUpdatedAt(sessions: WorkspaceSession[]): WorkspaceSession[] {
   return [...sessions].sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))
+}
+
+function getModelLabel(model: { provider?: string; id?: string; displayName?: string }): string {
+  if (model.displayName) return model.displayName
+  if (model.provider && model.id) return `${model.provider}/${model.id}`
+  return model.id ?? '未知模型'
 }
 
 /**

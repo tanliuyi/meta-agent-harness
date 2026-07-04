@@ -42,7 +42,7 @@ withDefaults(
   overflow: hidden;
   background: var(--color-panel);
   border: 1px solid var(--color-border);
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-md);
   box-shadow: var(--shadow-sm);
   backdrop-filter: blur(12px);
 }

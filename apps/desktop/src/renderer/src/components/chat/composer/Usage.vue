@@ -44,6 +44,32 @@ const percent = computed(() => {
 
 const progressOffset = computed(() => CIRCUMFERENCE * (1 - percent.value / 100))
 
+const statusLabel = computed(() => {
+  if (isUnknown.value) {
+    return '估算中'
+  }
+  if (percent.value >= 90) {
+    return '临近上限'
+  }
+  if (percent.value >= 70) {
+    return '偏高'
+  }
+  return '正常'
+})
+
+const statusClass = computed(() => {
+  if (isUnknown.value) {
+    return 'is-unknown'
+  }
+  if (percent.value >= 90) {
+    return 'is-danger'
+  }
+  if (percent.value >= 70) {
+    return 'is-warning'
+  }
+  return 'is-normal'
+})
+
 const color = computed(() => {
   if (percent.value >= 90) {
     return 'var(--color-danger)'
@@ -73,7 +99,12 @@ const usedTokensText = computed(() => (isUnknown.value ? '?' : formatTokens(used
   <TooltipProvider>
     <Tooltip>
       <TooltipTrigger as-child>
-        <button type="button" class="usage" :aria-label="`上下文用量 ${displayText}`">
+        <button
+          type="button"
+          class="usage"
+          :class="statusClass"
+          :aria-label="`上下文用量 ${displayText}，${statusLabel}`"
+        >
           <svg class="usage__ring" viewBox="0 0 28 28" fill="none" :aria-hidden="true">
             <circle
               class="usage__track"
@@ -95,6 +126,10 @@ const usedTokensText = computed(() => (isUnknown.value ? '?' : formatTokens(used
               stroke-linecap="round"
             />
           </svg>
+          <span class="usage__copy">
+            <strong>{{ percentText }}</strong>
+            <small>{{ statusLabel }}</small>
+          </span>
         </button>
       </TooltipTrigger>
       <TooltipContent>
@@ -109,6 +144,9 @@ const usedTokensText = computed(() => (isUnknown.value ? '?' : formatTokens(used
           <p class="usage__tooltip-row">
             使用率：<strong>{{ percentText }}</strong>
           </p>
+          <p class="usage__tooltip-row">
+            自动压缩：<strong>{{ usage?.autoCompactionEnabled ? '开启' : '关闭' }}</strong>
+          </p>
         </div>
       </TooltipContent>
     </Tooltip>
@@ -117,28 +155,48 @@ const usedTokensText = computed(() => (isUnknown.value ? '?' : formatTokens(used
 
 <style lang="scss" scoped>
 .usage {
-  display: flex;
+  display: inline-flex;
   align-items: center;
-  justify-content: center;
-  width: 32px;
+  justify-content: flex-start;
+  gap: 6px;
+  width: auto;
+  max-width: 104px;
   height: 32px;
-  padding: 0;
+  min-width: 32px;
+  padding: 0 7px;
   color: var(--color-text-muted);
   background: transparent;
-  border: 0;
-  border-radius: var(--radius-sm);
+  border: 1px solid transparent;
+  border-radius: var(--radius-md);
   cursor: pointer;
   transition:
     background var(--duration-fast) var(--ease-standard),
+    border-color var(--duration-fast) var(--ease-standard),
     color var(--duration-fast) var(--ease-standard);
 
   &:hover {
     color: var(--color-text);
     background: var(--color-surface-raised);
+    border-color: var(--color-border);
+  }
+
+  &.is-warning {
+    color: var(--color-accent);
+    background: color-mix(in srgb, var(--color-accent) 9%, transparent);
+  }
+
+  &.is-danger {
+    color: var(--color-danger);
+    background: color-mix(in srgb, var(--color-danger) 9%, transparent);
+  }
+
+  &.is-unknown {
+    color: var(--color-text-subtle);
   }
 }
 
 .usage__ring {
+  flex: 0 0 auto;
   width: 18px;
   height: 18px;
   transform: rotate(-90deg);
@@ -152,6 +210,34 @@ const usedTokensText = computed(() => (isUnknown.value ? '?' : formatTokens(used
   transition:
     stroke-dashoffset var(--duration-base) var(--ease-standard),
     stroke var(--duration-fast) var(--ease-standard);
+}
+
+.usage__copy {
+  display: grid;
+  gap: 1px;
+  min-width: 0;
+  max-width: 70px;
+  text-align: left;
+
+  strong,
+  small {
+    min-width: 0;
+    overflow: hidden;
+    line-height: 1;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  strong {
+    color: currentColor;
+    font-size: var(--font-size-ui-2xs);
+    font-weight: 750;
+  }
+
+  small {
+    color: var(--color-text-subtle);
+    font-size: 10px;
+  }
 }
 
 .usage__tooltip {
@@ -172,6 +258,18 @@ const usedTokensText = computed(() => (isUnknown.value ? '?' : formatTokens(used
 
   strong {
     color: var(--color-primary-ink);
+  }
+}
+
+@media (width <= 720px) {
+  .usage {
+    width: 32px;
+    padding: 0;
+    justify-content: center;
+  }
+
+  .usage__copy {
+    display: none;
   }
 }
 </style>

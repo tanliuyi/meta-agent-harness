@@ -217,6 +217,44 @@ describe("desktop message conversion", () => {
 		expect(toDesktopToolCalls(messages, "thread-1")).toEqual([]);
 	});
 
+	it("将 compaction summary 投影为 desktop system event", () => {
+		const timestamp = Date.parse("2026-07-01T00:00:00.000Z");
+		const message: AgentMessage = {
+			role: "compactionSummary",
+			summary: "保留了最近的实现计划和文件修改。",
+			tokensBefore: 128000,
+			timestamp,
+		};
+
+		expect(toDesktopMessageContent(message)).toEqual({
+			role: "system",
+			text: "保留了最近的实现计划和文件修改。",
+			raw: message,
+			createdAt: "2026-07-01T00:00:00.000Z",
+			systemEvent: {
+				kind: "compaction",
+				title: "上下文已压缩",
+				description: "之前的对话历史已压缩为摘要，并保留在当前 session 中。",
+				meta: ["压缩前 128,000 tokens"],
+			},
+		});
+		expect(toDesktopMessages([message])).toEqual([
+			{
+				id: "message-0",
+				role: "system",
+				text: "保留了最近的实现计划和文件修改。",
+				raw: message,
+				createdAt: "2026-07-01T00:00:00.000Z",
+				systemEvent: {
+					kind: "compaction",
+					title: "上下文已压缩",
+					description: "之前的对话历史已压缩为摘要，并保留在当前 session 中。",
+					meta: ["压缩前 128,000 tokens"],
+				},
+			},
+		]);
+	});
+
 	it("从 edit tool result 派生文件 diff projection", () => {
 		const messages: AgentMessage[] = [
 			{

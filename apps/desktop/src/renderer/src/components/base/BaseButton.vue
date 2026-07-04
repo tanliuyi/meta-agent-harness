@@ -49,7 +49,7 @@ withDefaults(
   gap: var(--space-1);
   min-width: 0;
   border: 1px solid transparent;
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-md);
   font-weight: 650;
   letter-spacing: 0;
   cursor: pointer;

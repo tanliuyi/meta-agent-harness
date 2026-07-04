@@ -252,7 +252,12 @@ export class ThreadManagerCore {
   protected buildSnapshot(
     thread: ThreadSummary,
     state: Partial<ThreadLiveState> &
-      Partial<Pick<ThreadSnapshot, 'messages' | 'toolCalls' | 'fileChanges'>> = {}
+      Partial<
+        Pick<
+          ThreadSnapshot,
+          'messages' | 'toolCalls' | 'fileChanges' | 'sessionTree' | 'currentEntryId'
+        >
+      > = {}
   ): ThreadSnapshot {
     return {
       threadId: thread.threadId,
@@ -264,6 +269,8 @@ export class ThreadManagerCore {
       model: state.model,
       thinkingLevel: state.thinkingLevel ?? 'off',
       messages: state.messages ?? [],
+      sessionTree: state.sessionTree,
+      currentEntryId: state.currentEntryId,
       toolCalls: state.toolCalls ?? [],
       fileChanges: state.fileChanges ?? [],
       approvals: [],

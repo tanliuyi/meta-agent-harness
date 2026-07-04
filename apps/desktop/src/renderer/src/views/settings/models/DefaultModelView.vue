@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { BaseButton, BasePanel } from '@renderer/components/base'
+import { BaseBadge, BaseButton, BasePanel } from '@renderer/components/base'
 import { SettingsSelectField } from '@renderer/views/settings/components/form'
 import useModelSettingsStore from '@renderer/stores/model-settings'
 import { Save } from 'lucide-vue-next'
@@ -16,6 +16,42 @@ const defaultModelLabel = computed(() => {
 const selectedModelMissing = computed(() => {
   const { provider, modelId } = modelSettings.draft.defaultModel
   return Boolean(provider && modelId && !modelSettings.selectedModel)
+})
+
+const selectedModelStatusLabel = computed(() => {
+  const model = modelSettings.selectedModel
+  if (!model) return selectedModelMissing.value ? '不在 registry 中' : '等待选择'
+  switch (model.status) {
+    case 'available':
+      return '可用'
+    case 'missingAuth':
+      return '缺少凭据'
+    case 'invalid':
+      return '无效'
+    case 'disabled':
+      return '已禁用'
+  }
+})
+
+const selectedModelStatusTone = computed<'neutral' | 'success' | 'warning' | 'info'>(() => {
+  const status = modelSettings.selectedModel?.status
+  if (status === 'available') return 'success'
+  if (status === 'missingAuth' || status === 'invalid') return 'warning'
+  return 'neutral'
+})
+
+const selectedModelCapabilities = computed(() => {
+  const model = modelSettings.selectedModel
+  return [
+    { label: 'Tools', enabled: Boolean(model?.supportsTools) },
+    { label: 'Images', enabled: Boolean(model?.supportsImages) },
+    { label: 'Reasoning', enabled: Boolean(model?.supportsReasoning) }
+  ]
+})
+
+const selectedModelContextLabel = computed(() => {
+  const contextWindow = modelSettings.selectedModel?.contextWindow
+  return contextWindow ? `${contextWindow.toLocaleString()} tokens` : '未知上下文'
 })
 
 const providerModel = computed({
@@ -67,6 +103,31 @@ const modelOptions = computed(() =>
       <div class="summary-line">
         <span>当前默认</span>
         <strong class="summary-line__value">{{ defaultModelLabel }}</strong>
+      </div>
+
+      <div class="model-health">
+        <div>
+          <span>状态</span>
+          <BaseBadge :tone="selectedModelStatusTone">
+            {{ selectedModelStatusLabel }}
+          </BaseBadge>
+        </div>
+        <div>
+          <span>上下文</span>
+          <strong>{{ selectedModelContextLabel }}</strong>
+        </div>
+        <div>
+          <span>能力</span>
+          <div class="model-health__badges">
+            <BaseBadge
+              v-for="capability in selectedModelCapabilities"
+              :key="capability.label"
+              :tone="capability.enabled ? 'info' : 'neutral'"
+            >
+              {{ capability.label }}
+            </BaseBadge>
+          </div>
+        </div>
       </div>
 
       <div class="form-grid">

@@ -70,7 +70,7 @@ defineEmits<{
   color: var(--color-text);
   background: var(--color-field);
   border: 1px solid var(--color-border);
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-md);
   outline: none;
   transition:
     border-color var(--duration-fast) var(--ease-standard),

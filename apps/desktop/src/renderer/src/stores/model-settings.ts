@@ -12,7 +12,10 @@ import type {
   ModelSettingsModelItem,
   ModelSettingsModelStatus,
   ModelSettingsSnapshot,
+  ModelOAuthLoginEvent,
+  ModelOAuthPromptRequest,
   ProviderCredentialStatus,
+  LoginProviderOAuthInput,
   SetProviderApiKeyInput,
   ThinkingLevel,
   UpsertCustomProviderInput
@@ -44,6 +47,19 @@ export interface ModelSettingsDraft {
   enabledModels: string[]
 }
 
+export interface ModelOAuthLoginState {
+  provider: string
+  providerName?: string
+  running: boolean
+  authUrl?: string
+  instructions?: string
+  userCode?: string
+  verificationUri?: string
+  progress: string[]
+  error?: string
+  pendingPrompt?: ModelOAuthPromptRequest
+}
+
 const DEFAULT_DRAFT: ModelSettingsDraft = {
   defaultModel: {
     provider: '',
@@ -69,6 +85,7 @@ const useModelSettingsStore = defineStore('model-settings', () => {
   const error = ref<string | null>(null)
   const snapshot = ref<ModelSettingsSnapshot | null>(null)
   const draft = ref<ModelSettingsDraft>(cloneDefaultDraft())
+  const oauthLogins = ref<Record<string, ModelOAuthLoginState>>({})
 
   const hasSettingsApi = computed(() => true)
   const models = computed<ModelSettingsModelItem[]>(() => snapshot.value?.registry.models ?? [])
@@ -287,6 +304,126 @@ const useModelSettingsStore = defineStore('model-settings', () => {
     }
   }
 
+  async function loginProviderOAuth(input: LoginProviderOAuthInput): Promise<void> {
+    saving.value = true
+    error.value = null
+    oauthLogins.value = {
+      ...oauthLogins.value,
+      [input.provider]: {
+        provider: input.provider,
+        running: true,
+        progress: ['正在启动 OAuth 登录']
+      }
+    }
+    try {
+      applySnapshot(await window.api.codingAgent.loginProviderOAuth(input))
+      toast.success('OAuth 登录已完成')
+    } catch (cause) {
+      error.value = cause instanceof Error ? cause.message : 'OAuth 登录失败'
+      applyOAuthEvent({
+        type: 'failed',
+        provider: input.provider,
+        message: error.value
+      })
+      toast.error('OAuth 登录失败', error.value)
+    } finally {
+      saving.value = false
+    }
+  }
+
+  function applyOAuthEvent(event: ModelOAuthLoginEvent): void {
+    const current = oauthLogins.value[event.provider] ?? {
+      provider: event.provider,
+      running: false,
+      progress: []
+    }
+    const next: ModelOAuthLoginState = { ...current, progress: [...current.progress] }
+    switch (event.type) {
+      case 'started':
+        next.providerName = event.providerName
+        next.running = true
+        next.error = undefined
+        next.progress.push(`正在登录 ${event.providerName ?? event.provider}`)
+        break
+      case 'authUrl':
+        next.authUrl = event.url
+        next.instructions = event.instructions
+        next.progress.push('已打开浏览器授权页面')
+        break
+      case 'deviceCode':
+        next.userCode = event.userCode
+        next.verificationUri = event.verificationUri
+        next.progress.push('请在浏览器输入设备授权码')
+        break
+      case 'progress':
+        next.progress.push(event.message)
+        break
+      case 'selection':
+        next.progress.push(`已选择 ${event.selectedOptionId ?? '默认登录方式'}`)
+        break
+      case 'promptRequested':
+        next.pendingPrompt = event
+        next.progress.push(event.manualCode ? '等待手动授权码输入' : '等待输入')
+        break
+      case 'promptResolved':
+        if (next.pendingPrompt?.requestId === event.requestId) {
+          next.pendingPrompt = undefined
+        }
+        next.progress.push('已提交输入')
+        break
+      case 'succeeded':
+        next.running = false
+        next.error = undefined
+        next.pendingPrompt = undefined
+        next.progress.push('OAuth 登录完成')
+        break
+      case 'failed':
+        next.running = false
+        next.error = event.message
+        next.pendingPrompt = undefined
+        next.progress.push(event.message)
+        break
+    }
+    oauthLogins.value = {
+      ...oauthLogins.value,
+      [event.provider]: next
+    }
+  }
+
+  async function respondOAuthPrompt(
+    provider: string,
+    value: string,
+    cancelled = false
+  ): Promise<void> {
+    const current = oauthLogins.value[provider]
+    const pendingPrompt = current?.pendingPrompt
+    if (!pendingPrompt) {
+      return
+    }
+    try {
+      await window.api.codingAgent.respondModelOAuthPrompt({
+        provider,
+        requestId: pendingPrompt.requestId,
+        value,
+        cancelled
+      })
+    } catch (cause) {
+      const message = cause instanceof Error ? cause.message : 'OAuth 输入提交失败'
+      applyOAuthEvent({
+        type: 'failed',
+        provider,
+        message
+      })
+      toast.error('OAuth 输入提交失败', message)
+    }
+  }
+
+  window.api.codingAgent.onEvent((event) => {
+    if (event.type === 'modelOAuth') {
+      applyOAuthEvent(event.event)
+    }
+  })
+
   function applySnapshot(nextSnapshot: ModelSettingsSnapshot): void {
     snapshot.value = nextSnapshot
     draft.value = {
@@ -311,6 +448,7 @@ const useModelSettingsStore = defineStore('model-settings', () => {
     credentialStatuses,
     diagnostics,
     customProviders,
+    oauthLogins,
     providers,
     selectedModel,
     apiUnavailableMessage,
@@ -325,6 +463,8 @@ const useModelSettingsStore = defineStore('model-settings', () => {
     upsertCustomProvider,
     deleteCustomProvider,
     setProviderApiKey,
+    loginProviderOAuth,
+    respondOAuthPrompt,
     updateDefaultProvider,
     updateDefaultModel,
     updateThinkingLevel,
