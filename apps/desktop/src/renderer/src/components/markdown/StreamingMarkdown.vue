@@ -22,8 +22,6 @@ import { computed, provide } from 'vue'
 import MarkdownRender from 'markstream-vue'
 import { MarkdownContextKey, type StreamingMarkdownContext } from './markdown-context'
 import { useTheme } from '@renderer/composables/useTheme'
-import 'markstream-vue/index.css'
-import './message-markdown.scss'
 
 /**
  * StreamingMarkdown - 封装 markstream-vue 的流式 Markdown 渲染。

@@ -51,7 +51,7 @@ function updateValue(value: string | number): void {
 </script>
 
 <template>
-  <Field class="settings-form-field gap-1" :data-invalid="Boolean(validationError)">
+  <Field class="settings-form-field" :data-invalid="Boolean(validationError)">
     <FieldLabel class="settings-field-label">{{ label }}</FieldLabel>
     <Textarea
       v-if="multiline"

@@ -46,7 +46,7 @@ const goBack = (): void => {
   padding: var(--space-2) 0;
   overflow: hidden;
   color: var(--color-text);
-  border-right: 1px solid rgb(255 255 255 / 4%);
+  border-right: 1px solid var(--color-border-subtle);
   backdrop-filter: blur(16px);
 }
 
@@ -74,7 +74,12 @@ const goBack = (): void => {
   height: 28px;
   margin: 0 var(--space-2);
   padding: 0 var(--space-3);
+  color: var(--color-text-muted);
   border-radius: var(--radius-md);
+  cursor: pointer;
+  transition:
+    background var(--duration-fast) var(--ease-standard),
+    color var(--duration-fast) var(--ease-standard);
 
   &:hover {
     color: var(--color-text);

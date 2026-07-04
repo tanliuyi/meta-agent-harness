@@ -301,9 +301,9 @@ function formatUpdatedAtDistance(updatedAt: string): string | undefined {
                   }"
                   @click="workspaceSession.setActiveSessionId(threadItem.thread.threadId)"
                 >
-                  <span class="session-group__item-title">{{
-                    threadItem.thread.title || '新会话'
-                  }}</span>
+                  <span class="session-group__item-title">
+                    {{ threadItem.thread.title || '新会话' }}
+                  </span>
                   <span
                     v-if="threadItem.statusIndicator"
                     class="thread-status"
@@ -409,7 +409,7 @@ function formatUpdatedAtDistance(updatedAt: string): string | undefined {
 
 .sidebar-error {
   margin: 0;
-  color: var(--color-danger, #ff7a7a);
+  color: var(--color-danger);
   font-size: var(--font-size-ui-xs);
 }
 
@@ -531,8 +531,8 @@ function formatUpdatedAtDistance(updatedAt: string): string | undefined {
 
 .thread-status__svg {
   display: block;
-  width: 16px;
-  height: 16px;
+  width: 14px;
+  height: 14px;
   overflow: visible;
 }
 
@@ -557,7 +557,7 @@ function formatUpdatedAtDistance(updatedAt: string): string | undefined {
 }
 
 .thread-status.is-error {
-  color: var(--color-danger, #ff7a7a);
+  color: var(--color-danger);
 }
 
 .thread-status__error-ring {
@@ -623,6 +623,9 @@ function formatUpdatedAtDistance(updatedAt: string): string | undefined {
   padding: 0 var(--space-3);
   border: 1px solid transparent;
   border-radius: var(--radius-md);
+  color: var(--color-text-muted);
+  font: inherit;
+  text-decoration: none;
   transition:
     background var(--duration-fast) var(--ease-standard),
     border-color var(--duration-fast) var(--ease-standard),

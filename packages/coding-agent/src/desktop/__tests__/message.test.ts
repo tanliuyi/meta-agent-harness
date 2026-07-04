@@ -80,6 +80,44 @@ describe("desktop message conversion", () => {
 		expect(toDesktopMessages([message])).toEqual([]);
 	});
 
+	it("保留模型请求失败的 assistant 错误消息", () => {
+		const timestamp = Date.parse("2026-07-01T00:00:00.000Z");
+		const message: AgentMessage = {
+			role: "assistant",
+			content: [],
+			api: "responses",
+			provider: "openai",
+			model: "gpt-5",
+			usage: {
+				input: 1,
+				output: 0,
+				cacheRead: 0,
+				cacheWrite: 0,
+				totalTokens: 1,
+				cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+			},
+			stopReason: "error",
+			errorMessage: "429: rate limit exceeded",
+			timestamp,
+		};
+
+		expect(toDesktopMessageContent(message)).toEqual({
+			role: "assistant",
+			text: "模型请求失败：429: rate limit exceeded",
+			raw: message,
+			createdAt: "2026-07-01T00:00:00.000Z",
+		});
+		expect(toDesktopMessages([message])).toEqual([
+			{
+				id: "message-0",
+				role: "assistant",
+				text: "模型请求失败：429: rate limit exceeded",
+				raw: message,
+				createdAt: "2026-07-01T00:00:00.000Z",
+			},
+		]);
+	});
+
 	it("assistant raw 展示内容不重复暴露 toolCall block", () => {
 		const message: AgentMessage = {
 			role: "assistant",

@@ -5,7 +5,7 @@
 import { defineStore } from 'pinia'
 import { computed, reactive, ref, shallowReactive } from 'vue'
 import useWorkspaceProjectStore from './workspace-project'
-import { formatFileArgForInsertion } from '../../../../../../packages/coding-agent/src/core/file-reference-format'
+import { formatFileArgForInsertion } from '@shared/coding-agent/file-reference-format'
 import { toDesktopMessageContent } from '@shared/coding-agent/types'
 import type { JSONContent } from '@tiptap/vue-3'
 import type {
@@ -936,11 +936,13 @@ export default defineStore('workspace-session', () => {
       mainContext.value.orphanThinkingLevel = level
       return
     }
-    ensureRuntime(threadId).errorMessage = undefined
+    const runtime = ensureRuntime(threadId)
+    runtime.errorMessage = undefined
     try {
       await window.api.codingAgent.setThinkingLevel({ threadId, level })
+      await refreshSnapshot(threadId)
     } catch (error) {
-      ensureRuntime(threadId).errorMessage = error instanceof Error ? error.message : String(error)
+      runtime.errorMessage = error instanceof Error ? error.message : String(error)
     }
   }
 
@@ -1005,6 +1007,10 @@ export default defineStore('workspace-session', () => {
             threadId: createdThreadId,
             level: orphanThinkingLevel
           })
+          const updatedSnapshot = await window.api.codingAgent.getSnapshot(createdThreadId)
+          mergeSnapshot(sessions, updatedSnapshot)
+          syncToolCallsByIdFromSnapshot(updatedSnapshot)
+          syncRenderStateFromSnapshot(updatedSnapshot)
         }
       }
       if (!threadId) {

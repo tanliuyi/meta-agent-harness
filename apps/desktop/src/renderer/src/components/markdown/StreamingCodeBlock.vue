@@ -148,7 +148,7 @@ watch(
 <style lang="scss" scoped>
 .streaming-code-block {
   position: relative;
-  margin: var(--message-markdown-code-gap, var(--message-markdown-block-gap, var(--space-2))) 0;
+  margin: var(--markdown-code-gap) 0;
   background: var(--color-canvas);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-md);
@@ -163,7 +163,7 @@ watch(
   color: var(--color-text-muted);
   font-size: var(--font-size-ui-sm);
   font-family: var(--font-mono);
-  background: color-mix(in srgb, var(--color-surface) 86%, transparent);
+  background: var(--code-block-header-bg);
   border-bottom: 1px solid var(--color-border);
 }
 
@@ -190,7 +190,8 @@ watch(
   margin: 0;
   font-family: var(--font-mono);
   font-size: var(--font-size-code);
-  line-height: 1.55;
+  font-weight: var(--font-weight-code);
+  line-height: var(--markdown-code-line-height);
   white-space: pre;
   word-break: normal;
   background: transparent;

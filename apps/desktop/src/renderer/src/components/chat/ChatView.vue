@@ -7,7 +7,7 @@ import type { CSSProperties } from 'vue'
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useElementSize, useResizeObserver } from '@vueuse/core'
 import { ChevronDown } from 'lucide-vue-next'
-import Composer from './Composer.vue'
+import Composer from './composer/Composer.vue'
 import AssistantMessage from './messages/AssistantMessage.vue'
 import ThinkingMessage from './messages/ThinkingMessage.vue'
 import SystemMessage from './messages/SystemMessage.vue'
@@ -39,7 +39,7 @@ import type {
   PromptImageDraft,
   ThinkingLevel
 } from '@shared/coding-agent/types'
-import type { TokenUsage } from './Usage.vue'
+import type { TokenUsage } from './composer/Usage.vue'
 
 const workspaceSession = useWorkspaceSessionStore()
 const workspaceProject = useWorkspaceProjectStore()
@@ -213,6 +213,16 @@ const hasPendingQueue = computed(
   () => pendingQueue.value.steering.length > 0 || pendingQueue.value.followUp.length > 0
 )
 
+/** 当前会话是否正在执行。 */
+const isRunning = computed(() =>
+  ['queued', 'starting', 'running', 'stopping'].includes(
+    workspaceSession.activeSession?.status ?? ''
+  )
+)
+
+/** 当前处理耗时 ticker。 */
+const processingNow = ref(Date.now())
+
 /** 当前会话的统一时间线。 */
 const timelineItems = computed<TimelineItem[]>(() => {
   const consumedToolCallIds = new Set<string>()
@@ -381,15 +391,7 @@ const shouldFollowBottom = ref(true)
 const imageSelectionError = ref<string>()
 const selectingImages = ref(false)
 const runningDelivery = ref<'steer' | 'followUp'>('steer')
-const processingNow = ref(Date.now())
 let processingTimerId: number | null = null
-
-/** 当前会话是否正在执行。 */
-const isRunning = computed(() =>
-  ['queued', 'starting', 'running', 'stopping'].includes(
-    workspaceSession.activeSession?.status ?? ''
-  )
-)
 
 /** 是否允许发送消息。 */
 const canSend = computed(() =>
@@ -983,13 +985,15 @@ function hasFollowingResponseContent(
   hasToolCalls: boolean
 ): boolean {
   return (
-    content.slice(index + 1).some(
-      (part) =>
-        isRecord(part) &&
-        part.type === 'text' &&
-        typeof part.text === 'string' &&
-        Boolean(part.text)
-    ) || hasToolCalls
+    content
+      .slice(index + 1)
+      .some(
+        (part) =>
+          isRecord(part) &&
+          part.type === 'text' &&
+          typeof part.text === 'string' &&
+          Boolean(part.text)
+      ) || hasToolCalls
   )
 }
 
@@ -1279,7 +1283,11 @@ function getTimelineItemRevision(item: TimelineItem | undefined): unknown[] {
       item.groupKind,
       item.summary,
       getTimelineItemToolGroupStatus(item),
-      ...item.toolCalls.flatMap((toolCall) => [toolCall.toolCallId, toolCall.toolName, toolCall.args])
+      ...item.toolCalls.flatMap((toolCall) => [
+        toolCall.toolCallId,
+        toolCall.toolName,
+        toolCall.args
+      ])
     ]
   }
   return [
@@ -1401,9 +1409,13 @@ function getToolCallRevision(toolCall: DesktopToolCall | undefined): unknown[] {
         :current-model="activeModel"
         :model-options="modelOptions"
         :loading-model-options="loadingModelOptions"
-        :model-select-disabled="isRunning || (!workspaceSession.activeSessionId && !workspaceSession.activeProjectId)"
+        :model-select-disabled="
+          isRunning || (!workspaceSession.activeSessionId && !workspaceSession.activeProjectId)
+        "
         :current-thinking-level="activeThinkingLevel"
-        :thinking-select-disabled="isRunning || (!workspaceSession.activeSessionId && !workspaceSession.activeProjectId)"
+        :thinking-select-disabled="
+          isRunning || (!workspaceSession.activeSessionId && !workspaceSession.activeProjectId)
+        "
         placeholder="描述你想让 Agent 完成的事"
         @submit="sendComposerPrompt"
         @select-model="handleSelectModel"
@@ -1488,7 +1500,7 @@ function getToolCallRevision(toolCall: DesktopToolCall | undefined): unknown[] {
   text-align: left;
   background: transparent;
   border: 0;
-  border-bottom: 1px solid color-mix(in srgb, var(--color-border) 58%, transparent);
+  border-bottom: 1px solid var(--chat-history-border-muted);
   border-radius: 0;
   cursor: pointer;
   transition:
@@ -1511,7 +1523,7 @@ function getToolCallRevision(toolCall: DesktopToolCall | undefined): unknown[] {
 
     &:hover {
       color: var(--color-text-muted);
-      border-color: color-mix(in srgb, var(--color-border) 58%, transparent);
+      border-color: var(--chat-history-border-muted);
     }
   }
 }
@@ -1566,8 +1578,8 @@ function getToolCallRevision(toolCall: DesktopToolCall | undefined): unknown[] {
   padding: var(--space-1) var(--space-2);
   color: var(--color-text-muted);
   font-size: var(--font-size-ui-sm);
-  background: color-mix(in srgb, var(--color-control-track) 86%, transparent);
-  border: 1px solid color-mix(in srgb, var(--color-primary) 24%, var(--color-border));
+  background: var(--chat-activity-bg);
+  border: 1px solid var(--chat-activity-border);
   border-radius: 999px;
   box-shadow: var(--shadow-sm);
 

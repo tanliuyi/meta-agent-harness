@@ -104,7 +104,7 @@ const settingsTitle = computed(() => {
   overflow: hidden;
   background-color: var(--color-surface);
   border: 1px solid var(--color-border);
-  border-radius: 12px 0 0 12px;
+  border-radius: var(--radius-workspace-shell) 0 0 var(--radius-workspace-shell);
 }
 
 .settings-content__header {

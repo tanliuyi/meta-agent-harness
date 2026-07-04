@@ -55,11 +55,69 @@ describe('ModelSettingsService', () => {
       expect.arrayContaining([
         expect.objectContaining({
           provider: 'local-openai',
-          hasApiKeyConfig: true
+          hasApiKeyConfig: true,
+          models: [
+            expect.objectContaining({
+              id: 'qwen2.5-coder:7b',
+              contextWindow: 128000,
+              maxTokens: 16000
+            })
+          ]
         })
       ])
     )
     expect(JSON.stringify(snapshot)).not.toContain('ollama')
+
+    await service.upsertCustomProvider({
+      provider: 'local-openai',
+      name: 'Local OpenAI Edited',
+      baseUrl: 'http://localhost:11434/v1',
+      api: 'openai-completions',
+      headers: { 'X-Test': 'yes' },
+      compat: { supportsDeveloperRole: true },
+      authHeader: false,
+      models: [
+        {
+          id: 'qwen2.5-coder:7b',
+          name: 'Qwen Coder Local',
+          reasoning: true,
+          thinkingLevelMap: { off: null, low: 'low', high: 'high' },
+          input: ['text', 'image'],
+          contextWindow: 128000,
+          maxTokens: 16000,
+          cost: { input: 1, output: 2, cacheRead: 3, cacheWrite: 4 },
+          headers: { 'X-Model': 'qwen' },
+          compat: { supportsReasoningEffort: true }
+        }
+      ],
+      modelOverrides: {
+        'built-in-model': {
+          maxTokens: 8192
+        }
+      }
+    })
+
+    const modelsJson = JSON.parse(readFileSync(join(dir, 'agent', 'models.json'), 'utf-8'))
+    expect(modelsJson.providers['local-openai'].apiKey).toBe('ollama')
+    expect(modelsJson.providers['local-openai']).toMatchObject({
+      name: 'Local OpenAI Edited',
+      headers: { 'X-Test': 'yes' },
+      compat: { supportsDeveloperRole: true },
+      authHeader: false,
+      modelOverrides: {
+        'built-in-model': {
+          maxTokens: 8192
+        }
+      }
+    })
+    expect(modelsJson.providers['local-openai'].models[0]).toMatchObject({
+      reasoning: true,
+      thinkingLevelMap: { off: null, low: 'low', high: 'high' },
+      input: ['text', 'image'],
+      cost: { input: 1, output: 2, cacheRead: 3, cacheWrite: 4 },
+      headers: { 'X-Model': 'qwen' },
+      compat: { supportsReasoningEffort: true }
+    })
 
     const saved = await service.updateModelSettings({
       defaultProvider: 'local-openai',

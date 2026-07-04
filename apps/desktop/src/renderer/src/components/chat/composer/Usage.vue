@@ -168,7 +168,7 @@ const usedTokensText = computed(() => (isUnknown.value ? '?' : formatTokens(used
 
 .usage__tooltip-row {
   margin: 0;
-  color: color-mix(in srgb, var(--color-primary-ink) 80%, transparent);
+  color: var(--usage-tooltip-row-text);
 
   strong {
     color: var(--color-primary-ink);

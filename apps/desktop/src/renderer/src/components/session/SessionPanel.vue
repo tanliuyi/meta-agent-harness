@@ -243,7 +243,7 @@ dd {
   min-width: 0;
   padding: var(--space-2);
   background: var(--color-surface-raised);
-  border: 1px solid var(--color-danger, #ff7a7a);
+  border: 1px solid var(--color-danger-outline);
   border-radius: var(--radius-sm);
 
   header,

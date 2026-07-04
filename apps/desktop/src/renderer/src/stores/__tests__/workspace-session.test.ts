@@ -1054,6 +1054,26 @@ describe('workspace-session Project-first actions', () => {
     expect(store.hasDraftMessage).toBe(false)
   })
 
+  it('设置当前线程 thinking level 后刷新并使用后端真实值', async () => {
+    const initialSnapshot = createSnapshot()
+    const refreshedSnapshot = {
+      ...initialSnapshot,
+      thinkingLevel: 'high' as const
+    }
+    const setThinkingLevel = vi.fn().mockResolvedValue(undefined)
+    const getSnapshot = vi.fn().mockResolvedValue(refreshedSnapshot)
+    installCodingAgentApi({ setThinkingLevel, getSnapshot })
+    const store = useWorkspaceSessionStore()
+    store.sessions['thread-a'] = snapshotToWorkspaceSession(initialSnapshot)
+    await store.setActiveSessionId('thread-a')
+
+    await store.setActiveThinkingLevel('high')
+
+    expect(setThinkingLevel).toHaveBeenCalledWith({ threadId: 'thread-a', level: 'high' })
+    expect(getSnapshot).toHaveBeenLastCalledWith('thread-a')
+    expect(store.activeSnapshot?.thinkingLevel).toBe('high')
+  })
+
   it('新会话草稿首次发送时才创建 thread 并发送 prompt', async () => {
     const snapshot = {
       ...createSnapshot(),
@@ -1080,6 +1100,44 @@ describe('workspace-session Project-first actions', () => {
     expect(store.activeSessionId).toBe('thread-new')
     expect(store.activeProjectId).toBe('project-a')
     expect(store.hasDraftMessage).toBe(false)
+  })
+
+  it('新会话草稿首次发送前应用暂存 thinking level 并同步 snapshot', async () => {
+    const snapshot = {
+      ...createSnapshot(),
+      threadId: 'thread-new',
+      projectId: 'project-a'
+    }
+    const refreshedSnapshot = {
+      ...snapshot,
+      thinkingLevel: 'high' as const
+    }
+    const createThread = vi.fn().mockResolvedValue(snapshot)
+    const setThinkingLevel = vi.fn().mockResolvedValue(undefined)
+    const getSnapshot = vi.fn().mockResolvedValue(refreshedSnapshot)
+    const prompt = vi.fn().mockResolvedValue(undefined)
+    const setThreadTitle = vi.fn().mockResolvedValue({
+      threadId: snapshot.threadId,
+      projectId: snapshot.projectId,
+      cwd: snapshot.cwd,
+      status: snapshot.status,
+      createdAt: '2026-07-01T00:00:00.000Z',
+      updatedAt: '2026-07-01T00:00:00.000Z',
+      title: 'first prompt'
+    })
+    installCodingAgentApi({ createThread, setThinkingLevel, getSnapshot, prompt, setThreadTitle })
+    const store = useWorkspaceSessionStore()
+    store.startNewSession('project-a')
+    await store.setActiveThinkingLevel('high')
+    store.draftMessage = createComposerContent('first prompt')
+
+    await store.sendPrompt()
+
+    expect(createThread).toHaveBeenCalledWith({ projectId: 'project-a' })
+    expect(setThinkingLevel).toHaveBeenCalledWith({ threadId: 'thread-new', level: 'high' })
+    expect(getSnapshot).toHaveBeenCalledWith('thread-new')
+    expect(prompt).toHaveBeenCalledWith({ threadId: 'thread-new', message: 'first prompt' })
+    expect(store.sessions['thread-new']?.snapshot?.thinkingLevel).toBe('high')
   })
 
   it('新会话草稿未发送时不创建 thread、不进入列表且保留草稿', async () => {

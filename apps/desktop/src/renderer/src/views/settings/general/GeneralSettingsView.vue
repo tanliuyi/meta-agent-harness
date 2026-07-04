@@ -4,7 +4,6 @@ import { useAppearanceSettings } from '@renderer/composables/useAppearanceSettin
 import { useTheme } from '@renderer/composables/useTheme'
 import { RotateCcw } from 'lucide-vue-next'
 import { computed } from 'vue'
-import './general-settings.scss'
 
 const appearanceSettings = useAppearanceSettings()
 const { setThemeMode, themeMode, themeOptions } = useTheme()

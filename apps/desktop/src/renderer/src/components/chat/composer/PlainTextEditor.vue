@@ -7,12 +7,12 @@ import StarterKit from '@tiptap/starter-kit'
 import { Node, mergeAttributes } from '@tiptap/core'
 import { EditorContent, useEditor, type JSONContent } from '@tiptap/vue-3'
 import { computed, ref, watch } from 'vue'
-import ScrollArea from '../ui/scroll-area/ScrollArea.vue'
+import ScrollArea from '@renderer/components/ui/scroll-area/ScrollArea.vue'
 import type {
   FileReferenceCompletionResult,
   PromptFileReferenceCandidate
 } from '@shared/coding-agent/types'
-import { formatFileArgForInsertion } from '../../../../../../../packages/coding-agent/src/core/file-reference-format'
+import { formatFileArgForInsertion } from '@shared/coding-agent/file-reference-format'
 
 export interface FileReferenceCompletionState {
   candidates: PromptFileReferenceCandidate[]
@@ -369,10 +369,10 @@ function selectCompletion(candidate: PromptFileReferenceCandidate | undefined): 
   )
   const tokenTextLength = textBeforeCursor.length - currentCompletion.from
   const from = Math.max(1, currentEditor.state.selection.from - tokenTextLength)
-  currentEditor.commands.insertContentAt(
-    { from, to: currentEditor.state.selection.from },
-    [insertion, { type: 'text', text: ' ' }]
-  )
+  currentEditor.commands.insertContentAt({ from, to: currentEditor.state.selection.from }, [
+    insertion,
+    { type: 'text', text: ' ' }
+  ])
   closeCompletion()
 }
 
@@ -505,7 +505,7 @@ defineExpose({
 
 <template>
   <div class="plain-text-editor">
-    <span v-if="placeholder && !currentText && !isFocused" class="plain-text-editor__placeholder">
+    <span v-if="placeholder && !currentText" class="plain-text-editor__placeholder">
       {{ placeholder }}
     </span>
     <ScrollArea class="plain-text-editor__scroll">
@@ -515,7 +515,7 @@ defineExpose({
 </template>
 
 <style lang="scss" scoped>
-@use './file-reference-node';
+@use '../file-reference-node';
 
 .plain-text-editor {
   position: relative;
@@ -592,5 +592,4 @@ defineExpose({
     @include file-reference-node.file-reference-node-label;
   }
 }
-
 </style>

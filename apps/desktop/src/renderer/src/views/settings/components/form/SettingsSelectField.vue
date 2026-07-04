@@ -24,14 +24,14 @@ const emit = defineEmits<{
 </script>
 
 <template>
-  <Field class="settings-form-field gap-1">
+  <Field class="settings-form-field">
     <FieldLabel class="settings-field-label">{{ label }}</FieldLabel>
     <Select
       :model-value="modelValue"
       :disabled="disabled"
       @update:model-value="emit('update:modelValue', $event as string)"
     >
-      <SelectTrigger class="w-full" :disabled="disabled">
+      <SelectTrigger class="settings-select-field__trigger" :disabled="disabled">
         <SelectValue :placeholder="placeholder" />
       </SelectTrigger>
       <SelectContent>
@@ -45,3 +45,9 @@ const emit = defineEmits<{
     <FieldDescription v-if="description">{{ description }}</FieldDescription>
   </Field>
 </template>
+
+<style lang="scss" scoped>
+.settings-select-field__trigger {
+  width: 100%;
+}
+</style>

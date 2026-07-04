@@ -9,8 +9,8 @@
   ],
   "compilerOptions": {
     "composite": true,
+    "noEmit": true,
     "allowImportingTsExtensions": true,
-    "baseUrl": ".",
     "plugins": [
       {
         "name": "@vue/typescript-plugin"
@@ -20,9 +20,16 @@
       "@earendil-works/pi-agent-core": [
         "../../node_modules/.pnpm/node_modules/@earendil-works/pi-agent-core/dist/index.d.ts"
       ],
-      "@/*": ["src/renderer/src/*"],
-      "@shared/*": ["src/shared/*"],
-      "@renderer/*": ["src/renderer/src/*"]
+      "@earendil-works/pi-ai": [
+        "../../packages/ai/dist/index.d.ts"
+      ],
+      "@earendil-works/pi-ai/*": [
+        "../../packages/ai/dist/*.d.ts",
+        "../../packages/ai/dist/providers/*.d.ts"
+      ],
+      "@/*": ["./src/renderer/src/*"],
+      "@shared/*": ["./src/shared/*"],
+      "@renderer/*": ["./src/renderer/src/*"]
     }
   }
 }

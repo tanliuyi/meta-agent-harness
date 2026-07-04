@@ -11,7 +11,6 @@ import router from './router'
 import pinia from './stores'
 import { useAppStore } from './stores/app'
 import './styles/fonts.scss'
-import './styles/shadcn.css'
 import './styles/base.scss'
 
 /**

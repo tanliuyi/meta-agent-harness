@@ -10,7 +10,6 @@ import {
   AlertDialogHeader,
   AlertDialogTitle
 } from '@/components/ui/alert-dialog'
-import { cn } from '@/lib/utils'
 import { useConfirmDialog } from '@/composables/useConfirmDialog'
 
 const { activeDialog, cancelActiveDialog, confirmActiveDialog, resolveActiveDialog } =
@@ -44,11 +43,10 @@ function handleOpenChange(open: boolean): void {
 
   <AlertDialog :open="isOpen" @update:open="handleOpenChange">
     <AlertDialogContent
-      :class="
-        cn('bg-popover text-popover-foreground shadow-md', isDestructive && 'border-destructive/45')
-      "
+      class="confirm-dialog"
+      :data-tone="isDestructive ? 'destructive' : 'default'"
     >
-      <AlertDialogHeader class="text-left">
+      <AlertDialogHeader class="confirm-dialog__header">
         <AlertDialogTitle>
           {{ activeDialog?.title }}
         </AlertDialogTitle>
@@ -85,3 +83,13 @@ function handleOpenChange(open: boolean): void {
     </AlertDialogContent>
   </AlertDialog>
 </template>
+
+<style lang="scss" scoped>
+.confirm-dialog[data-tone='destructive'] {
+  border-color: var(--color-danger-outline);
+}
+
+.confirm-dialog__header {
+  text-align: left;
+}
+</style>

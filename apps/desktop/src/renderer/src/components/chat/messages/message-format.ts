@@ -61,68 +61,84 @@ export function getUserMessageDisplayText(message: ThreadMessage): string | unde
 }
 
 /**
- * 获取 user message 的 Markdown 展示文本，并把 @file 改写为文件引用 chip marker。
- * @param message - Thread message。
- * @returns 用户可见 Markdown。
+ * 用户消息展示片段。
  */
-export function getUserMessageDisplayMarkdown(message: ThreadMessage): string | undefined {
+export type UserMessageDisplaySegment =
+  | {
+      type: 'text'
+      text: string
+    }
+  | {
+      type: 'fileReference'
+      fileArg: string
+      label: string
+    }
+
+/**
+ * 获取 user message 的展示片段，仅识别纯文本和 @file 引用。
+ * @param message - Thread message。
+ * @returns 用户可见展示片段。
+ */
+export function getUserMessageDisplaySegments(message: ThreadMessage): UserMessageDisplaySegment[] {
   const text = getUserMessageDisplayText(message)
-  return text ? formatFileReferencesForMarkdown(text) : undefined
+  return text ? parseUserMessageDisplaySegments(text) : []
 }
 
 /**
- * 将 Pi @file 文本改写为 markstream inline_code marker。
+ * 将 Pi @file 文本解析为文件引用 chip 片段，其余内容保持纯文本。
  * @param text - 用户消息展示文本。
- * @returns 改写后的 Markdown。
+ * @returns 展示片段。
  */
-export function formatFileReferencesForMarkdown(text: string): string {
-  return mapMarkdownTextSegments(text, replaceFileReferences)
-}
-
-function mapMarkdownTextSegments(text: string, mapText: (value: string) => string): string {
-  let result = ''
+export function parseUserMessageDisplaySegments(text: string): UserMessageDisplaySegment[] {
+  const segments: UserMessageDisplaySegment[] = []
+  const fileReferencePattern = /(^|[\s([{（【])@(?:"((?:\\.|[^"\\])*)"|([^\s`"'<>]+))/g
   let cursor = 0
-  while (cursor < text.length) {
-    const fenceMatch = text.slice(cursor).match(/`+/)
-    if (!fenceMatch || fenceMatch.index === undefined) {
-      result += mapText(text.slice(cursor))
-      break
+  for (const match of text.matchAll(fileReferencePattern)) {
+    const matchStart = match.index ?? 0
+    const [rawMatch, prefix = '', quotedValue, bareValue] = match
+    const rawValue = quotedValue !== undefined ? quotedValue.replace(/\\"/g, '"') : bareValue
+    const fileArg = rawValue ? trimTrailingFileReferencePunctuation(rawValue) : ''
+    if (!fileArg) {
+      continue
     }
 
-    const fenceStart = cursor + fenceMatch.index
-    const fence = fenceMatch[0]
-    result += mapText(text.slice(cursor, fenceStart))
-
-    const contentStart = fenceStart + fence.length
-    const fenceEnd = text.indexOf(fence, contentStart)
-    if (fenceEnd < 0) {
-      result += text.slice(fenceStart)
-      break
+    const fileReferenceStart = matchStart + prefix.length
+    pushTextSegment(segments, text.slice(cursor, fileReferenceStart))
+    segments.push({
+      type: 'fileReference',
+      fileArg,
+      label: getFileReferenceDisplayName(fileArg)
+    })
+    const trailing = rawValue.slice(fileArg.length)
+    if (trailing) {
+      pushTextSegment(segments, trailing)
     }
-
-    result += text.slice(fenceStart, fenceEnd + fence.length)
-    cursor = fenceEnd + fence.length
+    cursor = matchStart + rawMatch.length
   }
-  return result
+  pushTextSegment(segments, text.slice(cursor))
+  return segments
 }
 
-function replaceFileReferences(text: string): string {
-  return text.replace(
-    /(^|[\s([{（【])@(?:"((?:\\.|[^"\\])*)"|([^\s`"'<>]+))/g,
-    (match, prefix: string, quotedValue: string | undefined, bareValue: string | undefined) => {
-      const rawValue = quotedValue !== undefined ? quotedValue.replace(/\\"/g, '"') : bareValue
-      const fileArg = rawValue ? trimTrailingFileReferencePunctuation(rawValue) : ''
-      const trailing = rawValue ? rawValue.slice(fileArg.length) : ''
-      if (!fileArg) {
-        return match
-      }
-      return `${prefix}\`meta-agent-file-ref:${encodeURIComponent(fileArg)}\`${trailing}`
-    }
-  )
+function pushTextSegment(segments: UserMessageDisplaySegment[], text: string): void {
+  if (!text) {
+    return
+  }
+  const previous = segments[segments.length - 1]
+  if (previous?.type === 'text') {
+    previous.text += text
+    return
+  }
+  segments.push({ type: 'text', text })
 }
 
 function trimTrailingFileReferencePunctuation(value: string): string {
   return value.replace(/[),.，。!?！？;；:：、\]}）】]+$/g, '')
+}
+
+function getFileReferenceDisplayName(value: string): string {
+  const normalized = value.replace(/\\/g, '/').replace(/\/+$/, '')
+  const separatorIndex = normalized.lastIndexOf('/')
+  return separatorIndex >= 0 ? normalized.slice(separatorIndex + 1) : normalized
 }
 
 /** 用户消息中的文件附件上下文。 */

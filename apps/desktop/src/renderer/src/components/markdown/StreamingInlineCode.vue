@@ -66,12 +66,13 @@ function getFileReferenceDisplayName(value: string): string {
   padding: 1px 5px;
   font-family: var(--font-mono);
   font-size: var(--font-size-code);
+  font-weight: var(--font-weight-code);
   line-height: 1.5;
-  color: color-mix(in srgb, var(--color-text) 84%, transparent);
+  color: var(--markdown-inline-code-text);
   white-space: normal;
   overflow-wrap: break-word;
   word-break: break-word;
-  background: color-mix(in srgb, var(--color-surface-raised) 82%, transparent);
+  background: var(--markdown-inline-code-bg);
   border-radius: var(--radius-xs);
   box-decoration-break: clone;
   -webkit-box-decoration-break: clone;

@@ -38,25 +38,25 @@ withDefaults(
 
 .is-neutral {
   color: var(--color-text-muted);
-  background: rgb(255 255 255 / 5%);
+  background: var(--color-badge-neutral-bg);
   border-color: var(--color-border);
 }
 
 .is-success {
   color: var(--color-primary-strong);
-  background: rgb(105 210 160 / 10%);
-  border-color: rgb(105 210 160 / 34%);
+  background: var(--color-primary-soft);
+  border-color: var(--color-primary-outline);
 }
 
 .is-warning {
   color: var(--color-accent);
-  background: rgb(244 189 79 / 10%);
-  border-color: rgb(244 189 79 / 34%);
+  background: var(--color-accent-soft);
+  border-color: var(--color-accent-outline);
 }
 
 .is-info {
   color: var(--color-info);
-  background: rgb(121 169 255 / 10%);
-  border-color: rgb(121 169 255 / 34%);
+  background: var(--color-info-soft);
+  border-color: var(--color-info-outline);
 }
 </style>

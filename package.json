@@ -12,17 +12,5 @@
   "keywords": [],
   "author": "",
   "license": "ISC",
-  "packageManager": "pnpm@10.19.0",
-  "pnpm": {
-    "onlyBuiltDependencies": [
-      "@google/genai",
-      "@parcel/watcher",
-      "canvas",
-      "electron",
-      "electron-winstaller",
-      "esbuild",
-      "protobufjs",
-      "vue-demi"
-    ]
-  }
+  "packageManager": "pnpm@11.7.0"
 }

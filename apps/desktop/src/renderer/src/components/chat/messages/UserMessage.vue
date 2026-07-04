@@ -5,9 +5,8 @@ import {
   getMessageFileAttachments,
   getMessageImageSrc,
   getStandaloneMessageImages,
-  getUserMessageDisplayMarkdown
+  getUserMessageDisplaySegments
 } from './message-format'
-import StreamingMarkdown from '../../markdown/StreamingMarkdown.vue'
 
 const props = defineProps<{
   message: RenderableThreadMessage
@@ -15,7 +14,7 @@ const props = defineProps<{
 
 const fileAttachments = computed(() => getMessageFileAttachments(props.message))
 const standaloneImages = computed(() => getStandaloneMessageImages(props.message))
-const displayMarkdown = computed(() => getUserMessageDisplayMarkdown(props.message) ?? '')
+const displaySegments = computed(() => getUserMessageDisplaySegments(props.message))
 </script>
 
 <template>
@@ -24,7 +23,10 @@ const displayMarkdown = computed(() => getUserMessageDisplayMarkdown(props.messa
       <div
         v-for="(attachment, index) in fileAttachments"
         :key="`${attachment.name}-${index}`"
-        :class="['user-message__attachment', { 'user-message__attachment--image': attachment.imageSrc }]"
+        :class="[
+          'user-message__attachment',
+          { 'user-message__attachment--image': attachment.imageSrc }
+        ]"
       >
         <img
           v-if="attachment.imageSrc"
@@ -32,7 +34,9 @@ const displayMarkdown = computed(() => getUserMessageDisplayMarkdown(props.messa
           :src="attachment.imageSrc"
           alt=""
         />
-        <span v-if="!attachment.imageSrc" class="user-message__attachment-name">{{ attachment.name }}</span>
+        <span v-if="!attachment.imageSrc" class="user-message__attachment-name">{{
+          attachment.name
+        }}</span>
         <span v-if="attachment.note" class="user-message__attachment-note">
           {{ attachment.note }}
         </span>
@@ -46,17 +50,21 @@ const displayMarkdown = computed(() => getUserMessageDisplayMarkdown(props.messa
         alt=""
       />
     </div>
-    <StreamingMarkdown
-      v-if="displayMarkdown"
-      :source="displayMarkdown"
-      :revision="message.revision"
-      :is-streaming="message.renderState === 'streaming'"
-      :message-id="message.id"
-    />
+    <div v-if="displaySegments.length > 0" class="user-message__text">
+      <template v-for="(segment, index) in displaySegments" :key="index">
+        <span v-if="segment.type === 'text'">{{ segment.text }}</span>
+        <span v-else class="file-reference-node" :title="segment.fileArg">
+          <span class="file-reference-node__icon">@</span>
+          <span class="file-reference-node__label">{{ segment.label }}</span>
+        </span>
+      </template>
+    </div>
   </div>
 </template>
 
 <style lang="scss" scoped>
+@use '../file-reference-node';
+
 .user-message {
   display: flex;
   flex-direction: column;
@@ -64,9 +72,9 @@ const displayMarkdown = computed(() => getUserMessageDisplayMarkdown(props.messa
   width: fit-content;
   min-width: 0;
   max-width: min(640px, 88%);
-  padding: var(--space-2);
-  background: color-mix(in srgb, var(--color-primary) 18%, var(--color-surface-raised));
-  border: 1px solid color-mix(in srgb, var(--color-primary) 38%, var(--color-border));
+  padding: var(--space-1) var(--space-2);
+  background: var(--user-message-bg);
+  border: 1px solid var(--user-message-border);
   border-radius: var(--radius-md);
   box-shadow: var(--shadow-sm);
   color: var(--color-text);
@@ -74,6 +82,22 @@ const displayMarkdown = computed(() => getUserMessageDisplayMarkdown(props.messa
   line-height: 1.6;
   word-break: break-all;
   overflow-wrap: anywhere;
+}
+
+.user-message__text {
+  white-space: pre-wrap;
+}
+
+.file-reference-node {
+  @include file-reference-node.file-reference-node;
+}
+
+.file-reference-node__icon {
+  @include file-reference-node.file-reference-node-icon;
+}
+
+.file-reference-node__label {
+  @include file-reference-node.file-reference-node-label;
 }
 
 .user-message__images {
@@ -90,7 +114,7 @@ const displayMarkdown = computed(() => getUserMessageDisplayMarkdown(props.messa
     width: 100%;
     max-height: 180px;
     object-fit: cover;
-    border: 1px solid color-mix(in srgb, var(--color-primary) 28%, var(--color-border));
+    border: 1px solid var(--user-message-media-border);
     border-radius: var(--radius-md);
   }
 }
@@ -110,8 +134,8 @@ const displayMarkdown = computed(() => getUserMessageDisplayMarkdown(props.messa
   gap: 2px;
   min-width: 0;
   padding: 6px 8px;
-  background: color-mix(in srgb, var(--color-surface) 72%, transparent);
-  border: 1px solid color-mix(in srgb, var(--color-primary) 24%, var(--color-border));
+  background: var(--user-message-attachment-bg);
+  border: 1px solid var(--user-message-attachment-border);
   border-radius: var(--radius-sm);
 
   &--image {
@@ -129,7 +153,7 @@ const displayMarkdown = computed(() => getUserMessageDisplayMarkdown(props.messa
   max-height: 180px;
   object-fit: cover;
   background: var(--color-surface);
-  border: 1px solid color-mix(in srgb, var(--color-primary) 28%, var(--color-border));
+  border: 1px solid var(--user-message-media-border);
   border-radius: var(--radius-md);
 
   .user-message__attachment--image & {

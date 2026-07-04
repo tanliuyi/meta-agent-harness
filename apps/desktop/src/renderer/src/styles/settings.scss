@@ -1,0 +1,228 @@
+@use '../views/settings/agent/agent-settings';
+@use '../views/settings/archive/archive-settings';
+@use '../views/settings/general/general-settings';
+@use '../views/settings/models/model-settings';
+
+.general-page,
+.agent-page,
+.models-page,
+.archive-page {
+  box-sizing: border-box;
+  width: 100%;
+  max-width: var(--settings-page-max-width);
+  min-width: 0;
+  min-height: 0;
+  margin: 0 auto;
+  padding: var(--space-6) var(--space-8);
+}
+
+.general-page__header,
+.agent-page__header,
+.models-page__header,
+.archive-page__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-4);
+  margin-bottom: var(--space-4);
+}
+
+.general-page__eyebrow,
+.agent-page__eyebrow,
+.models-page__eyebrow,
+.archive-page__eyebrow {
+  margin: 0 0 var(--space-1);
+  color: var(--color-primary);
+  font-size: var(--font-size-ui-xs);
+  font-weight: 750;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+
+.general-page__title,
+.agent-page__title,
+.models-page__title,
+.archive-page__title {
+  margin: 0;
+  color: var(--color-text);
+  font-size: var(--font-size-ui-2xl);
+  line-height: 1.15;
+}
+
+.general-page__subtitle,
+.agent-page__subtitle,
+.models-page__subtitle,
+.archive-page__subtitle,
+.muted-copy {
+  max-width: 640px;
+  margin: var(--space-2) 0 0;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-ui-sm);
+  line-height: 1.5;
+}
+
+.muted-copy {
+  max-width: none;
+  margin: 0;
+}
+
+.warning-copy {
+  color: var(--color-accent);
+}
+
+.status-row {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-ui-sm);
+  line-height: 1.5;
+}
+
+.agent-shell,
+.models-shell {
+  display: grid;
+  grid-template-columns: 220px minmax(0, 1fr);
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.agent-shell__nav,
+.models-shell__nav {
+  min-width: 0;
+  border-right: 1px solid var(--color-border-subtle);
+}
+
+.agent-shell__nav [data-slot='scroll-area-viewport'],
+.models-shell__nav [data-slot='scroll-area-viewport'] {
+  display: grid;
+  align-content: start;
+  gap: var(--space-1);
+  padding: var(--space-4) var(--space-3);
+}
+
+.agent-shell__nav-header,
+.models-shell__nav-header {
+  padding: 0 var(--space-2) var(--space-3);
+
+  h1 {
+    margin: 0;
+    color: var(--color-text);
+    font-size: var(--font-size-ui-lg);
+    font-weight: 750;
+    line-height: 1.15;
+  }
+
+  p {
+    margin: var(--space-1) 0 0;
+    color: var(--color-text-muted);
+    font-size: var(--font-size-ui-sm);
+    line-height: 1.45;
+  }
+}
+
+.agent-shell__link,
+.models-shell__link {
+  display: flex;
+  align-items: center;
+  min-height: 28px;
+  min-width: 0;
+  padding: 0 var(--space-2);
+  border: 1px solid transparent;
+  border-radius: var(--radius-md);
+  color: var(--color-text-muted);
+  font-size: var(--font-size-ui-sm);
+  font-weight: 650;
+  text-decoration: none;
+  transition:
+    background var(--duration-fast) var(--ease-standard),
+    border-color var(--duration-fast) var(--ease-standard),
+    color var(--duration-fast) var(--ease-standard);
+
+  &:hover {
+    color: var(--color-text);
+    background: var(--color-surface-raised);
+  }
+
+  &.router-link-active {
+    color: var(--color-text);
+    background: var(--color-item-active);
+    border-color: var(--color-item-active-border);
+  }
+}
+
+.agent-shell__content,
+.models-shell__content {
+  display: grid;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.agent-shell__content-scroll,
+.models-shell__content-scroll,
+.archive-page-scroll {
+  min-width: 0;
+  min-height: 0;
+}
+
+.state-strip,
+.archive-state {
+  margin-bottom: var(--space-4);
+  padding: var(--space-3) var(--space-4);
+  color: var(--color-text-muted);
+  background: var(--color-surface-raised);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  font-size: var(--font-size-ui-sm);
+
+  &.is-error {
+    color: var(--color-accent);
+  }
+}
+
+.settings-switch-field,
+.switch-row,
+.custom-model-editor,
+.thinking-map,
+.settings-array-field__bulk {
+  background: var(--color-surface-raised);
+  border-color: var(--color-border);
+  border-radius: var(--radius-sm);
+}
+
+.json-field textarea {
+  font-family: var(--font-mono);
+  font-weight: var(--font-weight-code);
+}
+
+@media (width <= 1080px) {
+  .agent-shell {
+    grid-template-columns: 1fr;
+  }
+
+  .agent-shell__nav {
+    border-right: 0;
+    border-bottom: 1px solid var(--color-border);
+  }
+}
+
+@media (width <= 980px) {
+  .models-shell {
+    grid-template-columns: 1fr;
+  }
+
+  .models-shell__nav {
+    border-right: 0;
+    border-bottom: 1px solid var(--color-border);
+  }
+}
+
+@media (width <= 820px) {
+  .general-page__header,
+  .agent-page__header,
+  .models-page__header,
+  .archive-page__header {
+    display: grid;
+    grid-template-columns: 1fr;
+  }
+}

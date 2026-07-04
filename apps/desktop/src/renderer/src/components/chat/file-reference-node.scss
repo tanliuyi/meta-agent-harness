@@ -9,13 +9,13 @@
   padding: 2px 4px;
   vertical-align: baseline;
   color: var(--color-text);
-  background: color-mix(in srgb, var(--color-surface) 76%, transparent);
+  background: var(--file-reference-bg);
   border-radius: var(--radius-sm);
 }
 
 @mixin file-reference-node-selected {
   border-color: var(--color-primary);
-  box-shadow: 0 0 0 1px color-mix(in srgb, var(--color-primary) 32%, transparent);
+  box-shadow: 0 0 0 1px var(--file-reference-selected-ring);
 }
 
 @mixin file-reference-node-icon {
@@ -24,7 +24,7 @@
   width: 18px;
   height: 18px;
   color: var(--color-primary);
-  background: color-mix(in srgb, var(--color-primary) 14%, transparent);
+  background: var(--file-reference-icon-bg);
   border-radius: var(--radius-sm);
   font-size: var(--font-size-ui-sm);
   font-weight: 700;

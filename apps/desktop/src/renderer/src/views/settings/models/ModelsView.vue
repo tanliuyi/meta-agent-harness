@@ -3,7 +3,6 @@ import ScrollArea from '@/components/ui/scroll-area/ScrollArea.vue'
 import useModelSettingsStore from '@renderer/stores/model-settings'
 import { onMounted } from 'vue'
 import { RouterLink, RouterView } from 'vue-router'
-import './model-settings.scss'
 
 const modelSettings = useModelSettingsStore()
 

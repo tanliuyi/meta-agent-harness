@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import type { HTMLAttributes } from 'vue'
 import { computed } from 'vue'
-import { cn } from '@/lib/utils'
 
 const props = defineProps<{
   class?: HTMLAttributes['class']
@@ -28,7 +27,6 @@ const content = computed(() => {
 
   return uniqueErrors.map((error) => (typeof error === 'string' ? error : error?.message))
 })
-const rootClass = computed(() => cn('text-destructive text-sm font-normal', props.class))
 </script>
 
 <template>
@@ -36,7 +34,7 @@ const rootClass = computed(() => cn('text-destructive text-sm font-normal', prop
     v-if="$slots.default || content"
     role="alert"
     data-slot="field-error"
-    :class="rootClass"
+    :class="props.class"
   >
     <slot v-if="$slots.default" />
 
@@ -44,7 +42,7 @@ const rootClass = computed(() => cn('text-destructive text-sm font-normal', prop
       {{ content }}
     </template>
 
-    <ul v-else-if="Array.isArray(content)" class="ml-4 flex list-disc flex-col gap-1">
+    <ul v-else-if="Array.isArray(content)" class="field-error__list">
       <li v-for="(error, index) in content" :key="index">
         {{ error }}
       </li>

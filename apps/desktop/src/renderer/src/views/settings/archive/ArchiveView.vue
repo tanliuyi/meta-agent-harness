@@ -6,7 +6,6 @@ import useWorkspaceArchiveStore from '@renderer/stores/workspace-archive'
 import type { ThreadSummary } from '@shared/coding-agent/types'
 import { ArchiveRestore, Boxes, RotateCcw } from 'lucide-vue-next'
 import { computed, onMounted } from 'vue'
-import './archive-settings.scss'
 
 const workspaceArchive = useWorkspaceArchiveStore()
 

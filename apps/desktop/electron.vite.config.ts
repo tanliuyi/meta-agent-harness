@@ -4,7 +4,6 @@
 
 import { resolve } from 'path'
 import { defineConfig } from 'electron-vite'
-import tailwindcss from '@tailwindcss/vite'
 import vue from '@vitejs/plugin-vue'
 
 const sharedAlias = resolve('src/shared')
@@ -43,6 +42,6 @@ export default defineConfig({
         '@renderer': rendererAlias
       }
     },
-    plugins: [vue(), tailwindcss()]
+    plugins: [vue()]
   }
 })

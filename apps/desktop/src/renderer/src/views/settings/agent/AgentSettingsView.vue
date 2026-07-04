@@ -3,7 +3,6 @@ import ScrollArea from '@/components/ui/scroll-area/ScrollArea.vue'
 import useAgentSettingsStore from '@renderer/stores/agent-settings'
 import { onMounted } from 'vue'
 import { RouterLink, RouterView } from 'vue-router'
-import './agent-settings.scss'
 
 const agentSettings = useAgentSettingsStore()
 

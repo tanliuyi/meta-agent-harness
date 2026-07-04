@@ -1,45 +1,14 @@
 .streaming-markdown {
-  --message-markdown-block-gap: var(--space-2);
-  --message-markdown-paragraph-gap: calc(var(--space-3) * 0.75);
-  --message-markdown-list-gap: calc(var(--space-2) * 0.75);
-  --message-markdown-list-item-gap: calc(var(--space-2) / 2);
-  --message-markdown-table-gap: var(--space-3);
-  --message-markdown-code-gap: var(--space-3);
-  --message-markdown-line-height: 1.72;
-
   font-size: var(--font-size-ui);
-  line-height: var(--message-markdown-line-height);
+  font-weight: var(--markdown-text-weight);
+  line-height: var(--markdown-line-height);
 
   .markstream-vue,
   [data-custom-id='meta-agent-markdown'] {
-    --ms-text-body: var(--font-size-ui);
-    --ms-leading-body: var(--message-markdown-line-height);
-    --ms-text-h1: var(--font-size-ui);
-    --ms-text-h2: var(--font-size-ui);
-    --ms-text-h3: var(--font-size-ui);
-    --ms-text-h4: var(--font-size-ui);
-    --ms-text-h5: var(--font-size-ui);
-    --ms-text-h6: var(--font-size-ui);
-    --ms-leading-h1: var(--message-markdown-line-height);
-    --ms-leading-h2: var(--message-markdown-line-height);
-    --ms-leading-h3: var(--message-markdown-line-height);
-    --ms-flow-heading-1-mt: var(--space-2);
-    --ms-flow-heading-1-mb: calc(var(--space-2) / 2);
-    --ms-flow-heading-2-mt: var(--space-2);
-    --ms-flow-heading-2-mb: calc(var(--space-2) / 2);
-    --ms-flow-heading-3-mt: var(--space-2);
-    --ms-flow-heading-3-mb: calc(var(--space-2) / 2);
-    --ms-flow-heading-4-mt: var(--space-2);
-    --ms-flow-heading-4-mb: calc(var(--space-2) / 2);
-    --ms-flow-heading-5-mt: var(--space-2);
-    --ms-flow-heading-5-mb: calc(var(--space-2) / 2);
-    --ms-flow-heading-6-mt: var(--space-2);
-    --ms-flow-heading-6-mb: calc(var(--space-2) / 2);
-    --ms-flow-paragraph-y: 0;
-    --ms-flow-list-y: var(--message-markdown-list-gap);
-    --ms-flow-list-item-y: var(--message-markdown-list-item-gap);
-    --ms-flow-table-y: var(--message-markdown-block-gap);
-    --ms-flow-table-cell: calc(var(--space-2) / 2) var(--space-2);
+    font-family: var(--font-sans);
+    color: inherit;
+    font-size: inherit;
+    line-height: inherit;
   }
 
   .markstream-vue,
@@ -54,7 +23,7 @@
   }
 
   .markstream-vue :where([class*='-node'], .streaming-code-block) + :where(.paragraph-node, p) {
-    margin-top: var(--message-markdown-paragraph-gap);
+    margin-top: var(--markdown-paragraph-gap);
   }
 
   p:last-child {
@@ -65,13 +34,84 @@
     margin-bottom: calc(var(--space-2) / 2);
   }
 
-  .markstream-vue li + li {
-    margin-top: var(--message-markdown-list-item-gap);
+  .markstream-vue .text-node {
+    overflow-wrap: break-word;
+    white-space: pre-wrap;
+  }
+
+  .markstream-vue :where(button) {
+    appearance: none;
+    padding: 0;
+    color: inherit;
+    font: inherit;
+    background: transparent;
+    border: 0;
   }
 
   .markstream-vue :where(ol, ul) {
-    margin-top: var(--message-markdown-list-gap);
-    margin-bottom: var(--message-markdown-list-gap);
+    padding-left: var(--markdown-list-indent);
+  }
+
+  .markstream-vue li + li {
+    margin-top: var(--markdown-list-item-gap);
+  }
+
+  .markstream-vue :where(ol, ul) {
+    margin-top: var(--markdown-list-gap);
+    margin-bottom: var(--markdown-list-gap);
+  }
+
+  .markstream-vue ul {
+    list-style: disc;
+  }
+
+  .markstream-vue ol {
+    list-style: decimal;
+  }
+
+  .markstream-vue li::marker {
+    color: var(--color-text-muted);
+    font-weight: var(--markdown-text-weight);
+  }
+
+  :where(strong, b) {
+    font-weight: var(--markdown-strong-weight);
+  }
+
+  .markstream-vue li:has(.checkbox-node) {
+    margin-left: calc(-1 * var(--markdown-list-indent));
+    list-style: none;
+  }
+
+  .checkbox-node {
+    display: inline-flex;
+    align-items: center;
+    margin-right: var(--space-2);
+    color: var(--color-text-muted);
+    vertical-align: -0.15em;
+  }
+
+  .checkbox-checked {
+    color: var(--color-primary);
+  }
+
+  .emoji-node,
+  .html-inline-node {
+    display: inline;
+  }
+
+  .footnote-reference {
+    font-size: 0.75em;
+    line-height: 0;
+  }
+
+  .footnote-link {
+    color: var(--color-primary);
+    text-decoration: none;
+
+    &:hover {
+      text-decoration: underline;
+    }
   }
 
   p code,
@@ -83,11 +123,16 @@
   .streaming-inline-code {
     font-family: var(--font-mono);
     font-size: var(--font-size-code);
+    font-weight: var(--font-weight-code);
   }
 
   .markstream-vue .inline-code {
-    line-height: 1.45;
+    padding: 1px 5px;
+    color: var(--markdown-inline-code-text);
+    line-height: var(--markdown-inline-code-line-height);
     vertical-align: baseline;
+    background: var(--markdown-inline-code-bg);
+    border-radius: var(--radius-xs);
   }
 
   pre,
@@ -97,27 +142,39 @@
   .streaming-code-block,
   .streaming-code-block code {
     font-family: var(--font-mono);
+    font-weight: var(--font-weight-code);
   }
 
   .streaming-code-block {
-    margin-top: var(--message-markdown-code-gap);
-    margin-bottom: var(--message-markdown-code-gap);
+    margin-top: var(--markdown-code-gap);
+    margin-bottom: var(--markdown-code-gap);
   }
 
   table,
   .table-node {
     border-collapse: separate;
     border-spacing: 0;
-    margin-top: var(--message-markdown-table-gap);
-    margin-bottom: var(--message-markdown-table-gap);
+    width: 100%;
+    margin-top: var(--markdown-table-gap);
+    margin-bottom: var(--markdown-table-gap);
+    overflow: hidden;
+    border: 1px solid var(--color-border-muted);
+    border-radius: var(--radius-sm);
   }
 
   .table-node th,
   .table-node td {
+    padding: var(--markdown-table-cell-padding);
     border-right: 0;
     border-bottom: 0;
-    border-left: 1px solid var(--table-border);
-    border-top: 1px solid var(--table-border);
+    border-left: 1px solid var(--color-border-muted);
+    border-top: 1px solid var(--color-border-muted);
+  }
+
+  .table-node th {
+    color: var(--color-text);
+    font-weight: 600;
+    background: var(--markdown-table-header-bg);
   }
 
   .table-node tr > :first-child {
@@ -133,7 +190,7 @@
   }
 
   .table-node tbody tr:nth-child(2n):hover {
-    background-color: hsl(var(--ms-muted) / 0.35);
+    background-color: var(--markdown-table-row-alt-bg);
   }
 
   :where(h1, h2, h3, h4, h5, h6),
@@ -142,10 +199,24 @@
     margin-bottom: calc(var(--space-2) / 2);
     font-size: inherit;
     font-weight: 600;
-    line-height: var(--message-markdown-line-height);
+    line-height: var(--markdown-line-height);
   }
 
   .heading-node:first-child {
     margin-top: 0;
+  }
+
+  :where(blockquote, .blockquote-node) {
+    margin: var(--markdown-block-gap) 0;
+    padding-left: var(--space-3);
+    color: var(--color-text-muted);
+    border-left: 2px solid var(--color-border-strong);
+  }
+
+  :where(hr, .thematic-break-node) {
+    height: 1px;
+    margin: var(--markdown-block-gap) 0;
+    background: var(--color-border-muted);
+    border: 0;
   }
 }

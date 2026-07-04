@@ -162,6 +162,7 @@ const contentStyle = computed(() => ({ maxHeight: props.maxContentHeight }))
       color: inherit;
       font-family: var(--font-mono);
       font-size: var(--font-size-code);
+      font-weight: var(--font-weight-code);
       min-width: 100%;
       width: max-content;
       white-space: pre;

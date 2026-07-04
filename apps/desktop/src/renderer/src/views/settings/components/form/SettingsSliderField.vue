@@ -37,7 +37,7 @@ function updateInputValue(value: string | number): void {
 </script>
 
 <template>
-  <Field class="settings-form-field gap-1" :data-invalid="Boolean(error)">
+  <Field class="settings-form-field" :data-invalid="Boolean(error)">
     <div class="settings-slider-field__header">
       <FieldLabel class="settings-field-label">{{ label }}</FieldLabel>
       <Input

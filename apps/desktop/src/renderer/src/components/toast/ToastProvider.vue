@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import { X } from 'lucide-vue-next'
+import { CircleAlert, CircleCheck, X } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
 import { useToast } from '@/composables/useToast'
 
@@ -17,11 +17,20 @@ const toastMessages = computed(() => [...toast.toasts.value])
       :data-type="item.type"
       role="status"
     >
+      <CircleCheck v-if="item.type === 'success'" class="toast-item__icon" />
+      <CircleAlert v-else class="toast-item__icon" />
       <div class="toast-item__content">
         <strong>{{ item.title }}</strong>
         <p v-if="item.description">{{ item.description }}</p>
       </div>
-      <Button type="button" variant="ghost" size="icon-sm" title="关闭" @click="toast.dismissToast(item.id)">
+      <Button
+        type="button"
+        variant="ghost"
+        size="icon-sm"
+        class="toast-item__close"
+        title="关闭"
+        @click="toast.dismissToast(item.id)"
+      >
         <X />
       </Button>
     </div>
@@ -31,37 +40,49 @@ const toastMessages = computed(() => [...toast.toasts.value])
 <style lang="scss" scoped>
 .toast-viewport {
   position: fixed;
-  right: var(--space-4);
-  bottom: var(--space-4);
+  top: var(--space-4);
+  left: 50%;
   z-index: 50;
   display: flex;
   flex-direction: column;
   gap: var(--space-2);
-  width: min(360px, calc(100vw - var(--space-8)));
+  width: min(320px, calc(100vw - var(--space-8)));
+  transform: translateX(-50%);
   pointer-events: none;
 }
 
 .toast-item {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: var(--space-3);
-  align-items: start;
-  padding: var(--space-3);
+  grid-template-columns: 16px minmax(0, 1fr) auto;
+  gap: var(--space-2);
+  align-items: center;
+  min-height: 40px;
+  padding: var(--space-2);
   color: var(--color-text);
-  background: var(--color-surface-raised);
-  border: 1px solid var(--color-border);
-  border-left-width: 3px;
-  border-radius: var(--radius-sm);
-  box-shadow: var(--shadow-lg);
+  background: color-mix(in srgb, var(--color-surface) 92%, transparent);
+  border: 1px solid var(--color-border-muted);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-md);
+  backdrop-filter: blur(18px);
   pointer-events: auto;
 
   &[data-type='success'] {
-    border-left-color: var(--color-primary);
+    .toast-item__icon {
+      color: var(--color-primary);
+    }
   }
 
   &[data-type='error'] {
-    border-left-color: var(--color-accent);
+    .toast-item__icon {
+      color: var(--color-danger);
+    }
   }
+}
+
+.toast-item__icon {
+  width: 15px;
+  height: 15px;
+  color: var(--color-text-subtle);
 }
 
 .toast-item__content {
@@ -70,14 +91,27 @@ const toastMessages = computed(() => [...toast.toasts.value])
   strong {
     display: block;
     font-size: var(--font-size-ui-sm);
-    line-height: 1.4;
+    font-weight: 650;
+    line-height: 1.25;
   }
 
   p {
-    margin: var(--space-1) 0 0;
+    margin: 2px 0 0;
     color: var(--color-text-muted);
     font-size: var(--font-size-ui-xs);
-    line-height: 1.45;
+    line-height: 1.35;
+  }
+}
+
+.toast-item__close {
+  width: 24px;
+  height: 24px;
+  color: var(--color-text-subtle);
+  border-radius: var(--radius-sm);
+
+  svg {
+    width: 14px;
+    height: 14px;
   }
 }
 </style>

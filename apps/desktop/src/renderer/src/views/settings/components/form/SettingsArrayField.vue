@@ -89,7 +89,7 @@ function normalizeItems(items: string[]): string[] {
 </script>
 
 <template>
-  <Field :data-invalid="Boolean(error)" class="settings-form-field settings-array-field gap-1">
+  <Field :data-invalid="Boolean(error)" class="settings-form-field settings-array-field">
     <div class="settings-array-field__header">
       <div>
         <FieldLabel class="settings-field-label">{{ label }}</FieldLabel>

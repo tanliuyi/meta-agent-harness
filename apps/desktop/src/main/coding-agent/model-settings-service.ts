@@ -135,7 +135,11 @@ export class ModelSettingsService {
     this.validateCustomProviderInput(input)
     const config = this.readModelsJsonForWrite()
     const providers = { ...(config.providers ?? {}) }
-    providers[input.provider] = this.toStoredProviderConfig(input)
+    const previous = providers[input.provider]
+    providers[input.provider] = {
+      ...this.toStoredProviderConfig(input),
+      apiKey: input.apiKey ?? previous?.apiKey
+    }
     this.writeModelsJson({ providers })
     this.modelRegistry.refresh()
     return this.getModelSettings()
@@ -320,7 +324,12 @@ export class ModelSettingsService {
         name: value.name,
         baseUrl: value.baseUrl,
         api: value.api,
+        headers: value.headers,
+        compat: value.compat,
+        authHeader: value.authHeader,
         modelCount: value.models?.length ?? 0,
+        models: value.models,
+        modelOverrides: value.modelOverrides,
         overridesBuiltIn: this.modelRegistry.getAll().some((model) => model.provider === provider),
         hasApiKeyConfig: Boolean(value.apiKey)
       }))

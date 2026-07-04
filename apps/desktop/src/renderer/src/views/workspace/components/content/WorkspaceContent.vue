@@ -129,7 +129,7 @@ const {
   overflow: hidden;
   background-color: var(--color-surface);
   border: 1px solid var(--color-border);
-  border-radius: 12px 0 0 12px;
+  border-radius: var(--radius-workspace-shell) 0 0 var(--radius-workspace-shell);
 }
 
 .workspace-content__main-session {
@@ -196,7 +196,7 @@ const {
   &:focus-visible::before,
   &--active::before {
     background: var(--color-primary);
-    box-shadow: 0 0 0 1px rgb(105 210 160 / 16%);
+    box-shadow: var(--shadow-primary-halo);
   }
 
   &:focus-visible {

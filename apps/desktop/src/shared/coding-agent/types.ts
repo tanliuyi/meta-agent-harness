@@ -473,8 +473,18 @@ export interface CustomProviderSummary {
   baseUrl?: string
   /** API 类型。 */
   api?: string
+  /** 请求 headers；用于二次编辑自定义 provider。 */
+  headers?: Record<string, string>
+  /** provider 兼容配置。 */
+  compat?: Record<string, unknown>
+  /** 是否自动添加 Authorization bearer header。 */
+  authHeader?: boolean
   /** 模型数量。 */
   modelCount: number
+  /** 自定义模型列表，不包含 provider 凭据明文。 */
+  models?: CustomModelConfigInput[]
+  /** 内置模型 override。 */
+  modelOverrides?: Record<string, CustomModelOverrideInput>
   /** 是否为内置 provider override。 */
   overridesBuiltIn: boolean
   /** 是否配置了 API key 来源。 */

@@ -23,7 +23,9 @@ export function toDesktopMessageContent(message: AgentMessage): DesktopMessageCo
 	if (!role) {
 		return undefined;
 	}
-	const text = hasContent(message) ? extractText(message.content) : undefined;
+	const text = hasContent(message)
+		? extractText(message.content) ?? extractAssistantErrorText(message)
+		: extractAssistantErrorText(message);
 	if (role === "assistant" && !text?.trim() && !hasAssistantBlockContent(message)) {
 		return undefined;
 	}
@@ -276,6 +278,19 @@ function extractText(content: unknown): string | undefined {
 		.map((part) => part.text)
 		.join("");
 	return text || undefined;
+}
+
+/**
+ * 从 assistant 失败消息中提取可展示错误文本。
+ * @param message - 原始 agent 消息。
+ * @returns 错误文本，若不是模型请求失败则返回 undefined。
+ */
+function extractAssistantErrorText(message: AgentMessage): string | undefined {
+	if (message.role !== "assistant" || !isRecord(message) || message.stopReason !== "error") {
+		return undefined;
+	}
+	const errorMessage = typeof message.errorMessage === "string" ? message.errorMessage.trim() : "";
+	return errorMessage ? `模型请求失败：${errorMessage}` : "模型请求失败";
 }
 
 /**

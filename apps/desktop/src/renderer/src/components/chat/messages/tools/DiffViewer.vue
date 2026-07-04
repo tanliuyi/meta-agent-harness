@@ -70,15 +70,11 @@ function parseDisplayDiff(diff: string): DiffLine[] {
   --diff-border: var(--color-border);
   --diff-text: var(--color-text);
   --diff-muted: var(--color-text-subtle);
-  --diff-added-bg: color-mix(in srgb, var(--color-primary) 18%, var(--color-canvas));
-  --diff-added-gutter-bg: color-mix(in srgb, var(--color-primary) 22%, var(--color-surface-raised));
+  --diff-added-bg: var(--color-diff-added-bg);
+  --diff-added-gutter-bg: var(--color-diff-added-gutter-bg);
   --diff-added-fg: var(--color-primary);
-  --diff-removed-bg: color-mix(in srgb, var(--color-danger) 18%, var(--color-canvas));
-  --diff-removed-gutter-bg: color-mix(
-    in srgb,
-    var(--color-danger) 20%,
-    var(--color-surface-raised)
-  );
+  --diff-removed-bg: var(--color-diff-removed-bg);
+  --diff-removed-gutter-bg: var(--color-diff-removed-gutter-bg);
   --diff-removed-fg: var(--color-danger);
   --diff-skipped-bg: var(--color-surface-raised);
 
@@ -88,6 +84,7 @@ function parseDisplayDiff(diff: string): DiffLine[] {
   color: var(--diff-text);
   font-family: var(--font-mono);
   font-size: 12px;
+  font-weight: var(--font-weight-code);
   line-height: 20px;
   background: var(--diff-code-bg);
 }

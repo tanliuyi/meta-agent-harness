@@ -1,30 +1,52 @@
 <script setup lang="ts">
-import { BaseBadge, BaseButton, BaseField, BasePanel } from '@renderer/components/base'
-import { SettingsSelectField } from '@renderer/views/settings/components/form'
+import { BaseBadge, BaseButton, BasePanel } from '@renderer/components/base'
 import useModelSettingsStore from '@renderer/stores/model-settings'
-import { Database, Save } from 'lucide-vue-next'
+import type {
+  CustomModelConfigInput,
+  CustomModelOverrideInput,
+  ThinkingLevel
+} from '@shared/coding-agent/types'
+import { ChevronDown, ChevronRight, Database, Plus } from 'lucide-vue-next'
 import { computed, ref } from 'vue'
+import ProviderEditorFields from './CustomProviderEditorFields.vue'
 
-const modelSettings = useModelSettingsStore()
+type ThinkingLevelDraft = {
+  enabled: boolean
+  value: string
+}
 
-const customProviderDraft = ref({
-  provider: '',
-  name: '',
-  baseUrl: '',
-  api: 'openai-completions',
-  apiKey: '',
-  modelId: '',
-  modelName: '',
-  contextWindow: '128000',
-  maxTokens: '16384'
-})
+type CustomModelDraft = {
+  id: string
+  name: string
+  api: string
+  baseUrl: string
+  reasoning: boolean
+  inputText: boolean
+  inputImage: boolean
+  contextWindow: string
+  maxTokens: string
+  costInput: string
+  costOutput: string
+  costCacheRead: string
+  costCacheWrite: string
+  headersJson: string
+  compatJson: string
+  thinkingLevelMap: Record<ThinkingLevel, ThinkingLevelDraft>
+}
 
-const supportedApis = [
-  { label: 'OpenAI Completions', value: 'openai-completions' },
-  { label: 'OpenAI Responses', value: 'openai-responses' },
-  { label: 'Anthropic Messages', value: 'anthropic-messages' },
-  { label: 'Google Generative AI', value: 'google-generative-ai' }
-]
+type CustomProviderDraft = {
+  originalProvider: string
+  provider: string
+  name: string
+  baseUrl: string
+  api: string
+  apiKey: string
+  authHeader: boolean
+  headersJson: string
+  compatJson: string
+  modelOverridesJson: string
+  models: CustomModelDraft[]
+}
 
 type CustomProviderListItem = {
   provider: (typeof modelSettings.customProviders)[number]
@@ -34,39 +56,235 @@ type CustomProviderListItem = {
   credentialLabel: string
 }
 
+const modelSettings = useModelSettingsStore()
+
+const inheritProviderApiValue = '__inherit_provider_api__'
+const supportedApis = [
+  { label: 'OpenAI Completions', value: 'openai-completions' },
+  { label: 'OpenAI Responses', value: 'openai-responses' },
+  { label: 'Anthropic Messages', value: 'anthropic-messages' },
+  { label: 'Google Generative AI', value: 'google-generative-ai' }
+]
+
+const thinkingLevels: ThinkingLevel[] = ['off', 'minimal', 'low', 'medium', 'high', 'xhigh']
+
+const expandedProvider = ref<string>('')
+const customProviderDraft = ref<CustomProviderDraft>(createBlankProviderDraft())
+
 const customProviderCount = computed(() => modelSettings.customProviders.length)
 const hasCustomProviders = computed(() => customProviderCount.value > 0)
 const customProviderItems = computed<CustomProviderListItem[]>(() =>
   modelSettings.customProviders.map((provider) => ({
     provider,
     title: provider.name ?? provider.provider,
-    subtitle: `${provider.provider} · ${provider.api ?? 'api 未指定'}`,
+    subtitle: [provider.provider, provider.api ?? 'api 未指定', provider.baseUrl]
+      .filter(Boolean)
+      .join(' · '),
     credentialTone: provider.hasApiKeyConfig ? 'success' : 'warning',
     credentialLabel: provider.hasApiKeyConfig ? '凭据来源已配置' : '缺凭据来源'
   }))
 )
 
+function createThinkingLevelMap(
+  source?: Partial<Record<ThinkingLevel, string | null>>
+): Record<ThinkingLevel, ThinkingLevelDraft> {
+  return Object.fromEntries(
+    thinkingLevels.map((level) => {
+      const value = source?.[level]
+      return [
+        level,
+        {
+          enabled: value !== null,
+          value: typeof value === 'string' ? value : level
+        }
+      ]
+    })
+  ) as Record<ThinkingLevel, ThinkingLevelDraft>
+}
+
+function createBlankModelDraft(model?: CustomModelConfigInput): CustomModelDraft {
+  const input = model?.input ?? ['text']
+  return {
+    id: model?.id ?? '',
+    name: model?.name ?? '',
+    api: model?.api ?? inheritProviderApiValue,
+    baseUrl: model?.baseUrl ?? '',
+    reasoning: Boolean(model?.reasoning),
+    inputText: input.includes('text'),
+    inputImage: input.includes('image'),
+    contextWindow: model?.contextWindow ? String(model.contextWindow) : '128000',
+    maxTokens: model?.maxTokens ? String(model.maxTokens) : '16384',
+    costInput: model?.cost?.input !== undefined ? String(model.cost.input) : '',
+    costOutput: model?.cost?.output !== undefined ? String(model.cost.output) : '',
+    costCacheRead: model?.cost?.cacheRead !== undefined ? String(model.cost.cacheRead) : '',
+    costCacheWrite: model?.cost?.cacheWrite !== undefined ? String(model.cost.cacheWrite) : '',
+    headersJson: formatJson(model?.headers),
+    compatJson: formatJson(model?.compat),
+    thinkingLevelMap: createThinkingLevelMap(model?.thinkingLevelMap)
+  }
+}
+
+function createBlankProviderDraft(): CustomProviderDraft {
+  return {
+    originalProvider: '',
+    provider: '',
+    name: '',
+    baseUrl: '',
+    api: 'openai-completions',
+    apiKey: '',
+    authHeader: true,
+    headersJson: '',
+    compatJson: '',
+    modelOverridesJson: '',
+    models: [createBlankModelDraft()]
+  }
+}
+
+function createDraftFromProvider(provider: CustomProviderListItem['provider']): CustomProviderDraft {
+  return {
+    originalProvider: provider.provider,
+    provider: provider.provider,
+    name: provider.name ?? '',
+    baseUrl: provider.baseUrl ?? '',
+    api: provider.api ?? 'openai-completions',
+    apiKey: '',
+    authHeader: provider.authHeader ?? true,
+    headersJson: formatJson(provider.headers),
+    compatJson: formatJson(provider.compat),
+    modelOverridesJson: formatJson(provider.modelOverrides),
+    models: provider.models?.length ? provider.models.map(createBlankModelDraft) : [createBlankModelDraft()]
+  }
+}
+
+function toggleProvider(provider: CustomProviderListItem['provider']): void {
+  if (expandedProvider.value === provider.provider) {
+    expandedProvider.value = ''
+    return
+  }
+  expandedProvider.value = provider.provider
+  customProviderDraft.value = createDraftFromProvider(provider)
+}
+
+function startNewProvider(): void {
+  expandedProvider.value = '__new__'
+  customProviderDraft.value = createBlankProviderDraft()
+}
+
+function addModel(): void {
+  customProviderDraft.value.models.push(createBlankModelDraft())
+}
+
+function removeModel(index: number): void {
+  if (customProviderDraft.value.models.length === 1) {
+    customProviderDraft.value.models = [createBlankModelDraft()]
+    return
+  }
+  customProviderDraft.value.models.splice(index, 1)
+}
+
 async function saveCustomProvider(): Promise<void> {
   const draft = customProviderDraft.value
+  const originalProvider = draft.originalProvider
+  const nextProvider = draft.provider.trim()
   await modelSettings.upsertCustomProvider({
-    provider: draft.provider.trim(),
+    provider: nextProvider,
     name: draft.name.trim() || undefined,
-    baseUrl: draft.baseUrl.trim(),
-    api: draft.api,
+    baseUrl: draft.baseUrl.trim() || undefined,
+    api: draft.api || undefined,
     apiKey: draft.apiKey.trim() || undefined,
-    models: [
-      {
-        id: draft.modelId.trim(),
-        name: draft.modelName.trim() || undefined,
-        reasoning: false,
-        input: ['text'],
-        contextWindow: Number(draft.contextWindow),
-        maxTokens: Number(draft.maxTokens)
-      }
-    ]
+    authHeader: draft.authHeader,
+    headers: parseJsonStringRecord(draft.headersJson, 'Provider headers'),
+    compat: parseJsonObject(draft.compatJson, 'Provider compat'),
+    modelOverrides: parseJsonObject<Record<string, CustomModelOverrideInput>>(
+      draft.modelOverridesJson,
+      'Model overrides'
+    ),
+    models: draft.models.map(toModelConfigInput)
   })
+  if (originalProvider && originalProvider !== nextProvider) {
+    await modelSettings.deleteCustomProvider(originalProvider)
+  }
+  expandedProvider.value = nextProvider
+  customProviderDraft.value.originalProvider = nextProvider
   customProviderDraft.value.apiKey = ''
 }
+
+function toModelConfigInput(model: CustomModelDraft): CustomModelConfigInput {
+  const thinkingLevelMap = Object.fromEntries(
+    thinkingLevels.map((level) => {
+      const draft = model.thinkingLevelMap[level]
+      return [level, draft.enabled ? draft.value.trim() || level : null]
+    })
+  ) as Partial<Record<ThinkingLevel, string | null>>
+
+  const hasCost = [model.costInput, model.costOutput, model.costCacheRead, model.costCacheWrite].some(
+    (value) => value.trim()
+  )
+
+  return {
+    id: model.id.trim(),
+    name: model.name.trim() || undefined,
+    api: model.api === inheritProviderApiValue ? undefined : model.api.trim() || undefined,
+    baseUrl: model.baseUrl.trim() || undefined,
+    reasoning: model.reasoning,
+    thinkingLevelMap: model.reasoning ? thinkingLevelMap : undefined,
+    input: [model.inputText ? 'text' : undefined, model.inputImage ? 'image' : undefined].filter(
+      Boolean
+    ) as CustomModelConfigInput['input'],
+    contextWindow: model.contextWindow.trim() ? Number(model.contextWindow) : undefined,
+    maxTokens: model.maxTokens.trim() ? Number(model.maxTokens) : undefined,
+    cost: hasCost
+      ? {
+          input: numberOrZero(model.costInput),
+          output: numberOrZero(model.costOutput),
+          cacheRead: numberOrZero(model.costCacheRead),
+          cacheWrite: numberOrZero(model.costCacheWrite)
+        }
+      : undefined,
+    headers: parseJsonStringRecord(model.headersJson, `Model ${model.id || '未命名'} headers`),
+    compat: parseJsonObject(model.compatJson, `Model ${model.id || '未命名'} compat`)
+  }
+}
+
+function formatJson(value: unknown): string {
+  if (value === undefined || value === null) {
+    return ''
+  }
+  return JSON.stringify(value, null, 2)
+}
+
+function parseJsonObject<T extends Record<string, unknown> = Record<string, unknown>>(
+  value: string,
+  label: string
+): T | undefined {
+  const trimmed = value.trim()
+  if (!trimmed) {
+    return undefined
+  }
+  const parsed = JSON.parse(trimmed) as unknown
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    throw new Error(`${label} 必须是 JSON object`)
+  }
+  return parsed as T
+}
+
+function parseJsonStringRecord(value: string, label: string): Record<string, string> | undefined {
+  const parsed = parseJsonObject(value, label)
+  if (!parsed) {
+    return undefined
+  }
+  for (const [key, item] of Object.entries(parsed)) {
+    if (typeof item !== 'string') {
+      throw new Error(`${label}.${key} 必须是字符串`)
+    }
+  }
+  return parsed as Record<string, string>
+}
+
+function numberOrZero(value: string): number {
+  return value.trim() ? Number(value) : 0
+}
+
 </script>
 
 <template>
@@ -75,100 +293,83 @@ async function saveCustomProvider(): Promise<void> {
       <div>
         <p class="models-page__eyebrow">Custom</p>
         <h1 class="models-page__title">自定义 Provider</h1>
-        <p class="models-page__subtitle">只保存 Pi-compatible models.json provider 配置。</p>
+        <p class="models-page__subtitle">管理 Pi-compatible models.json provider；展开后编辑模型与思考等级。</p>
       </div>
-      <BaseButton size="sm" variant="primary" :disabled="modelSettings.saving" @click="saveCustomProvider">
+      <BaseButton size="sm" variant="primary" :disabled="modelSettings.saving" @click="startNewProvider">
         <template #icon>
-          <Save :size="14" />
+          <Plus :size="14" />
         </template>
-        保存 Provider
+        新增 Provider
       </BaseButton>
     </header>
 
     <div v-if="modelSettings.error" class="state-strip is-error">{{ modelSettings.error }}</div>
 
-    <BasePanel title="Provider 定义" eyebrow="models.json">
+    <BasePanel title="自定义 Provider" eyebrow="models.json">
       <template #actions>
         <BaseBadge :tone="hasCustomProviders ? 'success' : 'neutral'">
           {{ customProviderCount }} 个
         </BaseBadge>
       </template>
 
-      <div class="provider-form">
-        <BaseField
-          id="custom-provider-id"
-          v-model="customProviderDraft.provider"
-          label="Provider ID"
-          placeholder="local-openai"
-        />
-        <BaseField
-          id="custom-provider-name"
-          v-model="customProviderDraft.name"
-          label="显示名"
-          placeholder="Local OpenAI"
-        />
-        <BaseField
-          id="custom-provider-base-url"
-          v-model="customProviderDraft.baseUrl"
-          label="Base URL"
-          placeholder="http://localhost:11434/v1"
-        />
-        <SettingsSelectField v-model="customProviderDraft.api" label="API 类型 API" :options="supportedApis" />
-        <BaseField
-          id="custom-provider-api-key"
-          v-model="customProviderDraft.apiKey"
-          type="password"
-          label="API Key 配置"
-          placeholder="$LOCAL_MODEL_API_KEY 或 literal"
-          hint="提交给 main 保存；保存后不会从后端回显明文。"
-        />
-        <BaseField
-          id="custom-provider-model-id"
-          v-model="customProviderDraft.modelId"
-          label="Model ID"
-          placeholder="qwen2.5-coder:7b"
-        />
-        <BaseField
-          id="custom-provider-model-name"
-          v-model="customProviderDraft.modelName"
-          label="Model 显示名"
-          placeholder="Qwen Coder Local"
-        />
-        <BaseField
-          id="custom-provider-context"
-          v-model="customProviderDraft.contextWindow"
-          label="Context Window"
-          placeholder="128000"
-        />
-        <BaseField
-          id="custom-provider-max-tokens"
-          v-model="customProviderDraft.maxTokens"
-          label="Max Tokens"
-          placeholder="16384"
-        />
-      </div>
-    </BasePanel>
+      <ul v-if="hasCustomProviders" class="custom-provider-list">
+        <li v-for="item in customProviderItems" :key="item.provider.provider" class="custom-provider-list__item">
+          <button class="custom-provider-row" type="button" @click="toggleProvider(item.provider)">
+            <span class="custom-provider-row__chevron" aria-hidden="true">
+              <ChevronDown v-if="expandedProvider === item.provider.provider" :size="15" />
+              <ChevronRight v-else :size="15" />
+            </span>
+            <span class="custom-provider-row__copy">
+              <strong>{{ item.title }}</strong>
+              <span>{{ item.subtitle }}</span>
+            </span>
+            <span class="model-badges">
+              <BaseBadge tone="info">{{ item.provider.modelCount }} models</BaseBadge>
+              <BaseBadge :tone="item.credentialTone">
+                {{ item.credentialLabel }}
+              </BaseBadge>
+            </span>
+          </button>
 
-    <BasePanel title="已配置 Provider" eyebrow="Custom" style="margin-top: var(--space-4)">
-      <ul v-if="hasCustomProviders" class="plain-list">
-        <li v-for="item in customProviderItems" :key="item.provider.provider">
-          <div>
-            <strong>{{ item.title }}</strong>
-            <span>{{ item.subtitle }}</span>
-          </div>
-          <div class="model-badges">
-            <BaseBadge tone="info">{{ item.provider.modelCount }} models</BaseBadge>
-            <BaseBadge :tone="item.credentialTone">
-              {{ item.credentialLabel }}
-            </BaseBadge>
-          </div>
+          <form
+            v-if="expandedProvider === item.provider.provider"
+            class="custom-provider-editor"
+            @submit.prevent="saveCustomProvider"
+          >
+            <ProviderEditorFields
+              :draft="customProviderDraft"
+              :supported-apis="supportedApis"
+              :inherit-provider-api-value="inheritProviderApiValue"
+              :thinking-levels="thinkingLevels"
+              @add-model="addModel"
+              @remove-model="removeModel"
+            />
+          </form>
         </li>
       </ul>
+
       <div v-else class="empty-state">
         <Database :size="18" />
         <strong>尚未添加自定义 provider</strong>
         <span>可添加 Ollama、LM Studio、vLLM 或 OpenAI-compatible proxy。</span>
+        <BaseButton size="sm" variant="secondary" @click="startNewProvider">
+          <template #icon>
+            <Plus :size="14" />
+          </template>
+          新增 Provider
+        </BaseButton>
       </div>
+
+      <form v-if="expandedProvider === '__new__'" class="custom-provider-editor is-new" @submit.prevent="saveCustomProvider">
+        <ProviderEditorFields
+          :draft="customProviderDraft"
+          :supported-apis="supportedApis"
+          :inherit-provider-api-value="inheritProviderApiValue"
+          :thinking-levels="thinkingLevels"
+          @add-model="addModel"
+          @remove-model="removeModel"
+        />
+      </form>
     </BasePanel>
   </div>
 </template>

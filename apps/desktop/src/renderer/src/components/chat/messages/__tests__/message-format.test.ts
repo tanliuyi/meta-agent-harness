@@ -1,9 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import {
-  formatFileReferencesForMarkdown,
   getMessageFileAttachments,
   getStandaloneMessageImages,
-  getUserMessageDisplayText
+  getUserMessageDisplaySegments,
+  getUserMessageDisplayText,
+  parseUserMessageDisplaySegments
 } from '../message-format'
 import type { ThreadMessage } from '@shared/coding-agent/types'
 
@@ -99,15 +100,38 @@ describe('message-format', () => {
     expect(getUserMessageDisplayText(message)).toBe('请看 @README.md')
   })
 
-  it('formats bare @file references as markdown chip markers', () => {
-    expect(formatFileReferencesForMarkdown('请看 @src/App.vue。')).toBe(
-      '请看 `meta-agent-file-ref:src%2FApp.vue`。'
-    )
+  it('parses bare @file references as inline display segments', () => {
+    expect(parseUserMessageDisplaySegments('请看 @src/App.vue。')).toEqual([
+      { type: 'text', text: '请看 ' },
+      { type: 'fileReference', fileArg: 'src/App.vue', label: 'App.vue' },
+      { type: 'text', text: '。' }
+    ])
   })
 
-  it('formats quoted @file references without touching inline code', () => {
-    expect(formatFileReferencesForMarkdown('请看 @"docs/a b.md"，不是 `@src/raw.ts`')).toBe(
-      '请看 `meta-agent-file-ref:docs%2Fa%20b.md`，不是 `@src/raw.ts`'
-    )
+  it('parses quoted @file references while keeping markdown syntax as plain text', () => {
+    expect(parseUserMessageDisplaySegments('请看 @"docs/a b.md"，**重点** `code`')).toEqual([
+      { type: 'text', text: '请看 ' },
+      { type: 'fileReference', fileArg: 'docs/a b.md', label: 'a b.md' },
+      { type: 'text', text: '，**重点** `code`' }
+    ])
+  })
+
+  it('builds user message display segments after hiding Pi file context blocks', () => {
+    const message = {
+      id: 'message-e',
+      role: 'user',
+      text: '<file name="README.md">Hello</file>\n修复 @src/App.vue',
+      raw: {
+        role: 'user',
+        content: '<file name="README.md">Hello</file>\n修复 @src/App.vue',
+        timestamp: 1783036800000
+      },
+      createdAt: '2026-07-03T00:00:00.000Z'
+    } satisfies ThreadMessage
+
+    expect(getUserMessageDisplaySegments(message)).toEqual([
+      { type: 'text', text: '修复 ' },
+      { type: 'fileReference', fileArg: 'src/App.vue', label: 'App.vue' }
+    ])
   })
 })

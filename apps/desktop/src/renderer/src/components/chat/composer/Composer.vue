@@ -18,7 +18,7 @@ import {
   SelectValue
 } from '@renderer/components/ui/select'
 import StopIcon from '@renderer/components/icons/StopIcon.vue'
-import { ImagePlus, X } from 'lucide-vue-next'
+import { X } from 'lucide-vue-next'
 import PlainTextEditor from './PlainTextEditor.vue'
 import Usage from './Usage.vue'
 import type { TokenUsage } from './Usage.vue'
@@ -29,6 +29,7 @@ import type {
   ThinkingLevel,
   ThreadSnapshot
 } from '@shared/coding-agent/types'
+import PlusIcon from '@/components/icons/PlusIcon.vue'
 
 type FileReferenceCompletionState = {
   candidates: PromptFileReferenceCandidate[]
@@ -495,7 +496,18 @@ function formatModelLabel(model: Pick<SessionModel, 'provider' | 'id'>): string 
       />
       <div class="composer__actions">
         <p v-if="imageError" class="composer__image-error" role="alert">{{ imageError }}</p>
-
+        <div style="margin-right: auto">
+          <BaseIconButton
+            type="button"
+            size="medium"
+            class="composer__attach"
+            label="添加图片"
+            :disabled="selectingImages"
+            @click="openImagePicker"
+          >
+            <PlusIcon :size="16" />
+          </BaseIconButton>
+        </div>
         <Select
           :model-value="currentModelValue"
           :disabled="isModelSelectDisabled"
@@ -571,16 +583,7 @@ function formatModelLabel(model: Pick<SessionModel, 'provider' | 'id'>): string 
           </SelectContent>
         </Select>
         <Usage v-if="usage" :usage="usage" />
-        <BaseIconButton
-          type="button"
-          size="medium"
-          class="composer__attach"
-          label="添加图片"
-          :disabled="selectingImages"
-          @click="openImagePicker"
-        >
-          <ImagePlus :size="16" />
-        </BaseIconButton>
+
         <BaseIconButton
           type="button"
           size="medium"
@@ -639,7 +642,7 @@ function formatModelLabel(model: Pick<SessionModel, 'provider' | 'id'>): string 
   position: relative;
   display: grid;
   gap: var(--space-2);
-  padding: var(--space-3);
+  padding: var(--space-2);
   background: var(--color-surface-raised);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-md);
@@ -698,7 +701,7 @@ function formatModelLabel(model: Pick<SessionModel, 'provider' | 'id'>): string 
   cursor: pointer;
 
   &.is-selected {
-    background: color-mix(in srgb, var(--color-primary) 16%, transparent);
+    background: var(--composer-selection-bg);
   }
 }
 
@@ -715,6 +718,7 @@ function formatModelLabel(model: Pick<SessionModel, 'provider' | 'id'>): string 
   align-items: center;
   justify-content: flex-end;
   gap: var(--space-2);
+  min-height: var(--composer-action-control-height);
 }
 
 .composer__project-select {
@@ -729,9 +733,12 @@ function formatModelLabel(model: Pick<SessionModel, 'provider' | 'id'>): string 
 }
 
 .composer__model-select {
+  display: inline-flex;
+  align-items: center;
   flex: 0 1 auto;
-  height: 28px;
+  height: var(--composer-action-control-height);
   padding: 0 8px;
+  line-height: 1;
 }
 
 .composer__model-select:hover {
@@ -739,9 +746,12 @@ function formatModelLabel(model: Pick<SessionModel, 'provider' | 'id'>): string 
 }
 
 .composer__thinking-select {
+  display: inline-flex;
+  align-items: center;
   flex: 0 0 auto;
-  height: 28px;
+  height: var(--composer-action-control-height);
   padding: 0 8px;
+  line-height: 1;
 }
 
 .composer__thinking-select:hover {
@@ -749,21 +759,46 @@ function formatModelLabel(model: Pick<SessionModel, 'provider' | 'id'>): string 
 }
 
 .composer__model-label {
-  display: block;
+  display: inline-flex;
+  align-items: center;
+  height: 100%;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: var(--font-size-ui-xs);
+  font-size: var(--font-size-ui-sm);
+  line-height: 1;
 }
 
 .composer__thinking-label {
-  display: block;
+  display: inline-flex;
+  align-items: center;
+  height: 100%;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: var(--font-size-ui-xs);
+  font-size: var(--font-size-ui-sm);
+  line-height: 1;
+}
+
+.composer__model-select :deep([data-slot='select-value']),
+.composer__thinking-select :deep([data-slot='select-value']) {
+  display: inline-flex;
+  align-items: center;
+  height: 100%;
+  line-height: 1;
+}
+
+.composer__attach,
+.composer__action {
+  width: var(--composer-action-control-height) !important;
+  height: var(--composer-action-control-height) !important;
+  line-height: 1 !important;
+
+  &:hover {
+    background: var(--color-surface-hover);
+  }
 }
 
 .composer__image-error {
@@ -807,7 +842,7 @@ function formatModelLabel(model: Pick<SessionModel, 'provider' | 'id'>): string 
   height: 16px;
   padding: 0;
   color: var(--color-text);
-  background: color-mix(in srgb, var(--color-surface) 86%, transparent);
+  background: var(--composer-image-remove-bg);
   border: 1px solid var(--color-border);
   border-radius: 50%;
   box-shadow: var(--shadow-sm);
@@ -842,7 +877,7 @@ function formatModelLabel(model: Pick<SessionModel, 'provider' | 'id'>): string 
     border-color: var(--color-danger);
 
     &:hover:not(:disabled) {
-      background: color-mix(in srgb, var(--color-danger) 88%, black);
+      background: var(--composer-stop-hover-bg);
     }
   }
 }

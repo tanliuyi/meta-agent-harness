@@ -1,27 +1,22 @@
 <script setup lang="ts">
 import type { HTMLAttributes } from 'vue'
-import { computed } from 'vue'
-import { cn } from '@/lib/utils'
 import { Separator } from '@/components/ui/separator'
 
 const props = defineProps<{
   class?: HTMLAttributes['class']
 }>()
-const rootClass = computed(() =>
-  cn('relative -my-2 h-5 text-sm group-data-[variant=outline]/field-group:-mb-2', props.class)
-)
 </script>
 
 <template>
   <div
     data-slot="field-separator"
     :data-content="!!$slots.default"
-    :class="rootClass"
+    :class="props.class"
   >
-    <Separator class="absolute inset-0 top-1/2" />
+    <Separator class="field-separator__rule" />
     <span
       v-if="$slots.default"
-      class="bg-background text-muted-foreground relative mx-auto block w-fit px-2"
+      class="field-separator__content"
       data-slot="field-separator-content"
     >
       <slot />
