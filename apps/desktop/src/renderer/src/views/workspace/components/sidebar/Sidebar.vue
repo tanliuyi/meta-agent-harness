@@ -60,34 +60,36 @@ interface ProjectListItem {
 
 const workspaceProject = useWorkspaceProjectStore()
 const workspaceSession = useWorkspaceSessionStore()
-const expandedProjects = ref<Record<string, { isExpanded: boolean; hasExpanded: boolean }>>({})
+const expandedProjects = ref<Record<string, { displayCount: number; hasExpanded: boolean }>>({})
 
 function getProjectExpansion(projectId: string) {
   if (!expandedProjects.value[projectId]) {
-    expandedProjects.value[projectId] = { isExpanded: false, hasExpanded: false }
+    expandedProjects.value[projectId] = { displayCount: 5, hasExpanded: false }
   }
   return expandedProjects.value[projectId]
 }
 
-function toggleExpandProject(projectId: string, expand: boolean) {
+function expandProject(projectId: string, totalCount: number, increment: number = 10) {
   const expansion = getProjectExpansion(projectId)
-  expansion.isExpanded = expand
-  if (expand) {
-    expansion.hasExpanded = true
-  }
+  const remaining = totalCount - expansion.displayCount
+  const toAdd = Math.min(increment, remaining)
+  expansion.displayCount += toAdd
+  expansion.hasExpanded = true
 }
 
 function collapseProject(projectId: string) {
   const expansion = getProjectExpansion(projectId)
-  expansion.isExpanded = false
+  expansion.displayCount = 5
 }
 
-function getExpandButtonText(totalCount: number): string {
-  const remaining = totalCount - 5
+function getExpandButtonText(totalCount: number, displayCount: number): string {
+  const remaining = totalCount - displayCount
   if (remaining >= 10) {
     return `展开 10 条 (${remaining} 条)`
-  } else {
+  } else if (remaining > 0) {
     return `展开 ${remaining} 条`
+  } else {
+    return '' // 不应该显示按钮
   }
 }
 
@@ -421,7 +423,7 @@ function getProjectTrustIcon(project: ProjectSummary): Component | undefined {
               <template v-else>
                 <!-- 显示前 5 条，或者全部 -->
                 <BaseContextMenu
-                  v-for="threadItem in (getProjectExpansion(projectItem.project.projectId).isExpanded ? projectItem.threads : projectItem.threads.slice(0, 5))"
+                  v-for="threadItem in projectItem.threads.slice(0, getProjectExpansion(projectItem.project.projectId).displayCount)"
                   :key="threadItem.thread.threadId"
                   :sections="threadMenuSections"
                   @select="(item) => runThreadMenuAction(item.id, threadItem.thread)"
@@ -469,16 +471,15 @@ function getProjectTrustIcon(project: ProjectSummary): Component | undefined {
                 </BaseContextMenu>
 
                 <!-- 展开/收起按钮 -->
-                <li v-if="projectItem.threads.length > 5" class="session-group__expand-collapse">
+                <li v-if="getProjectExpansion(projectItem.project.projectId).displayCount < projectItem.threads.length" class="session-group__expand-collapse">
                   <button
-                    v-if="!getProjectExpansion(projectItem.project.projectId).isExpanded"
                     class="expand-collapse-btn"
-                    @click="toggleExpandProject(projectItem.project.projectId, true)"
+                    @click="expandProject(projectItem.project.projectId, projectItem.threads.length)"
                   >
-                    {{ getExpandButtonText(projectItem.threads.length) }}
+                    {{ getExpandButtonText(projectItem.threads.length, getProjectExpansion(projectItem.project.projectId).displayCount) }}
                   </button>
                   <button
-                    v-if="getProjectExpansion(projectItem.project.projectId).hasExpanded"
+                    v-if="getProjectExpansion(projectItem.project.projectId).hasExpanded && getProjectExpansion(projectItem.project.projectId).displayCount > 5"
                     class="expand-collapse-btn collapse-btn"
                     @click="collapseProject(projectItem.project.projectId)"
                   >
