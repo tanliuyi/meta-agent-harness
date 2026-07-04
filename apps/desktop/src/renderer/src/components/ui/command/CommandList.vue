@@ -10,11 +10,7 @@ const forwarded = useForwardProps(delegatedProps)
 </script>
 
 <template>
-  <ListboxContent
-    data-slot="command-list"
-    v-bind="forwarded"
-    :class="props.class"
-  >
+  <ListboxContent data-slot="command-list" v-bind="forwarded" :class="props.class">
     <div role="presentation">
       <slot />
     </div>

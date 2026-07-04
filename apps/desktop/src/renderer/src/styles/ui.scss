@@ -90,7 +90,7 @@
 }
 
 .ui-button--sm {
-  height: 32px;
+  height: 28px;
   padding: 0 var(--space-3);
 }
 
@@ -314,7 +314,10 @@
 [data-slot='context-menu-content'] {
   z-index: 50;
   min-width: 8rem;
-  max-height: var(--reka-select-content-available-height, var(--reka-context-menu-content-available-height, 320px));
+  max-height: var(
+    --reka-select-content-available-height,
+    var(--reka-context-menu-content-available-height, 320px)
+  );
   padding: 4px;
   overflow: auto;
   color: var(--color-text);

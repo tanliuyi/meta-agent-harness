@@ -28,7 +28,9 @@ const advancedSummary = computed(() => {
     {
       label: 'Budgets',
       value: configured.length > 0 ? `${configured.length}/4 custom` : 'Core defaults',
-      detail: largest ? `${largest[0]} 最大 ${formatTokenCount(largest[1])} tokens` : '使用 Pi core 默认 thinking budgets',
+      detail: largest
+        ? `${largest[0]} 最大 ${formatTokenCount(largest[1])} tokens`
+        : '使用 Pi core 默认 thinking budgets',
       tone: configured.length > 0 ? 'info' : 'neutral',
       badgeLabel: configured.length > 0 ? 'Custom' : 'Default'
     },
@@ -96,7 +98,9 @@ function formatIndent(value: string): string {
       <div>
         <p class="agent-page__eyebrow">Advanced</p>
         <h1 class="agent-page__title">高级</h1>
-        <p class="agent-page__subtitle">只保存 thinking token budgets 和 markdown code block indent。</p>
+        <p class="agent-page__subtitle">
+          只保存 thinking token budgets 和 markdown code block indent。
+        </p>
       </div>
       <BaseButton
         size="sm"

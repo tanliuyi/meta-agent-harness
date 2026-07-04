@@ -8,10 +8,7 @@ const props = defineProps<{
 </script>
 
 <template>
-  <LabelPrimitive
-    data-slot="field-label"
-    :class="props.class"
-  >
+  <LabelPrimitive data-slot="field-label" :class="props.class">
     <slot />
   </LabelPrimitive>
 </template>

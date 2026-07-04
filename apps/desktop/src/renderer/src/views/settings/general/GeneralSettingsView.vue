@@ -45,7 +45,7 @@ const codeFontSizeModel = computed({
       </div>
     </BasePanel>
 
-    <BasePanel class="general-page__panel" title="字体大小" eyebrow="Typography">
+    <BasePanel title="字体大小" eyebrow="Typography">
       <div class="font-size-grid">
         <label class="font-size-field">
           <span>UI 字体大小</span>

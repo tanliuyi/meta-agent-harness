@@ -806,7 +806,9 @@ function clearExtensionDraft(id: string): void {
           />
 
           <div
-            v-if="request.type === 'confirm' || request.type === 'input' || request.type === 'editor'"
+            v-if="
+              request.type === 'confirm' || request.type === 'input' || request.type === 'editor'
+            "
             class="composer__extension-request-actions"
           >
             <BaseButton
@@ -827,11 +829,7 @@ function clearExtensionDraft(id: string): void {
       <div v-if="imagePreviews.length > 0 || selectingImages" class="composer__attachments">
         <div class="composer__attachments-header">
           <span>{{ imageAttachmentSummary }}</span>
-          <button
-            v-if="imagePreviews.length > 0"
-            type="button"
-            @click="emit('clear-images')"
-          >
+          <button v-if="imagePreviews.length > 0" type="button" @click="emit('clear-images')">
             清空
           </button>
         </div>
@@ -854,7 +852,11 @@ function clearExtensionDraft(id: string): void {
         </div>
       </div>
       <div v-if="widgetsAboveEditor.length > 0" class="composer__extension-widgets is-above">
-        <article v-for="[key, widget] in widgetsAboveEditor" :key="key" class="composer__extension-widget">
+        <article
+          v-for="[key, widget] in widgetsAboveEditor"
+          :key="key"
+          class="composer__extension-widget"
+        >
           <strong>{{ key }}</strong>
           <span>{{ widget.lines.join(' · ') }}</span>
         </article>
@@ -873,7 +875,11 @@ function clearExtensionDraft(id: string): void {
         @submit="handleSubmit"
       />
       <div v-if="widgetsBelowEditor.length > 0" class="composer__extension-widgets is-below">
-        <article v-for="[key, widget] in widgetsBelowEditor" :key="key" class="composer__extension-widget">
+        <article
+          v-for="[key, widget] in widgetsBelowEditor"
+          :key="key"
+          class="composer__extension-widget"
+        >
           <strong>{{ key }}</strong>
           <span>{{ widget.lines.join(' · ') }}</span>
         </article>

@@ -126,10 +126,6 @@ const usedTokensText = computed(() => (isUnknown.value ? '?' : formatTokens(used
               stroke-linecap="round"
             />
           </svg>
-          <span class="usage__copy">
-            <strong>{{ percentText }}</strong>
-            <small>{{ statusLabel }}</small>
-          </span>
         </button>
       </TooltipTrigger>
       <TooltipContent>
@@ -176,8 +172,6 @@ const usedTokensText = computed(() => (isUnknown.value ? '?' : formatTokens(used
 
   &:hover {
     color: var(--color-text);
-    background: var(--color-surface-raised);
-    border-color: var(--color-border);
   }
 
   &.is-warning {
@@ -210,34 +204,6 @@ const usedTokensText = computed(() => (isUnknown.value ? '?' : formatTokens(used
   transition:
     stroke-dashoffset var(--duration-base) var(--ease-standard),
     stroke var(--duration-fast) var(--ease-standard);
-}
-
-.usage__copy {
-  display: grid;
-  gap: 1px;
-  min-width: 0;
-  max-width: 70px;
-  text-align: left;
-
-  strong,
-  small {
-    min-width: 0;
-    overflow: hidden;
-    line-height: 1;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-  strong {
-    color: currentColor;
-    font-size: var(--font-size-ui-2xs);
-    font-weight: 750;
-  }
-
-  small {
-    color: var(--color-text-subtle);
-    font-size: 10px;
-  }
 }
 
 .usage__tooltip {

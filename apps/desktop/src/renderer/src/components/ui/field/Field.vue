@@ -13,12 +13,7 @@ const rootClass = computed(() => cn(fieldVariants({ orientation: props.orientati
 </script>
 
 <template>
-  <div
-    role="group"
-    data-slot="field"
-    :data-orientation="orientation"
-    :class="rootClass"
-  >
+  <div role="group" data-slot="field" :data-orientation="orientation" :class="rootClass">
     <slot />
   </div>
 </template>

@@ -8,11 +8,7 @@ const props = defineProps<{
 </script>
 
 <template>
-  <legend
-    data-slot="field-legend"
-    :data-variant="variant"
-    :class="props.class"
-  >
+  <legend data-slot="field-legend" :data-variant="variant" :class="props.class">
     <slot />
   </legend>
 </template>

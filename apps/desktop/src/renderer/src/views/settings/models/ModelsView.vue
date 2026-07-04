@@ -69,12 +69,7 @@ onMounted(() => {
           <strong>{{ modelIssueCount }}</strong>
         </div>
       </section>
-      <RouterLink
-        v-for="link in links"
-        :key="link.to"
-        class="models-shell__link"
-        :to="link.to"
-      >
+      <RouterLink v-for="link in links" :key="link.to" class="models-shell__link" :to="link.to">
         {{ link.label }}
       </RouterLink>
     </ScrollArea>

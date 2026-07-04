@@ -63,11 +63,23 @@
   --user-message-border: color-mix(in srgb, var(--color-primary) 38%, var(--color-border));
   --user-message-media-border: color-mix(in srgb, var(--color-primary) 28%, var(--color-border));
   --user-message-attachment-bg: color-mix(in srgb, var(--color-surface) 72%, transparent);
-  --user-message-attachment-border: color-mix(in srgb, var(--color-primary) 24%, var(--color-border));
+  --user-message-attachment-border: color-mix(
+    in srgb,
+    var(--color-primary) 24%,
+    var(--color-border)
+  );
   --color-diff-added-bg: color-mix(in srgb, var(--color-primary) 18%, var(--color-canvas));
-  --color-diff-added-gutter-bg: color-mix(in srgb, var(--color-primary) 22%, var(--color-surface-raised));
+  --color-diff-added-gutter-bg: color-mix(
+    in srgb,
+    var(--color-primary) 22%,
+    var(--color-surface-raised)
+  );
   --color-diff-removed-bg: color-mix(in srgb, var(--color-danger) 18%, var(--color-canvas));
-  --color-diff-removed-gutter-bg: color-mix(in srgb, var(--color-danger) 20%, var(--color-surface-raised));
+  --color-diff-removed-gutter-bg: color-mix(
+    in srgb,
+    var(--color-danger) 20%,
+    var(--color-surface-raised)
+  );
 
   // ui
   --session-panel-actions-width: 36px;

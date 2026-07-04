@@ -232,7 +232,9 @@ describe('CodingThreadManager lifecycle', () => {
     const messages: AgentMessage[] = [
       {
         role: 'assistant',
-        content: [{ type: 'toolCall', id: 'tool-edit', name: 'edit', arguments: { path: 'src/app.ts' } }],
+        content: [
+          { type: 'toolCall', id: 'tool-edit', name: 'edit', arguments: { path: 'src/app.ts' } }
+        ],
         api: 'responses',
         provider: 'openai',
         model: 'gpt-test',
@@ -461,7 +463,7 @@ function createRecordingRegistry(): {
             ? { cwd: leases.get(threadId)?.cwd, ...liveStates.get(threadId) }
             : command.type === 'get_messages'
               ? { messages: liveMessages.get(threadId) ?? [] }
-            : undefined
+              : undefined
       }
     },
     listLeases() {

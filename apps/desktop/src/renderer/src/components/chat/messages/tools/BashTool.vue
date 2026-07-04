@@ -29,7 +29,9 @@ const result = computed(() => getToolResultText(props.message, props.toolCall))
 const isError = computed(() => isToolError(props.message, props.toolCall))
 const status = computed(() => props.toolCall?.status)
 const truncation = computed(() => readRecord(details.value.truncation))
-const isTruncated = computed(() => readBoolean(details.value.truncated) || truncation.value !== undefined)
+const isTruncated = computed(
+  () => readBoolean(details.value.truncated) || truncation.value !== undefined
+)
 const fullOutputPath = computed(
   () =>
     readString(details.value.fullOutputPath) ??
@@ -100,7 +102,9 @@ function extractFullOutputPath(value: string | undefined): string | undefined {
 }
 
 function readRecord(value: unknown): Record<string, unknown> | undefined {
-  return typeof value === 'object' && value !== null ? (value as Record<string, unknown>) : undefined
+  return typeof value === 'object' && value !== null
+    ? (value as Record<string, unknown>)
+    : undefined
 }
 
 function readString(value: unknown, key?: string): string | undefined {

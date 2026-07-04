@@ -136,7 +136,10 @@ export async function setThreadTitle(
     return core.requireThread(input.threadId)
   }
   core.updateThread(input.threadId, { title })
-  const hasWorker = core.getWorkers().listLeases().some((lease) => lease.threadId === input.threadId)
+  const hasWorker = core
+    .getWorkers()
+    .listLeases()
+    .some((lease) => lease.threadId === input.threadId)
   if (hasWorker) {
     try {
       await core.sendOk(input.threadId, { type: 'set_session_name', name: title })

@@ -1,5 +1,9 @@
 <script setup lang="ts">
-import { measureLineStats, prepareWithSegments, type PreparedTextWithSegments } from '@chenglou/pretext'
+import {
+  measureLineStats,
+  prepareWithSegments,
+  type PreparedTextWithSegments
+} from '@chenglou/pretext'
 import {
   measureRichInlineStats,
   prepareRichInline,
@@ -67,14 +71,12 @@ const contentRef = ref<HTMLElement>()
 const measuredBubbleWidth = ref<string>()
 let resizeObserver: ResizeObserver | null = null
 let measureRaf: number | null = null
-let preparedCache:
-  | {
-      font: string
-      letterSpacing: number
-      key: string
-      prepared: PreparedMessageText
-    }
-  | null = null
+let preparedCache: {
+  font: string
+  letterSpacing: number
+  key: string
+  prepared: PreparedMessageText
+} | null = null
 
 type PreparedMessageText =
   | {
@@ -119,7 +121,10 @@ function measureBubbleWidth(): void {
 
   const bubbleStyle = window.getComputedStyle(bubble)
   const textStyle = window.getComputedStyle(textElement)
-  const maxBubbleWidth = Math.min(USER_MESSAGE_MAX_WIDTH, Math.floor(containerWidth * USER_MESSAGE_MAX_RATIO))
+  const maxBubbleWidth = Math.min(
+    USER_MESSAGE_MAX_WIDTH,
+    Math.floor(containerWidth * USER_MESSAGE_MAX_RATIO)
+  )
   const horizontalChrome =
     readPixelValue(bubbleStyle.paddingLeft) +
     readPixelValue(bubbleStyle.paddingRight) +
@@ -140,7 +145,9 @@ function measureBubbleWidth(): void {
 
 function getMessageLaneWidth(bubble: HTMLElement): number {
   const lane = bubble.closest<HTMLElement>('.chat-view__message')
-  return lane?.getBoundingClientRect().width ?? bubble.parentElement?.getBoundingClientRect().width ?? 0
+  return (
+    lane?.getBoundingClientRect().width ?? bubble.parentElement?.getBoundingClientRect().width ?? 0
+  )
 }
 
 function getPreparedText(
@@ -200,18 +207,25 @@ function getRichInlineItems(
   const fileReferenceLabelStyle = fileReferenceLabel
     ? window.getComputedStyle(fileReferenceLabel)
     : null
-  const fileReferenceFont = fileReferenceLabelStyle ? getCanvasFont(fileReferenceLabelStyle) : textFont
+  const fileReferenceFont = fileReferenceLabelStyle
+    ? getCanvasFont(fileReferenceLabelStyle)
+    : textFont
   const fileReferenceLetterSpacing = fileReferenceLabelStyle
     ? readLetterSpacing(fileReferenceLabelStyle.letterSpacing)
     : textLetterSpacing
   const fileReferenceExtraWidth =
     fileReferenceElement && fileReferenceLabel
-      ? Math.max(0, fileReferenceElement.getBoundingClientRect().width - fileReferenceLabel.getBoundingClientRect().width)
+      ? Math.max(
+          0,
+          fileReferenceElement.getBoundingClientRect().width -
+            fileReferenceLabel.getBoundingClientRect().width
+        )
       : FILE_REFERENCE_FALLBACK_EXTRA_WIDTH
   const fileReferenceMargin =
     fileReferenceStyle === null
       ? 0
-      : readPixelValue(fileReferenceStyle.marginLeft) + readPixelValue(fileReferenceStyle.marginRight)
+      : readPixelValue(fileReferenceStyle.marginLeft) +
+        readPixelValue(fileReferenceStyle.marginRight)
 
   return displaySegments.value.map((segment) =>
     segment.type === 'text'
@@ -249,7 +263,10 @@ function findTightContentWidth(prepared: PreparedMessageText, maxWidth: number):
   return measureTextStats(prepared, lo).maxLineWidth
 }
 
-function measureTextStats(prepared: PreparedMessageText, maxWidth: number): {
+function measureTextStats(
+  prepared: PreparedMessageText,
+  maxWidth: number
+): {
   lineCount: number
   maxLineWidth: number
 } {
@@ -277,13 +294,10 @@ function readPixelValue(value: string): number {
   return Number.isFinite(parsed) ? parsed : 0
 }
 
-watch(
-  [displayText, shouldMeasureBubble, displaySegmentsKey],
-  () => {
-    preparedCache = null
-    void nextTick(scheduleMeasure)
-  }
-)
+watch([displayText, shouldMeasureBubble, displaySegmentsKey], () => {
+  preparedCache = null
+  void nextTick(scheduleMeasure)
+})
 
 onMounted(() => {
   scheduleMeasure()
@@ -396,7 +410,7 @@ function toggleExpand(): void {
     display: flex;
     flex-direction: row;
     justify-content: flex-end;
-    gap: var(--space-1);
+    gap: var(--space-2);
   }
 }
 

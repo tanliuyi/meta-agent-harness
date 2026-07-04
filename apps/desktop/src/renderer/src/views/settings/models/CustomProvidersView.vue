@@ -140,7 +140,9 @@ function createBlankProviderDraft(): CustomProviderDraft {
   }
 }
 
-function createDraftFromProvider(provider: CustomProviderListItem['provider']): CustomProviderDraft {
+function createDraftFromProvider(
+  provider: CustomProviderListItem['provider']
+): CustomProviderDraft {
   return {
     originalProvider: provider.provider,
     provider: provider.provider,
@@ -152,7 +154,9 @@ function createDraftFromProvider(provider: CustomProviderListItem['provider']): 
     headersJson: formatJson(provider.headers),
     compatJson: formatJson(provider.compat),
     modelOverridesJson: formatJson(provider.modelOverrides),
-    models: provider.models?.length ? provider.models.map(createBlankModelDraft) : [createBlankModelDraft()]
+    models: provider.models?.length
+      ? provider.models.map(createBlankModelDraft)
+      : [createBlankModelDraft()]
   }
 }
 
@@ -217,9 +221,12 @@ function toModelConfigInput(model: CustomModelDraft): CustomModelConfigInput {
     })
   ) as Partial<Record<ThinkingLevel, string | null>>
 
-  const hasCost = [model.costInput, model.costOutput, model.costCacheRead, model.costCacheWrite].some(
-    (value) => value.trim()
-  )
+  const hasCost = [
+    model.costInput,
+    model.costOutput,
+    model.costCacheRead,
+    model.costCacheWrite
+  ].some((value) => value.trim())
 
   return {
     id: model.id.trim(),
@@ -284,7 +291,6 @@ function parseJsonStringRecord(value: string, label: string): Record<string, str
 function numberOrZero(value: string): number {
   return value.trim() ? Number(value) : 0
 }
-
 </script>
 
 <template>
@@ -293,9 +299,16 @@ function numberOrZero(value: string): number {
       <div>
         <p class="models-page__eyebrow">Custom</p>
         <h1 class="models-page__title">自定义 Provider</h1>
-        <p class="models-page__subtitle">管理 Pi-compatible models.json provider；展开后编辑模型与思考等级。</p>
+        <p class="models-page__subtitle">
+          管理 Pi-compatible models.json provider；展开后编辑模型与思考等级。
+        </p>
       </div>
-      <BaseButton size="sm" variant="primary" :disabled="modelSettings.saving" @click="startNewProvider">
+      <BaseButton
+        size="sm"
+        variant="primary"
+        :disabled="modelSettings.saving"
+        @click="startNewProvider"
+      >
         <template #icon>
           <Plus :size="14" />
         </template>
@@ -313,7 +326,11 @@ function numberOrZero(value: string): number {
       </template>
 
       <ul v-if="hasCustomProviders" class="custom-provider-list">
-        <li v-for="item in customProviderItems" :key="item.provider.provider" class="custom-provider-list__item">
+        <li
+          v-for="item in customProviderItems"
+          :key="item.provider.provider"
+          class="custom-provider-list__item"
+        >
           <button class="custom-provider-row" type="button" @click="toggleProvider(item.provider)">
             <span class="custom-provider-row__chevron" aria-hidden="true">
               <ChevronDown v-if="expandedProvider === item.provider.provider" :size="15" />
@@ -360,7 +377,11 @@ function numberOrZero(value: string): number {
         </BaseButton>
       </div>
 
-      <form v-if="expandedProvider === '__new__'" class="custom-provider-editor is-new" @submit.prevent="saveCustomProvider">
+      <form
+        v-if="expandedProvider === '__new__'"
+        class="custom-provider-editor is-new"
+        @submit.prevent="saveCustomProvider"
+      >
         <ProviderEditorFields
           :draft="customProviderDraft"
           :supported-apis="supportedApis"

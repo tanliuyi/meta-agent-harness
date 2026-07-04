@@ -291,9 +291,8 @@ export default function(pi) {
     })
     const events: Array<{ type: string; action: string; source: string }> = []
 
-    const packages = await service.installResourcePackage(
-      { source: localPackage },
-      (event) => events.push(event)
+    const packages = await service.installResourcePackage({ source: localPackage }, (event) =>
+      events.push(event)
     )
 
     expect(events).toEqual([
@@ -331,7 +330,8 @@ export default function(pi) {
       }
     ).packageManager
     const originalInstallAndPersist = packageManager.installAndPersist.bind(packageManager)
-    const originalListConfiguredPackages = packageManager.listConfiguredPackages.bind(packageManager)
+    const originalListConfiguredPackages =
+      packageManager.listConfiguredPackages.bind(packageManager)
     let active = 0
     let maxActive = 0
     const order: string[] = []

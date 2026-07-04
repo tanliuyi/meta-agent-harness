@@ -51,7 +51,13 @@ function updateInputValue(value: string | number): void {
         @update:model-value="updateInputValue"
       />
     </div>
-    <Slider v-model="sliderValue" :min="min" :max="max" :step="step" :aria-invalid="Boolean(error)" />
+    <Slider
+      v-model="sliderValue"
+      :min="min"
+      :max="max"
+      :step="step"
+      :aria-invalid="Boolean(error)"
+    />
     <FieldDescription v-if="description">{{ description }}</FieldDescription>
     <FieldError v-if="error">{{ error }}</FieldError>
   </Field>

@@ -1788,25 +1788,25 @@ export default defineStore('workspace-session', () => {
         ensureSessionContext(defaultSessionContextId).composerDrafts[threadId] = draft
         return
       }
-  }
-
-  /**
-   * 将 extension notify 映射为桌面端 toast。
-   * @param request - extension notify 请求。
-   */
-  function showExtensionToast(request: Extract<ExtensionUiRequest, { type: 'notify' }>): void {
-    switch (request.notifyType) {
-      case 'error':
-        toast.error('Extension', request.message)
-        return
-      case 'warning':
-        toast.warning('Extension', request.message)
-        return
-      case 'info':
-      default:
-        toast.info('Extension', request.message)
     }
-  }
+
+    /**
+     * 将 extension notify 映射为桌面端 toast。
+     * @param request - extension notify 请求。
+     */
+    function showExtensionToast(request: Extract<ExtensionUiRequest, { type: 'notify' }>): void {
+      switch (request.notifyType) {
+        case 'error':
+          toast.error('Extension', request.message)
+          return
+        case 'warning':
+          toast.warning('Extension', request.message)
+          return
+        case 'info':
+        default:
+          toast.info('Extension', request.message)
+      }
+    }
   }
 
   /**

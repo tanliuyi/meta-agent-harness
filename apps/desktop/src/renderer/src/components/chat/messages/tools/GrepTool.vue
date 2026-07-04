@@ -20,9 +20,7 @@ const args = computed(() => getToolArgs(props.toolCall))
 const pattern = computed(() => truncateSummary(getStringArg(args.value, 'pattern'), 64))
 const target = computed(
   () =>
-    getFileName(getStringArg(args.value, 'path')) ??
-    getStringArg(args.value, 'glob') ??
-    undefined
+    getFileName(getStringArg(args.value, 'path')) ?? getStringArg(args.value, 'glob') ?? undefined
 )
 const ignoreCase = computed(() => getBooleanArgLabel(args.value, 'ignoreCase'))
 const literal = computed(() => getBooleanArgLabel(args.value, 'literal'))

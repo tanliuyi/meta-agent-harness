@@ -13,20 +13,11 @@ const forwarded = useForwardPropsEmits(delegatedProps, emits)
 </script>
 
 <template>
-  <SliderRoot
-    v-slot="{ modelValue }"
-    data-slot="slider"
-    :class="props.class"
-    v-bind="forwarded"
-  >
+  <SliderRoot v-slot="{ modelValue }" data-slot="slider" :class="props.class" v-bind="forwarded">
     <SliderTrack data-slot="slider-track">
       <SliderRange data-slot="slider-range" />
     </SliderTrack>
 
-    <SliderThumb
-      v-for="(_, key) in modelValue"
-      :key="key"
-      data-slot="slider-thumb"
-    />
+    <SliderThumb v-for="(_, key) in modelValue" :key="key" data-slot="slider-thumb" />
   </SliderRoot>
 </template>

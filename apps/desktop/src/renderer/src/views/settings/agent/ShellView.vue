@@ -31,14 +31,19 @@ const shellSummary = computed(() => {
     {
       label: 'NPM',
       value: npmCommandLabel,
-      detail: shell.npmCommand.length > 0 ? `${shell.npmCommand.length} argv entries` : '使用默认 npm 命令',
+      detail:
+        shell.npmCommand.length > 0
+          ? `${shell.npmCommand.length} argv entries`
+          : '使用默认 npm 命令',
       tone: shell.npmCommand.length > 0 ? 'info' : 'neutral',
       badgeLabel: shell.npmCommand.length > 0 ? 'Custom' : 'Default'
     },
     {
       label: 'Sessions',
       value: shell.sessionDir?.trim() || 'Default dir',
-      detail: shell.sessionDir?.trim() ? '写入自定义 session directory' : '使用 Pi 默认 session directory',
+      detail: shell.sessionDir?.trim()
+        ? '写入自定义 session directory'
+        : '使用 Pi 默认 session directory',
       tone: shell.sessionDir?.trim() ? 'info' : 'neutral',
       badgeLabel: shell.sessionDir?.trim() ? 'Custom' : 'Default'
     }

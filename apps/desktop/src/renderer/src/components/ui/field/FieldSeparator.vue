@@ -8,11 +8,7 @@ const props = defineProps<{
 </script>
 
 <template>
-  <div
-    data-slot="field-separator"
-    :data-content="!!$slots.default"
-    :class="props.class"
-  >
+  <div data-slot="field-separator" :data-content="!!$slots.default" :class="props.class">
     <Separator class="field-separator__rule" />
     <span
       v-if="$slots.default"

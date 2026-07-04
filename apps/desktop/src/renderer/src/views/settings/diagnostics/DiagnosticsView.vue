@@ -44,8 +44,7 @@ const filteredItems = computed(() =>
 )
 
 const activeFilterLabel = computed(() => {
-  const domain =
-    selectedDomain.value === 'all' ? '全部来源' : domainLabels[selectedDomain.value]
+  const domain = selectedDomain.value === 'all' ? '全部来源' : domainLabels[selectedDomain.value]
   const severity =
     selectedSeverity.value === 'all' ? '全部级别' : severityLabels[selectedSeverity.value]
   return `${domain} / ${severity}`
@@ -123,7 +122,9 @@ async function openDiagnosticTarget(item: DiagnosticsItem): Promise<void> {
       <div>
         <p class="diagnostics-page__eyebrow">Diagnostics</p>
         <h1 class="diagnostics-page__title">诊断</h1>
-        <p class="diagnostics-page__subtitle">汇总 thread、model registry、auth 和 settings 加载状态。</p>
+        <p class="diagnostics-page__subtitle">
+          汇总 thread、model registry、auth 和 settings 加载状态。
+        </p>
       </div>
       <BaseButton size="sm" :disabled="diagnostics.loading" @click="diagnostics.load">
         <template #icon>
@@ -183,7 +184,7 @@ async function openDiagnosticTarget(item: DiagnosticsItem): Promise<void> {
             全部
           </button>
           <button
-            v-for="domain in (['thread', 'model', 'agent'] as const)"
+            v-for="domain in ['thread', 'model', 'agent'] as const"
             :key="domain"
             :class="{ 'is-active': selectedDomain === domain }"
             type="button"
@@ -203,7 +204,7 @@ async function openDiagnosticTarget(item: DiagnosticsItem): Promise<void> {
           全部级别
         </button>
         <button
-          v-for="severity in (['error', 'warning', 'info'] as const)"
+          v-for="severity in ['error', 'warning', 'info'] as const"
           :key="severity"
           :class="{ 'is-active': selectedSeverity === severity }"
           type="button"

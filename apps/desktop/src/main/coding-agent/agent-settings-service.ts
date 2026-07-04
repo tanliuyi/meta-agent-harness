@@ -461,7 +461,9 @@ export class AgentSettingsService {
     return run
   }
 
-  private toResourcePackageProgressEvent(event: PackageProgressEvent): ResourcePackageProgressEvent {
+  private toResourcePackageProgressEvent(
+    event: PackageProgressEvent
+  ): ResourcePackageProgressEvent {
     return {
       type: event.type,
       action: event.action,

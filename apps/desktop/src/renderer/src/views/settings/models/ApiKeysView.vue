@@ -19,7 +19,9 @@ const oauthPromptInput = ref('')
 
 const providerCredentialSummary = computed(() => {
   if (modelSettings.credentialStatuses.length === 0) return '等待凭据状态'
-  const missing = modelSettings.credentialStatuses.filter((item) => item.status === 'missing').length
+  const missing = modelSettings.credentialStatuses.filter(
+    (item) => item.status === 'missing'
+  ).length
   return missing > 0 ? `${missing} 个 provider 缺少凭据` : '凭据状态正常'
 })
 
@@ -50,7 +52,9 @@ const selectedOAuthPrompt = computed(() => selectedOAuthState.value?.pendingProm
 
 const showOAuthMethod = computed(() => oauthDraft.value.provider === 'openai-codex')
 const canSaveProviderApiKey = computed(() =>
-  Boolean(apiKeyDraft.value.provider.trim() && apiKeyDraft.value.key.trim() && !modelSettings.saving)
+  Boolean(
+    apiKeyDraft.value.provider.trim() && apiKeyDraft.value.key.trim() && !modelSettings.saving
+  )
 )
 
 function getCredentialTone(
@@ -197,7 +201,11 @@ async function cancelOAuthPrompt(): Promise<void> {
             <BaseBadge v-if="credential.oauthAvailable" tone="info">OAuth</BaseBadge>
           </div>
           <div class="credential-list__actions">
-            <BaseButton size="sm" variant="ghost" @click="selectApiKeyProvider(credential.provider)">
+            <BaseButton
+              size="sm"
+              variant="ghost"
+              @click="selectApiKeyProvider(credential.provider)"
+            >
               <template #icon>
                 <KeyRound :size="14" />
               </template>
@@ -279,7 +287,9 @@ async function cancelOAuthPrompt(): Promise<void> {
       <article v-if="selectedOAuthState" class="oauth-status">
         <header>
           <strong>{{ selectedOAuthState.providerName ?? selectedOAuthState.provider }}</strong>
-          <span>{{ selectedOAuthState.running ? '登录中' : selectedOAuthState.error ? '失败' : '完成' }}</span>
+          <span>{{
+            selectedOAuthState.running ? '登录中' : selectedOAuthState.error ? '失败' : '完成'
+          }}</span>
         </header>
         <div v-if="selectedOAuthState.userCode" class="oauth-code">
           <span>设备码</span>

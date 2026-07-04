@@ -169,10 +169,7 @@ export function getToolCallPath(toolCall: GroupableToolCall): string | undefined
   return typeof path === 'string' && path ? path : undefined
 }
 
-function createToolGroupItem(
-  kind: ToolGroupKind,
-  toolCalls: ToolCall[]
-): ToolGroupTimelineItem {
+function createToolGroupItem(kind: ToolGroupKind, toolCalls: ToolCall[]): ToolGroupTimelineItem {
   const toolCallIds = toolCalls.map((toolCall) => toolCall.toolCallId)
   return {
     type: 'tool-group',
@@ -205,7 +202,9 @@ function getTimelineItemToolCall(item: GroupableTimelineItem): ToolCall | undefi
 
 function countUniqueToolPaths(toolCalls: GroupableToolCall[], toolName: string): number {
   const matching = toolCalls.filter((toolCall) => toolCall.toolName === toolName)
-  const paths = new Set(matching.map(getToolCallPath).filter((path): path is string => Boolean(path)))
+  const paths = new Set(
+    matching.map(getToolCallPath).filter((path): path is string => Boolean(path))
+  )
   return paths.size > 0 ? paths.size : matching.length
 }
 

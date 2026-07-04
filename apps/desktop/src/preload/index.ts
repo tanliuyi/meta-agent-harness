@@ -92,8 +92,7 @@ const codingAgent: CodingAgentApi = {
   deleteCustomProvider: (provider) =>
     invokeCodingAgent(codingAgentChannels.deleteCustomProvider, provider),
   setProviderApiKey: (input) => invokeCodingAgent(codingAgentChannels.setProviderApiKey, input),
-  loginProviderOAuth: (input) =>
-    invokeCodingAgent(codingAgentChannels.loginProviderOAuth, input),
+  loginProviderOAuth: (input) => invokeCodingAgent(codingAgentChannels.loginProviderOAuth, input),
   respondModelOAuthPrompt: (input) =>
     invokeCodingAgent(codingAgentChannels.respondModelOAuthPrompt, input),
   refreshModelRegistry: () => invokeCodingAgent(codingAgentChannels.refreshModelRegistry),

@@ -10,11 +10,7 @@ const delegatedProps = reactiveOmit(props, 'class')
 </script>
 
 <template>
-  <Label
-    data-slot="label"
-    v-bind="delegatedProps"
-    :class="props.class"
-  >
+  <Label data-slot="label" v-bind="delegatedProps" :class="props.class">
     <slot />
   </Label>
 </template>

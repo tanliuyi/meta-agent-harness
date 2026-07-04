@@ -2,7 +2,12 @@
  * 本文件实现 prompt、steer、followUp 和 abort 操作。
  */
 
-import type { PromptImage, PromptImageFile, PromptInput, TextInput } from '@shared/coding-agent/types'
+import type {
+  PromptImage,
+  PromptImageFile,
+  PromptInput,
+  TextInput
+} from '@shared/coding-agent/types'
 import type { ThreadManagerCore } from './thread-manager-core'
 import { processFileArguments } from '../../../../../packages/coding-agent/src/cli/file-processor'
 import {
@@ -109,7 +114,12 @@ async function resolvePromptInput(
     return { message: input.message, images: input.images }
   }
   const autoResizeImages = await core.getAgentSettingsService().getImageAutoResize()
-  const processed = await processPromptFileArgs(fileArgs, input.imageFiles ?? [], cwd, autoResizeImages)
+  const processed = await processPromptFileArgs(
+    fileArgs,
+    input.imageFiles ?? [],
+    cwd,
+    autoResizeImages
+  )
   const images = [...processed.images, ...(input.images ?? [])]
   return {
     message: `${processed.text}${input.message}`,
@@ -156,7 +166,10 @@ async function processPromptFileArgs(
  * @param cwd - prompt cwd。
  * @returns 绝对路径到图片文件引用的映射。
  */
-function createImageFallbackMap(imageFiles: PromptImageFile[], cwd: string): Map<string, PromptImageFile> {
+function createImageFallbackMap(
+  imageFiles: PromptImageFile[],
+  cwd: string
+): Map<string, PromptImageFile> {
   const map = new Map<string, PromptImageFile>()
   for (const imageFile of imageFiles) {
     map.set(resolveReadPath(imageFile.path, cwd), imageFile)
@@ -192,8 +205,5 @@ function getPromptImageFileText(
   if (!imageFile.inlineFallback) {
     return text
   }
-  return text.replace(
-    /<file\b([^>]*)>(?:\[Image omitted:[\s\S]*?\])<\/file>/g,
-    '<file$1></file>'
-  )
+  return text.replace(/<file\b([^>]*)>(?:\[Image omitted:[\s\S]*?\])<\/file>/g, '<file$1></file>')
 }

@@ -100,7 +100,12 @@ function getCountLabel(count: number, label: string): string | undefined {
         <h1 class="agent-page__title">资源路径</h1>
         <p class="agent-page__subtitle">只保存 packages、extensions、skills、prompts 和 themes。</p>
       </div>
-      <BaseButton size="sm" variant="primary" :disabled="!agentSettings.canSave" @click="agentSettings.saveResources">
+      <BaseButton
+        size="sm"
+        variant="primary"
+        :disabled="!agentSettings.canSave"
+        @click="agentSettings.saveResources"
+      >
         <template #icon><Save :size="14" /></template>
         保存资源路径
       </BaseButton>
@@ -236,7 +241,10 @@ function getCountLabel(count: number, label: string): string | undefined {
       </div>
 
       <ul v-if="agentSettings.resourceDiagnostics.length" class="resource-diagnostics">
-        <li v-for="diagnostic in agentSettings.resourceDiagnostics" :key="`${diagnostic.path}:${diagnostic.message}`">
+        <li
+          v-for="diagnostic in agentSettings.resourceDiagnostics"
+          :key="`${diagnostic.path}:${diagnostic.message}`"
+        >
           <strong>{{ diagnostic.type }}</strong>
           <span>{{ diagnostic.message }}</span>
           <small v-if="diagnostic.path">{{ diagnostic.path }}</small>
@@ -286,7 +294,9 @@ function getCountLabel(count: number, label: string): string | undefined {
       </div>
       <div v-else-if="packageRows.length === 0" class="empty-state">
         <strong>暂无 package source</strong>
-        <span>添加 npm、git 或本地 package 后，extensions / skills / prompts 会按 Pi 规则解析。</span>
+        <span
+          >添加 npm、git 或本地 package 后，extensions / skills / prompts 会按 Pi 规则解析。</span
+        >
       </div>
       <ul v-else class="package-list">
         <li v-for="item in packageRows" :key="`${item.scope}:${item.source}`">
@@ -298,8 +308,13 @@ function getCountLabel(count: number, label: string): string | undefined {
               <template v-if="item.installedPath"> · {{ item.installedPath }}</template>
               <template v-else> · not installed</template>
             </span>
-            <small v-if="getPackageProgress(item.source)" :class="{ 'is-error': getPackageProgress(item.source)?.error }">
-              {{ getPackageProgress(item.source)?.error ?? getPackageProgress(item.source)?.message }}
+            <small
+              v-if="getPackageProgress(item.source)"
+              :class="{ 'is-error': getPackageProgress(item.source)?.error }"
+            >
+              {{
+                getPackageProgress(item.source)?.error ?? getPackageProgress(item.source)?.message
+              }}
             </small>
           </div>
           <div class="package-list__actions">

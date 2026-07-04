@@ -34,7 +34,9 @@ const safetySummary = computed(() => {
     {
       label: 'Commands',
       value: safety.enableSkillCommands ? 'Skill commands on' : 'Skill commands off',
-      detail: safety.enableSkillCommands ? 'skills 可以注册 slash commands' : 'skills 不注册 slash commands',
+      detail: safety.enableSkillCommands
+        ? 'skills 可以注册 slash commands'
+        : 'skills 不注册 slash commands',
       tone: safety.enableSkillCommands ? 'info' : 'neutral',
       badgeLabel: safety.enableSkillCommands ? 'Enabled' : 'Off'
     },
@@ -96,7 +98,9 @@ function getTrustTone(value: AgentDefaultProjectTrust): 'neutral' | 'success' | 
       <div>
         <p class="agent-page__eyebrow">Safety</p>
         <h1 class="agent-page__title">安全与遥测</h1>
-        <p class="agent-page__subtitle">只保存 project trust、telemetry、analytics、warnings 和 proxy。</p>
+        <p class="agent-page__subtitle">
+          只保存 project trust、telemetry、analytics、warnings 和 proxy。
+        </p>
       </div>
       <BaseButton
         size="sm"

@@ -40,7 +40,9 @@ const selectedLevelSupported = computed(() =>
 )
 const supportsReasoning = computed(() => Boolean(modelSettings.selectedModel?.supportsReasoning))
 const supportedThinkingLabel = computed(() =>
-  supportedThinkingLevels.value.length > 0 ? supportedThinkingLevels.value.join(', ') : '等待模型能力'
+  supportedThinkingLevels.value.length > 0
+    ? supportedThinkingLevels.value.join(', ')
+    : '等待模型能力'
 )
 
 const thinkingStatusLabel = computed(() => {
@@ -115,7 +117,8 @@ const thinkingStatusTone = computed<'neutral' | 'success' | 'warning' | 'info'>(
           :key="level.value"
           :class="{
             'is-selected': selectedLevel === level.value,
-            'is-unsupported': supportedThinkingLevels.length > 0 && !supportedThinkingLevels.includes(level.value)
+            'is-unsupported':
+              supportedThinkingLevels.length > 0 && !supportedThinkingLevels.includes(level.value)
           }"
         >
           <div>

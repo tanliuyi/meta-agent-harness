@@ -16,7 +16,9 @@ interface Props extends PrimitiveProps {
 const props = withDefaults(defineProps<Props>(), {
   as: 'button'
 })
-const rootClass = computed(() => cn(buttonVariants({ variant: props.variant, size: props.size }), props.class))
+const rootClass = computed(() =>
+  cn(buttonVariants({ variant: props.variant, size: props.size }), props.class)
+)
 </script>
 
 <template>

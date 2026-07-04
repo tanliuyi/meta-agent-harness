@@ -35,9 +35,7 @@ const archiveProjectCount = computed(() => workspaceArchive.projectGroups.length
 const missingProjectCount = computed(
   () => workspaceArchive.projectGroups.filter((group) => !group.project).length
 )
-const restoringLabel = computed(() =>
-  workspaceArchive.restoringThreadId ? '恢复中' : '空闲'
-)
+const restoringLabel = computed(() => (workspaceArchive.restoringThreadId ? '恢复中' : '空闲'))
 const archiveProjectGroups = computed<ArchiveProjectGroupItem[]>(() => {
   const query = searchQuery.value.trim().toLowerCase()
   return workspaceArchive.projectGroups
@@ -171,10 +169,7 @@ async function restoreArchivedThread(thread: ThreadSummary): Promise<void> {
         />
       </div>
 
-      <div
-        v-if="!workspaceArchive.loading && !hasArchivedThreads"
-        class="archive-empty"
-      >
+      <div v-if="!workspaceArchive.loading && !hasArchivedThreads" class="archive-empty">
         <Boxes :size="18" />
         <strong>暂无归档会话</strong>
         <span>归档后的会话会保留 metadata 与 session 文件，并从 Project 会话列表中隐藏。</span>

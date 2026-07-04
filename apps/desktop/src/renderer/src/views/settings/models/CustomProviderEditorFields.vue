@@ -57,8 +57,18 @@ defineEmits<{
 
 <template>
   <div class="provider-form">
-    <BaseField id="custom-provider-id" v-model="draft.provider" label="Provider ID" placeholder="local-openai" />
-    <BaseField id="custom-provider-name" v-model="draft.name" label="显示名" placeholder="Local OpenAI" />
+    <BaseField
+      id="custom-provider-id"
+      v-model="draft.provider"
+      label="Provider ID"
+      placeholder="local-openai"
+    />
+    <BaseField
+      id="custom-provider-name"
+      v-model="draft.name"
+      label="显示名"
+      placeholder="Local OpenAI"
+    />
     <BaseField
       id="custom-provider-base-url"
       v-model="draft.baseUrl"
@@ -83,11 +93,17 @@ defineEmits<{
   <div class="json-field-grid">
     <label class="json-field">
       <span>Provider headers JSON</span>
-      <textarea v-model="draft.headersJson" placeholder='{ "X-Header": "$ENV_OR_LITERAL" }'></textarea>
+      <textarea
+        v-model="draft.headersJson"
+        placeholder='{ "X-Header": "$ENV_OR_LITERAL" }'
+      ></textarea>
     </label>
     <label class="json-field">
       <span>Provider compat JSON</span>
-      <textarea v-model="draft.compatJson" placeholder='{ "supportsDeveloperRole": true }'></textarea>
+      <textarea
+        v-model="draft.compatJson"
+        placeholder='{ "supportsDeveloperRole": true }'
+      ></textarea>
     </label>
     <label class="json-field is-wide">
       <span>Model overrides JSON</span>
@@ -143,7 +159,10 @@ defineEmits<{
           v-model="model.api"
           label="Model API 协议覆盖"
           placeholder="留空继承 provider，或填写 openai-responses"
-          :options="[{ label: '继承 provider 默认', value: inheritProviderApiValue }, ...supportedApis]"
+          :options="[
+            { label: '继承 provider 默认', value: inheritProviderApiValue },
+            ...supportedApis
+          ]"
         />
         <BaseField
           :id="`custom-model-base-url-${index}`"
@@ -230,7 +249,10 @@ defineEmits<{
         </label>
         <label class="json-field">
           <span>Model compat JSON</span>
-          <textarea v-model="model.compatJson" placeholder='{ "thinkingFormat": "openai" }'></textarea>
+          <textarea
+            v-model="model.compatJson"
+            placeholder='{ "thinkingFormat": "openai" }'
+          ></textarea>
         </label>
       </div>
     </div>

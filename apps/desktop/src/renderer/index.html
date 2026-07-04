@@ -37,10 +37,7 @@
             ? Math.min(18, Math.max(11, Math.round(codeFontSize)))
             : 12
 
-          document.documentElement.style.setProperty(
-            '--font-size-ui',
-            `${normalizedUiFontSize}px`
-          )
+          document.documentElement.style.setProperty('--font-size-ui', `${normalizedUiFontSize}px`)
           document.documentElement.style.setProperty(
             '--font-size-ui-2xs',
             `${normalizedUiFontSize - 3}px`

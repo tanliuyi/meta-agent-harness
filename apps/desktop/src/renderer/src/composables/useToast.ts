@@ -24,8 +24,10 @@ export function useToast() {
   return {
     toasts: readonly(toasts),
     dismissToast,
-    success: (title: string, description?: string) => showToast({ type: 'success', title, description }),
-    error: (title: string, description?: string) => showToast({ type: 'error', title, description }),
+    success: (title: string, description?: string) =>
+      showToast({ type: 'success', title, description }),
+    error: (title: string, description?: string) =>
+      showToast({ type: 'error', title, description }),
     info: (title: string, description?: string) => showToast({ type: 'info', title, description }),
     warning: (title: string, description?: string) =>
       showToast({ type: 'warning', title, description })

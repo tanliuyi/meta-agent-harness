@@ -484,10 +484,9 @@ function getProjectTrustIcon(project: ProjectSummary): Component | undefined {
                   class="session-group__expand-collapse"
                 >
                   <button
+                    v-if="getProjectExpansion(projectItem.project.projectId).displayCount < projectItem.threads.length"
                     class="expand-collapse-btn"
-                    @click="
-                      expandProject(projectItem.project.projectId, projectItem.threads.length)
-                    "
+                    @click="expandProject(projectItem.project.projectId, projectItem.threads.length)"
                   >
                     {{
                       getExpandButtonText(

@@ -23,9 +23,7 @@ const forwarded = useForwardPropsEmits(delegatedProps, emits)
 
 <template>
   <AlertDialogPortal>
-    <AlertDialogOverlay
-      data-slot="alert-dialog-overlay"
-    />
+    <AlertDialogOverlay data-slot="alert-dialog-overlay" />
     <AlertDialogContent
       data-slot="alert-dialog-content"
       v-bind="{ ...$attrs, ...forwarded }"

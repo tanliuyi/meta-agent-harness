@@ -45,6 +45,10 @@ withDefaults(
   border-radius: var(--radius-md);
   box-shadow: var(--shadow-sm);
   backdrop-filter: blur(12px);
+
+  & + & {
+    margin-top: var(--space-4);
+  }
 }
 
 .base-panel__header {

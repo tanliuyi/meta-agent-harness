@@ -71,7 +71,7 @@ async function copyMessageText(): Promise<void> {
   &__actions {
     display: flex;
     flex-direction: row;
-    gap: var(--space-1);
+    gap: var(--space-2);
   }
 }
 

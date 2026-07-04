@@ -36,7 +36,9 @@ const pendingApprovals = computed(() => Object.values(workspaceSession.activePen
 const hasPendingApprovals = computed(() => pendingApprovals.value.length > 0)
 
 /** 当前待处理 extension UI 请求列表。 */
-const extensionUiRequests = computed(() => Object.values(workspaceSession.activeExtensionUiRequests))
+const extensionUiRequests = computed(() =>
+  Object.values(workspaceSession.activeExtensionUiRequests)
+)
 
 /** 是否存在待处理 extension UI 请求。 */
 const hasExtensionUiRequests = computed(() => extensionUiRequests.value.length > 0)
@@ -83,8 +85,7 @@ const selectedFileChangeId = ref<string>()
 const selectedFileChange = computed(() => {
   const changes = fileChanges.value
   return (
-    changes.find((change) => getFileChangeId(change) === selectedFileChangeId.value) ??
-    changes[0]
+    changes.find((change) => getFileChangeId(change) === selectedFileChangeId.value) ?? changes[0]
   )
 })
 
@@ -141,9 +142,7 @@ const activeTabId = ref<SessionPanelTabId>('session')
 const openTabIds = ref<SessionPanelTabId[]>(sessionPanelTabs.map((tab) => tab.id))
 const attentionTabIds = ref<SessionPanelTabId[]>([])
 
-const openTabs = computed(() =>
-  sessionPanelTabs.filter((tab) => openTabIds.value.includes(tab.id))
-)
+const openTabs = computed(() => sessionPanelTabs.filter((tab) => openTabIds.value.includes(tab.id)))
 const closedTabs = computed(() =>
   sessionPanelTabs.filter((tab) => !openTabIds.value.includes(tab.id))
 )
@@ -237,7 +236,11 @@ function getTabCount(tabId: SessionPanelTabId): number | undefined {
     case 'commands':
       return workspaceSession.activeCommands.length || undefined
     case 'extensions':
-      return extensionUiRequests.value.length + extensionStatuses.value.length + extensionWidgets.value.length || undefined
+      return (
+        extensionUiRequests.value.length +
+          extensionStatuses.value.length +
+          extensionWidgets.value.length || undefined
+      )
     case 'approvals':
       return pendingApprovals.value.length || undefined
     case 'session':
@@ -365,10 +368,7 @@ function getExtensionRequestTitle(request: ExtensionUiRequest): string {
  * @returns 展平后的节点。
  */
 function flattenSessionTree(nodes: SessionTreeNode[], depth = 0): FlatSessionTreeNode[] {
-  return nodes.flatMap((node) => [
-    { node, depth },
-    ...flattenSessionTree(node.children, depth + 1)
-  ])
+  return nodes.flatMap((node) => [{ node, depth }, ...flattenSessionTree(node.children, depth + 1)])
 }
 
 /**
@@ -847,7 +847,9 @@ defineEmits<{
                 <small>{{ change.changeType }} · {{ change.path }}</small>
                 <strong>
                   <template v-if="change.additions !== undefined">+{{ change.additions }}</template>
-                  <template v-if="change.deletions !== undefined"> -{{ change.deletions }}</template>
+                  <template v-if="change.deletions !== undefined">
+                    -{{ change.deletions }}</template
+                  >
                 </strong>
               </button>
             </div>
@@ -881,7 +883,9 @@ defineEmits<{
               <div class="session-tree__content">
                 <div class="session-tree__row">
                   <span class="session-tree__title">{{ node.label || node.title }}</span>
-                  <span v-if="node.id === currentEntryId" class="session-tree__current">Current</span>
+                  <span v-if="node.id === currentEntryId" class="session-tree__current"
+                    >Current</span
+                  >
                 </div>
                 <small>
                   <span>{{ node.type }}</span>
@@ -931,11 +935,7 @@ defineEmits<{
           </div>
         </section>
 
-        <section
-          v-if="activeTabId === 'extensions'"
-          class="session-section"
-          role="tabpanel"
-        >
+        <section v-if="activeTabId === 'extensions'" class="session-section" role="tabpanel">
           <header class="session-section__header">
             <h3>Extensions</h3>
           </header>

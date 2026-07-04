@@ -94,7 +94,9 @@ function severityLabel(severity: (typeof diagnosticItems.value)[number]['severit
         <AlertTriangle v-else :size="16" />
         <div>
           <strong>{{ statusLabel }}</strong>
-          <span>Pi-compatible settings.json 与 agentDir 由 main 进程读取，renderer 只展示快照。</span>
+          <span
+            >Pi-compatible settings.json 与 agentDir 由 main 进程读取，renderer 只展示快照。</span
+          >
         </div>
         <BaseBadge :tone="statusTone">{{ statusLabel }}</BaseBadge>
       </div>

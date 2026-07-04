@@ -42,7 +42,9 @@ const displaySummary = computed(() => {
     {
       label: 'Thinking',
       value: display.hideThinkingBlock ? 'Hidden' : 'Visible',
-      detail: display.hideThinkingBlock ? '聊天中默认隐藏 reasoning block' : '聊天中显示 reasoning block',
+      detail: display.hideThinkingBlock
+        ? '聊天中默认隐藏 reasoning block'
+        : '聊天中显示 reasoning block',
       tone: display.hideThinkingBlock ? 'neutral' : 'success',
       badgeLabel: display.hideThinkingBlock ? 'Quiet' : 'Shown'
     },

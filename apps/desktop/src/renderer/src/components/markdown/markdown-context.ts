@@ -16,4 +16,5 @@ export interface StreamingMarkdownContext {
   theme: string
 }
 
-export const MarkdownContextKey: InjectionKey<Ref<StreamingMarkdownContext>> = Symbol('markdown-context')
+export const MarkdownContextKey: InjectionKey<Ref<StreamingMarkdownContext>> =
+  Symbol('markdown-context')

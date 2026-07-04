@@ -7,11 +7,7 @@ const props = defineProps<TooltipTriggerProps & { class?: HTMLAttributes['class'
 </script>
 
 <template>
-  <TooltipTrigger
-    data-slot="tooltip-trigger"
-    :class="props.class"
-    v-bind="props"
-  >
+  <TooltipTrigger data-slot="tooltip-trigger" :class="props.class" v-bind="props">
     <slot />
   </TooltipTrigger>
 </template>

@@ -1054,41 +1054,53 @@ describe('workspace-session Project-first actions', () => {
     })
     await store.setActiveSessionId('thread-a')
 
-    capturedEventListener?.(createExtensionUiRequestedEvent('thread-a', {
-      type: 'input',
-      id: 'ui-input',
-      title: 'Name',
-      placeholder: 'Project name'
-    }))
-    capturedEventListener?.(createExtensionUiRequestedEvent('thread-a', {
-      type: 'setStatus',
-      id: 'ui-status',
-      statusKey: 'sync',
-      statusText: 'Ready'
-    }))
-    capturedEventListener?.(createExtensionUiRequestedEvent('thread-a', {
-      type: 'setWidget',
-      id: 'ui-widget',
-      widgetKey: 'notes',
-      widgetLines: ['one', 'two']
-    }))
-    capturedEventListener?.(createExtensionUiRequestedEvent('thread-a', {
-      type: 'setEditorText',
-      id: 'ui-editor-text',
-      text: 'hello\nworld'
-    }))
-    capturedEventListener?.(createExtensionUiRequestedEvent('thread-a', {
-      type: 'notify',
-      id: 'ui-notify',
-      message: 'Extension finished',
-      notifyType: 'warning'
-    }))
-    capturedEventListener?.(createExtensionUiRequestedEvent('thread-b', {
-      type: 'confirm',
-      id: 'ui-confirm',
-      title: 'Other thread',
-      message: 'Continue?'
-    }))
+    capturedEventListener?.(
+      createExtensionUiRequestedEvent('thread-a', {
+        type: 'input',
+        id: 'ui-input',
+        title: 'Name',
+        placeholder: 'Project name'
+      })
+    )
+    capturedEventListener?.(
+      createExtensionUiRequestedEvent('thread-a', {
+        type: 'setStatus',
+        id: 'ui-status',
+        statusKey: 'sync',
+        statusText: 'Ready'
+      })
+    )
+    capturedEventListener?.(
+      createExtensionUiRequestedEvent('thread-a', {
+        type: 'setWidget',
+        id: 'ui-widget',
+        widgetKey: 'notes',
+        widgetLines: ['one', 'two']
+      })
+    )
+    capturedEventListener?.(
+      createExtensionUiRequestedEvent('thread-a', {
+        type: 'setEditorText',
+        id: 'ui-editor-text',
+        text: 'hello\nworld'
+      })
+    )
+    capturedEventListener?.(
+      createExtensionUiRequestedEvent('thread-a', {
+        type: 'notify',
+        id: 'ui-notify',
+        message: 'Extension finished',
+        notifyType: 'warning'
+      })
+    )
+    capturedEventListener?.(
+      createExtensionUiRequestedEvent('thread-b', {
+        type: 'confirm',
+        id: 'ui-confirm',
+        title: 'Other thread',
+        message: 'Continue?'
+      })
+    )
 
     expect(Object.keys(store.activeExtensionUiRequests)).toEqual(['ui-input'])
     expect(store.activeExtensionStatuses).toEqual({ sync: 'Ready' })

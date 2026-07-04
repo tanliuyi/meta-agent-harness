@@ -30,12 +30,7 @@ const content = computed(() => {
 </script>
 
 <template>
-  <div
-    v-if="$slots.default || content"
-    role="alert"
-    data-slot="field-error"
-    :class="props.class"
-  >
+  <div v-if="$slots.default || content" role="alert" data-slot="field-error" :class="props.class">
     <slot v-if="$slots.default" />
 
     <template v-else-if="typeof content === 'string'">

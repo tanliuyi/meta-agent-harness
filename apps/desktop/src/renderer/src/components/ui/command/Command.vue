@@ -64,11 +64,7 @@ provideCommandContext({
 </script>
 
 <template>
-  <ListboxRoot
-    data-slot="command"
-    v-bind="forwarded"
-    :class="props.class"
-  >
+  <ListboxRoot data-slot="command" v-bind="forwarded" :class="props.class">
     <slot />
   </ListboxRoot>
 </template>

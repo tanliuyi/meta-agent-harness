@@ -7,10 +7,7 @@ const props = defineProps<{
 </script>
 
 <template>
-  <div
-    data-slot="field-group"
-    :class="props.class"
-  >
+  <div data-slot="field-group" :class="props.class">
     <slot />
   </div>
 </template>

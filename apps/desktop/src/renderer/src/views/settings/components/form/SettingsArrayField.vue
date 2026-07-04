@@ -43,7 +43,10 @@ function addItem(value = ''): void {
 }
 
 function removeItem(index: number): void {
-  emit('update:modelValue', values.value.filter((_, itemIndex) => itemIndex !== index))
+  emit(
+    'update:modelValue',
+    values.value.filter((_, itemIndex) => itemIndex !== index)
+  )
 }
 
 function applyBulkValue(): void {
@@ -138,7 +141,13 @@ function normalizeItems(items: string[]): string[] {
         >
           <Search />
         </Button>
-        <Button type="button" variant="ghost" size="icon-sm" title="删除" @click="removeItem(index)">
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon-sm"
+          title="删除"
+          @click="removeItem(index)"
+        >
           <Trash2 />
         </Button>
       </div>
@@ -152,7 +161,13 @@ function normalizeItems(items: string[]): string[] {
         @keydown.meta.enter.prevent="applyBulkValue"
         @keydown.ctrl.enter.prevent="applyBulkValue"
       />
-      <Button type="button" variant="secondary" size="sm" :disabled="!bulkValue.trim()" @click="applyBulkValue">
+      <Button
+        type="button"
+        variant="secondary"
+        size="sm"
+        :disabled="!bulkValue.trim()"
+        @click="applyBulkValue"
+      >
         <CornerDownLeft data-icon="inline-start" />
         批量加入
       </Button>

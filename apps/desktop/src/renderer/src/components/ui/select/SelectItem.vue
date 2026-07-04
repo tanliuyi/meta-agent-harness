@@ -12,11 +12,7 @@ const forwardedProps = useForwardProps(delegatedProps)
 </script>
 
 <template>
-  <SelectItem
-    data-slot="select-item"
-    v-bind="forwardedProps"
-    :class="props.class"
-  >
+  <SelectItem data-slot="select-item" v-bind="forwardedProps" :class="props.class">
     <SelectItemText>
       <slot />
     </SelectItemText>

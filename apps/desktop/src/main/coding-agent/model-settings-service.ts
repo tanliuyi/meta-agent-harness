@@ -430,7 +430,9 @@ export class ModelSettingsService {
   }
 
   private createCredentialStatuses(providers: ModelProviderSummary[]): ProviderCredentialStatus[] {
-    const oauthProviders = new Set(this.authStorage.getOAuthProviders().map((provider) => provider.id))
+    const oauthProviders = new Set(
+      this.authStorage.getOAuthProviders().map((provider) => provider.id)
+    )
     return providers.map((provider) => {
       const authStatus = this.modelRegistry.getProviderAuthStatus(provider.id)
       return {

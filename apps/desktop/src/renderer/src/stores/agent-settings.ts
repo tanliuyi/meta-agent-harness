@@ -294,7 +294,10 @@ const useAgentSettingsStore = defineStore('agent-settings', () => {
     )
   }
 
-  async function savePartial(input: UpdateAgentSettingsInput, fallbackMessage: string): Promise<void> {
+  async function savePartial(
+    input: UpdateAgentSettingsInput,
+    fallbackMessage: string
+  ): Promise<void> {
     saving.value = true
     error.value = null
     try {

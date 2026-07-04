@@ -14,15 +14,8 @@ const forwarded = useForwardPropsEmits(delegatedProps, emits)
 </script>
 
 <template>
-  <SwitchRoot
-    v-slot="slotProps"
-    data-slot="switch"
-    v-bind="forwarded"
-    :class="props.class"
-  >
-    <SwitchThumb
-      data-slot="switch-thumb"
-    >
+  <SwitchRoot v-slot="slotProps" data-slot="switch" v-bind="forwarded" :class="props.class">
+    <SwitchThumb data-slot="switch-thumb">
       <slot name="thumb" v-bind="slotProps" />
     </SwitchThumb>
   </SwitchRoot>

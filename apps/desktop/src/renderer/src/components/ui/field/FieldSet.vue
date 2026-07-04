@@ -7,10 +7,7 @@ const props = defineProps<{
 </script>
 
 <template>
-  <fieldset
-    data-slot="field-set"
-    :class="props.class"
-  >
+  <fieldset data-slot="field-set" :class="props.class">
     <slot />
   </fieldset>
 </template>

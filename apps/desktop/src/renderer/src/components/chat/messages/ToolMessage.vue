@@ -19,7 +19,11 @@ const props = defineProps<{
 
 const toolName = computed(() => {
   const rawToolName = props.message ? getMessageRawRecord(props.message).toolName : undefined
-  return props.toolCall?.toolName ?? (typeof rawToolName === 'string' ? rawToolName : undefined) ?? 'tool'
+  return (
+    props.toolCall?.toolName ??
+    (typeof rawToolName === 'string' ? rawToolName : undefined) ??
+    'tool'
+  )
 })
 const toolComponent = computed(() => getToolComponent(toolName.value))
 

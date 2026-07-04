@@ -7,10 +7,7 @@ const props = defineProps<{
 </script>
 
 <template>
-  <span
-    data-slot="context-menu-shortcut"
-    :class="props.class"
-  >
+  <span data-slot="context-menu-shortcut" :class="props.class">
     <slot />
   </span>
 </template>

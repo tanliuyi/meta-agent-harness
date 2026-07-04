@@ -519,9 +519,7 @@ async function selectResourcePath(
  * @param input - 选择器选项。
  * @returns 选中的 session 文件路径；用户取消时返回 undefined。
  */
-async function selectSessionFile(
-  input: SelectSessionFileInput = {}
-): Promise<string | undefined> {
+async function selectSessionFile(input: SelectSessionFileInput = {}): Promise<string | undefined> {
   const result = await dialog.showOpenDialog({
     title: input.title ?? '选择 Session 文件',
     defaultPath: input.defaultPath,
