@@ -2390,6 +2390,41 @@ function applyAgentSessionEvent(
       return undefined
     case 'turn_end':
       snapshot.status = 'idle'
+      // 从 turn_end 的 message 中提取 usage（与 coding-agent 逻辑一致）
+      if (event.message && 'usage' in event.message) {
+        const assistantMsg = event.message as {
+          role: 'assistant'
+          usage?: {
+            totalTokens?: number
+            input?: number
+            output?: number
+            cacheRead?: number
+            cacheWrite?: number
+          }
+          stopReason?: string
+        }
+        const usage = assistantMsg.usage
+        if (
+          assistantMsg.stopReason !== 'aborted' &&
+          assistantMsg.stopReason !== 'error' &&
+          usage &&
+          snapshot.context
+        ) {
+          const totalTokens =
+            usage.totalTokens ||
+            (usage.input || 0) +
+              (usage.output || 0) +
+              (usage.cacheRead || 0) +
+              (usage.cacheWrite || 0)
+          if (totalTokens > 0) {
+            snapshot.context = {
+              tokens: totalTokens,
+              contextWindow: snapshot.context.contextWindow,
+              percent: Math.round((totalTokens / snapshot.context.contextWindow) * 100)
+            }
+          }
+        }
+      }
       return undefined
     case 'thinking_level_changed':
       snapshot.thinkingLevel = event.level
