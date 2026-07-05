@@ -11,7 +11,7 @@ export const UI_FONT_SIZE_RANGE = {
   min: 11,
   max: 16,
   step: 1,
-  defaultValue: 13
+  defaultValue: 14
 } as const
 
 /** 代码字体大小配置范围。 */
@@ -19,7 +19,7 @@ export const CODE_FONT_SIZE_RANGE = {
   min: 11,
   max: 18,
   step: 1,
-  defaultValue: 12
+  defaultValue: 13
 } as const
 
 /** localStorage 中存储 UI 字体大小的键名。 */

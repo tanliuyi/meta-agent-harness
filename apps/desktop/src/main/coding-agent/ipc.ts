@@ -36,6 +36,7 @@ import type {
   ImportSessionInput,
   IpcResult,
   ListThreadsInput,
+  LoadSessionTreeBranchesInput,
   LoadSessionTreeChildrenInput,
   LoadSessionTreePathInput,
   LoginProviderOAuthInput,
@@ -240,8 +241,15 @@ export function registerCodingAgentIpc(options: CodingAgentIpcOptions = {}): Cod
   handle(manager, codingAgentChannels.navigateTree, (input: NavigateTreeInput) =>
     manager.navigateTree(input)
   )
-  handle(manager, codingAgentChannels.loadSessionTreeChildren, (input: LoadSessionTreeChildrenInput) =>
-    manager.loadSessionTreeChildren(input)
+  handle(
+    manager,
+    codingAgentChannels.loadSessionTreeChildren,
+    (input: LoadSessionTreeChildrenInput) => manager.loadSessionTreeChildren(input)
+  )
+  handle(
+    manager,
+    codingAgentChannels.loadSessionTreeBranches,
+    (input: LoadSessionTreeBranchesInput) => manager.loadSessionTreeBranches(input)
   )
   handle(manager, codingAgentChannels.loadSessionTreePath, (input: LoadSessionTreePathInput) =>
     manager.loadSessionTreePath(input)

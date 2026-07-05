@@ -31,6 +31,9 @@ const goBack = (): void => {
       <RouterLink class="settings-link" to="/settings/agent">
         <span>Agent</span>
       </RouterLink>
+      <RouterLink class="settings-link" to="/settings/extensions">
+        <span>扩展</span>
+      </RouterLink>
       <RouterLink class="settings-link" to="/settings/diagnostics">
         <span>诊断</span>
       </RouterLink>
@@ -74,12 +77,17 @@ const goBack = (): void => {
   flex-direction: row;
   align-items: center;
   gap: var(--space-2);
+  box-sizing: border-box;
+  width: calc(100% - var(--space-2) * 2);
   min-width: 0;
   height: 28px;
-  margin: 0 var(--space-2);
+  margin: 0 var(--space-2) var(--space-3);
   padding: 0 var(--space-3);
   color: var(--color-text-muted);
+  border: 1px solid transparent;
   border-radius: var(--radius-lg);
+  font-size: var(--font-size-ui-sm);
+  font-weight: 650;
   cursor: pointer;
   transition:
     background var(--duration-fast) var(--ease-standard),

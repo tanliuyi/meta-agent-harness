@@ -4,7 +4,8 @@
  */
 
 import type { JSONContent } from '@tiptap/vue-3'
-import { computed, nextTick, ref, watch } from 'vue'
+import { computed, nextTick, ref, watch, type ComponentPublicInstance } from 'vue'
+import { useVirtualizer } from '@tanstack/vue-virtual'
 import { onClickOutside } from '@vueuse/core'
 import { BaseButton, BaseIconButton } from '@renderer/components/base'
 import SendIcon from '@renderer/components/icons/SendIcon.vue'
@@ -24,6 +25,7 @@ import {
   SelectTrigger,
   SelectValue
 } from '@renderer/components/ui/select'
+import { useSelectContentWidth } from '@renderer/components/ui/select/useSelectContentWidth'
 import StopIcon from '@renderer/components/icons/StopIcon.vue'
 import { Command as CommandIcon, X } from 'lucide-vue-next'
 import PlainTextEditor from './PlainTextEditor.vue'
@@ -39,6 +41,8 @@ import type {
   ThreadSnapshot
 } from '@shared/coding-agent/types'
 import PlusIcon from '@/components/icons/PlusIcon.vue'
+
+type ScrollAreaInstance = InstanceType<typeof ScrollArea>
 
 type FileReferenceCompletionState = {
   candidates: PromptFileReferenceCandidate[]
@@ -247,6 +251,51 @@ const currentModelLabel = computed(() => {
 const isModelSelectDisabled = computed(
   () => props.modelSelectDisabled || props.loadingModelOptions || props.modelOptions.length === 0
 )
+const modelSelectLabels = computed(() => props.modelOptions.map((model) => formatModelLabel(model)))
+const modelSelectContentWidth = useSelectContentWidth({
+  labels: modelSelectLabels
+})
+const modelSelectScrollAreaRef = ref<ScrollAreaInstance | null>(null)
+const modelSelectVirtualizer = useVirtualizer(
+  computed(() => ({
+    count: props.modelOptions.length,
+    getScrollElement: () => modelSelectScrollAreaRef.value?.getViewport() ?? null,
+    estimateSize: () => 32,
+    overscan: 8
+  }))
+)
+const virtualModelItems = computed(() => modelSelectVirtualizer.value.getVirtualItems())
+const virtualModelTotalSize = computed(() => modelSelectVirtualizer.value.getTotalSize())
+function measureModelSelectItem(refValue: Element | ComponentPublicInstance | null): void {
+  const element = refValue instanceof Element ? refValue : refValue?.$el
+  if (element instanceof Element) {
+    modelSelectVirtualizer.value.measureElement(element)
+  }
+}
+const projectSelectScrollAreaRef = ref<ScrollAreaInstance | null>(null)
+const projectSelectVirtualizer = useVirtualizer(
+  computed(() => ({
+    count: props.projects.length,
+    getScrollElement: () => projectSelectScrollAreaRef.value?.getViewport() ?? null,
+    estimateSize: () => 32,
+    overscan: 8
+  }))
+)
+const virtualProjectItems = computed(() => projectSelectVirtualizer.value.getVirtualItems())
+const virtualProjectTotalSize = computed(() => projectSelectVirtualizer.value.getTotalSize())
+function measureProjectSelectItem(refValue: Element | ComponentPublicInstance | null): void {
+  const element = refValue instanceof Element ? refValue : refValue?.$el
+  if (element instanceof Element) {
+    projectSelectVirtualizer.value.measureElement(element)
+  }
+}
+const currentProjectLabel = computed(
+  () => props.projects.find((project) => project.projectId === props.projectId)?.name
+)
+const projectSelectLabels = computed(() => props.projects.map((project) => project.name))
+const projectSelectContentWidth = useSelectContentWidth({
+  labels: projectSelectLabels
+})
 
 /** 当前 thinking level 展示文本。 */
 const currentThinkingLabel = computed(
@@ -948,6 +997,7 @@ function clearExtensionDraft(id: string): void {
           @update:model-value="handleModelChange"
         >
           <SelectTrigger
+            :ref="modelSelectContentWidth.setTriggerRef"
             class="composer__model-select"
             variant="borderless"
             size="sm"
@@ -956,46 +1006,70 @@ function clearExtensionDraft(id: string): void {
           >
             <span class="composer__model-label">{{ currentModelLabel }}</span>
           </SelectTrigger>
-          <SelectContent>
-            <SelectGroup>
-              <SelectItem
-                v-for="model in modelOptions"
-                :key="`${model.provider}:${model.id}`"
-                :value="createModelValue(model.provider, model.id)"
-              >
-                {{ formatModelLabel(model) }}
-              </SelectItem>
-            </SelectGroup>
-          </SelectContent>
-        </Select>
-
-        <Select
-          :model-value="currentThinkingLevel"
-          :disabled="thinkingSelectDisabled"
-          @update:model-value="handleThinkingLevelChange"
-        >
-          <SelectTrigger
-            class="composer__thinking-select"
-            variant="borderless"
-            size="sm"
-            :hide-icon="true"
-            aria-label="选择当前会话 Thinking level"
+          <SelectContent
+            class="composer__model-select-content"
+            :content-style="modelSelectContentWidth.contentStyle.value"
           >
-            <span class="composer__thinking-label">{{ currentThinkingLabel }}</span>
-          </SelectTrigger>
-
-          <SelectContent>
-            <SelectGroup>
-              <SelectItem
-                v-for="option in thinkingOptions"
-                :key="option.value"
-                :value="option.value"
+            <ScrollArea ref="modelSelectScrollAreaRef" class="composer__model-select-scroll">
+              <SelectGroup
+                class="composer__model-select-size"
+                :style="{ height: `${virtualModelTotalSize}px` }"
               >
-                {{ option.label }}
-              </SelectItem>
-            </SelectGroup>
+                <SelectItem
+                  v-for="virtualItem in virtualModelItems"
+                  :key="`${modelOptions[virtualItem.index]?.provider}:${modelOptions[virtualItem.index]?.id}`"
+                  :ref="measureModelSelectItem"
+                  :data-index="virtualItem.index"
+                  class="composer__model-select-item"
+                  :style="{ transform: `translateY(${virtualItem.start}px)` }"
+                  :value="
+                    createModelValue(
+                      modelOptions[virtualItem.index]?.provider ?? '',
+                      modelOptions[virtualItem.index]?.id ?? ''
+                    )
+                  "
+                >
+                  {{ modelOptions[virtualItem.index] ? formatModelLabel(modelOptions[virtualItem.index]) : '' }}
+                </SelectItem>
+              </SelectGroup>
+            </ScrollArea>
           </SelectContent>
         </Select>
+
+        <TooltipProvider>
+          <Tooltip>
+            <Select
+              :model-value="currentThinkingLevel"
+              :disabled="thinkingSelectDisabled"
+              @update:model-value="handleThinkingLevelChange"
+            >
+              <TooltipTrigger as="span" class="composer__thinking-tooltip-trigger">
+                <SelectTrigger
+                  class="composer__thinking-select"
+                  variant="borderless"
+                  size="sm"
+                  :hide-icon="true"
+                  aria-label="选择当前会话 Thinking level"
+                >
+                  <span class="composer__thinking-label">{{ currentThinkingLabel }}</span>
+                </SelectTrigger>
+              </TooltipTrigger>
+
+              <SelectContent>
+                <SelectGroup>
+                  <SelectItem
+                    v-for="option in thinkingOptions"
+                    :key="option.value"
+                    :value="option.value"
+                  >
+                    {{ option.label }}
+                  </SelectItem>
+                </SelectGroup>
+              </SelectContent>
+            </Select>
+            <TooltipContent>Thinking level: {{ currentThinkingLabel }}</TooltipContent>
+          </Tooltip>
+        </TooltipProvider>
 
         <Select
           v-if="isRunning && canSend"
@@ -1016,6 +1090,7 @@ function clearExtensionDraft(id: string): void {
             </SelectGroup>
           </SelectContent>
         </Select>
+
         <Usage v-if="usage" :usage="usage" />
 
         <BaseIconButton
@@ -1041,25 +1116,41 @@ function clearExtensionDraft(id: string): void {
         @update:model-value="handleProjectChange"
       >
         <SelectTrigger
+          :ref="projectSelectContentWidth.setTriggerRef"
           class="composer__project-select"
           variant="borderless"
           size="sm"
           aria-label="选择 Project"
         >
-          <SelectValue placeholder="选择 Project" />
+          <SelectValue v-if="currentProjectLabel" placeholder="选择 Project">
+            {{ currentProjectLabel }}
+          </SelectValue>
+          <SelectValue v-else placeholder="选择 Project" />
         </SelectTrigger>
 
-        <SelectContent>
-          <SelectGroup>
-            <SelectItem
-              v-for="project in projects"
-              :key="project.projectId"
-              :value="project.projectId"
-              :disabled="project.status !== 'available'"
+        <SelectContent
+          class="composer__project-select-content"
+          :content-style="projectSelectContentWidth.contentStyle.value"
+        >
+          <ScrollArea ref="projectSelectScrollAreaRef" class="composer__project-select-scroll">
+            <SelectGroup
+              class="composer__project-select-size"
+              :style="{ height: `${virtualProjectTotalSize}px` }"
             >
-              {{ project.name }}
-            </SelectItem>
-          </SelectGroup>
+              <SelectItem
+                v-for="virtualItem in virtualProjectItems"
+                :key="projects[virtualItem.index]?.projectId"
+                :ref="measureProjectSelectItem"
+                :data-index="virtualItem.index"
+                class="composer__project-select-item"
+                :style="{ transform: `translateY(${virtualItem.start}px)` }"
+                :value="projects[virtualItem.index]?.projectId"
+                :disabled="projects[virtualItem.index]?.status !== 'available'"
+              >
+                {{ projects[virtualItem.index]?.name }}
+              </SelectItem>
+            </SelectGroup>
+          </ScrollArea>
         </SelectContent>
       </Select>
     </div>
@@ -1076,10 +1167,10 @@ function clearExtensionDraft(id: string): void {
   position: relative;
   display: grid;
   gap: var(--space-2);
-  padding: var(--space-2);
+  padding: var(--space-4);
   background: var(--color-surface-raised);
   border: 1px solid var(--color-border);
-  border-radius: var(--radius-lg);
+  border-radius: 18px;
   box-shadow: var(--shadow-sm);
   z-index: 2;
 }
@@ -1289,6 +1380,41 @@ function clearExtensionDraft(id: string): void {
 
 .composer__model-select:hover {
   background: var(--color-surface-hover) !important;
+}
+
+.composer__model-select-scroll,
+.composer__project-select-scroll {
+  width: 100%;
+  max-width: calc(100vw - 32px);
+}
+
+.composer__model-select-scroll,
+.composer__project-select-scroll {
+  max-height: min(320px, var(--reka-select-content-available-height, 320px));
+}
+
+.composer__model-select-scroll :deep([data-slot='scroll-area-viewport']),
+.composer__project-select-scroll :deep([data-slot='scroll-area-viewport']) {
+  max-height: inherit;
+}
+
+.composer__model-select-size,
+.composer__project-select-size {
+  position: relative;
+  width: 100%;
+}
+
+.composer__model-select-item,
+.composer__project-select-item {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+}
+
+.composer__thinking-tooltip-trigger {
+  display: inline-flex;
+  flex: 0 0 auto;
 }
 
 .composer__thinking-select {
@@ -1649,6 +1775,7 @@ function clearExtensionDraft(id: string): void {
   color: var(--color-primary-ink);
   background: var(--color-primary) !important;
   border-color: var(--color-primary);
+  border-radius: 50%;
 
   &:hover:not(:disabled) {
     background: var(--color-primary-strong);
@@ -1657,7 +1784,6 @@ function clearExtensionDraft(id: string): void {
   &.is-stop {
     color: var(--color-danger-ink);
     background: var(--color-danger);
-    border-color: var(--color-danger);
 
     &:hover:not(:disabled) {
       background: var(--composer-stop-hover-bg);

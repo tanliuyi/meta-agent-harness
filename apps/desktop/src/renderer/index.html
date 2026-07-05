@@ -32,10 +32,10 @@
           const codeFontSize = Number(window.localStorage.getItem('meta-agent.code-font-size'))
           const normalizedUiFontSize = Number.isFinite(uiFontSize)
             ? Math.min(16, Math.max(11, Math.round(uiFontSize)))
-            : 13
+            : 14
           const normalizedCodeFontSize = Number.isFinite(codeFontSize)
             ? Math.min(18, Math.max(11, Math.round(codeFontSize)))
-            : 12
+            : 13
 
           document.documentElement.style.setProperty('--font-size-ui', `${normalizedUiFontSize}px`)
           document.documentElement.style.setProperty(

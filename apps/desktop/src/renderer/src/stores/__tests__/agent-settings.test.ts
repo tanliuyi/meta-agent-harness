@@ -42,6 +42,92 @@ describe('agent-settings store', () => {
     expect(store.snapshot?.storage.agentDir).toBe('/tmp/agent')
     expect(store.resourceSnapshot).toBeNull()
   })
+
+  it('保存显示与交互时不提交 TUI-only 字段', async () => {
+    const snapshot = createAgentSettingsSnapshot()
+    snapshot.display.theme = 'minimal'
+    const updateAgentSettings = vi.fn().mockResolvedValue(snapshot)
+    installCodingAgentApi({
+      getAgentSettings: vi.fn().mockResolvedValue(snapshot),
+      updateAgentSettings
+    })
+
+    const store = useAgentSettingsStore()
+    await store.load()
+    await store.saveDisplay()
+
+    expect(updateAgentSettings).toHaveBeenCalledWith({
+      display: {
+        quietStartup: false,
+        collapseChangelog: true,
+        hideThinkingBlock: false,
+        doubleEscapeAction: 'tree',
+        treeFilterMode: 'all',
+        editorPaddingX: 12,
+        autocompleteMaxVisible: 8
+      }
+    })
+  })
+
+  it('保存图片设置时不提交终端呈现字段', async () => {
+    const snapshot = createAgentSettingsSnapshot()
+    const updateAgentSettings = vi.fn().mockResolvedValue(snapshot)
+    installCodingAgentApi({
+      getAgentSettings: vi.fn().mockResolvedValue(snapshot),
+      updateAgentSettings
+    })
+
+    const store = useAgentSettingsStore()
+    await store.load()
+    await store.saveMedia()
+
+    expect(updateAgentSettings).toHaveBeenCalledWith({
+      media: {
+        imageAutoResize: true,
+        blockImages: false,
+        imageWidthCells: 80
+      }
+    })
+  })
+
+  it('保存资源和高级设置时不提交 TUI theme 或 markdown 渲染字段', async () => {
+    const snapshot = createAgentSettingsSnapshot()
+    snapshot.resources.themes = ['~/pi/themes']
+    const updateAgentSettings = vi.fn().mockResolvedValue(snapshot)
+    installCodingAgentApi({
+      getAgentSettings: vi.fn().mockResolvedValue(snapshot),
+      updateAgentSettings,
+      getResourceSnapshot: vi.fn().mockResolvedValue({
+        resources: {
+          extensions: [],
+          skills: [],
+          prompts: [],
+          themes: []
+        },
+        extensions: [],
+        diagnostics: []
+      })
+    })
+
+    const store = useAgentSettingsStore()
+    await store.load()
+    await store.saveResources()
+    await store.saveAdvanced()
+
+    expect(updateAgentSettings).toHaveBeenNthCalledWith(1, {
+      resources: {
+        packages: [],
+        extensions: [],
+        skills: [],
+        prompts: []
+      }
+    })
+    expect(updateAgentSettings).toHaveBeenNthCalledWith(2, {
+      advanced: {
+        thinkingBudgets: {}
+      }
+    })
+  })
 })
 
 function installCodingAgentApi(overrides: Record<string, unknown>): void {

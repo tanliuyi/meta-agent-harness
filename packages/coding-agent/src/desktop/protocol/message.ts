@@ -19,14 +19,16 @@ export type DesktopMessageContent = Omit<DesktopMessage, "id">;
  * @returns Desktop 消息内容；不应展示的消息返回 undefined。
  */
 export function toDesktopMessageContent(message: AgentMessage): DesktopMessageContent | undefined {
-	const role = mapRole(message.role);
+	const assistantErrorText = extractAssistantErrorText(message);
+	const role = assistantErrorText ? "system" : mapRole(message.role);
 	if (!role) {
 		return undefined;
 	}
 	const systemEvent = getSystemEvent(message);
-	const text = getSystemEventText(message) ?? (hasContent(message)
-		? extractText(message.content) ?? extractAssistantErrorText(message)
-		: extractAssistantErrorText(message));
+	const text =
+		getSystemEventText(message) ??
+		assistantErrorText ??
+		(hasContent(message) ? extractText(message.content) : undefined);
 	if (role === "assistant" && !text?.trim() && !hasAssistantBlockContent(message)) {
 		return undefined;
 	}
@@ -208,6 +210,14 @@ function mapRole(role: AgentMessage["role"]): DesktopMessage["role"] | undefined
  * @returns 系统事件语义。
  */
 function getSystemEvent(message: AgentMessage): DesktopMessageContent["systemEvent"] | undefined {
+	if (isAssistantErrorMessage(message)) {
+		return {
+			kind: "agentEvent",
+			title: "模型请求失败",
+			description: "后端模型请求返回错误，当前响应已中止。",
+			meta: getAssistantErrorMeta(message),
+		};
+	}
 	switch (message.role) {
 		case "compactionSummary":
 			return {
@@ -250,6 +260,10 @@ function getSystemEvent(message: AgentMessage): DesktopMessageContent["systemEve
  * @returns 系统消息正文。
  */
 function getSystemEventText(message: AgentMessage): string | undefined {
+	const assistantErrorText = extractAssistantErrorText(message);
+	if (assistantErrorText) {
+		return assistantErrorText;
+	}
 	switch (message.role) {
 		case "compactionSummary":
 		case "branchSummary":
@@ -374,11 +388,35 @@ function extractText(content: unknown): string | undefined {
  * @returns 错误文本，若不是模型请求失败则返回 undefined。
  */
 function extractAssistantErrorText(message: AgentMessage): string | undefined {
-	if (message.role !== "assistant" || !isRecord(message) || message.stopReason !== "error") {
+	if (!isAssistantErrorMessage(message)) {
 		return undefined;
 	}
 	const errorMessage = typeof message.errorMessage === "string" ? message.errorMessage.trim() : "";
 	return errorMessage ? `模型请求失败：${errorMessage}` : "模型请求失败";
+}
+
+/**
+ * 判断是否为 assistant 模型请求失败消息。
+ * @param message - 原始 agent 消息。
+ * @returns 是否为 assistant error。
+ */
+function isAssistantErrorMessage(message: AgentMessage): message is AgentMessage & Record<string, unknown> {
+	return message.role === "assistant" && isRecord(message) && message.stopReason === "error";
+}
+
+/**
+ * 提取 assistant error 的短元信息。
+ * @param message - 原始 agent 消息。
+ * @returns 系统消息标签。
+ */
+function getAssistantErrorMeta(message: AgentMessage & Record<string, unknown>): string[] | undefined {
+	const meta = [
+		typeof message.provider === "string" && message.provider.trim()
+			? `provider ${message.provider.trim()}`
+			: undefined,
+		typeof message.model === "string" && message.model.trim() ? `model ${message.model.trim()}` : undefined,
+	].filter((item): item is string => Boolean(item));
+	return meta.length > 0 ? meta : undefined;
 }
 
 /**

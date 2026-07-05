@@ -15,9 +15,12 @@ import type {
   ApprovalResponse,
   CodingAgentIpcEvent,
   CommandInfo,
+  CreateThreadInput,
   ExtensionUiRequest,
   ExtensionUiResponseInput,
   ExportSessionResult,
+  LoadSessionTreeBranchesInput,
+  LoadSessionTreeBranchesResult,
   ModelInfo,
   PromptImage,
   PromptImageFile,
@@ -84,8 +87,10 @@ export type WorkspaceSessionContext = {
   orphanImageAttachments: ComposerImageAttachment[]
   /** 当前上下文内每个 thread 独立的图片草稿。 */
   composerImageAttachments: Record<string, ComposerImageAttachment[]>
-  /** 当前上下文的面板 UI 状态。 */
+  /** 当前上下文未绑定 thread 时的面板 UI 状态。 */
   panel: SessionUiState
+  /** 当前上下文内每个 thread 独立的面板 UI 状态。 */
+  sessionPanels: Record<string, SessionUiState>
 }
 
 /** 单个 thread 的运行态。 */
@@ -112,6 +117,10 @@ export type WorkspaceSessionRuntime = {
   lastExport?: ExportSessionResult
   /** fork/switch 前的 session 文件，用于快速切回。 */
   previousSessionFile?: string
+  /** tree 导航前的 leaf entry，用于快速回到上一个位置。 */
+  previousLeafEntryId?: string
+  /** 最近一次返回前的 leaf entry，预留给后续前进能力。 */
+  nextLeafEntryId?: string
   /** 是否正在刷新当前 thread snapshot。 */
   loadingSnapshot: boolean
   /** 当前 thread 最近一次错误。 */
@@ -146,6 +155,20 @@ export interface WorkspaceCompactionState {
   willRetry?: boolean
   /** 错误信息。 */
   error?: string
+}
+
+/** main 派生的扁平 branch 视图状态。 */
+export interface WorkspaceSessionTreeBranchesState {
+  /** 最近一次加载结果。 */
+  result?: LoadSessionTreeBranchesResult
+  /** 是否正在加载。 */
+  loading: boolean
+  /** 分支视图失效版本，用于通知已打开的 Tree tab 重新加载。 */
+  revision: number
+  /** 最近一次查询 key，用于丢弃过期响应。 */
+  requestKey?: string
+  /** 最近一次错误。 */
+  errorMessage?: string
 }
 
 /** 按 toolCallId 归一化的工具调用索引。 */
@@ -287,6 +310,9 @@ export default defineStore('workspace-session', () => {
   /** 每个 thread 的命令列表加载状态。 */
   const commandsLoadingByThreadId = shallowReactive<Record<string, boolean>>({})
 
+  /** 每个 thread 的命令列表是否已完成一次加载。 */
+  const commandsLoadedByThreadId = shallowReactive<Record<string, boolean>>({})
+
   /** 每个 thread 的最近一次 session 操作结果。 */
   const sessionActionMessageByThreadId = shallowReactive<Record<string, string | undefined>>({})
 
@@ -295,6 +321,9 @@ export default defineStore('workspace-session', () => {
   /** Chat timeline 请求 SessionPanel Tree 定位的 entry。 */
   const treeFocusRequest = ref<{ entryId: string; requestId: number }>()
   const loadingTreeChildrenByEntryId = shallowReactive<Record<string, boolean>>({})
+  const sessionTreeBranchesByThreadId = shallowReactive<
+    Record<string, WorkspaceSessionTreeBranchesState>
+  >({})
 
   /** 待提交的渲染版本更新。 */
   const pendingRevisions = new Map<string, MessageRenderState>()
@@ -319,9 +348,25 @@ export default defineStore('workspace-session', () => {
       composerDrafts: {},
       orphanImageAttachments: [],
       composerImageAttachments: {},
-      panel: createUiState()
+      panel: createUiState(),
+      sessionPanels: {}
     }) as WorkspaceSessionContext
     return contexts[contextId]
+  }
+
+  /**
+   * 获取指定上下文当前 thread 对应的面板 UI 状态。
+   * 未选中 thread 时使用上下文 orphan 面板状态。
+   * @param contextId - 上下文 ID。
+   * @returns 面板 UI 状态。
+   */
+  function getSessionPanelState(contextId = defaultSessionContextId): SessionUiState {
+    const context = ensureSessionContext(contextId)
+    if (!context.activeThreadId) {
+      return context.panel
+    }
+    context.sessionPanels[context.activeThreadId] ??= createUiState()
+    return context.sessionPanels[context.activeThreadId]
   }
 
   /**
@@ -369,6 +414,31 @@ export default defineStore('workspace-session', () => {
   function ensureToolCallStructures(threadId: string): WorkspaceToolCallStructure[] {
     toolCallStructuresByThreadId[threadId] ??= shallowReactive([])
     return toolCallStructuresByThreadId[threadId]
+  }
+
+  /**
+   * 确保指定 thread 的 branch rows 状态存在。
+   * @param threadId - thread ID。
+   * @returns branch rows 状态。
+   */
+  function ensureSessionTreeBranchesState(threadId: string): WorkspaceSessionTreeBranchesState {
+    sessionTreeBranchesByThreadId[threadId] ??= reactive({
+      loading: false,
+      revision: 0
+    }) as WorkspaceSessionTreeBranchesState
+    return sessionTreeBranchesByThreadId[threadId]
+  }
+
+  /**
+   * 标记指定 thread 的 main 派生 branch 视图需要重新加载。
+   * @param threadId - thread ID。
+   */
+  function invalidateSessionTreeBranches(threadId: string): void {
+    const state = sessionTreeBranchesByThreadId[threadId]
+    if (!state) {
+      return
+    }
+    state.revision += 1
   }
 
   /**
@@ -575,6 +645,26 @@ export default defineStore('workspace-session', () => {
         delete modelOptionsLoadingByThreadId[threadId]
       }
     }
+    for (const threadId of Object.keys(commandsByThreadId)) {
+      if (!existingThreadIds.has(threadId)) {
+        delete commandsByThreadId[threadId]
+      }
+    }
+    for (const threadId of Object.keys(commandsLoadingByThreadId)) {
+      if (!existingThreadIds.has(threadId)) {
+        delete commandsLoadingByThreadId[threadId]
+      }
+    }
+    for (const threadId of Object.keys(commandsLoadedByThreadId)) {
+      if (!existingThreadIds.has(threadId)) {
+        delete commandsLoadedByThreadId[threadId]
+      }
+    }
+    for (const threadId of Object.keys(sessionTreeBranchesByThreadId)) {
+      if (!existingThreadIds.has(threadId)) {
+        delete sessionTreeBranchesByThreadId[threadId]
+      }
+    }
     for (const context of Object.values(contexts)) {
       if (context.activeThreadId && !existingThreadIds.has(context.activeThreadId)) {
         context.activeThreadId = undefined
@@ -643,6 +733,9 @@ export default defineStore('workspace-session', () => {
         bumpMessageRevision(event.threadId, messageId, renderState)
       })
       syncToolCallsFromMessageEvent(event)
+      if (event.type === 'message_end') {
+        invalidateSessionTreeBranches(event.threadId)
+      }
     }
   }
 
@@ -672,6 +765,9 @@ export default defineStore('workspace-session', () => {
         bumpMessageRevision(event.threadId, messageId, renderState)
       })
       syncToolCallsFromMessageEvent(event)
+      if (event.type === 'message_end') {
+        invalidateSessionTreeBranches(event.threadId)
+      }
       return
     }
 
@@ -784,7 +880,7 @@ export default defineStore('workspace-session', () => {
   const activeRuntime = computed(() => getRuntime(activeSessionId.value))
 
   /** 当前活跃会话面板状态。 */
-  const activeSessionPanel = computed(() => mainContext.value.panel)
+  const activeSessionPanel = computed(() => getSessionPanelState(defaultSessionContextId))
 
   /** 当前活跃会话的审批请求。 */
   const activePendingApprovals = computed(() => activeRuntime.value?.approvals ?? {})
@@ -813,6 +909,27 @@ export default defineStore('workspace-session', () => {
   /** 当前活跃会话可快速切回的上一个 session 文件。 */
   const activePreviousSessionFile = computed(() => activeRuntime.value?.previousSessionFile)
 
+  /** 当前活跃会话可快速返回的上一个 leaf entry。 */
+  const activePreviousLeafEntryId = computed(() => activeRuntime.value?.previousLeafEntryId)
+
+  /** 当前活跃会话的 main 派生 branch 视图状态。 */
+  const activeSessionTreeBranchesState = computed(() =>
+    activeSessionId.value ? sessionTreeBranchesByThreadId[activeSessionId.value] : undefined
+  )
+
+  /** 当前活跃会话的 main 派生 branch 视图结果。 */
+  const activeSessionTreeBranches = computed(() => activeSessionTreeBranchesState.value?.result)
+
+  /** 当前活跃会话 branch 视图是否正在加载。 */
+  const activeSessionTreeBranchesLoading = computed(() =>
+    Boolean(activeSessionTreeBranchesState.value?.loading)
+  )
+
+  /** 当前活跃会话 branch 视图最近一次错误。 */
+  const activeSessionTreeBranchesError = computed(
+    () => activeSessionTreeBranchesState.value?.errorMessage
+  )
+
   /** 当前活跃会话的最近事件。 */
   const activeEvents = computed(() => activeRuntime.value?.events ?? [])
 
@@ -834,6 +951,11 @@ export default defineStore('workspace-session', () => {
   /** 当前活跃会话命令列表是否加载中。 */
   const activeCommandsLoading = computed(() =>
     activeSessionId.value ? Boolean(commandsLoadingByThreadId[activeSessionId.value]) : false
+  )
+
+  /** 当前活跃会话命令列表是否已按需加载。 */
+  const activeCommandsLoaded = computed(() =>
+    activeSessionId.value ? Boolean(commandsLoadedByThreadId[activeSessionId.value]) : false
   )
 
   /** 当前活跃会话最近一次 session 操作结果。 */
@@ -963,24 +1085,27 @@ export default defineStore('workspace-session', () => {
    */
   const createThread = async (
     projectId: string,
-    contextId = defaultSessionContextId
-  ): Promise<void> => {
+    contextId = defaultSessionContextId,
+    options: Pick<CreateThreadInput, 'sessionFile' | 'title' | 'cwdOverride'> = {}
+  ): Promise<ThreadSnapshot | undefined> => {
     if (!projectId) {
       globalErrorMessage.value = '请先打开 Project'
-      return
+      return undefined
     }
     loadingThreads.value = true
     globalErrorMessage.value = undefined
     try {
-      const snapshot = await window.api.codingAgent.createThread({ projectId })
+      const snapshot = await window.api.codingAgent.createThread({ projectId, ...options })
       mergeSnapshot(sessions, snapshot)
       syncToolCallsByIdFromSnapshot(snapshot)
       ensureRuntime(snapshot.threadId)
       syncRenderStateFromSnapshot(snapshot)
       setContextActiveThreadId(snapshot.threadId, contextId)
       workspaceProject.setActiveProjectId(snapshot.projectId)
+      return snapshot
     } catch (error) {
       globalErrorMessage.value = error instanceof Error ? error.message : String(error)
+      return undefined
     } finally {
       loadingThreads.value = false
     }
@@ -1309,10 +1434,72 @@ export default defineStore('workspace-session', () => {
     commandsLoadingByThreadId[threadId] = true
     try {
       commandsByThreadId[threadId] = await window.api.codingAgent.getCommands(threadId)
+      commandsLoadedByThreadId[threadId] = true
     } catch (error) {
       ensureRuntime(threadId).errorMessage = error instanceof Error ? error.message : String(error)
     } finally {
       commandsLoadingByThreadId[threadId] = false
+    }
+  }
+
+  /**
+   * 按需加载当前 thread 的 slash/custom commands。
+   * 已加载或加载中的 thread 会复用现有状态，避免 tab 重复打开时反复请求。
+   */
+  const ensureCommandsLoaded = async (threadId = activeSessionId.value): Promise<void> => {
+    if (!threadId || commandsLoadedByThreadId[threadId] || commandsLoadingByThreadId[threadId]) {
+      return
+    }
+    await loadCommands(threadId)
+  }
+
+  /**
+   * 加载 main 派生的扁平 tree 视图。
+   * @param options - 查询、过滤和视图模式。
+   * @param threadId - 目标 thread ID。
+   */
+  const loadActiveSessionTreeBranches = async (
+    options: Pick<LoadSessionTreeBranchesInput, 'query' | 'filter' | 'viewMode'> = {},
+    threadId = activeSessionId.value
+  ): Promise<void> => {
+    if (!threadId) {
+      return
+    }
+    const state = ensureSessionTreeBranchesState(threadId)
+    const requestKey = JSON.stringify({
+      threadId,
+      revision: state.revision,
+      query: options.query?.trim() ?? '',
+      filter: options.filter ?? 'all',
+      viewMode: options.viewMode ?? 'branches'
+    })
+    state.loading = true
+    state.errorMessage = undefined
+    if (state.requestKey !== requestKey) {
+      state.result = undefined
+    }
+    state.requestKey = requestKey
+    try {
+      const result = await window.api.codingAgent.loadSessionTreeBranches({
+        threadId,
+        query: options.query,
+        filter: options.filter,
+        viewMode: options.viewMode
+      })
+      if (state.requestKey === requestKey) {
+        state.result = result
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      if (state.requestKey === requestKey) {
+        state.errorMessage = message
+        state.result = undefined
+      }
+      ensureRuntime(threadId).errorMessage = message
+    } finally {
+      if (state.requestKey === requestKey) {
+        state.loading = false
+      }
     }
   }
 
@@ -1473,12 +1660,16 @@ export default defineStore('workspace-session', () => {
     if (!threadId) {
       return
     }
+    const previousPath = activeSnapshot.value?.sessionFile
     try {
       const snapshot = await window.api.codingAgent.newSession({ threadId, parentSession })
       mergeSnapshot(sessions, snapshot)
       syncToolCallsByIdFromSnapshot(snapshot)
       syncRenderStateFromSnapshot(snapshot)
       setContextActiveThreadId(snapshot.threadId)
+      if (previousPath && previousPath !== snapshot.sessionFile) {
+        ensureRuntime(threadId).previousSessionFile = previousPath
+      }
       sessionActionMessageByThreadId[threadId] = '已创建新 session'
     } catch (error) {
       ensureRuntime(threadId).errorMessage = error instanceof Error ? error.message : String(error)
@@ -1552,6 +1743,47 @@ export default defineStore('workspace-session', () => {
   }
 
   /**
+   * 打开当前或指定 thread 的 fork 来源对话。
+   * @param threadId - 当前 forked thread ID。
+   * @param contextId - 会话上下文 ID。
+   */
+  const openParentSession = async (
+    threadId = activeSessionId.value,
+    contextId = defaultSessionContextId
+  ): Promise<void> => {
+    if (!threadId) {
+      return
+    }
+    const session = sessions[threadId]
+    const lineage = session?.snapshot?.lineage ?? session?.lineage
+    if (!session || !lineage) {
+      return
+    }
+    if (lineage.parentThreadId && sessions[lineage.parentThreadId]) {
+      setContextActiveThreadId(lineage.parentThreadId, contextId)
+      sessionActionMessageByThreadId[lineage.parentThreadId] = '已打开来源对话'
+      return
+    }
+    if (lineage.parentThreadId && lineage.parentThreadArchivedAt) {
+      await window.api.codingAgent.restoreThread(lineage.parentThreadId)
+      await loadThreads(contextId)
+      setContextActiveThreadId(lineage.parentThreadId, contextId)
+      sessionActionMessageByThreadId[lineage.parentThreadId] = '已恢复并打开来源对话'
+      return
+    }
+    if (lineage.parentSessionFile && !lineage.parentSessionMissing && !lineage.unavailable) {
+      const snapshot = await createThread(session.projectId, contextId, {
+        sessionFile: lineage.parentSessionFile
+      })
+      if (snapshot?.threadId) {
+        sessionActionMessageByThreadId[snapshot.threadId] = '已恢复来源对话'
+        return
+      }
+    }
+    ensureRuntime(threadId).errorMessage = '来源对话不可用'
+  }
+
+  /**
    * 请求 SessionPanel Tree 定位指定 entry。
    * @param entryId - session entry ID。
    */
@@ -1621,8 +1853,13 @@ export default defineStore('workspace-session', () => {
     if (!threadId || !entryId) {
       return
     }
+    const previousLeafEntryId = activeSnapshot.value?.currentEntryId
     try {
-      const result = await window.api.codingAgent.navigateTree({ threadId, entryId, summarize: false })
+      const result = await window.api.codingAgent.navigateTree({
+        threadId,
+        entryId,
+        summarize: false
+      })
       if (result.cancelled || result.aborted) {
         sessionActionMessageByThreadId[threadId] = result.aborted
           ? 'Tree 导航已中止'
@@ -1632,6 +1869,11 @@ export default defineStore('workspace-session', () => {
       mergeSnapshot(sessions, result.snapshot)
       syncToolCallsByIdFromSnapshot(result.snapshot)
       syncRenderStateFromSnapshot(result.snapshot)
+      const runtime = ensureRuntime(threadId)
+      if (previousLeafEntryId && previousLeafEntryId !== result.snapshot.currentEntryId) {
+        runtime.previousLeafEntryId = previousLeafEntryId
+        runtime.nextLeafEntryId = undefined
+      }
       if (result.editorText !== undefined) {
         draftMessage.value = createComposerContentFromText(result.editorText)
       } else {
@@ -1646,10 +1888,49 @@ export default defineStore('workspace-session', () => {
   }
 
   /**
+   * 返回 tree 导航前的上一个 leaf。
+   */
+  const navigateBackToPreviousLeaf = async (): Promise<void> => {
+    const threadId = activeSessionId.value
+    const previousLeafEntryId = activePreviousLeafEntryId.value
+    if (!threadId || !previousLeafEntryId) {
+      return
+    }
+    const currentLeafEntryId = activeSnapshot.value?.currentEntryId
+    try {
+      const result = await window.api.codingAgent.navigateTree({
+        threadId,
+        entryId: previousLeafEntryId,
+        summarize: false
+      })
+      if (result.cancelled || result.aborted) {
+        sessionActionMessageByThreadId[threadId] = result.aborted
+          ? 'Tree 导航已中止'
+          : 'Tree 导航已取消'
+        return
+      }
+      mergeSnapshot(sessions, result.snapshot)
+      syncToolCallsByIdFromSnapshot(result.snapshot)
+      syncRenderStateFromSnapshot(result.snapshot)
+      const runtime = ensureRuntime(threadId)
+      runtime.previousLeafEntryId = undefined
+      runtime.nextLeafEntryId = currentLeafEntryId ?? undefined
+      if (result.editorText !== undefined) {
+        draftMessage.value = createComposerContentFromText(result.editorText)
+      } else {
+        clearComposerDraft(threadId)
+      }
+      sessionActionMessageByThreadId[threadId] = '已返回之前位置'
+    } catch (error) {
+      ensureRuntime(threadId).errorMessage = error instanceof Error ? error.message : String(error)
+    }
+  }
+
+  /**
    * 懒加载当前 session tree 的子节点。
    * @param parentId - 父 entry ID。
    */
-  const loadActiveSessionTreeChildren = async (parentId: string): Promise<void> => {
+  const loadActiveSessionTreeChildren = async (parentId: string, maxDepth = 2): Promise<void> => {
     const threadId = activeSessionId.value
     const snapshot = activeSnapshot.value
     if (!threadId || !snapshot || !parentId || loadingTreeChildrenByEntryId[parentId]) {
@@ -1660,7 +1941,7 @@ export default defineStore('workspace-session', () => {
       const children = await window.api.codingAgent.loadSessionTreeChildren({
         threadId,
         parentId,
-        maxDepth: 2
+        maxDepth
       })
       mergeSessionTreeChildren(snapshot.sessionTree ?? [], parentId, children)
     } catch (error) {
@@ -1771,6 +2052,8 @@ export default defineStore('workspace-session', () => {
       delete modelOptionsLoadingByThreadId[threadId]
       delete commandsByThreadId[threadId]
       delete commandsLoadingByThreadId[threadId]
+      delete commandsLoadedByThreadId[threadId]
+      delete sessionTreeBranchesByThreadId[threadId]
       delete sessionActionMessageByThreadId[threadId]
       await loadThreads(contextId, { selectLatestActiveProjectThread: true })
     } catch (error) {
@@ -1783,7 +2066,7 @@ export default defineStore('workspace-session', () => {
    * @param open - 是否展开。
    */
   const setActiveSessionPanelOpen = (open: boolean, contextId = defaultSessionContextId): void => {
-    ensureSessionContext(contextId).panel.panelOpen = open
+    getSessionPanelState(contextId).panelOpen = open
   }
 
   /**
@@ -1791,7 +2074,7 @@ export default defineStore('workspace-session', () => {
    * @param width - 目标宽度。
    */
   const setActiveSessionPanelWidth = (width: number, contextId = defaultSessionContextId): void => {
-    ensureSessionContext(contextId).panel.panelWidth = Math.min(
+    getSessionPanelState(contextId).panelWidth = Math.min(
       maxSessionPanelWidth,
       Math.max(minSessionPanelWidth, width)
     )
@@ -2072,6 +2355,7 @@ export default defineStore('workspace-session', () => {
     addComposerImages,
     archiveThread,
     activeCommands,
+    activeCommandsLoaded,
     activeCommandsLoading,
     activeCompactionState,
     activeEvents,
@@ -2083,6 +2367,7 @@ export default defineStore('workspace-session', () => {
     activeModelOptions,
     activeModelOptionsLoading,
     activePendingApprovals,
+    activePreviousLeafEntryId,
     activePreviousSessionFile,
     activeProjectId,
     activeRetryState,
@@ -2092,6 +2377,10 @@ export default defineStore('workspace-session', () => {
     activeSessionId,
     activeSessionPanel,
     activeSnapshot,
+    activeSessionTreeBranches,
+    activeSessionTreeBranchesError,
+    activeSessionTreeBranchesLoading,
+    activeSessionTreeBranchesState,
     activeToolCallsById,
     activeToolCallStructures,
     contexts,
@@ -2105,6 +2394,7 @@ export default defineStore('workspace-session', () => {
     draftMessage,
     errorMessage,
     events: activeEvents,
+    ensureCommandsLoaded,
     getContextActiveThreadId,
     getContextComposerDrafts,
     getComposerDraft,
@@ -2114,6 +2404,7 @@ export default defineStore('workspace-session', () => {
     isNewSessionActive,
     loadThreads,
     loadCommands,
+    loadActiveSessionTreeBranches,
     loadModelOptions,
     loading,
     loadingThreads,
@@ -2126,6 +2417,7 @@ export default defineStore('workspace-session', () => {
     orphanModel,
     orphanThinkingLevel,
     openActiveExport,
+    openParentSession,
     pendingApprovals: activePendingApprovals,
     refreshSnapshot,
     removeComposerImage,
@@ -2142,6 +2434,7 @@ export default defineStore('workspace-session', () => {
     exportActiveSession,
     importActiveSessionFromPicker,
     forkActiveSession,
+    navigateBackToPreviousLeaf,
     navigateActiveSessionTree,
     cycleActiveModel,
     cycleActiveThinkingLevel,
@@ -3150,6 +3443,7 @@ function snapshotToSummary(snapshot: ThreadSnapshot): ThreadSummary {
     sessionFile: snapshot.sessionFile,
     title: snapshot.title,
     status: snapshot.status,
+    lineage: snapshot.lineage,
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString()
   }

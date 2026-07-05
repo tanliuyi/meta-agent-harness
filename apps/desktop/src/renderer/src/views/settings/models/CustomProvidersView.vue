@@ -1,12 +1,20 @@
 <script setup lang="ts">
 import { BaseBadge, BaseButton, BasePanel } from '@renderer/components/base'
 import useModelSettingsStore from '@renderer/stores/model-settings'
+import ScrollArea from '@/components/ui/scroll-area/ScrollArea.vue'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle
+} from '@/components/ui/dialog'
 import type {
   CustomModelConfigInput,
   CustomModelOverrideInput,
   ThinkingLevel
 } from '@shared/coding-agent/types'
-import { ChevronDown, ChevronRight, Database, Plus } from 'lucide-vue-next'
+import { Database, Pencil, Plus, Save } from 'lucide-vue-next'
 import { computed, ref } from 'vue'
 import ProviderEditorFields from './CustomProviderEditorFields.vue'
 
@@ -68,11 +76,20 @@ const supportedApis = [
 
 const thinkingLevels: ThinkingLevel[] = ['off', 'minimal', 'low', 'medium', 'high', 'xhigh']
 
-const expandedProvider = ref<string>('')
+const isCustomProviderDialogOpen = ref(false)
 const customProviderDraft = ref<CustomProviderDraft>(createBlankProviderDraft())
 
 const customProviderCount = computed(() => modelSettings.customProviders.length)
 const hasCustomProviders = computed(() => customProviderCount.value > 0)
+const isEditingCustomProvider = computed(() => Boolean(customProviderDraft.value.originalProvider))
+const customProviderDialogTitle = computed(() =>
+  isEditingCustomProvider.value ? '编辑自定义 Provider' : '新增自定义 Provider'
+)
+const customProviderDialogDescription = computed(() =>
+  isEditingCustomProvider.value
+    ? '更新 Pi-compatible models.json provider；API Key 保存后不会回显明文。'
+    : '添加 Pi-compatible models.json provider；可配置模型、思考等级和兼容字段。'
+)
 const customProviderItems = computed<CustomProviderListItem[]>(() =>
   modelSettings.customProviders.map((provider) => ({
     provider,
@@ -160,17 +177,27 @@ function createDraftFromProvider(
   }
 }
 
-function toggleProvider(provider: CustomProviderListItem['provider']): void {
-  if (expandedProvider.value === provider.provider) {
-    expandedProvider.value = ''
-    return
-  }
-  expandedProvider.value = provider.provider
+function openProviderDialog(provider: CustomProviderListItem['provider']): void {
   customProviderDraft.value = createDraftFromProvider(provider)
+  isCustomProviderDialogOpen.value = true
 }
 
-function startNewProvider(): void {
-  expandedProvider.value = '__new__'
+function openNewProviderDialog(): void {
+  customProviderDraft.value = createBlankProviderDraft()
+  isCustomProviderDialogOpen.value = true
+}
+
+function handleProviderDialogOpenChange(open: boolean): void {
+  if (open) {
+    isCustomProviderDialogOpen.value = true
+    return
+  }
+  closeProviderDialog()
+}
+
+function closeProviderDialog(): void {
+  if (modelSettings.saving) return
+  isCustomProviderDialogOpen.value = false
   customProviderDraft.value = createBlankProviderDraft()
 }
 
@@ -205,12 +232,12 @@ async function saveCustomProvider(): Promise<void> {
     ),
     models: draft.models.map(toModelConfigInput)
   })
+  if (modelSettings.error) return
   if (originalProvider && originalProvider !== nextProvider) {
     await modelSettings.deleteCustomProvider(originalProvider)
+    if (modelSettings.error) return
   }
-  expandedProvider.value = nextProvider
-  customProviderDraft.value.originalProvider = nextProvider
-  customProviderDraft.value.apiKey = ''
+  closeProviderDialog()
 }
 
 function toModelConfigInput(model: CustomModelDraft): CustomModelConfigInput {
@@ -307,7 +334,7 @@ function numberOrZero(value: string): number {
         size="sm"
         variant="primary"
         :disabled="modelSettings.saving"
-        @click="startNewProvider"
+        @click="openNewProviderDialog"
       >
         <template #icon>
           <Plus :size="14" />
@@ -331,10 +358,13 @@ function numberOrZero(value: string): number {
           :key="item.provider.provider"
           class="custom-provider-list__item"
         >
-          <button class="custom-provider-row" type="button" @click="toggleProvider(item.provider)">
+          <button
+            class="custom-provider-row"
+            type="button"
+            @click="openProviderDialog(item.provider)"
+          >
             <span class="custom-provider-row__chevron" aria-hidden="true">
-              <ChevronDown v-if="expandedProvider === item.provider.provider" :size="15" />
-              <ChevronRight v-else :size="15" />
+              <Pencil :size="15" />
             </span>
             <span class="custom-provider-row__copy">
               <strong>{{ item.title }}</strong>
@@ -347,21 +377,6 @@ function numberOrZero(value: string): number {
               </BaseBadge>
             </span>
           </button>
-
-          <form
-            v-if="expandedProvider === item.provider.provider"
-            class="custom-provider-editor"
-            @submit.prevent="saveCustomProvider"
-          >
-            <ProviderEditorFields
-              :draft="customProviderDraft"
-              :supported-apis="supportedApis"
-              :inherit-provider-api-value="inheritProviderApiValue"
-              :thinking-levels="thinkingLevels"
-              @add-model="addModel"
-              @remove-model="removeModel"
-            />
-          </form>
         </li>
       </ul>
 
@@ -369,28 +384,86 @@ function numberOrZero(value: string): number {
         <Database :size="18" />
         <strong>尚未添加自定义 provider</strong>
         <span>可添加 Ollama、LM Studio、vLLM 或 OpenAI-compatible proxy。</span>
-        <BaseButton size="sm" variant="secondary" @click="startNewProvider">
+        <BaseButton size="sm" variant="secondary" @click="openNewProviderDialog">
           <template #icon>
             <Plus :size="14" />
           </template>
           新增 Provider
         </BaseButton>
       </div>
-
-      <form
-        v-if="expandedProvider === '__new__'"
-        class="custom-provider-editor is-new"
-        @submit.prevent="saveCustomProvider"
-      >
-        <ProviderEditorFields
-          :draft="customProviderDraft"
-          :supported-apis="supportedApis"
-          :inherit-provider-api-value="inheritProviderApiValue"
-          :thinking-levels="thinkingLevels"
-          @add-model="addModel"
-          @remove-model="removeModel"
-        />
-      </form>
     </BasePanel>
+
+    <Dialog :open="isCustomProviderDialogOpen" @update:open="handleProviderDialogOpenChange">
+      <DialogContent class="custom-provider-dialog">
+        <form class="custom-provider-dialog__form" @submit.prevent="saveCustomProvider">
+          <DialogHeader class="custom-provider-dialog__header">
+            <DialogTitle>{{ customProviderDialogTitle }}</DialogTitle>
+            <DialogDescription>{{ customProviderDialogDescription }}</DialogDescription>
+          </DialogHeader>
+
+          <ScrollArea class="custom-provider-dialog__scroll">
+            <div class="custom-provider-dialog__body">
+              <ProviderEditorFields
+                :draft="customProviderDraft"
+                :supported-apis="supportedApis"
+                :inherit-provider-api-value="inheritProviderApiValue"
+                :thinking-levels="thinkingLevels"
+                @add-model="addModel"
+                @remove-model="removeModel"
+              />
+            </div>
+          </ScrollArea>
+
+          <div class="custom-provider-dialog__footer">
+            <BaseButton size="sm" variant="ghost" type="button" @click="closeProviderDialog">
+              取消
+            </BaseButton>
+            <BaseButton size="sm" variant="primary" type="submit" :disabled="modelSettings.saving">
+              <template #icon>
+                <Save :size="14" />
+              </template>
+              保存 Provider
+            </BaseButton>
+          </div>
+        </form>
+      </DialogContent>
+    </Dialog>
   </div>
 </template>
+
+<style lang="scss" scoped>
+.custom-provider-dialog__form {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  min-width: 0;
+  min-height: 0;
+  height: min(calc(100svh - 32px), 820px);
+}
+
+.custom-provider-dialog__header {
+  padding: var(--space-3) var(--space-3) 0;
+}
+
+.custom-provider-dialog__scroll {
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
+}
+
+.custom-provider-dialog__scroll :deep([data-slot='scroll-area-viewport']) {
+  height: 100%;
+}
+
+.custom-provider-dialog__body {
+  min-width: 0;
+  padding: var(--space-2) var(--space-3) var(--space-3);
+}
+
+.custom-provider-dialog__footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  border-top: 1px solid var(--color-border);
+}
+</style>

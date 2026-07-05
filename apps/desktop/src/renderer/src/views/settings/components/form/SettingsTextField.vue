@@ -26,6 +26,7 @@ const props = withDefaults(
 
 const emit = defineEmits<{
   (event: 'update:modelValue', value: string | number): void
+  (event: 'blur'): void
 }>()
 
 const validationError = computed(() => {
@@ -60,6 +61,7 @@ function updateValue(value: string | number): void {
       :placeholder="placeholder"
       :aria-invalid="Boolean(error)"
       @update:model-value="updateValue"
+      @blur="emit('blur')"
     />
     <Input
       v-else
@@ -71,6 +73,7 @@ function updateValue(value: string | number): void {
       :placeholder="placeholder"
       :aria-invalid="Boolean(validationError)"
       @update:model-value="updateValue"
+      @blur="emit('blur')"
     />
     <FieldDescription v-if="description">{{ description }}</FieldDescription>
     <FieldError v-if="validationError">{{ validationError }}</FieldError>

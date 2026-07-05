@@ -9,6 +9,8 @@ import type {
   ForkThreadInput,
   ForkThreadResult,
   ImportSessionInput,
+  LoadSessionTreeBranchesInput,
+  LoadSessionTreeBranchesResult,
   LoadSessionTreeChildrenInput,
   LoadSessionTreePathInput,
   NavigateTreeInput,
@@ -23,6 +25,7 @@ import type {
 } from '@shared/coding-agent/types'
 import type { ThreadManagerCore } from './thread-manager-core'
 import { createThread } from './thread-lifecycle'
+import { buildSessionTreeBranches } from './session-tree-branches'
 
 /**
  * 创建新会话。
@@ -179,6 +182,26 @@ export async function loadSessionTreeChildren(
     }
   )
   return result.children
+}
+
+/**
+ * 从 main 进程派生扁平 branch 视图。
+ * @param core - thread 管理核心。
+ * @param input - branch 视图输入。
+ * @returns 扁平 branch rows。
+ */
+export async function loadSessionTreeBranches(
+  core: ThreadManagerCore,
+  input: LoadSessionTreeBranchesInput
+): Promise<LoadSessionTreeBranchesResult> {
+  const sessionState = await core.getThreadSessionState(input.threadId)
+  if (!sessionState.sessionFile) {
+    throw new Error('thread does not have a session file')
+  }
+  return buildSessionTreeBranches(sessionState.sessionFile, {
+    ...input,
+    currentEntryId: sessionState.currentEntryId
+  })
 }
 
 /**

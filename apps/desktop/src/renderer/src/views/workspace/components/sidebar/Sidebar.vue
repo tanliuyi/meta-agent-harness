@@ -7,17 +7,31 @@ import SettingIcon from '@renderer/components/icons/SettingIcon.vue'
 import { confirm } from '@renderer/composables/useConfirmDialog'
 import useWorkspaceProjectStore from '@renderer/stores/workspace-project'
 import useWorkspaceSessionStore from '@renderer/stores/workspace-session'
-import type { ProjectSummary, ProjectTrustDecision } from '@shared/coding-agent/types'
+import { useWorkspaceViewSettings } from '@renderer/composables/useWorkspaceViewSettings'
+import type {
+  ProjectSummary,
+  ProjectTrustDecision,
+  ThreadSnapshot
+} from '@shared/coding-agent/types'
 import type { WorkspaceSession } from '@renderer/stores/workspace-session'
 import type { Component } from 'vue'
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import ScrollArea from '@/components/ui/scroll-area/ScrollArea.vue'
-import { Archive, Copy, ShieldAlert, ShieldCheck, ShieldOff } from '@lucide/vue'
+import {
+  Archive,
+  Copy,
+  GitBranch,
+  LocateFixed,
+  ShieldAlert,
+  ShieldCheck,
+  ShieldOff
+} from '@lucide/vue'
 import { RouterLink } from 'vue-router'
 
-type ThreadMenuActionId = 'copy-id' | 'archive'
+type ThreadMenuActionId = 'copy-id' | 'open-parent' | 'locate-current-leaf' | 'archive'
 type ProjectMenuActionId = 'new-thread' | 'project-trust'
+type SessionTreeNode = NonNullable<ThreadSnapshot['sessionTree']>[number]
 
 interface ThreadMenuItem {
   id: ThreadMenuActionId
@@ -48,9 +62,18 @@ interface ProjectMenuSection {
 
 interface ThreadListItem {
   thread: WorkspaceSession
+  depth: number
   statusIndicator?: 'running' | 'error'
   statusLabel?: string
   updatedAtDistance?: string
+  lineageLabel?: string
+  leafShortcuts: ThreadLeafShortcut[]
+}
+
+interface ThreadLeafShortcut {
+  id: string
+  label: string
+  meta: string
 }
 
 interface ProjectListItem {
@@ -60,6 +83,7 @@ interface ProjectListItem {
 
 const workspaceProject = useWorkspaceProjectStore()
 const workspaceSession = useWorkspaceSessionStore()
+const { threadSortMode } = useWorkspaceViewSettings()
 const expandedProjects = ref<Record<string, { displayCount: number; hasExpanded: boolean }>>({})
 
 function getProjectExpansion(projectId: string): { displayCount: number; hasExpanded: boolean } {
@@ -96,20 +120,11 @@ function getExpandButtonText(totalCount: number, displayCount: number): string {
 const currentTime = ref(Date.now())
 let currentTimeTimer: number | undefined
 
-const threadMenuSections: ThreadMenuSection[] = [
-  {
-    items: [{ id: 'copy-id', label: '复制 Thread ID', icon: Copy }]
-  },
-  {
-    items: [{ id: 'archive', label: '归档会话', icon: Archive, danger: true }]
-  }
-]
-
 const projectListItems = computed<ProjectListItem[]>(() =>
   workspaceProject.projectList.map((project) => ({
     project,
-    threads: (workspaceSession.sessionsByProject[project.projectId] ?? []).map((thread) =>
-      toThreadListItem(thread)
+    threads: getProjectThreads(project.projectId).map((threadItem) =>
+      toThreadListItem(threadItem.thread, threadItem.depth)
     )
   }))
 )
@@ -202,10 +217,24 @@ async function runThreadMenuAction(actionId: string, thread: WorkspaceSession): 
     case 'copy-id':
       await navigator.clipboard.writeText(thread.threadId)
       return
+    case 'open-parent':
+      await workspaceSession.openParentSession(thread.threadId)
+      return
+    case 'locate-current-leaf':
+      await workspaceSession.setActiveSessionId(thread.threadId)
+      if (thread.snapshot?.currentEntryId) {
+        workspaceSession.focusActiveSessionTreeEntry(thread.snapshot.currentEntryId)
+      }
+      return
     case 'archive':
       await archiveThread(thread)
       return
   }
+}
+
+async function navigateThreadLeaf(thread: WorkspaceSession, entryId: string): Promise<void> {
+  await workspaceSession.setActiveSessionId(thread.threadId)
+  await workspaceSession.navigateActiveSessionTree(entryId)
 }
 
 async function archiveThread(thread: WorkspaceSession): Promise<void> {
@@ -267,6 +296,33 @@ function getProjectMenuSections(project: ProjectSummary): ProjectMenuSection[] {
   return sections
 }
 
+function getThreadMenuSections(thread: WorkspaceSession): ThreadMenuSection[] {
+  const lineage = thread.snapshot?.lineage ?? thread.lineage
+  const currentEntryId = thread.snapshot?.currentEntryId
+  return [
+    {
+      items: [
+        { id: 'copy-id', label: '复制 Thread ID', icon: Copy },
+        {
+          id: 'open-parent',
+          label: '打开来源对话',
+          icon: GitBranch,
+          disabled: !lineage || lineage.parentSessionMissing || lineage.unavailable
+        },
+        {
+          id: 'locate-current-leaf',
+          label: '在 Tree 中定位当前 leaf',
+          icon: LocateFixed,
+          disabled: !currentEntryId
+        }
+      ]
+    },
+    {
+      items: [{ id: 'archive', label: '归档会话', icon: Archive, danger: true }]
+    }
+  ]
+}
+
 function getThreadStatusIndicator(
   status: WorkspaceSession['status']
 ): 'running' | 'error' | undefined {
@@ -282,14 +338,117 @@ function getThreadStatusLabel(status: WorkspaceSession['status']): string | unde
   return indicator === undefined ? undefined : indicator === 'running' ? '运行中' : '错误'
 }
 
-function toThreadListItem(thread: WorkspaceSession): ThreadListItem {
+function getThreadIndent(depth: number): string {
+  return `${Math.min(Math.max(depth, 0), 4) * 12}px`
+}
+
+function getProjectThreads(projectId: string): Array<{ thread: WorkspaceSession; depth: number }> {
+  const threads = workspaceSession.sessionsByProject[projectId] ?? []
+  if (threadSortMode.value === 'recent') {
+    return threads.map((thread) => ({ thread, depth: 0 }))
+  }
+  return getThreadedProjectThreads(threads)
+}
+
+function getThreadedProjectThreads(
+  threads: WorkspaceSession[]
+): Array<{ thread: WorkspaceSession; depth: number }> {
+  const childrenByParentId = new Map<string, WorkspaceSession[]>()
+  const threadIds = new Set(threads.map((thread) => thread.threadId))
+  for (const thread of threads) {
+    const parentThreadId = (thread.snapshot?.lineage ?? thread.lineage)?.parentThreadId
+    if (!parentThreadId || !threadIds.has(parentThreadId)) {
+      continue
+    }
+    childrenByParentId.set(parentThreadId, [
+      ...(childrenByParentId.get(parentThreadId) ?? []),
+      thread
+    ])
+  }
+  const ordered: Array<{ thread: WorkspaceSession; depth: number }> = []
+  const visited = new Set<string>()
+  const appendThread = (thread: WorkspaceSession, depth: number): void => {
+    if (visited.has(thread.threadId)) {
+      return
+    }
+    visited.add(thread.threadId)
+    ordered.push({ thread, depth })
+    for (const child of childrenByParentId.get(thread.threadId) ?? []) {
+      appendThread(child, depth + 1)
+    }
+  }
+  for (const thread of threads) {
+    const parentThreadId = (thread.snapshot?.lineage ?? thread.lineage)?.parentThreadId
+    if (!parentThreadId || !threadIds.has(parentThreadId)) {
+      appendThread(thread, 0)
+    }
+  }
+  for (const thread of threads) {
+    appendThread(thread, 0)
+  }
+  return ordered
+}
+
+function toThreadListItem(thread: WorkspaceSession, depth: number): ThreadListItem {
   const statusIndicator = getThreadStatusIndicator(thread.status)
   return {
     thread,
+    depth,
     statusIndicator,
     statusLabel: statusIndicator ? getThreadStatusLabel(thread.status) : undefined,
-    updatedAtDistance: statusIndicator ? undefined : formatUpdatedAtDistance(thread.updatedAt)
+    updatedAtDistance: statusIndicator ? undefined : formatUpdatedAtDistance(thread.updatedAt),
+    lineageLabel: getThreadLineageLabel(thread),
+    leafShortcuts: getThreadLeafShortcuts(thread)
   }
+}
+
+function getThreadLineageLabel(thread: WorkspaceSession): string | undefined {
+  const lineage = thread.snapshot?.lineage ?? thread.lineage
+  if (!lineage) {
+    return undefined
+  }
+  if (lineage.unavailable) {
+    return 'Fork source unavailable'
+  }
+  if (lineage.parentThreadTitle) {
+    return `Forked from ${lineage.parentThreadTitle}${lineage.parentThreadArchivedAt ? ' (archived)' : ''}`
+  }
+  if (lineage.parentSessionFile) {
+    return lineage.parentSessionMissing
+      ? 'Fork source missing'
+      : `Forked from ${getFileName(lineage.parentSessionFile)}`
+  }
+  return undefined
+}
+
+function getThreadLeafShortcuts(thread: WorkspaceSession): ThreadLeafShortcut[] {
+  const snapshot = thread.snapshot
+  if (!snapshot?.sessionTree?.length) {
+    return []
+  }
+  const labeledNodes = collectSessionTreeNodes(snapshot.sessionTree)
+    .filter((node) => node.label && node.id !== snapshot.currentEntryId)
+    .slice(0, 3)
+  return labeledNodes.map((node) => ({
+    id: node.id,
+    label: node.label || node.title,
+    meta: 'Labeled'
+  }))
+}
+
+function getFileName(filePath: string): string {
+  return filePath.split(/[\\/]/).filter(Boolean).at(-1) ?? filePath
+}
+
+function collectSessionTreeNodes(nodes: SessionTreeNode[]): SessionTreeNode[] {
+  const result: SessionTreeNode[] = []
+  const stack = [...nodes]
+  while (stack.length > 0) {
+    const node = stack.shift()!
+    result.push(node)
+    stack.unshift(...node.children)
+  }
+  return result
 }
 
 function formatUpdatedAtDistance(updatedAt: string): string | undefined {
@@ -428,7 +587,7 @@ function getProjectTrustIcon(project: ProjectSummary): Component | undefined {
                     getProjectExpansion(projectItem.project.projectId).displayCount
                   )"
                   :key="threadItem.thread.threadId"
-                  :sections="threadMenuSections"
+                  :sections="getThreadMenuSections(threadItem.thread)"
                   @select="(item) => runThreadMenuAction(item.id, threadItem.thread)"
                 >
                   <li
@@ -436,40 +595,70 @@ function getProjectTrustIcon(project: ProjectSummary): Component | undefined {
                     :class="{
                       'is-active': threadItem.thread.threadId === workspaceSession.activeSessionId
                     }"
+                    :style="{ '--thread-indent': getThreadIndent(threadItem.depth) }"
                     @click="workspaceSession.setActiveSessionId(threadItem.thread.threadId)"
                   >
-                    <span class="session-group__item-title">
-                      {{ threadItem.thread.title || '新会话' }}
-                    </span>
-                    <span
-                      v-if="threadItem.statusIndicator"
-                      class="thread-status"
-                      :class="`is-${threadItem.statusIndicator}`"
-                      :aria-label="threadItem.statusLabel"
-                      role="img"
-                    >
-                      <svg
-                        v-if="threadItem.statusIndicator === 'running'"
-                        class="thread-status__svg"
-                        viewBox="0 0 16 16"
-                        aria-hidden="true"
+                    <span class="session-group__item-content">
+                      <span class="session-group__item-main">
+                        <span class="session-group__item-title">
+                          {{ threadItem.thread.title || '新会话' }}
+                        </span>
+                        <span
+                          v-if="threadItem.statusIndicator"
+                          class="thread-status"
+                          :class="`is-${threadItem.statusIndicator}`"
+                          :aria-label="threadItem.statusLabel"
+                          role="img"
+                        >
+                          <svg
+                            v-if="threadItem.statusIndicator === 'running'"
+                            class="thread-status__svg"
+                            viewBox="0 0 16 16"
+                            aria-hidden="true"
+                          >
+                            <circle class="thread-status__track" cx="8" cy="8" r="6.25" />
+                            <circle class="thread-status__runner" cx="8" cy="8" r="6.25" />
+                          </svg>
+                          <svg
+                            v-else
+                            class="thread-status__svg"
+                            viewBox="0 0 16 16"
+                            aria-hidden="true"
+                          >
+                            <circle class="thread-status__error-ring" cx="8" cy="8" r="6.25" />
+                            <path class="thread-status__error-mark" d="M8 4.75v4.2" />
+                            <circle class="thread-status__error-dot" cx="8" cy="11.35" r="0.7" />
+                          </svg>
+                        </span>
+                        <time
+                          v-else-if="threadItem.updatedAtDistance"
+                          class="thread-updated-at"
+                          :datetime="threadItem.thread.updatedAt"
+                        >
+                          {{ threadItem.updatedAtDistance }}
+                        </time>
+                      </span>
+                      <span v-if="threadItem.lineageLabel" class="session-group__item-meta">
+                        <span v-if="threadItem.lineageLabel">{{ threadItem.lineageLabel }}</span>
+                      </span>
+                      <span
+                        v-if="
+                          threadItem.thread.threadId === workspaceSession.activeSessionId &&
+                          threadItem.leafShortcuts.length
+                        "
+                        class="session-group__leaf-shortcuts"
                       >
-                        <circle class="thread-status__track" cx="8" cy="8" r="6.25" />
-                        <circle class="thread-status__runner" cx="8" cy="8" r="6.25" />
-                      </svg>
-                      <svg v-else class="thread-status__svg" viewBox="0 0 16 16" aria-hidden="true">
-                        <circle class="thread-status__error-ring" cx="8" cy="8" r="6.25" />
-                        <path class="thread-status__error-mark" d="M8 4.75v4.2" />
-                        <circle class="thread-status__error-dot" cx="8" cy="11.35" r="0.7" />
-                      </svg>
+                        <button
+                          v-for="shortcut in threadItem.leafShortcuts"
+                          :key="shortcut.id"
+                          type="button"
+                          @click.stop="navigateThreadLeaf(threadItem.thread, shortcut.id)"
+                        >
+                          <span>{{ shortcut.label }}</span>
+                          <small>{{ shortcut.meta }}</small>
+                        </button>
+                      </span>
                     </span>
-                    <time
-                      v-else-if="threadItem.updatedAtDistance"
-                      class="thread-updated-at"
-                      :datetime="threadItem.thread.updatedAt"
-                    >
-                      {{ threadItem.updatedAtDistance }}
-                    </time>
                   </li>
                 </BaseContextMenu>
 
@@ -484,9 +673,14 @@ function getProjectTrustIcon(project: ProjectSummary): Component | undefined {
                   class="session-group__expand-collapse"
                 >
                   <button
-                    v-if="getProjectExpansion(projectItem.project.projectId).displayCount < projectItem.threads.length"
+                    v-if="
+                      getProjectExpansion(projectItem.project.projectId).displayCount <
+                      projectItem.threads.length
+                    "
                     class="expand-collapse-btn"
-                    @click="expandProject(projectItem.project.projectId, projectItem.threads.length)"
+                    @click="
+                      expandProject(projectItem.project.projectId, projectItem.threads.length)
+                    "
                   >
                     {{
                       getExpandButtonText(
@@ -641,7 +835,8 @@ function getProjectTrustIcon(project: ProjectSummary): Component | undefined {
   gap: var(--space-2);
   min-width: 0;
   margin: 0 var(--space-2);
-  padding: 0 var(--space-3) 0 var(--space-8);
+  padding: var(--space-1) var(--space-3) var(--space-1)
+    calc(var(--space-8) + var(--thread-indent, 0px));
   border: 1px solid transparent;
   border-radius: var(--radius-lg);
   color: var(--color-text-muted);
@@ -662,6 +857,21 @@ function getProjectTrustIcon(project: ProjectSummary): Component | undefined {
     border-color: var(--color-item-active-border);
   }
 
+  &-content {
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+  }
+
+  &-main {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    min-width: 0;
+  }
+
   &-title {
     flex: 1;
     min-width: 0;
@@ -672,6 +882,23 @@ function getProjectTrustIcon(project: ProjectSummary): Component | undefined {
     font-weight: 500;
   }
 
+  &-meta {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    min-width: 0;
+    color: var(--color-text-subtle, var(--color-text-muted));
+    font-size: var(--font-size-ui-xs);
+    line-height: 1.25;
+
+    span {
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+  }
+
   &.is-empty {
     font-size: var(--font-size-ui-sm);
     color: var(--color-text-muted);
@@ -679,7 +906,53 @@ function getProjectTrustIcon(project: ProjectSummary): Component | undefined {
 }
 
 .session-group__item {
-  height: 28px;
+  min-height: 28px;
+}
+
+.session-group__leaf-shortcuts {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+  padding: 2px 0 1px;
+
+  button {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: var(--space-2);
+    align-items: center;
+    min-width: 0;
+    height: 22px;
+    padding: 0 var(--space-2);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-sm);
+    color: var(--color-text-muted);
+    background: var(--color-surface);
+    font: inherit;
+    text-align: left;
+
+    &:hover {
+      color: var(--color-text);
+      background: var(--color-surface-raised);
+    }
+  }
+
+  span,
+  small {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  span {
+    font-size: var(--font-size-ui-xs);
+    font-weight: 560;
+  }
+
+  small {
+    color: var(--color-text-subtle, var(--color-text-muted));
+    font-size: var(--font-size-ui-2xs);
+  }
 }
 
 .session-group__expand-collapse {

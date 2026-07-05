@@ -65,6 +65,8 @@ export const codingAgentChannels = {
   navigateTree: 'coding-agent:navigate-tree',
   /** 加载 session tree 子节点。 */
   loadSessionTreeChildren: 'coding-agent:load-session-tree-children',
+  /** 加载 main 派生的扁平 branch 视图。 */
+  loadSessionTreeBranches: 'coding-agent:load-session-tree-branches',
   /** 加载 root 到指定 entry 的路径。 */
   loadSessionTreePath: 'coding-agent:load-session-tree-path',
   /** 设置 session entry label。 */

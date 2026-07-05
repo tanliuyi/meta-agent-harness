@@ -2,11 +2,23 @@
 import { BaseBadge, BaseButton, BaseField, BasePanel } from '@renderer/components/base'
 import { SettingsSelectField } from '@renderer/views/settings/components/form'
 import useModelSettingsStore from '@renderer/stores/model-settings'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle
+} from '@/components/ui/dialog'
 import type { ProviderCredentialStatus } from '@shared/coding-agent/types'
-import { Check, KeyRound, LogIn, Save, X } from 'lucide-vue-next'
+import { Check, KeyRound, LogIn, X } from 'lucide-vue-next'
 import { computed, ref } from 'vue'
 
 const modelSettings = useModelSettingsStore()
+const isApiKeyDialogOpen = ref(false)
+const isOAuthDialogOpen = ref(false)
+const apiKeySubmitAttempted = ref(false)
+const oauthSubmitAttempted = ref(false)
 const apiKeyDraft = ref({
   provider: '',
   key: ''
@@ -51,10 +63,26 @@ const selectedOAuthState = computed(() =>
 const selectedOAuthPrompt = computed(() => selectedOAuthState.value?.pendingPrompt)
 
 const showOAuthMethod = computed(() => oauthDraft.value.provider === 'openai-codex')
+const oauthLoginBusy = computed(() =>
+  Object.values(modelSettings.oauthLogins).some((state) =>
+    Boolean(state.running || state.pendingPrompt)
+  )
+)
 const canSaveProviderApiKey = computed(() =>
   Boolean(
     apiKeyDraft.value.provider.trim() && apiKeyDraft.value.key.trim() && !modelSettings.saving
   )
+)
+const apiKeyProviderError = computed(() =>
+  apiKeySubmitAttempted.value && !apiKeyDraft.value.provider.trim() ? '请选择 provider' : ''
+)
+const apiKeyValueError = computed(() =>
+  apiKeySubmitAttempted.value && !apiKeyDraft.value.key.trim()
+    ? '请输入 API Key 或 Pi config value'
+    : ''
+)
+const oauthProviderError = computed(() =>
+  oauthSubmitAttempted.value && !oauthDraft.value.provider.trim() ? '请选择 OAuth provider' : ''
 )
 
 function getCredentialTone(
@@ -97,24 +125,67 @@ function getCredentialSourceLabel(source: ProviderCredentialStatus['source']): s
   }
 }
 
-function selectApiKeyProvider(provider: string): void {
+function openApiKeyDialog(provider: string): void {
   apiKeyDraft.value.provider = provider
+  apiKeyDraft.value.key = ''
+  apiKeySubmitAttempted.value = false
+  isApiKeyDialogOpen.value = true
 }
 
-function selectOAuthProvider(provider: string): void {
+function openOAuthDialog(provider: string): void {
   oauthDraft.value.provider = provider
+  oauthDraft.value.method = 'browser'
+  oauthPromptInput.value = ''
+  oauthSubmitAttempted.value = false
+  isOAuthDialogOpen.value = true
+}
+
+function handleApiKeyDialogOpenChange(open: boolean): void {
+  if (open) {
+    isApiKeyDialogOpen.value = true
+    return
+  }
+  closeApiKeyDialog()
+}
+
+function handleOAuthDialogOpenChange(open: boolean): void {
+  if (open) {
+    isOAuthDialogOpen.value = true
+    return
+  }
+  if (oauthLoginBusy.value) return
+  closeOAuthDialog()
+}
+
+function closeApiKeyDialog(): void {
+  if (modelSettings.saving) return
+  isApiKeyDialogOpen.value = false
+  apiKeyDraft.value.key = ''
+  apiKeySubmitAttempted.value = false
+}
+
+function closeOAuthDialog(): void {
+  if (oauthLoginBusy.value) return
+  isOAuthDialogOpen.value = false
+  oauthPromptInput.value = ''
+  oauthSubmitAttempted.value = false
 }
 
 async function saveProviderApiKey(): Promise<void> {
+  apiKeySubmitAttempted.value = true
   if (!canSaveProviderApiKey.value) return
   await modelSettings.setProviderApiKey({
     provider: apiKeyDraft.value.provider.trim(),
     key: apiKeyDraft.value.key.trim()
   })
   apiKeyDraft.value.key = ''
+  if (!modelSettings.error) {
+    closeApiKeyDialog()
+  }
 }
 
 async function loginProviderOAuth(): Promise<void> {
+  oauthSubmitAttempted.value = true
   const provider = oauthDraft.value.provider.trim()
   if (!provider) return
   oauthPromptInput.value = ''
@@ -149,17 +220,6 @@ async function cancelOAuthPrompt(): Promise<void> {
         <h1 class="models-page__title">API Key</h1>
         <p class="models-page__subtitle">只保存 provider 凭据到 Pi-compatible auth.json。</p>
       </div>
-      <BaseButton
-        size="sm"
-        variant="primary"
-        :disabled="!canSaveProviderApiKey"
-        @click="saveProviderApiKey"
-      >
-        <template #icon>
-          <Save :size="14" />
-        </template>
-        保存 API Key
-      </BaseButton>
     </header>
 
     <div v-if="modelSettings.error" class="state-strip is-error">{{ modelSettings.error }}</div>
@@ -201,11 +261,7 @@ async function cancelOAuthPrompt(): Promise<void> {
             <BaseBadge v-if="credential.oauthAvailable" tone="info">OAuth</BaseBadge>
           </div>
           <div class="credential-list__actions">
-            <BaseButton
-              size="sm"
-              variant="ghost"
-              @click="selectApiKeyProvider(credential.provider)"
-            >
+            <BaseButton size="sm" variant="ghost" @click="openApiKeyDialog(credential.provider)">
               <template #icon>
                 <KeyRound :size="14" />
               </template>
@@ -215,7 +271,7 @@ async function cancelOAuthPrompt(): Promise<void> {
               v-if="credential.oauthAvailable"
               size="sm"
               variant="ghost"
-              @click="selectOAuthProvider(credential.provider)"
+              @click="openOAuthDialog(credential.provider)"
             >
               <template #icon>
                 <LogIn :size="14" />
@@ -225,127 +281,198 @@ async function cancelOAuthPrompt(): Promise<void> {
           </div>
         </li>
       </ul>
-
-      <div class="api-key-form">
-        <SettingsSelectField
-          v-model="apiKeyDraft.provider"
-          label="Provider"
-          placeholder="选择 provider"
-          :options="providerOptions"
-        />
-        <BaseField
-          id="provider-api-key"
-          v-model="apiKeyDraft.key"
-          type="password"
-          label="API Key"
-          placeholder="$OPENAI_API_KEY、!op read ... 或 literal"
-          hint="支持 Pi config value 语义；renderer 不持久化密钥。"
-        />
-      </div>
     </BasePanel>
 
-    <BasePanel title="OAuth 登录" eyebrow="auth.json">
-      <div class="status-row">
-        <LogIn :size="16" />
-        <span>使用 provider 的 OAuth 流程写入 Pi-compatible auth.json。</span>
-      </div>
+    <Dialog :open="isApiKeyDialogOpen" @update:open="handleApiKeyDialogOpenChange">
+      <DialogContent class="auth-dialog">
+        <form class="auth-dialog__form" @submit.prevent="saveProviderApiKey">
+          <DialogHeader>
+            <DialogTitle>保存 API Key</DialogTitle>
+            <DialogDescription>
+              写入 {{ apiKeyDraft.provider || 'provider' }} 的 auth.json 凭据；保存后不会回显明文。
+            </DialogDescription>
+          </DialogHeader>
 
-      <div v-if="oauthProviderOptions.length === 0" class="empty-state">
-        <strong>暂无可登录的 OAuth provider</strong>
-        <span>刷新模型 registry 后，支持 OAuth 的 provider 会出现在这里。</span>
-      </div>
+          <div class="auth-dialog__body">
+            <SettingsSelectField
+              v-model="apiKeyDraft.provider"
+              label="Provider"
+              placeholder="选择 provider"
+              :options="providerOptions"
+              :disabled="modelSettings.saving"
+            />
+            <p v-if="apiKeyProviderError" class="auth-dialog__error">{{ apiKeyProviderError }}</p>
 
-      <div v-else class="api-key-form">
-        <SettingsSelectField
-          v-model="oauthDraft.provider"
-          label="OAuth Provider"
-          placeholder="选择 OAuth provider"
-          :options="oauthProviderOptions"
-        />
-        <SettingsSelectField
-          v-if="showOAuthMethod"
-          v-model="oauthDraft.method"
-          label="登录方式"
-          :options="[
-            { label: '浏览器登录', value: 'browser' },
-            { label: '设备码登录', value: 'device_code' }
-          ]"
-        />
-        <BaseButton
-          size="sm"
-          variant="primary"
-          :disabled="modelSettings.saving || !oauthDraft.provider"
-          @click="loginProviderOAuth"
-        >
-          <template #icon>
-            <LogIn :size="14" />
-          </template>
-          登录
-        </BaseButton>
-      </div>
+            <BaseField
+              id="provider-api-key"
+              v-model="apiKeyDraft.key"
+              type="password"
+              label="API Key"
+              placeholder="$OPENAI_API_KEY、!op read ... 或 literal"
+              hint="支持 Pi config value 语义；renderer 不持久化密钥。"
+            />
+            <p v-if="apiKeyValueError" class="auth-dialog__error">{{ apiKeyValueError }}</p>
+          </div>
 
-      <article v-if="selectedOAuthState" class="oauth-status">
-        <header>
-          <strong>{{ selectedOAuthState.providerName ?? selectedOAuthState.provider }}</strong>
-          <span>{{
-            selectedOAuthState.running ? '登录中' : selectedOAuthState.error ? '失败' : '完成'
-          }}</span>
-        </header>
-        <div v-if="selectedOAuthState.userCode" class="oauth-code">
-          <span>设备码</span>
-          <strong>{{ selectedOAuthState.userCode }}</strong>
-        </div>
-        <p v-if="selectedOAuthState.verificationUri">
-          {{ selectedOAuthState.verificationUri }}
-        </p>
-        <p v-else-if="selectedOAuthState.authUrl">
-          {{ selectedOAuthState.authUrl }}
-        </p>
-        <p v-if="selectedOAuthState.instructions">{{ selectedOAuthState.instructions }}</p>
-        <form v-if="selectedOAuthPrompt" class="oauth-prompt" @submit.prevent="submitOAuthPrompt">
-          <BaseField
-            id="oauth-prompt-input"
-            v-model="oauthPromptInput"
-            :label="selectedOAuthPrompt.manualCode ? '授权码' : '输入'"
-            :placeholder="selectedOAuthPrompt.placeholder ?? selectedOAuthPrompt.message"
-            :hint="selectedOAuthPrompt.message"
-          />
-          <div class="oauth-prompt__actions">
-            <BaseButton size="sm" variant="ghost" type="button" @click="cancelOAuthPrompt">
-              <template #icon>
-                <X :size="14" />
-              </template>
+          <DialogFooter>
+            <BaseButton type="button" size="sm" variant="ghost" @click="closeApiKeyDialog">
               取消
             </BaseButton>
-            <BaseButton
-              size="sm"
-              variant="primary"
-              type="submit"
-              :disabled="selectedOAuthPrompt.allowEmpty === false && !oauthPromptInput.trim()"
-            >
+            <BaseButton size="sm" variant="primary" type="submit" :disabled="modelSettings.saving">
               <template #icon>
                 <Check :size="14" />
               </template>
-              提交
+              保存
             </BaseButton>
-          </div>
+          </DialogFooter>
         </form>
-        <ul v-if="selectedOAuthState.progress.length">
-          <li v-for="(line, index) in selectedOAuthState.progress.slice(-4)" :key="index">
-            {{ line }}
-          </li>
-        </ul>
-      </article>
-    </BasePanel>
+      </DialogContent>
+    </Dialog>
+
+    <Dialog :open="isOAuthDialogOpen" @update:open="handleOAuthDialogOpenChange">
+      <DialogContent class="auth-dialog auth-dialog--wide">
+        <DialogHeader>
+          <DialogTitle>OAuth 登录</DialogTitle>
+          <DialogDescription>
+            使用 provider 的 OAuth 流程写入 Pi-compatible auth.json。
+          </DialogDescription>
+        </DialogHeader>
+
+        <div class="auth-dialog__body">
+          <div v-if="oauthProviderOptions.length === 0" class="empty-state">
+            <strong>暂无可登录的 OAuth provider</strong>
+            <span>刷新模型 registry 后，支持 OAuth 的 provider 会出现在这里。</span>
+          </div>
+
+          <div v-else class="auth-dialog__form">
+            <SettingsSelectField
+              v-model="oauthDraft.provider"
+              label="OAuth Provider"
+              placeholder="选择 OAuth provider"
+              :options="oauthProviderOptions"
+              :disabled="oauthLoginBusy"
+            />
+            <p v-if="oauthProviderError" class="auth-dialog__error">{{ oauthProviderError }}</p>
+
+            <SettingsSelectField
+              v-if="showOAuthMethod"
+              v-model="oauthDraft.method"
+              label="登录方式"
+              :disabled="oauthLoginBusy"
+              :options="[
+                { label: '浏览器登录', value: 'browser' },
+                { label: '设备码登录', value: 'device_code' }
+              ]"
+            />
+
+            <article v-if="selectedOAuthState" class="oauth-status">
+              <header>
+                <strong>{{
+                  selectedOAuthState.providerName ?? selectedOAuthState.provider
+                }}</strong>
+                <span>{{
+                  selectedOAuthState.running ? '登录中' : selectedOAuthState.error ? '失败' : '完成'
+                }}</span>
+              </header>
+              <div v-if="selectedOAuthState.userCode" class="oauth-code">
+                <span>设备码</span>
+                <strong>{{ selectedOAuthState.userCode }}</strong>
+              </div>
+              <p v-if="selectedOAuthState.verificationUri">
+                {{ selectedOAuthState.verificationUri }}
+              </p>
+              <p v-else-if="selectedOAuthState.authUrl">
+                {{ selectedOAuthState.authUrl }}
+              </p>
+              <p v-if="selectedOAuthState.instructions">{{ selectedOAuthState.instructions }}</p>
+              <form
+                v-if="selectedOAuthPrompt"
+                class="oauth-prompt"
+                @submit.prevent="submitOAuthPrompt"
+              >
+                <BaseField
+                  id="oauth-prompt-input"
+                  v-model="oauthPromptInput"
+                  :label="selectedOAuthPrompt.manualCode ? '授权码' : '输入'"
+                  :placeholder="selectedOAuthPrompt.placeholder ?? selectedOAuthPrompt.message"
+                  :hint="selectedOAuthPrompt.message"
+                />
+                <div class="oauth-prompt__actions">
+                  <BaseButton size="sm" variant="ghost" type="button" @click="cancelOAuthPrompt">
+                    <template #icon>
+                      <X :size="14" />
+                    </template>
+                    取消
+                  </BaseButton>
+                  <BaseButton
+                    size="sm"
+                    variant="primary"
+                    type="submit"
+                    :disabled="selectedOAuthPrompt.allowEmpty === false && !oauthPromptInput.trim()"
+                  >
+                    <template #icon>
+                      <Check :size="14" />
+                    </template>
+                    提交
+                  </BaseButton>
+                </div>
+              </form>
+              <ul v-if="selectedOAuthState.progress.length">
+                <li v-for="(line, index) in selectedOAuthState.progress.slice(-4)" :key="index">
+                  {{ line }}
+                </li>
+              </ul>
+            </article>
+
+            <DialogFooter>
+              <BaseButton
+                type="button"
+                size="sm"
+                variant="ghost"
+                :disabled="oauthLoginBusy"
+                @click="closeOAuthDialog"
+              >
+                关闭
+              </BaseButton>
+              <BaseButton
+                size="sm"
+                variant="primary"
+                type="button"
+                :disabled="modelSettings.saving || oauthLoginBusy"
+                @click="loginProviderOAuth"
+              >
+                <template #icon>
+                  <LogIn :size="14" />
+                </template>
+                开始登录
+              </BaseButton>
+            </DialogFooter>
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
   </div>
 </template>
 
 <style lang="scss" scoped>
+.auth-dialog__form,
+.auth-dialog__body {
+  display: grid;
+  gap: var(--space-3);
+  min-width: 0;
+}
+
+.auth-dialog__error {
+  margin: calc(var(--space-2) * -1) 0 0;
+  color: var(--color-accent);
+  font-size: var(--font-size-ui-xs);
+  line-height: 1.4;
+}
+
 .oauth-status {
   display: grid;
   gap: var(--space-2);
   min-width: 0;
-  margin-top: var(--space-3);
   padding: var(--space-3);
   background: var(--color-surface-raised);
   border: 1px solid var(--color-border);

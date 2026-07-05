@@ -66,6 +66,8 @@ const codingAgent: CodingAgentApi = {
   navigateTree: (input) => invokeCodingAgent(codingAgentChannels.navigateTree, input),
   loadSessionTreeChildren: (input) =>
     invokeCodingAgent(codingAgentChannels.loadSessionTreeChildren, input),
+  loadSessionTreeBranches: (input) =>
+    invokeCodingAgent(codingAgentChannels.loadSessionTreeBranches, input),
   loadSessionTreePath: (input) => invokeCodingAgent(codingAgentChannels.loadSessionTreePath, input),
   setSessionEntryLabel: (input) => invokeCodingAgent(codingAgentChannels.setSessionEntryLabel, input),
   setThreadTitle: (input) => invokeCodingAgent(codingAgentChannels.setThreadTitle, input),

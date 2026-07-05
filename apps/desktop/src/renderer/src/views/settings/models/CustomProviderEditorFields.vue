@@ -2,7 +2,7 @@
 import { BaseBadge, BaseButton, BaseField } from '@renderer/components/base'
 import { SettingsSelectField } from '@renderer/views/settings/components/form'
 import type { ThinkingLevel } from '@shared/coding-agent/types'
-import { Plus, Save, Trash2 } from 'lucide-vue-next'
+import { Plus, Trash2 } from 'lucide-vue-next'
 
 type ThinkingLevelDraft = {
   enabled: boolean
@@ -56,7 +56,7 @@ defineEmits<{
 </script>
 
 <template>
-  <div class="provider-form">
+  <div class="provider-form provider-form--provider">
     <BaseField
       id="custom-provider-id"
       v-model="draft.provider"
@@ -90,7 +90,7 @@ defineEmits<{
     </label>
   </div>
 
-  <div class="json-field-grid">
+  <div class="json-field-grid json-field-grid--provider">
     <label class="json-field">
       <span>Provider headers JSON</span>
       <textarea
@@ -142,7 +142,7 @@ defineEmits<{
         </BaseButton>
       </div>
 
-      <div class="provider-form">
+      <div class="provider-form provider-form--model-main">
         <BaseField
           :id="`custom-model-id-${index}`"
           v-model="model.id"
@@ -184,7 +184,7 @@ defineEmits<{
         />
       </div>
 
-      <div class="provider-form">
+      <div class="provider-form provider-form--model-costs">
         <BaseField
           :id="`custom-model-cost-input-${index}`"
           v-model="model.costInput"
@@ -242,7 +242,7 @@ defineEmits<{
         </label>
       </div>
 
-      <div class="json-field-grid">
+      <div class="json-field-grid json-field-grid--model">
         <label class="json-field">
           <span>Model headers JSON</span>
           <textarea v-model="model.headersJson" placeholder='{ "X-Model": "value" }'></textarea>
@@ -256,14 +256,5 @@ defineEmits<{
         </label>
       </div>
     </div>
-  </div>
-
-  <div class="custom-provider-editor__footer">
-    <BaseButton size="sm" variant="primary" type="submit">
-      <template #icon>
-        <Save :size="14" />
-      </template>
-      保存 Provider
-    </BaseButton>
   </div>
 </template>

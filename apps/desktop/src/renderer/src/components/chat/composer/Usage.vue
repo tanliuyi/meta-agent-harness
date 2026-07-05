@@ -97,7 +97,7 @@ const usedTokensText = computed(() => (isUnknown.value ? '?' : formatTokens(used
 
 <template>
   <TooltipProvider>
-    <Tooltip>
+    <Tooltip :delay-duration="150">
       <TooltipTrigger as-child>
         <button
           type="button"
@@ -153,18 +153,15 @@ const usedTokensText = computed(() => (isUnknown.value ? '?' : formatTokens(used
 .usage {
   display: inline-flex;
   align-items: center;
-  justify-content: flex-start;
+  justify-content: center;
   gap: 6px;
-  width: auto;
-  max-width: 104px;
-  height: 32px;
-  min-width: 32px;
-  padding: 0 7px;
+  width: 26px;
+  height: 26px;
+  padding: 0;
   color: var(--color-text-muted);
   background: transparent;
   border: 1px solid transparent;
   border-radius: var(--radius-md);
-  cursor: pointer;
   transition:
     background var(--duration-fast) var(--ease-standard),
     border-color var(--duration-fast) var(--ease-standard),

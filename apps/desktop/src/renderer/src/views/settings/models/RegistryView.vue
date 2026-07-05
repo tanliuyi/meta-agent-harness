@@ -2,12 +2,13 @@
 import { BaseBadge, BaseField, BasePanel } from '@renderer/components/base'
 import { SettingsSelectField } from '@renderer/views/settings/components/form'
 import useModelSettingsStore, { type ModelStatus } from '@renderer/stores/model-settings'
-import { Database, Search } from 'lucide-vue-next'
+import { ChevronRight, Database, Search } from 'lucide-vue-next'
 import { computed, ref } from 'vue'
 
 const modelSettings = useModelSettingsStore()
 const searchQuery = ref('')
 const statusFilter = ref('all')
+const expandedProviderGroups = ref<Record<string, boolean>>({})
 
 const statusFilters: Array<{ label: string; value: 'all' | ModelStatus }> = [
   { label: '全部', value: 'all' },
@@ -89,6 +90,17 @@ function badgeToneForStatus(status: ModelStatus): 'neutral' | 'success' | 'warni
   if (status === 'available') return 'success'
   if (status === 'missingAuth' || status === 'invalid') return 'warning'
   return 'neutral'
+}
+
+function isProviderGroupExpanded(provider: string): boolean {
+  return expandedProviderGroups.value[provider] === true
+}
+
+function toggleProviderGroup(provider: string): void {
+  expandedProviderGroups.value = {
+    ...expandedProviderGroups.value,
+    [provider]: !isProviderGroupExpanded(provider)
+  }
 }
 
 function formatTokenLimit(value: number | undefined, fallback: string): string {
@@ -189,8 +201,22 @@ function formatThinkingLevels(levels: string[] | undefined): string {
 
       <div v-else class="provider-list">
         <section v-for="group in modelGroups" :key="group.provider" class="provider-group">
-          <h3>{{ group.provider }}</h3>
-          <ul class="plain-list registry-list">
+          <button
+            class="provider-group__header"
+            type="button"
+            :aria-expanded="isProviderGroupExpanded(group.provider)"
+            @click="toggleProviderGroup(group.provider)"
+          >
+            <ChevronRight
+              class="provider-group__chevron"
+              :class="{ 'is-expanded': isProviderGroupExpanded(group.provider) }"
+              :size="16"
+              aria-hidden="true"
+            />
+            <span>{{ group.provider }}</span>
+            <BaseBadge tone="neutral">{{ group.items.length }} models</BaseBadge>
+          </button>
+          <ul v-if="isProviderGroupExpanded(group.provider)" class="plain-list registry-list">
             <li v-for="item in group.items" :key="`${item.model.provider}:${item.model.id}`">
               <div class="registry-list__copy">
                 <strong>{{ item.model.displayName ?? item.model.id }}</strong>

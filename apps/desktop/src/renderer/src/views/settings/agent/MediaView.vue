@@ -3,7 +3,7 @@ import { BaseButton, BasePanel } from '@renderer/components/base'
 import { SettingsSliderField, SettingsSwitchField } from '@renderer/views/settings/components/form'
 import useAgentSettingsStore from '@renderer/stores/agent-settings'
 import { computed } from 'vue'
-import { Image, Monitor, Save } from 'lucide-vue-next'
+import { Image, Save } from 'lucide-vue-next'
 
 const agentSettings = useAgentSettingsStore()
 
@@ -14,11 +14,6 @@ const imageModeLabel = computed(() => {
   return media.imageAutoResize ? '发送前自动压缩大图' : '按原始图片发送'
 })
 
-const terminalModeLabel = computed(() => {
-  const media = agentSettings.draft?.media
-  if (!media) return '未加载'
-  return media.showImages ? '终端允许内联图片' : '终端仅显示图片占位'
-})
 </script>
 
 <template>
@@ -26,8 +21,8 @@ const terminalModeLabel = computed(() => {
     <header class="agent-page__header">
       <div>
         <p class="agent-page__eyebrow">Media</p>
-        <h1 class="agent-page__title">图片与终端</h1>
-        <p class="agent-page__subtitle">只保存图片处理和终端呈现设置。</p>
+        <h1 class="agent-page__title">图片输入</h1>
+        <p class="agent-page__subtitle">只保存发送给 provider 前的图片处理设置。</p>
       </div>
       <BaseButton
         size="sm"
@@ -36,7 +31,7 @@ const terminalModeLabel = computed(() => {
         @click="agentSettings.saveMedia"
       >
         <template #icon><Save :size="14" /></template>
-        保存图片与终端
+        保存图片设置
       </BaseButton>
     </header>
 
@@ -72,40 +67,6 @@ const terminalModeLabel = computed(() => {
         :step="1"
         description="控制对话中图片预览的目标宽度，使用 Pi-compatible imageWidthCells 设置。"
       />
-    </BasePanel>
-
-    <BasePanel v-if="agentSettings.draft" title="终端呈现" eyebrow="Terminal media">
-      <div class="media-summary">
-        <Monitor :size="16" />
-        <div>
-          <strong>{{ terminalModeLabel }}</strong>
-          <span>
-            {{
-              agentSettings.draft.media.showTerminalProgress
-                ? 'OSC 9;4 progress enabled'
-                : 'Progress hidden'
-            }}
-          </span>
-        </div>
-      </div>
-
-      <div class="switch-list">
-        <SettingsSwitchField
-          v-model="agentSettings.draft.media.showImages"
-          title="终端内联图片"
-          description="允许支持图片协议的 terminal 显示图片。"
-        />
-        <SettingsSwitchField
-          v-model="agentSettings.draft.media.clearOnShrink"
-          title="收缩时清屏"
-          description="内容变短时清理终端空白行。"
-        />
-        <SettingsSwitchField
-          v-model="agentSettings.draft.media.showTerminalProgress"
-          title="终端进度"
-          description="使用 OSC 9;4 显示进度。"
-        />
-      </div>
     </BasePanel>
   </div>
 </template>

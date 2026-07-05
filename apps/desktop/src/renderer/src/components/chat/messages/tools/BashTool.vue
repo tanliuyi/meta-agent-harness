@@ -149,10 +149,12 @@ function readBoolean(value: unknown): boolean {
       <TerminalIcon :size="14" />
     </template>
     <template #summary>
-      <span v-if="command" class="bash-tool__command">{{ command }}</span>
-      <span v-if="timeout" class="bash-tool__meta">timeout={{ timeout }}s</span>
-      <span v-if="summary && !command">{{ summary }}</span>
-      <span v-if="isTruncated" class="bash-tool__truncated">已截断</span>
+      <span class="bash-tool__summary">
+        <span v-if="command" class="bash-tool__command" :title="command">{{ command }}</span>
+        <span v-if="timeout" class="bash-tool__meta">timeout={{ timeout }}s</span>
+        <span v-if="summary && !command" class="bash-tool__fallback">{{ summary }}</span>
+        <span v-if="isTruncated" class="bash-tool__truncated">已截断</span>
+      </span>
     </template>
     <template #content>
       <div v-if="isTruncated || fullOutputPath || actionError" class="bash-tool__notice">
@@ -178,11 +180,34 @@ function readBoolean(value: unknown): boolean {
 </template>
 
 <style lang="scss" scoped>
-.bash-tool__command {
+.bash-tool__summary {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.bash-tool__command,
+.bash-tool__fallback {
+  min-width: 0;
+  overflow: hidden;
   color: var(--color-info);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.bash-tool__command {
+  flex: 1 1 auto;
+}
+
+.bash-tool__fallback {
+  flex: 0 1 auto;
 }
 
 .bash-tool__meta {
+  flex: 0 0 auto;
   color: var(--color-text-subtle);
 }
 
@@ -197,12 +222,6 @@ function readBoolean(value: unknown): boolean {
   font-size: var(--font-size-ui-xs);
   font-family: var(--font-sans);
   line-height: 1;
-}
-
-.bash-tool__command + .bash-tool__meta,
-.bash-tool__meta + .bash-tool__truncated,
-.bash-tool__command + .bash-tool__truncated {
-  margin-left: var(--space-1);
 }
 
 .bash-tool__notice {

@@ -10,6 +10,7 @@ import { ProjectStore, getProjectStatus } from '../project-store'
 import { CodingThreadStore } from '../thread-store'
 import { ThreadManagerCore } from '../thread-manager-core'
 import { CodingThreadManager } from '../thread-manager'
+import { buildSessionTreeBranches } from '../session-tree-branches'
 import { SessionManager } from '../../../../../../packages/coding-agent/src/core/session-manager'
 import type { ApprovalRequest, ThreadSummary } from '@shared/coding-agent/types'
 import type { ThreadWorkerRegistry } from '../thread-worker-registry'
@@ -495,6 +496,7 @@ describe('CodingThreadStore', () => {
 
     expect(snapshot.cwd).toBe(runtimeCwd)
     expect(snapshot.status).toBe('idle')
+    expect(snapshot.autoRetryEnabled).toBe(false)
     expect(store.listThreads({ projectId: project.projectId })[0]?.status).toBe('idle')
     expect(
       snapshot.messages.map((message) => ({ role: message.role, text: message.text }))
@@ -787,7 +789,12 @@ describe('CodingThreadStore', () => {
     expect(result.snapshot).toMatchObject({
       projectId: project.projectId,
       sessionFile: forkSessionFile,
-      title: 'Source · 分支'
+      title: 'Source · 分支',
+      lineage: {
+        parentSessionFile: sourceSessionFile,
+        parentThreadId: 'thread-source',
+        parentThreadTitle: 'Source'
+      }
     })
     expect(registry.commands).toContainEqual({
       threadId: 'thread-source',
@@ -803,9 +810,20 @@ describe('CodingThreadStore', () => {
       sessionFile: sourceSessionFile,
       title: 'Source'
     })
-    expect(manager.listThreads({ projectId: project.projectId }).map((thread) => thread.sessionFile)).toEqual(
+    const projectThreads = manager.listThreads({ projectId: project.projectId })
+    expect(projectThreads.map((thread) => thread.sessionFile)).toEqual(
       expect.arrayContaining([sourceSessionFile, forkSessionFile])
     )
+    expect(
+      projectThreads.find((thread) => thread.sessionFile === forkSessionFile)?.lineage
+    ).toMatchObject({
+      parentSessionFile: sourceSessionFile,
+      parentThreadId: 'thread-source',
+      parentThreadTitle: 'Source'
+    })
+    expect(
+      store.listThreads().find((thread) => thread.sessionFile === forkSessionFile)?.lineage
+    ).toBeUndefined()
     store.close()
     projectStore.close()
     rmSync(root, { recursive: true, force: true })
@@ -893,6 +911,167 @@ describe('CodingThreadStore', () => {
   })
 })
 
+describe('loadSessionTreeBranches', () => {
+  it('优先使用 live currentEntryId 标记当前 branch row', async () => {
+    const root = createTempDir()
+    const cwd = join(root, 'repo')
+    const sessionDir = join(root, 'sessions')
+    mkdirSync(cwd, { recursive: true })
+    const projectStore = new ProjectStore(':memory:')
+    const threadStore = new CodingThreadStore(':memory:')
+    const project = projectStore.createProject({ path: cwd })
+    const piSession = SessionManager.create(cwd, sessionDir)
+    const liveCurrentEntryId = piSession.appendMessage({
+      role: 'user',
+      content: 'live current',
+      timestamp: 1
+    })
+    piSession.appendMessage({
+      role: 'assistant',
+      content: [{ type: 'text', text: 'persisted middle' }],
+      api: 'openai-responses',
+      provider: 'openai',
+      model: 'gpt-test',
+      usage: {
+        input: 0,
+        output: 0,
+        cacheRead: 0,
+        cacheWrite: 0,
+        totalTokens: 0,
+        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 }
+      },
+      stopReason: 'stop',
+      timestamp: 2
+    })
+    const persistedLeafEntryId = piSession.appendMessage({
+      role: 'user',
+      content: 'persisted leaf',
+      timestamp: 3
+    })
+    const sessionFile = piSession.getSessionFile()
+    if (!sessionFile) {
+      throw new Error('session file is required')
+    }
+    threadStore.saveThread({
+      threadId: 'thread-live-branches',
+      projectId: project.projectId,
+      sessionFile,
+      status: 'idle',
+      title: 'Live branches',
+      createdAt: '2026-07-01T00:00:00.000Z',
+      updatedAt: '2026-07-01T00:00:00.000Z'
+    })
+    const manager = new CodingThreadManager(
+      createLiveSessionStateRegistry('thread-live-branches', sessionFile, cwd, liveCurrentEntryId),
+      threadStore,
+      projectStore
+    )
+
+    const result = await manager.loadSessionTreeBranches({
+      threadId: 'thread-live-branches',
+      viewMode: 'entries'
+    })
+    const entryRows = result.rows.filter((row) => row.kind === 'entry')
+
+    expect(result.currentEntryId).toBe(liveCurrentEntryId)
+    expect(entryRows.find((row) => row.entryId === liveCurrentEntryId)).toMatchObject({
+      current: true
+    })
+    expect(entryRows.find((row) => row.entryId === persistedLeafEntryId)).toMatchObject({
+      current: false
+    })
+
+    threadStore.close()
+    projectStore.close()
+    rmSync(root, { recursive: true, force: true })
+  })
+})
+
+describe('buildSessionTreeBranches', () => {
+  it('在 main 进程把完整 session tree 压成浅层 branch rows', () => {
+    const root = createTempDir()
+    const cwd = join(root, 'repo')
+    const sessionDir = join(root, 'sessions')
+    mkdirSync(cwd, { recursive: true })
+    const manager = SessionManager.create(cwd, sessionDir)
+    const firstUserId = manager.appendMessage({ role: 'user', content: 'start', timestamp: 1 })
+    const appendAssistant = (content: string, timestamp: number): string =>
+      manager.appendMessage({
+        role: 'assistant',
+        content: [{ type: 'text', text: content }],
+        api: 'openai-responses',
+        provider: 'openai',
+        model: 'gpt-test',
+        usage: {
+          input: 0,
+          output: 0,
+          cacheRead: 0,
+          cacheWrite: 0,
+          totalTokens: 0,
+          cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 }
+        },
+        stopReason: 'stop',
+        timestamp
+      })
+    const firstAssistantId = appendAssistant('answer', 2)
+    let linearLeafId = firstAssistantId
+    for (let index = 0; index < 6; index += 1) {
+      linearLeafId =
+        index % 2 === 0
+          ? manager.appendMessage({
+              role: 'user',
+              content: `linear ${index}`,
+              timestamp: 3 + index
+            })
+          : appendAssistant(`linear ${index}`, 3 + index)
+    }
+    manager.appendLabelChange(firstAssistantId, 'Decision point')
+    manager.branch(firstAssistantId)
+    const branchLeafId = manager.appendMessage({ role: 'user', content: 'branch', timestamp: 10 })
+    const sessionFile = manager.getSessionFile()
+    if (!sessionFile) {
+      throw new Error('session file is required')
+    }
+
+    const result = buildSessionTreeBranches(sessionFile)
+    const entryRows = result.rows.filter((row) => row.kind === 'entry')
+    const segmentRows = result.rows.filter((row) => row.kind === 'segment')
+
+    expect(result.totalEntries).toBeGreaterThan(8)
+    expect(segmentRows.some((row) => row.count > 1)).toBe(true)
+    expect(linearLeafId).toBeTruthy()
+    expect(entryRows.map((row) => row.entryId)).toEqual(
+      expect.arrayContaining([firstUserId, firstAssistantId, branchLeafId])
+    )
+    expect(entryRows.filter((row) => row.leaf).length).toBeGreaterThanOrEqual(2)
+    expect(entryRows.find((row) => row.entryId === firstAssistantId)).toMatchObject({
+      label: 'Decision point',
+      branchPoint: true
+    })
+    expect(entryRows.find((row) => row.entryId === branchLeafId)).toMatchObject({
+      current: true,
+      leaf: true
+    })
+    expect(entryRows.find((row) => row.current)?.visualDepth).toBeLessThanOrEqual(2)
+
+    const entriesResult = buildSessionTreeBranches(sessionFile, { viewMode: 'entries' })
+    expect(entriesResult.rows.every((row) => row.kind === 'entry')).toBe(true)
+    expect(entriesResult.rows).toHaveLength(entriesResult.visibleEntries)
+    expect(entriesResult.visibleEntries).toBe(entriesResult.totalEntries)
+    expect(Math.max(...entriesResult.rows.map((row) => row.visualDepth))).toBeLessThanOrEqual(1)
+
+    const searchResult = buildSessionTreeBranches(sessionFile, { query: 'linear 4' })
+    expect(searchResult.rows).toEqual([
+      expect.objectContaining({
+        kind: 'entry',
+        summary: expect.stringContaining('linear 4')
+      })
+    ])
+
+    rmSync(root, { recursive: true, force: true })
+  })
+})
+
 /** 创建无活跃 worker 的 registry stub。 */
 function createIdleThreadWorkerRegistry(): ThreadWorkerRegistry {
   return {
@@ -913,7 +1092,8 @@ function createLiveThreadWorkerRegistry(cwd = '/tmp/live-cwd'): ThreadWorkerRegi
             sessionName: 'Live session',
             thinkingLevel: 'medium',
             isStreaming: false,
-            isCompacting: false
+            isCompacting: false,
+            autoRetryEnabled: false
           }
         }
       }
@@ -938,6 +1118,37 @@ function createLiveThreadWorkerRegistry(cwd = '/tmp/live-cwd'): ThreadWorkerRegi
 }
 
 /** 创建 live worker 存在但消息投影为空的 registry stub。 */
+function createLiveSessionStateRegistry(
+  threadId: string,
+  sessionFile: string,
+  cwd: string,
+  currentEntryId: string | null
+): ThreadWorkerRegistry {
+  return {
+    listLeases: () => [{ threadId }],
+    send: async (_threadId: string, command: { type: string }) => {
+      if (command.type === 'get_state') {
+        return {
+          success: true,
+          data: {
+            sessionFile,
+            currentEntryId,
+            cwd,
+            thinkingLevel: 'medium',
+            isStreaming: false,
+            isCompacting: false
+          }
+        }
+      }
+      return {
+        success: false,
+        command: command.type,
+        error: { code: 'invalid_command', message: command.type, recoverable: true }
+      }
+    }
+  } as unknown as ThreadWorkerRegistry
+}
+
 function createEmptyLiveProjectionRegistry(threadId: string, cwd: string): ThreadWorkerRegistry {
   return {
     listLeases: () => [{ threadId }],
@@ -971,7 +1182,10 @@ function createEmptyLiveProjectionRegistry(threadId: string, cwd: string): Threa
 }
 
 /** 创建分支 thread registry stub。 */
-function createForkThreadRegistry(forkSessionFile: string, cwd: string): ThreadWorkerRegistry & {
+function createForkThreadRegistry(
+  forkSessionFile: string,
+  cwd: string
+): ThreadWorkerRegistry & {
   commands: Array<Record<string, unknown>>
   acquires: Array<Record<string, unknown>>
 } {

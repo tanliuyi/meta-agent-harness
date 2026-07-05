@@ -145,6 +145,12 @@
     font-size: var(--font-size-ui-2xs);
     line-height: 1.35;
   }
+
+  > .base-badge {
+    grid-column: 1 / -1;
+    justify-self: start;
+    max-width: 100%;
+  }
 }
 
 .display-summary {
@@ -336,6 +342,20 @@
     color: var(--color-text-muted);
     font-size: var(--font-size-ui-2xs);
     line-height: 1.35;
+  }
+}
+
+.runtime-summary,
+.delivery-summary,
+.display-summary,
+.safety-summary,
+.shell-summary,
+.advanced-summary,
+.agent-status-summary {
+  > div > .base-badge {
+    grid-column: 1 / -1;
+    justify-self: start;
+    max-width: 100%;
   }
 }
 

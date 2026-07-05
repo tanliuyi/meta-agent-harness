@@ -116,14 +116,44 @@ describe('message-format', () => {
     ])
   })
 
+  it('keeps @text literal when no real file context backs it', () => {
+    const message = {
+      id: 'message-text-at',
+      role: 'user',
+      text: 'Select 选项使用 @tanstack 的虚拟库',
+      raw: {
+        role: 'user',
+        content: 'Select 选项使用 @tanstack 的虚拟库',
+        timestamp: 1783036800000
+      },
+      createdAt: '2026-07-03T00:00:00.000Z'
+    } satisfies ThreadMessage
+
+    expect(getUserMessageDisplaySegments(message)).toEqual([
+      { type: 'text', text: 'Select 选项使用 @tanstack 的虚拟库' }
+    ])
+  })
+
+  it('only renders @file chips when they match hidden file context blocks', () => {
+    expect(
+      parseUserMessageDisplaySegments('请看 @src/App.vue 和 @tanstack', {
+        allowedFileArgs: ['/Users/me/project/src/App.vue']
+      })
+    ).toEqual([
+      { type: 'text', text: '请看 ' },
+      { type: 'fileReference', fileArg: 'src/App.vue', label: 'App.vue' },
+      { type: 'text', text: ' 和 @tanstack' }
+    ])
+  })
+
   it('builds user message display segments after hiding Pi file context blocks', () => {
     const message = {
       id: 'message-e',
       role: 'user',
-      text: '<file name="README.md">Hello</file>\n修复 @src/App.vue',
+      text: '<file name="/Users/me/project/src/App.vue">Hello</file>\n修复 @src/App.vue',
       raw: {
         role: 'user',
-        content: '<file name="README.md">Hello</file>\n修复 @src/App.vue',
+        content: '<file name="/Users/me/project/src/App.vue">Hello</file>\n修复 @src/App.vue',
         timestamp: 1783036800000
       },
       createdAt: '2026-07-03T00:00:00.000Z'
@@ -172,6 +202,7 @@ describe('message-format', () => {
       id: 'message-g',
       role: 'user',
       text:
+        '<file name="/Users/me/project/src/App.vue">Hello</file>\n' +
         '<skill name="review" location="/Users/me/.agents/skills/review/SKILL.md">\n' +
         '# Review\n\nUse the skill body.\n' +
         '</skill>\n\n' +
@@ -179,6 +210,7 @@ describe('message-format', () => {
       raw: {
         role: 'user',
         content:
+          '<file name="/Users/me/project/src/App.vue">Hello</file>\n' +
           '<skill name="review" location="/Users/me/.agents/skills/review/SKILL.md">\n' +
           '# Review\n\nUse the skill body.\n' +
           '</skill>\n\n' +

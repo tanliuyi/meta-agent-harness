@@ -11,7 +11,7 @@ const links = [
   { to: '/settings/agent/runtime', label: '运行时' },
   { to: '/settings/agent/display', label: '显示与交互' },
   { to: '/settings/agent/safety', label: '安全与遥测' },
-  { to: '/settings/agent/media', label: '图片与终端' },
+  { to: '/settings/agent/media', label: '图片输入' },
   { to: '/settings/agent/shell', label: 'Shell' },
   { to: '/settings/agent/resources', label: '资源路径' },
   { to: '/settings/agent/advanced', label: '高级' },

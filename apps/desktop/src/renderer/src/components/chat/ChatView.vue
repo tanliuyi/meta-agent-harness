@@ -232,7 +232,7 @@ const isCompacting = computed(() => Boolean(workspaceSession.activeCompactionSta
 const isRunning = computed(() => isThreadRunning.value || isCompacting.value)
 
 /** 当前会话 activity 文案。 */
-const activityLabel = computed(() => (isCompacting.value ? '正在压缩上下文' : 'Agent 正在工作'))
+const activityLabel = computed(() => (isCompacting.value ? '正在压缩上下文' : '正在工作'))
 
 /** 当前处理耗时 ticker。 */
 const processingNow = ref(Date.now())

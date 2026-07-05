@@ -54,6 +54,8 @@ export type ThreadLiveState = RpcSessionState & {
 	sessionTree?: DesktopSessionTreeNode[];
 	/** 当前 leaf entry ID。 */
 	currentEntryId?: string | null;
+	/** 当前是否启用自动重试。 */
+	autoRetryEnabled?: boolean;
 };
 
 /** get_messages 命令返回的 Pi live messages。 */

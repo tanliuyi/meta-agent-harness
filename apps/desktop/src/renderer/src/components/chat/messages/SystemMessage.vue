@@ -51,18 +51,18 @@ const canExpand = computed(() => messageText.value.length > 360)
 <style lang="scss" scoped>
 .system-message {
   display: grid;
-  gap: var(--space-2);
-  width: min(680px, 100%);
-  padding: var(--space-3) var(--space-4);
+  gap: 6px;
+  width: min(600px, 100%);
+  padding: var(--space-2) var(--space-3);
   color: var(--color-text-muted);
   background: var(--color-control-track);
   border: 1px solid var(--color-border);
-  border-radius: var(--radius-lg);
+  border-radius: var(--radius-md);
 
   p {
     margin: 0;
-    font-size: var(--font-size-ui-sm);
-    line-height: 1.5;
+    font-size: var(--font-size-ui-xs);
+    line-height: 1.4;
     white-space: pre-wrap;
     word-break: break-word;
   }
@@ -74,7 +74,17 @@ const canExpand = computed(() => messageText.value.length > 360)
   justify-content: space-between;
   gap: var(--space-2);
   font-family: var(--font-mono);
-  font-size: var(--font-size-ui);
+  font-size: var(--font-size-ui-xs);
+  line-height: 1.3;
+
+  span {
+    font-weight: 650;
+  }
+
+  time {
+    flex-shrink: 0;
+    color: var(--color-text-subtle);
+  }
 }
 
 .system-message__description {
@@ -84,16 +94,16 @@ const canExpand = computed(() => messageText.value.length > 360)
 .system-message__tags {
   display: flex;
   flex-wrap: wrap;
-  gap: var(--space-1);
+  gap: 4px;
   min-width: 0;
 
   span {
-    min-height: 18px;
-    padding: 0 6px;
+    min-height: 16px;
+    padding: 0 5px;
     color: var(--color-text-subtle);
     font-family: var(--font-mono);
     font-size: var(--font-size-ui-2xs);
-    line-height: 18px;
+    line-height: 16px;
     background: var(--color-surface);
     border: 1px solid var(--color-border);
     border-radius: var(--radius-xs);
@@ -104,7 +114,7 @@ const canExpand = computed(() => messageText.value.length > 360)
   display: -webkit-box;
   overflow: hidden;
   color: var(--color-text);
-  -webkit-line-clamp: 6;
+  -webkit-line-clamp: 4;
   -webkit-box-orient: vertical;
 
   &.is-expanded {
@@ -116,7 +126,7 @@ const canExpand = computed(() => messageText.value.length > 360)
 
 .system-message__toggle {
   justify-self: start;
-  min-height: 24px;
+  min-height: 20px;
   padding: 0;
   color: var(--color-primary);
   font-size: var(--font-size-ui-xs);
@@ -132,5 +142,13 @@ const canExpand = computed(() => messageText.value.length > 360)
 
 .system-message--compaction {
   border-color: var(--color-primary-outline);
+}
+
+.system-message--agentEvent {
+  gap: var(--space-1);
+
+  .system-message__description {
+    display: none;
+  }
 }
 </style>

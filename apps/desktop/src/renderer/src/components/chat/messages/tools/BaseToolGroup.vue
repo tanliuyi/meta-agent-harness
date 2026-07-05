@@ -39,7 +39,7 @@ const open = ref(props.defaultOpen)
       <ChevronRight :size="16" class="tool-group__icon" aria-hidden="true" />
     </CollapsibleTrigger>
 
-    <CollapsibleContent class="tool-group__content">
+    <CollapsibleContent v-if="open" class="tool-group__content">
       <div class="tool-group__list">
         <slot />
       </div>
@@ -62,6 +62,7 @@ const open = ref(props.defaultOpen)
   gap: var(--space-2);
   max-width: 100%;
   width: fit-content;
+  padding: 0;
   color: inherit;
   font: inherit;
   text-align: left;
@@ -86,10 +87,10 @@ const open = ref(props.defaultOpen)
 }
 
 .tool-group[data-state='open'] .tool-group__trigger {
-  width: 100%;
-  padding: var(--space-2);
+  // width: 100%;
+  // padding: var(--space-2);
   background: var(--color-canvas);
-  border-bottom: 1px solid var(--color-border);
+  // border-bottom: 1px solid var(--color-border);
   border-bottom-right-radius: 0;
   border-bottom-left-radius: 0;
 }

@@ -484,6 +484,7 @@ function toggleExpand(): void {
   gap: var(--space-1);
   padding: var(--space-1) 0;
   opacity: 0;
+  margin-top: var(--space-1);
   transition: opacity var(--duration-fast) var(--ease-standard);
 
   .message:hover & {
@@ -627,6 +628,7 @@ function toggleExpand(): void {
 
 .user-message__attachment-image {
   width: 100%;
+  height: auto;
   max-height: 180px;
   object-fit: cover;
   background: var(--color-surface);

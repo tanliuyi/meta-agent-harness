@@ -266,7 +266,8 @@ function getPersistedMessageEntryId(
 		if (entry?.type !== "message" || entry.message !== message) {
 			continue;
 		}
-		return toDesktopMessageContent(entry.message as AgentMessage) ? entry.id : undefined;
+		const content = toDesktopMessageContent(entry.message as AgentMessage);
+		return content?.role === "user" || content?.role === "assistant" ? entry.id : undefined;
 	}
 	return undefined;
 }

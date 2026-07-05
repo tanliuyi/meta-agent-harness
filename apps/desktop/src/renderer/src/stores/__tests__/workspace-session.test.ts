@@ -1047,8 +1047,46 @@ describe('workspace-session Project-first actions', () => {
     expect(store.getComposerDraft('thread-b', 'right-pane')).toEqual(
       createComposerContent('right draft')
     )
-    expect(store.contexts['left-pane'].panel).toEqual({ panelOpen: true, panelWidth: 300 })
-    expect(store.contexts['right-pane'].panel).toEqual({ panelOpen: false, panelWidth: 420 })
+    expect(store.contexts['left-pane'].sessionPanels['thread-a']).toEqual({
+      panelOpen: true,
+      panelWidth: 300
+    })
+    expect(store.contexts['right-pane'].sessionPanels['thread-b']).toEqual({
+      panelOpen: false,
+      panelWidth: 420
+    })
+    expect(store.contexts['left-pane'].panel).toEqual({ panelOpen: true, panelWidth: 420 })
+    expect(store.contexts['right-pane'].panel).toEqual({ panelOpen: true, panelWidth: 420 })
+  })
+
+  it('按 active session 隔离会话面板宽度与开启状态', async () => {
+    const snapshotA = createSnapshot()
+    const snapshotB = {
+      ...createSnapshot(),
+      threadId: 'thread-b',
+      projectId: 'project-b',
+      cwd: '/tmp/project-b'
+    }
+    installCodingAgentApi({})
+    const store = useWorkspaceSessionStore()
+    store.sessions['thread-a'] = snapshotToWorkspaceSession(snapshotA)
+    store.sessions['thread-b'] = snapshotToWorkspaceSession(snapshotB)
+
+    await store.setActiveSessionId('thread-a')
+    store.setActiveSessionPanelWidth(360)
+    store.setActiveSessionPanelOpen(false)
+
+    await store.setActiveSessionId('thread-b')
+    expect(store.activeSessionPanel).toEqual({ panelOpen: true, panelWidth: 420 })
+
+    store.setActiveSessionPanelWidth(520)
+    expect(store.activeSessionPanel).toEqual({ panelOpen: true, panelWidth: 520 })
+
+    await store.setActiveSessionId('thread-a')
+    expect(store.activeSessionPanel).toEqual({ panelOpen: false, panelWidth: 360 })
+
+    await store.setActiveSessionId('thread-b')
+    expect(store.activeSessionPanel).toEqual({ panelOpen: true, panelWidth: 520 })
   })
 
   it('右侧栏运行态只暴露 active thread 的审批与事件', async () => {
@@ -1211,6 +1249,41 @@ describe('workspace-session Project-first actions', () => {
     expect(store.activeSessionActionMessage).toBe('已运行 skill:test')
   })
 
+  it('按需加载 command，进入会话本身不触发 commands API', async () => {
+    const getCommands = vi.fn().mockResolvedValue([
+      {
+        name: 'skill:test',
+        description: 'Run test skill',
+        source: 'skill',
+        sourceInfo: {
+          path: '/tmp/skill',
+          source: 'test',
+          scope: 'temporary',
+          origin: 'top-level'
+        }
+      }
+    ])
+    installCodingAgentApi({ getCommands })
+    const store = useWorkspaceSessionStore()
+    store.sessions['thread-a'] = snapshotToWorkspaceSession(createSnapshot())
+
+    await store.setActiveSessionId('thread-a')
+
+    expect(getCommands).not.toHaveBeenCalled()
+    expect(store.activeCommandsLoaded).toBe(false)
+
+    await store.ensureCommandsLoaded()
+
+    expect(getCommands).toHaveBeenCalledTimes(1)
+    expect(getCommands).toHaveBeenCalledWith('thread-a')
+    expect(store.activeCommandsLoaded).toBe(true)
+    expect(store.activeCommands.map((command) => command.name)).toEqual(['skill:test'])
+
+    await store.ensureCommandsLoaded()
+
+    expect(getCommands).toHaveBeenCalledTimes(1)
+  })
+
   it('暴露 compact、export、clone 和创建分支 thread 操作', async () => {
     const compact = vi.fn().mockResolvedValue({ cancelled: false })
     const exportSession = vi.fn().mockResolvedValue({ path: '/tmp/session.html' })
@@ -1306,6 +1379,408 @@ describe('workspace-session Project-first actions', () => {
     expect(store.activeSessionActionMessage).toBe('Tree 导航已取消')
   })
 
+  it('session tree 导航成功后记录 previous leaf 并可返回', async () => {
+    const initialSnapshot: ThreadSnapshot = {
+      ...createSnapshot(),
+      currentEntryId: 'entry-a'
+    }
+    const movedSnapshot: ThreadSnapshot = {
+      ...createSnapshot(),
+      currentEntryId: 'entry-b'
+    }
+    const restoredSnapshot: ThreadSnapshot = {
+      ...createSnapshot(),
+      currentEntryId: 'entry-a'
+    }
+    const navigateTree = vi
+      .fn()
+      .mockResolvedValueOnce({ snapshot: movedSnapshot })
+      .mockResolvedValueOnce({ snapshot: restoredSnapshot })
+    installCodingAgentApi({ getSnapshot: vi.fn().mockResolvedValue(initialSnapshot), navigateTree })
+    const store = useWorkspaceSessionStore()
+    store.sessions['thread-a'] = snapshotToWorkspaceSession(initialSnapshot)
+    await store.setActiveSessionId('thread-a')
+
+    await store.navigateActiveSessionTree('entry-b')
+
+    expect(store.activePreviousLeafEntryId).toBe('entry-a')
+    expect(store.activeSnapshot?.currentEntryId).toBe('entry-b')
+
+    await store.navigateBackToPreviousLeaf()
+
+    expect(navigateTree).toHaveBeenNthCalledWith(2, {
+      threadId: 'thread-a',
+      entryId: 'entry-a',
+      summarize: false
+    })
+    expect(store.activePreviousLeafEntryId).toBeUndefined()
+    expect(store.activeSnapshot?.currentEntryId).toBe('entry-a')
+    expect(store.activeSessionActionMessage).toBe('已返回之前位置')
+  })
+
+  it('加载 main 派生的扁平 branch rows', async () => {
+    const branchResult = {
+      rows: [
+        {
+          kind: 'entry' as const,
+          id: 'entry-a',
+          entryId: 'entry-a',
+          parentId: null,
+          type: 'message',
+          timestamp: '2026-07-01T00:00:00.000Z',
+          title: 'user: start',
+          summary: 'start',
+          depth: 0,
+          visualDepth: 0,
+          childCount: 0,
+          leaf: true,
+          branchPoint: false,
+          current: true
+        }
+      ],
+      totalEntries: 3,
+      visibleEntries: 1,
+      currentEntryId: 'entry-a'
+    }
+    const loadSessionTreeBranches = vi.fn().mockResolvedValue(branchResult)
+    installCodingAgentApi({
+      getSnapshot: vi.fn().mockResolvedValue(createSnapshot()),
+      loadSessionTreeBranches
+    })
+    const store = useWorkspaceSessionStore()
+    store.sessions['thread-a'] = snapshotToWorkspaceSession(createSnapshot())
+    await store.setActiveSessionId('thread-a')
+
+    await store.loadActiveSessionTreeBranches({
+      query: 'start',
+      filter: 'user',
+      viewMode: 'entries'
+    })
+
+    expect(loadSessionTreeBranches).toHaveBeenCalledWith({
+      threadId: 'thread-a',
+      query: 'start',
+      filter: 'user',
+      viewMode: 'entries'
+    })
+    expect(store.activeSessionTreeBranches).toEqual(branchResult)
+    expect(store.activeSessionTreeBranchesLoading).toBe(false)
+    expect(store.activeSessionTreeBranchesError).toBeUndefined()
+  })
+
+  it('branch rows 加载失败时清空旧结果，避免展示过期数据', async () => {
+    const branchResult = {
+      rows: [
+        {
+          kind: 'entry' as const,
+          id: 'entry-a',
+          entryId: 'entry-a',
+          parentId: null,
+          type: 'message',
+          timestamp: '2026-07-01T00:00:00.000Z',
+          title: 'user: start',
+          summary: 'start',
+          depth: 0,
+          visualDepth: 0,
+          childCount: 0,
+          leaf: true,
+          branchPoint: false,
+          current: true
+        }
+      ],
+      totalEntries: 1,
+      visibleEntries: 1,
+      currentEntryId: 'entry-a'
+    }
+    const loadSessionTreeBranches = vi
+      .fn()
+      .mockResolvedValueOnce(branchResult)
+      .mockRejectedValueOnce(new Error('session missing'))
+    installCodingAgentApi({
+      getSnapshot: vi.fn().mockResolvedValue(createSnapshot()),
+      loadSessionTreeBranches
+    })
+    const store = useWorkspaceSessionStore()
+    store.sessions['thread-a'] = snapshotToWorkspaceSession(createSnapshot())
+    await store.setActiveSessionId('thread-a')
+
+    await store.loadActiveSessionTreeBranches({ query: 'start' })
+    expect(store.activeSessionTreeBranches).toEqual(branchResult)
+
+    await store.loadActiveSessionTreeBranches({ query: 'missing' })
+
+    expect(store.activeSessionTreeBranches).toBeUndefined()
+    expect(store.activeSessionTreeBranchesLoading).toBe(false)
+    expect(store.activeSessionTreeBranchesError).toBe('session missing')
+  })
+
+  it('message_end 后递增 branch rows 版本以触发 Tree tab 重新加载', async () => {
+    vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
+      callback(0)
+      return 1
+    })
+    vi.stubGlobal('cancelAnimationFrame', vi.fn())
+    const branchResult = {
+      rows: [
+        {
+          kind: 'entry' as const,
+          id: 'entry-a',
+          entryId: 'entry-a',
+          parentId: null,
+          type: 'message',
+          timestamp: '2026-07-01T00:00:00.000Z',
+          title: 'user: start',
+          summary: 'start',
+          depth: 0,
+          visualDepth: 0,
+          childCount: 0,
+          leaf: true,
+          branchPoint: false,
+          current: true
+        }
+      ],
+      totalEntries: 1,
+      visibleEntries: 1,
+      currentEntryId: 'entry-a'
+    }
+    installCodingAgentApi({
+      getSnapshot: vi.fn().mockResolvedValue(createSnapshot()),
+      loadSessionTreeBranches: vi.fn().mockResolvedValue(branchResult)
+    })
+    const store = useWorkspaceSessionStore()
+    store.sessions['thread-a'] = snapshotToWorkspaceSession(createSnapshot())
+    await store.setActiveSessionId('thread-a')
+
+    await store.loadActiveSessionTreeBranches()
+    expect(store.activeSessionTreeBranchesState?.revision).toBe(0)
+
+    capturedEventListener?.({
+      type: 'message_end',
+      threadId: 'thread-a',
+      sessionEntryId: 'entry-b',
+      message: createAssistantMessage('done', fixtureTimestamp)
+    })
+
+    expect(store.activeSessionTreeBranchesState?.revision).toBe(1)
+  })
+
+  it('branch rows 失效后丢弃相同查询条件的旧响应', async () => {
+    vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
+      callback(0)
+      return 1
+    })
+    vi.stubGlobal('cancelAnimationFrame', vi.fn())
+    const staleBranchResult = {
+      rows: [
+        {
+          kind: 'entry' as const,
+          id: 'entry-a',
+          entryId: 'entry-a',
+          parentId: null,
+          type: 'message',
+          timestamp: '2026-07-01T00:00:00.000Z',
+          title: 'user: stale',
+          summary: 'stale',
+          depth: 0,
+          visualDepth: 0,
+          childCount: 0,
+          leaf: true,
+          branchPoint: false,
+          current: true
+        }
+      ],
+      totalEntries: 1,
+      visibleEntries: 1,
+      currentEntryId: 'entry-a'
+    }
+    const freshBranchResult = {
+      rows: [
+        {
+          kind: 'entry' as const,
+          id: 'entry-b',
+          entryId: 'entry-b',
+          parentId: 'entry-a',
+          type: 'message',
+          timestamp: '2026-07-01T00:00:05.000Z',
+          title: 'assistant: fresh',
+          summary: 'fresh',
+          depth: 1,
+          visualDepth: 1,
+          childCount: 0,
+          leaf: true,
+          branchPoint: false,
+          current: true
+        }
+      ],
+      totalEntries: 2,
+      visibleEntries: 2,
+      currentEntryId: 'entry-b'
+    }
+    let resolveStaleResponse: (value: typeof staleBranchResult) => void = () => {}
+    const staleResponse = new Promise<typeof staleBranchResult>((resolve) => {
+      resolveStaleResponse = resolve
+    })
+    const loadSessionTreeBranches = vi
+      .fn()
+      .mockReturnValueOnce(staleResponse)
+      .mockResolvedValueOnce(freshBranchResult)
+    installCodingAgentApi({
+      getSnapshot: vi.fn().mockResolvedValue(createSnapshot()),
+      loadSessionTreeBranches
+    })
+    const store = useWorkspaceSessionStore()
+    store.sessions['thread-a'] = snapshotToWorkspaceSession(createSnapshot())
+    await store.setActiveSessionId('thread-a')
+
+    const staleLoad = store.loadActiveSessionTreeBranches()
+    capturedEventListener?.({
+      type: 'message_end',
+      threadId: 'thread-a',
+      sessionEntryId: 'entry-b',
+      message: createAssistantMessage('done', fixtureTimestamp)
+    })
+    await store.loadActiveSessionTreeBranches()
+    expect(store.activeSessionTreeBranches).toEqual(freshBranchResult)
+
+    resolveStaleResponse(staleBranchResult)
+    await staleLoad
+
+    expect(store.activeSessionTreeBranches).toEqual(freshBranchResult)
+  })
+
+  it('打开 fork 来源时优先切换到已有 parent thread', async () => {
+    installCodingAgentApi({ getSnapshot: vi.fn().mockResolvedValue(createSnapshot()) })
+    const store = useWorkspaceSessionStore()
+    const parentSnapshot: ThreadSnapshot = {
+      ...createSnapshot(),
+      threadId: 'thread-parent',
+      title: '来源会话',
+      sessionFile: '/tmp/parent.jsonl'
+    }
+    const childSnapshot: ThreadSnapshot = {
+      ...createSnapshot(),
+      threadId: 'thread-child',
+      title: '分支会话',
+      sessionFile: '/tmp/child.jsonl',
+      lineage: {
+        parentSessionFile: '/tmp/parent.jsonl',
+        parentThreadId: 'thread-parent',
+        parentThreadTitle: '来源会话'
+      }
+    }
+    store.sessions['thread-parent'] = snapshotToWorkspaceSession(parentSnapshot)
+    store.sessions['thread-child'] = snapshotToWorkspaceSession(childSnapshot)
+    await store.setActiveSessionId('thread-child')
+
+    await store.openParentSession()
+
+    expect(store.activeSessionId).toBe('thread-parent')
+    expect(store.activeSessionActionMessage).toBe('已打开来源对话')
+  })
+
+  it('打开 fork 来源时可从 parentSessionFile 恢复 sidebar thread', async () => {
+    const parentSnapshot: ThreadSnapshot = {
+      ...createSnapshot(),
+      threadId: 'thread-restored',
+      title: '恢复的来源',
+      sessionFile: '/tmp/parent.jsonl'
+    }
+    const createThread = vi.fn().mockResolvedValue(parentSnapshot)
+    installCodingAgentApi({ createThread, getSnapshot: vi.fn().mockResolvedValue(createSnapshot()) })
+    const store = useWorkspaceSessionStore()
+    const childSnapshot: ThreadSnapshot = {
+      ...createSnapshot(),
+      threadId: 'thread-child',
+      title: '分支会话',
+      sessionFile: '/tmp/child.jsonl',
+      lineage: {
+        parentSessionFile: '/tmp/parent.jsonl',
+        parentSessionExists: true
+      }
+    }
+    store.sessions['thread-child'] = snapshotToWorkspaceSession(childSnapshot)
+    await store.setActiveSessionId('thread-child')
+
+    await store.openParentSession()
+
+    expect(createThread).toHaveBeenCalledWith({
+      projectId: 'project-a',
+      sessionFile: '/tmp/parent.jsonl'
+    })
+    expect(store.activeSessionId).toBe('thread-restored')
+    expect(store.activeSessionActionMessage).toBe('已恢复来源对话')
+  })
+
+  it('从 parentSessionFile 恢复来源失败时不误报成功', async () => {
+    const createThread = vi.fn().mockRejectedValue(new Error('restore failed'))
+    installCodingAgentApi({ createThread, getSnapshot: vi.fn().mockResolvedValue(createSnapshot()) })
+    const store = useWorkspaceSessionStore()
+    const childSnapshot: ThreadSnapshot = {
+      ...createSnapshot(),
+      threadId: 'thread-child',
+      title: '分支会话',
+      sessionFile: '/tmp/child.jsonl',
+      lineage: {
+        parentSessionFile: '/tmp/parent.jsonl',
+        parentSessionExists: true
+      }
+    }
+    store.sessions['thread-child'] = snapshotToWorkspaceSession(childSnapshot)
+    await store.setActiveSessionId('thread-child')
+
+    await store.openParentSession()
+
+    expect(createThread).toHaveBeenCalledWith({
+      projectId: 'project-a',
+      sessionFile: '/tmp/parent.jsonl'
+    })
+    expect(store.activeSessionId).toBe('thread-child')
+    expect(store.activeSessionActionMessage).toBeUndefined()
+    expect(store.errorMessage).toBe('来源对话不可用')
+  })
+
+  it('打开已归档 fork 来源时先恢复 parent thread', async () => {
+    const parentSnapshot: ThreadSnapshot = {
+      ...createSnapshot(),
+      threadId: 'thread-parent',
+      title: '来源会话',
+      sessionFile: '/tmp/parent.jsonl'
+    }
+    const childSnapshot: ThreadSnapshot = {
+      ...createSnapshot(),
+      threadId: 'thread-child',
+      title: '分支会话',
+      sessionFile: '/tmp/child.jsonl',
+      lineage: {
+        parentSessionFile: '/tmp/parent.jsonl',
+        parentThreadId: 'thread-parent',
+        parentThreadTitle: '来源会话',
+        parentThreadArchivedAt: '2026-07-01T00:00:00.000Z'
+      }
+    }
+    const restoreThread = vi.fn().mockResolvedValue(undefined)
+    const listThreads = vi.fn().mockResolvedValue([
+      snapshotToWorkspaceSession(childSnapshot),
+      snapshotToWorkspaceSession(parentSnapshot)
+    ])
+    installCodingAgentApi({
+      createThread: vi.fn(),
+      getSnapshot: vi.fn().mockResolvedValue(childSnapshot),
+      listThreads,
+      restoreThread
+    })
+    const store = useWorkspaceSessionStore()
+    store.sessions['thread-child'] = snapshotToWorkspaceSession(childSnapshot)
+    await store.setActiveSessionId('thread-child')
+
+    await store.openParentSession()
+
+    expect(restoreThread).toHaveBeenCalledWith('thread-parent')
+    expect(window.api.codingAgent.createThread).not.toHaveBeenCalled()
+    expect(store.activeSessionId).toBe('thread-parent')
+    expect(store.activeSessionActionMessage).toBe('已恢复并打开来源对话')
+  })
+
   it('消费 compaction 事件并刷新持久化后的 snapshot', async () => {
     const getSnapshot = vi.fn().mockResolvedValue(createSnapshot())
     installCodingAgentApi({ getSnapshot })
@@ -1373,10 +1848,14 @@ describe('workspace-session Project-first actions', () => {
       switchSession
     })
     const store = useWorkspaceSessionStore()
-    store.sessions['thread-a'] = snapshotToWorkspaceSession(createSnapshot())
+    store.sessions['thread-a'] = snapshotToWorkspaceSession({
+      ...createSnapshot(),
+      sessionFile: '/tmp/session.jsonl'
+    })
     await store.setActiveSessionId('thread-a')
 
     await store.newActiveSession()
+    expect(store.activePreviousSessionFile).toBe('/tmp/session.jsonl')
     await store.importActiveSessionFromPicker()
     await store.switchActiveSessionPath('/tmp/existing.jsonl')
 
@@ -1391,6 +1870,7 @@ describe('workspace-session Project-first actions', () => {
       sessionPath: '/tmp/existing.jsonl'
     })
     expect(store.activeSnapshot?.sessionFile).toBe('/tmp/existing.jsonl')
+    expect(store.activePreviousSessionFile).toBe('/tmp/imported.jsonl')
     expect(store.activeSessionActionMessage).toBe('已切换到 /tmp/existing.jsonl')
   })
 
@@ -1709,6 +2189,46 @@ describe('workspace-session Project-first actions', () => {
     expect(prompt).toHaveBeenCalledWith({
       threadId: 'thread-a',
       message: 'look',
+      imageFiles: [
+        {
+          path: '/tmp/screenshot.png',
+          inlineFallback: {
+            type: 'image',
+            mimeType: 'image/png',
+            data: 'abc'
+          }
+        }
+      ]
+    })
+    expect(store.draftImages).toEqual([])
+    expect(store.hasDraftMessage).toBe(false)
+  })
+
+  it('允许发送只有图片附件的 Composer 草稿', async () => {
+    const snapshot = createSnapshot()
+    const prompt = vi.fn().mockResolvedValue(undefined)
+    installCodingAgentApi({ prompt })
+    const store = useWorkspaceSessionStore()
+    store.sessions['thread-a'] = snapshotToWorkspaceSession(snapshot)
+    await store.setActiveSessionId('thread-a')
+    store.addComposerImages([
+      {
+        id: 'image-a',
+        path: '/tmp/screenshot.png',
+        name: 'screenshot.png',
+        size: 3,
+        type: 'image',
+        mimeType: 'image/png',
+        data: 'abc',
+        hints: ['[Image resized to 2000x1000.]']
+      }
+    ])
+
+    await store.sendPrompt()
+
+    expect(prompt).toHaveBeenCalledWith({
+      threadId: 'thread-a',
+      message: '请分析这些图片',
       imageFiles: [
         {
           path: '/tmp/screenshot.png',

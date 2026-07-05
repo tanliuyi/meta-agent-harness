@@ -33,13 +33,6 @@ const displaySummary = computed(() => {
   }
   return [
     {
-      label: 'Theme',
-      value: display.theme?.trim() || 'Default',
-      detail: display.quietStartup ? '安静启动' : '显示启动输出',
-      tone: display.theme?.trim() ? 'info' : 'neutral',
-      badgeLabel: display.theme?.trim() ? 'Custom' : 'Default'
-    },
-    {
       label: 'Thinking',
       value: display.hideThinkingBlock ? 'Hidden' : 'Visible',
       detail: display.hideThinkingBlock
@@ -104,7 +97,7 @@ function getTreeFilterTitle(mode: AgentTreeFilterMode): string {
       <div>
         <p class="agent-page__eyebrow">Display</p>
         <h1 class="agent-page__title">显示与交互</h1>
-        <p class="agent-page__subtitle">只保存主题、启动输出、thinking 显示和输入交互。</p>
+        <p class="agent-page__subtitle">只保存启动输出、thinking 显示和输入交互。</p>
       </div>
       <BaseButton
         size="sm"
@@ -135,13 +128,8 @@ function getTreeFilterTitle(mode: AgentTreeFilterMode): string {
         <section>
           <header>
             <strong>Appearance</strong>
-            <span>主题、启动输出和 thinking 可见性</span>
+            <span>启动输出和 thinking 可见性</span>
           </header>
-          <SettingsTextField
-            v-model="agentSettings.draft.display.theme"
-            label="主题 Theme"
-            placeholder="主题名称或 theme 路径"
-          />
           <div class="switch-list">
             <SettingsSwitchField
               v-model="agentSettings.draft.display.quietStartup"
@@ -157,11 +145,6 @@ function getTreeFilterTitle(mode: AgentTreeFilterMode): string {
               v-model="agentSettings.draft.display.hideThinkingBlock"
               title="隐藏 Thinking"
               description="隐藏 assistant thinking block。"
-            />
-            <SettingsSwitchField
-              v-model="agentSettings.draft.display.showHardwareCursor"
-              title="硬件光标"
-              description="输入法定位场景中显示 terminal cursor。"
             />
           </div>
         </section>

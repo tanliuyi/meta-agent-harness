@@ -256,43 +256,6 @@ async function openDiagnosticTarget(item: DiagnosticsItem): Promise<void> {
 .diagnostics-page {
   display: grid;
   gap: var(--space-4);
-  max-width: var(--settings-page-max-width);
-  padding: var(--space-5);
-}
-
-.diagnostics-page__header {
-  display: flex;
-  align-items: end;
-  justify-content: space-between;
-  gap: var(--space-3);
-  min-width: 0;
-}
-
-.diagnostics-page__eyebrow,
-.diagnostics-page__title,
-.diagnostics-page__subtitle {
-  margin: 0;
-}
-
-.diagnostics-page__eyebrow {
-  color: var(--color-primary);
-  font-size: var(--font-size-ui-2xs);
-  font-weight: 750;
-  text-transform: uppercase;
-}
-
-.diagnostics-page__title {
-  margin-top: var(--space-1);
-  color: var(--color-text);
-  font-size: var(--font-size-ui-xl);
-  line-height: 1.18;
-}
-
-.diagnostics-page__subtitle {
-  margin-top: var(--space-1);
-  color: var(--color-text-muted);
-  font-size: var(--font-size-ui-sm);
-  line-height: 1.45;
 }
 
 .diagnostics-summary {

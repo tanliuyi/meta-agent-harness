@@ -121,7 +121,7 @@ describe("desktop message conversion", () => {
 		expect(toDesktopMessages([message])).toEqual([]);
 	});
 
-	it("保留模型请求失败的 assistant 错误消息", () => {
+	it("将模型请求失败投影为系统消息", () => {
 		const timestamp = Date.parse("2026-07-01T00:00:00.000Z");
 		const message: AgentMessage = {
 			role: "assistant",
@@ -143,18 +143,30 @@ describe("desktop message conversion", () => {
 		};
 
 		expect(toDesktopMessageContent(message)).toEqual({
-			role: "assistant",
+			role: "system",
 			text: "模型请求失败：429: rate limit exceeded",
 			raw: message,
 			createdAt: "2026-07-01T00:00:00.000Z",
+			systemEvent: {
+				kind: "agentEvent",
+				title: "模型请求失败",
+				description: "后端模型请求返回错误，当前响应已中止。",
+				meta: ["provider openai", "model gpt-5"],
+			},
 		});
 		expect(toDesktopMessages([message])).toEqual([
 			{
 				id: "message-0",
-				role: "assistant",
+				role: "system",
 				text: "模型请求失败：429: rate limit exceeded",
 				raw: message,
 				createdAt: "2026-07-01T00:00:00.000Z",
+				systemEvent: {
+					kind: "agentEvent",
+					title: "模型请求失败",
+					description: "后端模型请求返回错误，当前响应已中止。",
+					meta: ["provider openai", "model gpt-5"],
+				},
 			},
 		]);
 	});

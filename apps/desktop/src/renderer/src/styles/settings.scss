@@ -6,7 +6,9 @@
 .general-page,
 .agent-page,
 .models-page,
-.archive-page {
+.archive-page,
+.diagnostics-page,
+.extensions-page {
   box-sizing: border-box;
   width: 100%;
   max-width: var(--settings-page-max-width);
@@ -19,7 +21,9 @@
 .general-page__header,
 .agent-page__header,
 .models-page__header,
-.archive-page__header {
+.archive-page__header,
+.diagnostics-page__header,
+.extensions-page__header {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
@@ -30,19 +34,22 @@
 .general-page__eyebrow,
 .agent-page__eyebrow,
 .models-page__eyebrow,
-.archive-page__eyebrow {
+.archive-page__eyebrow,
+.diagnostics-page__eyebrow,
+.extensions-page__eyebrow {
   margin: 0 0 var(--space-1);
   color: var(--color-primary);
   font-size: var(--font-size-ui-xs);
   font-weight: 750;
   letter-spacing: 0;
-  text-transform: uppercase;
 }
 
 .general-page__title,
 .agent-page__title,
 .models-page__title,
-.archive-page__title {
+.archive-page__title,
+.diagnostics-page__title,
+.extensions-page__title {
   margin: 0;
   color: var(--color-text);
   font-size: var(--font-size-ui-2xl);
@@ -53,6 +60,8 @@
 .agent-page__subtitle,
 .models-page__subtitle,
 .archive-page__subtitle,
+.diagnostics-page__subtitle,
+.extensions-page__subtitle,
 .muted-copy {
   max-width: 640px;
   margin: var(--space-2) 0 0;
@@ -262,7 +271,9 @@
   .general-page__header,
   .agent-page__header,
   .models-page__header,
-  .archive-page__header {
+  .archive-page__header,
+  .diagnostics-page__header,
+  .extensions-page__header {
     display: grid;
     grid-template-columns: 1fr;
   }

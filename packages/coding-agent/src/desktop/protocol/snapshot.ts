@@ -103,6 +103,8 @@ export interface ThreadSnapshot {
 	};
 	/** 是否启用自动上下文压缩。 */
 	autoCompactionEnabled?: boolean;
+	/** 是否启用自动重试。 */
+	autoRetryEnabled?: boolean;
 	/** 上下文使用情况。 */
 	context?: {
 		/** 已使用 token 数。 */

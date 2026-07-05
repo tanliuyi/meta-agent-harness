@@ -58,3 +58,10 @@
     grid-template-columns: 1fr;
   }
 }
+
+.general-field__hint {
+  margin: 0;
+  color: var(--color-text-subtle);
+  font-size: var(--font-size-ui-sm);
+  line-height: 1.5;
+}

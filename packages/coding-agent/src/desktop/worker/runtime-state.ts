@@ -26,6 +26,7 @@ export function buildRuntimeState(session: AgentSession): ThreadLiveState {
 		sessionTree: toDesktopSessionTree(session.sessionManager.getTree()),
 		currentEntryId: session.sessionManager.getLeafId(),
 		autoCompactionEnabled: session.autoCompactionEnabled,
+		autoRetryEnabled: session.autoRetryEnabled,
 		messageCount: session.messages.length,
 		pendingMessageCount: session.pendingMessageCount,
 		contextUsage: session.getContextUsage(),

@@ -107,12 +107,32 @@ export type CreateThreadInput = Omit<PackageStartThreadInput, 'cwd'> & {
   projectId: string
 }
 
+/** Thread 来源关系，desktop 从 session header 派生，不写入 Pi JSONL。 */
+export interface ThreadLineage {
+  /** 父 session 文件路径，来自 session header parentSession。 */
+  parentSessionFile?: string
+  /** 已匹配到的父 thread ID。 */
+  parentThreadId?: string
+  /** 已匹配到的父 thread 标题。 */
+  parentThreadTitle?: string
+  /** 已匹配到的父 thread 归档时间。 */
+  parentThreadArchivedAt?: string
+  /** 父 session 文件存在但未匹配到 thread。 */
+  parentSessionExists?: boolean
+  /** 父 session 文件不存在。 */
+  parentSessionMissing?: boolean
+  /** parentSession 指向自身等异常情况。 */
+  unavailable?: boolean
+}
+
 /** 线程摘要信息。 */
 export type ThreadSummary = Omit<PackageThreadSummary, 'cwd'> & {
   /** 所属 Project ID。 */
   projectId: string
   /** 归档时间（ISO 8601）。 */
   archivedAt?: string
+  /** 来源关系，desktop-only 派生字段。 */
+  lineage?: ThreadLineage
 }
 
 /** Thread 列表过滤条件。 */
@@ -127,6 +147,8 @@ export interface ListThreadsInput {
 export type ThreadSnapshot = PackageThreadSnapshot & {
   /** 所属 Project ID。 */
   projectId: string
+  /** 来源关系，desktop-only 派生字段。 */
+  lineage?: ThreadLineage
 }
 
 /** 审批请求。 */
@@ -356,6 +378,91 @@ export interface LoadSessionTreeChildrenInput extends ThreadIdInput {
   parentId: string | null
   /** 返回深度。 */
   maxDepth?: number
+}
+
+/** Session tree branch 视图过滤条件。 */
+export type SessionTreeBranchFilter = 'all' | 'user' | 'labeled' | 'no-tools'
+
+/** Session tree 扁平视图模式。 */
+export type SessionTreeViewMode = 'branches' | 'entries'
+
+/** 加载 session tree 扁平视图输入。 */
+export interface LoadSessionTreeBranchesInput extends ThreadIdInput {
+  /** 搜索关键字；为空时不搜索。 */
+  query?: string
+  /** 过滤条件；默认 all。 */
+  filter?: SessionTreeBranchFilter
+  /** 视图模式；branches 折叠线性段，entries 返回完整 entry rows。 */
+  viewMode?: SessionTreeViewMode
+}
+
+/** Session tree 扁平视图中的 entry 行。 */
+export interface SessionTreeBranchEntryRow {
+  /** 行类型。 */
+  kind: 'entry'
+  /** 行 ID。 */
+  id: string
+  /** Session entry ID。 */
+  entryId: string
+  /** 父 entry ID。 */
+  parentId: string | null
+  /** Entry 类型。 */
+  type: string
+  /** 创建时间（ISO 8601）。 */
+  timestamp: string
+  /** 简短展示标题。 */
+  title: string
+  /** 可选摘要文本。 */
+  summary?: string
+  /** 用户标签。 */
+  label?: string
+  /** 标签时间。 */
+  labelTimestamp?: string
+  /** 完整树深度。 */
+  depth: number
+  /** UI 缩进深度。 */
+  visualDepth: number
+  /** 子节点数量。 */
+  childCount: number
+  /** 是否是完整树 leaf。 */
+  leaf: boolean
+  /** 是否是分叉点。 */
+  branchPoint: boolean
+  /** 是否是当前 leaf。 */
+  current: boolean
+}
+
+/** Session tree 扁平视图中的折叠线性段，仅 branches 模式返回。 */
+export interface SessionTreeBranchSegmentRow {
+  /** 行类型。 */
+  kind: 'segment'
+  /** 行 ID。 */
+  id: string
+  /** 被折叠的 entry 数量。 */
+  count: number
+  /** 段起点 entry ID。 */
+  firstEntryId: string
+  /** 段终点 entry ID。 */
+  lastEntryId: string
+  /** 完整树深度。 */
+  depth: number
+  /** UI 缩进深度。 */
+  visualDepth: number
+}
+
+/** Session tree 扁平视图行。 */
+export type SessionTreeBranchRow = SessionTreeBranchEntryRow | SessionTreeBranchSegmentRow
+
+/** 加载 session tree 扁平视图结果。 */
+export interface LoadSessionTreeBranchesResult {
+  /** 扁平展示行。 */
+  rows: SessionTreeBranchRow[]
+  /** 完整 session entry 数。 */
+  totalEntries: number
+  /** 查询/过滤命中的 entry 数。 */
+  visibleEntries: number
+  /** 当前 leaf entry ID。 */
+  currentEntryId?: string | null
 }
 
 /** 加载 session tree 路径输入。 */
@@ -1161,6 +1268,8 @@ export interface CodingAgentApi {
   navigateTree(input: NavigateTreeInput): Promise<NavigateTreeResult>
   /** 加载 session tree 子节点。 */
   loadSessionTreeChildren(input: LoadSessionTreeChildrenInput): Promise<NonNullable<ThreadSnapshot['sessionTree']>>
+  /** 加载 main 派生的扁平 tree 视图。 */
+  loadSessionTreeBranches(input: LoadSessionTreeBranchesInput): Promise<LoadSessionTreeBranchesResult>
   /** 加载 root 到指定 entry 的路径。 */
   loadSessionTreePath(input: LoadSessionTreePathInput): Promise<string[]>
   /** 设置 session entry label。 */

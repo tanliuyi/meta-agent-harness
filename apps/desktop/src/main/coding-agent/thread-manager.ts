@@ -16,6 +16,8 @@ import type {
   ForkThreadInput,
   ForkThreadResult,
   ImportSessionInput,
+  LoadSessionTreeBranchesInput,
+  LoadSessionTreeBranchesResult,
   LoadSessionTreeChildrenInput,
   LoadSessionTreePathInput,
   LoginProviderOAuthInput,
@@ -88,6 +90,7 @@ import {
   fork,
   forkThread,
   importSession,
+  loadSessionTreeBranches,
   loadSessionTreeChildren,
   loadSessionTreePath,
   navigateTree,
@@ -302,6 +305,17 @@ export class CodingThreadManager extends ThreadManagerCore {
     input: LoadSessionTreeChildrenInput
   ): Promise<NonNullable<ThreadSnapshot['sessionTree']>> {
     return loadSessionTreeChildren(this, input)
+  }
+
+  /**
+   * 加载 main 派生的扁平 branch 视图。
+   * @param input - 加载输入。
+   * @returns 扁平 branch rows。
+   */
+  loadSessionTreeBranches(
+    input: LoadSessionTreeBranchesInput
+  ): Promise<LoadSessionTreeBranchesResult> {
+    return loadSessionTreeBranches(this, input)
   }
 
   /**

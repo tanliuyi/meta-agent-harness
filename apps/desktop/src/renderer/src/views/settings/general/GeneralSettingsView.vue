@@ -2,11 +2,13 @@
 import { BaseButton, BasePanel, BaseSegmentedControl } from '@renderer/components/base'
 import { useAppearanceSettings } from '@renderer/composables/useAppearanceSettings'
 import { useTheme } from '@renderer/composables/useTheme'
+import { useWorkspaceViewSettings } from '@renderer/composables/useWorkspaceViewSettings'
 import { RotateCcw } from 'lucide-vue-next'
 import { computed } from 'vue'
 
 const appearanceSettings = useAppearanceSettings()
 const { setThemeMode, themeMode, themeOptions } = useTheme()
+const workspaceViewSettings = useWorkspaceViewSettings()
 
 const uiFontSizeModel = computed({
   get: () => appearanceSettings.uiFontSize.value,
@@ -43,6 +45,21 @@ const codeFontSizeModel = computed({
           @update:model-value="setThemeMode"
         />
       </div>
+    </BasePanel>
+
+    <BasePanel title="项目视图" eyebrow="Workspace">
+      <div class="general-field">
+        <span>Thread 排序模式</span>
+        <BaseSegmentedControl
+          label="Thread 排序模式"
+          :model-value="workspaceViewSettings.threadSortMode.value"
+          :options="workspaceViewSettings.threadSortModeOptions"
+          @update:model-value="workspaceViewSettings.setThreadSortMode"
+        />
+      </div>
+      <p class="general-field__hint">
+        决定侧边栏中每个项目下的 Thread 按最近活动时间排序，还是按 Fork 层级嵌套展示。
+      </p>
     </BasePanel>
 
     <BasePanel title="字体大小" eyebrow="Typography">

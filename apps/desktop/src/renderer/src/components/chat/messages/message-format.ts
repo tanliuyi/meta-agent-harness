@@ -98,6 +98,7 @@ export function getUserMessageDisplaySegments(message: ThreadMessage): UserMessa
   if (!text) {
     return []
   }
+  const fileReferenceNames = getHiddenFileBlockNames(text)
 
   const skillBlock = parseDisplaySkillBlock(text)
   if (skillBlock) {
@@ -112,21 +113,37 @@ export function getUserMessageDisplaySegments(message: ThreadMessage): UserMessa
     const userMessage = skillBlock.userMessage ? stripHiddenFileBlocks(skillBlock.userMessage) : ''
     if (userMessage) {
       pushTextSegment(segments, '\n\n')
-      segments.push(...parseUserMessageDisplaySegments(userMessage))
+      segments.push(
+        ...parseUserMessageDisplaySegments(userMessage, {
+          allowedFileArgs: fileReferenceNames
+        })
+      )
     }
     return segments
   }
 
   const displayText = stripHiddenFileBlocks(text)
-  return displayText ? parseUserMessageDisplaySegments(displayText) : []
+  return displayText
+    ? parseUserMessageDisplaySegments(displayText, {
+        allowedFileArgs: fileReferenceNames
+      })
+    : []
+}
+
+interface ParseUserMessageDisplaySegmentsOptions {
+  allowedFileArgs?: readonly string[]
 }
 
 /**
  * 将 Pi @file 文本解析为文件引用 chip 片段，其余内容保持纯文本。
  * @param text - 用户消息展示文本。
+ * @param options - 解析选项。
  * @returns 展示片段。
  */
-export function parseUserMessageDisplaySegments(text: string): UserMessageDisplaySegment[] {
+export function parseUserMessageDisplaySegments(
+  text: string,
+  options: ParseUserMessageDisplaySegmentsOptions = {}
+): UserMessageDisplaySegment[] {
   const segments: UserMessageDisplaySegment[] = []
   const fileReferencePattern = /(^|[\s([{（【])@(?:"((?:\\.|[^"\\])*)"|([^\s`"'<>]+))/g
   let cursor = 0
@@ -136,6 +153,9 @@ export function parseUserMessageDisplaySegments(text: string): UserMessageDispla
     const rawValue = quotedValue !== undefined ? quotedValue.replace(/\\"/g, '"') : bareValue
     const fileArg = rawValue ? trimTrailingFileReferencePunctuation(rawValue) : ''
     if (!fileArg) {
+      continue
+    }
+    if (!isAllowedFileReference(fileArg, options.allowedFileArgs)) {
       continue
     }
 
@@ -154,6 +174,25 @@ export function parseUserMessageDisplaySegments(text: string): UserMessageDispla
   }
   pushTextSegment(segments, text.slice(cursor))
   return segments
+}
+
+function isAllowedFileReference(
+  fileArg: string,
+  allowedFileArgs: readonly string[] | undefined
+): boolean {
+  if (allowedFileArgs === undefined) {
+    return true
+  }
+  if (allowedFileArgs.length === 0) {
+    return false
+  }
+  const normalizedFileArg = normalizeFileReferencePath(fileArg)
+  return allowedFileArgs.some((allowedFileArg) => {
+    const normalizedAllowed = normalizeFileReferencePath(allowedFileArg)
+    return (
+      normalizedAllowed === normalizedFileArg || normalizedAllowed.endsWith(`/${normalizedFileArg}`)
+    )
+  })
 }
 
 function pushTextSegment(segments: UserMessageDisplaySegment[], text: string): void {
@@ -196,6 +235,17 @@ function stripHiddenFileBlocks(text: string): string {
   return text.replace(/<file\b[^>]*>[\s\S]*?<\/file>\s*/g, '').trim()
 }
 
+function getHiddenFileBlockNames(text: string): string[] {
+  const names: string[] = []
+  const fileBlockPattern = /<file\b[^>]*\bname="([^"]+)"[^>]*>[\s\S]*?<\/file>/g
+  for (const match of text.matchAll(fileBlockPattern)) {
+    if (match[1]) {
+      names.push(match[1])
+    }
+  }
+  return names
+}
+
 function getSkillReferenceLabel(name: string): string {
   return `skill:${name}`
 }
@@ -205,9 +255,13 @@ function trimTrailingFileReferencePunctuation(value: string): string {
 }
 
 function getFileReferenceDisplayName(value: string): string {
-  const normalized = value.replace(/\\/g, '/').replace(/\/+$/, '')
+  const normalized = normalizeFileReferencePath(value)
   const separatorIndex = normalized.lastIndexOf('/')
   return separatorIndex >= 0 ? normalized.slice(separatorIndex + 1) : normalized
+}
+
+function normalizeFileReferencePath(value: string): string {
+  return value.replace(/\\/g, '/').replace(/\/+$/, '')
 }
 
 /** 用户消息中的文件附件上下文。 */

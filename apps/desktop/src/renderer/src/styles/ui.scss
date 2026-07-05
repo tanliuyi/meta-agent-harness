@@ -311,15 +311,19 @@
 }
 
 [data-slot='select-content'],
-[data-slot='context-menu-content'] {
+[data-slot='context-menu-content'],
+[data-slot='dropdown-menu-content'],
+[data-slot='dropdown-menu-sub-content'] {
   z-index: 50;
   min-width: 8rem;
   max-height: var(
     --reka-select-content-available-height,
-    var(--reka-context-menu-content-available-height, 320px)
+    var(
+      --reka-context-menu-content-available-height,
+      var(--reka-dropdown-menu-content-available-height, 320px)
+    )
   );
   padding: 4px;
-  overflow: auto;
   color: var(--color-text);
   background: var(--color-surface-raised);
   border: 1px solid var(--color-border);
@@ -327,14 +331,32 @@
   box-shadow: var(--shadow-md);
 }
 
+[data-slot='select-content'] {
+  width: max-content;
+  min-width: var(--reka-select-trigger-width, 8rem);
+  max-width: calc(100vw - 32px);
+  overflow: hidden;
+}
+
+[data-slot='context-menu-content'],
+[data-slot='dropdown-menu-content'],
+[data-slot='dropdown-menu-sub-content'] {
+  overflow: auto;
+}
+
 [data-slot='select-item'],
-[data-slot='context-menu-item'] {
+[data-slot='context-menu-item'],
+[data-slot='dropdown-menu-item'],
+[data-slot='dropdown-menu-checkbox-item'],
+[data-slot='dropdown-menu-radio-item'],
+[data-slot='dropdown-menu-sub-trigger'] {
   position: relative;
   display: flex;
   align-items: center;
   gap: var(--space-2);
-  min-height: 28px;
-  padding: 0 var(--space-2);
+  min-width: 0;
+  min-height: 32px;
+  padding: 6px var(--space-2);
   color: var(--color-text);
   font-size: var(--font-size-ui-sm);
   border-radius: var(--radius-lg);
@@ -355,10 +377,29 @@
   &[data-variant='destructive'] {
     color: var(--color-danger);
   }
+
+  svg {
+    width: 14px;
+    height: 14px;
+    flex: 0 0 auto;
+    opacity: 0.78;
+    pointer-events: none;
+  }
+
+  [data-slot='select-item-text'] {
+    min-width: 0;
+    overflow: visible;
+    line-height: 1.35;
+    text-overflow: clip;
+    white-space: normal;
+    overflow-wrap: normal;
+    hyphens: none;
+  }
 }
 
 [data-slot='select-label'],
-[data-slot='context-menu-label'] {
+[data-slot='context-menu-label'],
+[data-slot='dropdown-menu-label'] {
   padding: var(--space-1) var(--space-2);
   color: var(--color-text-muted);
   font-size: var(--font-size-ui-xs);
@@ -367,6 +408,7 @@
 
 [data-slot='select-separator'],
 [data-slot='context-menu-separator'],
+[data-slot='dropdown-menu-separator'],
 [data-slot='separator'] {
   flex: 0 0 auto;
   background: var(--color-border-muted);
@@ -383,9 +425,16 @@
 }
 
 [data-slot='select-separator'],
-[data-slot='context-menu-separator'] {
+[data-slot='context-menu-separator'],
+[data-slot='dropdown-menu-separator'] {
   height: 1px;
   margin: var(--space-1) 0;
+}
+
+[data-slot='dropdown-menu-shortcut'] {
+  margin-left: auto;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-ui-xs);
 }
 
 [data-slot='select-scroll-up-button'],
@@ -565,14 +614,16 @@
   fill: var(--color-primary);
 }
 
-[data-slot='alert-dialog-overlay'] {
+[data-slot='alert-dialog-overlay'],
+[data-slot='dialog-overlay'] {
   position: fixed;
   inset: 0;
   z-index: 50;
   background: var(--overlay-backdrop-bg);
 }
 
-[data-slot='alert-dialog-content'] {
+[data-slot='alert-dialog-content'],
+[data-slot='dialog-content'] {
   position: fixed;
   top: 50%;
   left: 50%;
@@ -589,25 +640,43 @@
   transform: translate(-50%, -50%);
 }
 
-[data-slot='alert-dialog-header'] {
+[data-slot='dialog-content'].auth-dialog {
+  width: min(calc(100% - 32px), 460px);
+}
+
+[data-slot='dialog-content'].auth-dialog--wide {
+  width: min(calc(100% - 32px), 560px);
+}
+
+[data-slot='dialog-content'].custom-provider-dialog {
+  width: min(calc(100vw - 64px), 1180px);
+  max-height: min(calc(100svh - 48px), 900px);
+  overflow: hidden;
+}
+
+[data-slot='alert-dialog-header'],
+[data-slot='dialog-header'] {
   display: flex;
   flex-direction: column;
   gap: var(--space-2);
 }
 
-[data-slot='alert-dialog-footer'] {
+[data-slot='alert-dialog-footer'],
+[data-slot='dialog-footer'] {
   display: flex;
   flex-wrap: wrap;
   justify-content: flex-end;
   gap: var(--space-2);
 }
 
-[data-slot='alert-dialog-title'] {
+[data-slot='alert-dialog-title'],
+[data-slot='dialog-title'] {
   font-size: var(--font-size-ui-lg);
   font-weight: 700;
 }
 
-[data-slot='alert-dialog-description'] {
+[data-slot='alert-dialog-description'],
+[data-slot='dialog-description'] {
   color: var(--color-text-muted);
   font-size: var(--font-size-ui-sm);
   line-height: 1.45;

@@ -124,10 +124,18 @@ function countDisplayDiffStats(value: unknown): { additions: number; deletions: 
 }
 
 :deep(.edit-tool__diff-result) {
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+  width: 100%;
+  max-height: inherit;
   padding: 0 !important;
 }
 
 :deep(.edit-tool__diff-content .tool-message__content-inner) {
+  display: flex;
+  min-width: 0;
+  min-height: 0;
   max-height: inherit;
   padding: 0 !important;
 }

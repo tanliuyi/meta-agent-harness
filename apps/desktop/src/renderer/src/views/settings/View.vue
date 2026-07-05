@@ -35,6 +35,7 @@ const settingsTitle = computed(() => {
   if (route.path.startsWith('/settings/models')) return '模型'
   if (route.path.startsWith('/settings/agent')) return 'Agent'
   if (route.path.startsWith('/settings/diagnostics')) return '诊断'
+  if (route.path.startsWith('/settings/extensions')) return '扩展'
   if (route.path.startsWith('/settings/archive')) return '归档'
   return '通用'
 })
@@ -66,9 +67,11 @@ const settingsTitle = computed(() => {
         <strong>{{ settingsTitle }}</strong>
       </header>
       <div class="settings-content__body">
-        <KeepAlive>
-          <RouterView />
-        </KeepAlive>
+        <RouterView v-slot="{ Component }">
+          <KeepAlive>
+            <component :is="Component" />
+          </KeepAlive>
+        </RouterView>
       </div>
     </section>
   </main>

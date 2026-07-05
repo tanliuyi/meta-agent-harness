@@ -26,6 +26,7 @@ withDefaults(
 .base-badge {
   display: inline-flex;
   align-items: center;
+  justify-self: start;
   min-width: 0;
   min-height: 18px;
   padding: 0 6px;

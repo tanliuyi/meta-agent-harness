@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, useSlots } from 'vue'
+import { computed, ref, useSlots, watch } from 'vue'
 import ToolIcon from '@renderer/components/icons/ToolIcon.vue'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import ScrollArea from '@/components/ui/scroll-area/ScrollArea.vue'
@@ -53,11 +53,32 @@ const inferredHasContent = computed(() =>
 )
 const hasContent = computed(() => props.contentAvailable ?? inferredHasContent.value)
 const contentStyle = computed(() => ({ maxHeight: props.maxContentHeight }))
+const open = ref(false)
+const collapsibleOpen = computed({
+  get: () => hasContent.value && open.value,
+  set: (value: boolean) => {
+    open.value = hasContent.value && value
+  }
+})
+
+watch(
+  [() => props.defaultOpen, hasContent],
+  ([defaultOpen, contentReady]) => {
+    if (!contentReady) {
+      open.value = false
+      return
+    }
+    if (defaultOpen) {
+      open.value = true
+    }
+  },
+  { immediate: true }
+)
 </script>
 
 <template>
   <Collapsible
-    :default-open="defaultOpen && hasContent"
+    v-model:open="collapsibleOpen"
     class="tool-message"
     :class="[
       `tool-message--${tone}`,
@@ -102,7 +123,7 @@ const contentStyle = computed(() => ({ maxHeight: props.maxContentHeight }))
     </CollapsibleTrigger>
 
     <CollapsibleContent
-      v-if="hasContent"
+      v-if="collapsibleOpen"
       class="tool-message__content"
       :class="contentClass"
       :style="contentStyle"
@@ -148,6 +169,9 @@ const contentStyle = computed(() => ({ maxHeight: props.maxContentHeight }))
 
 <style lang="scss" scoped>
 .tool-message {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
   flex: 1;
   min-width: 0;
   width: min(720px, 100%);
@@ -157,12 +181,7 @@ const contentStyle = computed(() => ({ maxHeight: props.maxContentHeight }))
     margin: 0;
     overflow: hidden;
     background: var(--color-code-bg);
-    // border-radius: 0 0 var(--radius-lg) var(--radius-lg);
-
-    .tool-message__result,
-    .tool-message__content-inner {
-      padding: var(--space-2);
-    }
+    border-radius: var(--radius-sm);
 
     pre {
       margin: 0;
@@ -179,9 +198,8 @@ const contentStyle = computed(() => ({ maxHeight: props.maxContentHeight }))
 
   &[data-state='open'] .tool-message__trigger {
     width: 100%;
-    padding: var(--space-2);
+    // padding: var(--space-2);
     background: var(--color-canvas);
-    border-bottom: 1px solid var(--color-border);
   }
 }
 
@@ -198,6 +216,7 @@ const contentStyle = computed(() => ({ maxHeight: props.maxContentHeight }))
   flex: 1 1 auto;
   min-height: 0;
   width: 100%;
+  padding: var(--space-2);
 }
 
 :deep(.tool-message__scroll [data-slot='scroll-area-viewport']) {
@@ -212,7 +231,7 @@ const contentStyle = computed(() => ({ maxHeight: props.maxContentHeight }))
   }
 
   &[data-state='open'] .tool-message__trigger {
-    padding: var(--space-1) var(--space-2);
+    padding: var(--space-1) 0;
   }
 }
 
@@ -235,6 +254,7 @@ const contentStyle = computed(() => ({ maxHeight: props.maxContentHeight }))
   gap: var(--space-2);
   max-width: 100%;
   width: fit-content;
+  padding: 0;
   color: inherit;
   font: inherit;
   text-align: left;

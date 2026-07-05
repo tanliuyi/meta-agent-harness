@@ -47,13 +47,6 @@ const advancedSummary = computed(() => {
       detail: 'high thinking level token budget',
       tone: typeof budgets.high === 'number' ? 'info' : 'neutral',
       badgeLabel: typeof budgets.high === 'number' ? 'Set' : 'Default'
-    },
-    {
-      label: 'Markdown',
-      value: formatIndent(advanced.codeBlockIndent),
-      detail: 'streaming markdown code block indent',
-      tone: advanced.codeBlockIndent ? 'info' : 'neutral',
-      badgeLabel: advanced.codeBlockIndent ? 'Set' : 'Default'
     }
   ] as Array<{
     label: string
@@ -78,18 +71,6 @@ function formatTokenCount(value: number | undefined): string {
   return String(value)
 }
 
-function formatIndent(value: string): string {
-  if (!value) {
-    return 'Default'
-  }
-  if (/^ +$/.test(value)) {
-    return `${value.length} spaces`
-  }
-  if (/^\t+$/.test(value)) {
-    return `${value.length} tabs`
-  }
-  return `${value.length} chars`
-}
 </script>
 
 <template>
@@ -99,7 +80,7 @@ function formatIndent(value: string): string {
         <p class="agent-page__eyebrow">Advanced</p>
         <h1 class="agent-page__title">高级</h1>
         <p class="agent-page__subtitle">
-          只保存 thinking token budgets 和 markdown code block indent。
+          只保存 thinking token budgets。
         </p>
       </div>
       <BaseButton
@@ -159,18 +140,6 @@ function formatIndent(value: string): string {
               :min="0"
             />
           </div>
-        </section>
-
-        <section>
-          <header>
-            <strong>Markdown Rendering</strong>
-            <span>代码块缩进会影响 markdown 输出格式化</span>
-          </header>
-          <SettingsTextField
-            v-model="agentSettings.draft.advanced.codeBlockIndent"
-            label="Markdown 代码块缩进 Markdown code block indent"
-            placeholder="两个空格"
-          />
         </section>
       </div>
     </BasePanel>

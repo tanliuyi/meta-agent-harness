@@ -22,6 +22,7 @@ import {
   toThreadToolCalls
 } from './session-snapshot'
 import { resolveSessionCwd } from '../../../../../packages/coding-agent/src/core/session-manager'
+import { withThreadLineage } from './thread-lineage'
 
 /**
  * Coding thread 管理核心类，负责线程注册、worker 路由和快照构建。
@@ -84,9 +85,10 @@ export class ThreadManagerCore {
    * @param thread - 线程摘要。
    */
   saveThread(thread: ThreadSummary): void {
-    this.threads.set(thread.threadId, thread)
+    const persistedThread = stripDerivedThreadFields(thread)
+    this.threads.set(thread.threadId, persistedThread)
     try {
-      this.store?.saveThread(thread)
+      this.store?.saveThread(persistedThread)
     } catch (error) {
       this.saveStoreDiagnostic(thread.threadId, error)
     }
@@ -114,10 +116,12 @@ export class ThreadManagerCore {
    */
   listThreads(input: ListThreadsInput = {}): ThreadSummary[] {
     const includeArchived = input.archived === true
+    const allThreads = [...this.threads.values()]
     return sortThreadsByUpdatedAt(
-      [...this.threads.values()]
+      allThreads
         .filter((thread) => !input.projectId || thread.projectId === input.projectId)
         .filter((thread) => Boolean(thread.archivedAt) === includeArchived)
+        .map((thread) => withThreadLineage(thread, allThreads))
     )
   }
 
@@ -164,6 +168,42 @@ export class ThreadManagerCore {
       return this.buildSnapshotFromSessionFile(thread) ?? this.buildSnapshot(thread)
     }
     throwResponseError(response)
+  }
+
+  /**
+   * 轻量获取 thread 当前 session 文件，避免为了结构视图读取完整 message projection。
+   * @param threadId - 线程 ID。
+   * @returns session 文件路径。
+   */
+  async getThreadSessionFile(threadId: string): Promise<string | undefined> {
+    return (await this.getThreadSessionState(threadId)).sessionFile
+  }
+
+  /**
+   * 轻量获取 thread 当前 session 文件和 live leaf。
+   * @param threadId - 线程 ID。
+   * @returns session 文件路径与运行时当前 entry。
+   */
+  async getThreadSessionState(
+    threadId: string
+  ): Promise<{ sessionFile?: string; currentEntryId?: string | null }> {
+    const thread = this.requireThread(threadId)
+    if (!this.hasWorker(threadId)) {
+      return { sessionFile: thread.sessionFile }
+    }
+    const response = await this.workers.send(threadId, { type: 'get_state' })
+    if (!response.success) {
+      if (isMissingWorkerResponse(response)) {
+        return { sessionFile: thread.sessionFile }
+      }
+      throwResponseError(response)
+    }
+    const liveState = response.data as Partial<ThreadLiveState>
+    this.syncThreadMetadataFromLiveState(thread, liveState)
+    return {
+      sessionFile: liveState.sessionFile ?? this.requireThread(threadId).sessionFile,
+      currentEntryId: liveState.currentEntryId
+    }
   }
 
   /**
@@ -262,6 +302,7 @@ export class ThreadManagerCore {
         >
       > = {}
   ): ThreadSnapshot {
+    const lineage = withThreadLineage(thread, [...this.threads.values()]).lineage
     return {
       threadId: thread.threadId,
       projectId: thread.projectId,
@@ -283,7 +324,9 @@ export class ThreadManagerCore {
       },
       diagnostics: [],
       autoCompactionEnabled: state.autoCompactionEnabled,
-      context: buildContextUsage(state.contextUsage)
+      autoRetryEnabled: state.autoRetryEnabled,
+      context: buildContextUsage(state.contextUsage),
+      lineage
     }
   }
 
@@ -297,11 +340,15 @@ export class ThreadManagerCore {
       return undefined
     }
     try {
-      return buildSnapshotFromSession({
+      const snapshot = buildSnapshotFromSession({
         thread,
         cwd: this.getThreadCwd(thread),
         sessionFile: thread.sessionFile
       })
+      return {
+        ...snapshot,
+        lineage: withThreadLineage(thread, [...this.threads.values()]).lineage
+      }
     } catch (error) {
       this.saveStoreDiagnostic(thread.threadId, error)
       return undefined
@@ -523,7 +570,7 @@ function getThreadStatusFromLiveState(
 }
 
 function normalizePersistedThread(thread: ThreadSummary): ThreadSummary {
-  return normalizeInactiveThread(thread)
+  return stripDerivedThreadFields(normalizeInactiveThread(thread))
 }
 
 function normalizeInactiveThread(thread: ThreadSummary): ThreadSummary {
@@ -531,6 +578,11 @@ function normalizeInactiveThread(thread: ThreadSummary): ThreadSummary {
     return { ...thread, status: 'idle' }
   }
   return thread
+}
+
+function stripDerivedThreadFields(thread: ThreadSummary): ThreadSummary {
+  const { lineage: _lineage, ...persistedThread } = thread
+  return persistedThread
 }
 
 function sortThreadsByUpdatedAt(threads: ThreadSummary[]): ThreadSummary[] {

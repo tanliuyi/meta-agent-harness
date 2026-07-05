@@ -70,7 +70,6 @@ withDefaults(
   color: var(--color-primary);
   font-size: var(--font-size-ui-2xs);
   font-weight: 750;
-  text-transform: uppercase;
 }
 
 .base-panel__title {

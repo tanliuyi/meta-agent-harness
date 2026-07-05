@@ -5,19 +5,26 @@
  * 提供一组互斥选项，支持受控模式切换。
  */
 
-defineProps<{
-  /** 控件标签，用于无障碍图例。 */
-  label: string
-  /** 当前选中的值。 */
-  modelValue: T
-  /** 选项列表。 */
-  options: Array<{
-    /** 选项显示文本。 */
+withDefaults(
+  defineProps<{
+    /** 控件标签，用于无障碍图例。 */
     label: string
-    /** 选项值。 */
-    value: T
-  }>
-}>()
+    /** 控件尺寸。 */
+    size?: 'small' | 'medium'
+    /** 当前选中的值。 */
+    modelValue: T
+    /** 选项列表。 */
+    options: Array<{
+      /** 选项显示文本。 */
+      label: string
+      /** 选项值。 */
+      value: T
+    }>
+  }>(),
+  {
+    size: 'medium'
+  }
+)
 
 /** 更新选中值事件。 */
 defineEmits<{
@@ -26,7 +33,7 @@ defineEmits<{
 </script>
 
 <template>
-  <fieldset class="base-segmented-control">
+  <fieldset class="base-segmented-control" :class="`base-segmented-control--${size}`">
     <legend class="sr-only">{{ label }}</legend>
     <button
       v-for="option in options"
@@ -62,7 +69,7 @@ defineEmits<{
   padding: 0 var(--space-2);
   color: var(--color-text-muted);
   background: transparent;
-  border: 0;
+  border: 1px solid transparent;
   border-radius: var(--radius-xs);
   cursor: pointer;
   font-size: var(--font-size-ui-xs);
@@ -76,9 +83,20 @@ defineEmits<{
   }
 
   &.is-active {
-    color: var(--color-text);
-    background: var(--color-surface-raised);
-    box-shadow: var(--shadow-sm);
+    color: var(--color-primary-strong);
+    background: color-mix(in srgb, var(--color-primary-soft) 72%, var(--color-surface-raised));
+    border-color: color-mix(in srgb, var(--color-primary-outline) 68%, var(--color-border));
+    box-shadow: var(--shadow-primary-halo);
+  }
+}
+
+.base-segmented-control--small {
+  padding: 2px;
+
+  .base-segmented-control__item {
+    min-width: 34px;
+    min-height: 18px;
+    padding: 0 var(--space-2);
   }
 }
 </style>

@@ -136,6 +136,11 @@ const router = createRouter({
           component: () => import('../views/settings/diagnostics/DiagnosticsView.vue')
         },
         {
+          path: 'extensions',
+          name: 'SettingsExtensions',
+          component: () => import('../views/settings/extensions/ExtensionsView.vue')
+        },
+        {
           path: 'archive',
           name: 'SettingsArchive',
           component: () => import('../views/settings/archive/ArchiveView.vue')

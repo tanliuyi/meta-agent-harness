@@ -87,7 +87,20 @@ const useAgentSettingsStore = defineStore('agent-settings', () => {
 
   async function saveDisplay(): Promise<void> {
     if (!draft.value) return
-    await savePartial({ display: { ...draft.value.display } }, '显示与交互保存失败')
+    await savePartial(
+      {
+        display: {
+          quietStartup: draft.value.display.quietStartup,
+          collapseChangelog: draft.value.display.collapseChangelog,
+          hideThinkingBlock: draft.value.display.hideThinkingBlock,
+          doubleEscapeAction: draft.value.display.doubleEscapeAction,
+          treeFilterMode: draft.value.display.treeFilterMode,
+          editorPaddingX: draft.value.display.editorPaddingX,
+          autocompleteMaxVisible: draft.value.display.autocompleteMaxVisible
+        }
+      },
+      '显示与交互保存失败'
+    )
   }
 
   async function saveSafety(): Promise<void> {
@@ -97,7 +110,16 @@ const useAgentSettingsStore = defineStore('agent-settings', () => {
 
   async function saveMedia(): Promise<void> {
     if (!draft.value) return
-    await savePartial({ media: { ...draft.value.media } }, '图片与终端保存失败')
+    await savePartial(
+      {
+        media: {
+          imageAutoResize: draft.value.media.imageAutoResize,
+          blockImages: draft.value.media.blockImages,
+          imageWidthCells: draft.value.media.imageWidthCells
+        }
+      },
+      '图片设置保存失败'
+    )
   }
 
   async function saveResources(): Promise<void> {
@@ -108,8 +130,7 @@ const useAgentSettingsStore = defineStore('agent-settings', () => {
           packages: cleanStringList(draft.value.resources.packages),
           extensions: cleanStringList(draft.value.resources.extensions),
           skills: cleanStringList(draft.value.resources.skills),
-          prompts: cleanStringList(draft.value.resources.prompts),
-          themes: cleanStringList(draft.value.resources.themes)
+          prompts: cleanStringList(draft.value.resources.prompts)
         }
       },
       '资源路径保存失败'
@@ -285,8 +306,7 @@ const useAgentSettingsStore = defineStore('agent-settings', () => {
     await savePartial(
       {
         advanced: {
-          thinkingBudgets: { ...draft.value.advanced.thinkingBudgets },
-          codeBlockIndent: draft.value.advanced.codeBlockIndent
+          thinkingBudgets: { ...draft.value.advanced.thinkingBudgets }
         }
       },
       '高级设置保存失败'
@@ -379,15 +399,26 @@ function toUpdateInput(draft: AgentSettingsDraft): UpdateAgentSettingsInput {
   return {
     delivery: { ...draft.delivery },
     runtime: { ...draft.runtime },
-    display: { ...draft.display },
+    display: {
+      quietStartup: draft.display.quietStartup,
+      collapseChangelog: draft.display.collapseChangelog,
+      hideThinkingBlock: draft.display.hideThinkingBlock,
+      doubleEscapeAction: draft.display.doubleEscapeAction,
+      treeFilterMode: draft.display.treeFilterMode,
+      editorPaddingX: draft.display.editorPaddingX,
+      autocompleteMaxVisible: draft.display.autocompleteMaxVisible
+    },
     safety: { ...draft.safety },
-    media: { ...draft.media },
+    media: {
+      imageAutoResize: draft.media.imageAutoResize,
+      blockImages: draft.media.blockImages,
+      imageWidthCells: draft.media.imageWidthCells
+    },
     resources: {
       packages: cleanStringList(draft.resources.packages),
       extensions: cleanStringList(draft.resources.extensions),
       skills: cleanStringList(draft.resources.skills),
-      prompts: cleanStringList(draft.resources.prompts),
-      themes: cleanStringList(draft.resources.themes)
+      prompts: cleanStringList(draft.resources.prompts)
     },
     shell: {
       shellPath: draft.shell.shellPath,
@@ -396,8 +427,7 @@ function toUpdateInput(draft: AgentSettingsDraft): UpdateAgentSettingsInput {
       sessionDir: draft.shell.sessionDir
     },
     advanced: {
-      thinkingBudgets: { ...draft.advanced.thinkingBudgets },
-      codeBlockIndent: draft.advanced.codeBlockIndent
+      thinkingBudgets: { ...draft.advanced.thinkingBudgets }
     }
   }
 }

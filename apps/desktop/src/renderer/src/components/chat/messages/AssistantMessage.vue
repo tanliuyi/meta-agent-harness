@@ -141,6 +141,7 @@ function navigateTree(): void {
   gap: var(--space-1);
   padding: var(--space-1) 0;
   opacity: 0;
+  margin-top: var(--space-1);
   transition: opacity var(--duration-fast) var(--ease-standard);
 
   .message:hover & {

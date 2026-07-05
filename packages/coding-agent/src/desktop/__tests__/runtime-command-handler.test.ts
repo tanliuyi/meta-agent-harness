@@ -20,6 +20,7 @@ describe("handleRuntimeCommand", () => {
 			sessionName: "Desktop",
 			messageCount: 0,
 			pendingMessageCount: 0,
+			autoRetryEnabled: true,
 		});
 	});
 
@@ -372,6 +373,7 @@ function createSession(overrides: Record<string, unknown> = {}): RuntimeCommandH
 		sessionId: "session-1",
 		sessionName: "Desktop",
 		autoCompactionEnabled: true,
+		autoRetryEnabled: true,
 		messages: [],
 		pendingMessageCount: 0,
 		getContextUsage: () => undefined,
