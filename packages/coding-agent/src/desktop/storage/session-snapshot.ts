@@ -13,7 +13,12 @@ import {
 import type { DesktopSessionTreeNode, ThreadSnapshot } from "../protocol/snapshot.ts";
 import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
 import type { ThreadSummary } from "../protocol/thread.ts";
-import { toDesktopFileChanges, toDesktopMessages, toDesktopToolCalls } from "../protocol/message.ts";
+import {
+	isRenderableConversationMessage,
+	toDesktopFileChanges,
+	toDesktopMessages,
+	toDesktopToolCalls,
+} from "../protocol/message.ts";
 
 /**
  * 从 session 文件构建 snapshot 所需的输入。
@@ -48,7 +53,7 @@ export function buildSnapshotFromSession(input: BuildSnapshotFromSessionInput): 
 		status: input.thread.status,
 		model: modelEntry ? { provider: modelEntry.provider, id: modelEntry.modelId } : undefined,
 		thinkingLevel: normalizeThinkingLevel(thinkingEntry?.thinkingLevel ?? context.thinkingLevel),
-		messages: toDesktopMessages(context.messages),
+		messages: attachSessionEntryIds(toDesktopMessages(context.messages), manager.getBranch()),
 		sessionTree: toDesktopSessionTree(manager.getTree()),
 		currentEntryId: manager.getLeafId(),
 		toolCalls: toDesktopToolCalls(context.messages, input.thread.threadId),
@@ -60,29 +65,98 @@ export function buildSnapshotFromSession(input: BuildSnapshotFromSessionInput): 
 }
 
 /**
+ * Desktop 初始 snapshot 和单次懒加载返回的 session tree 深度。
+ * 保持较浅，避免 Electron contextBridge 传递深层嵌套对象，也减少 renderer 初始 diff 开销。
+ */
+const MAX_DESKTOP_SESSION_TREE_DEPTH = 3
+
+/**
  * 将 Pi SessionManager tree 转为 desktop-safe tree。
  * @param nodes - Pi session tree nodes。
+ * @param maxDepth - 最大递归深度。
+ * @param currentDepth - 当前递归深度。
  * @returns desktop session tree nodes。
  */
-export function toDesktopSessionTree(nodes: SessionTreeNode[]): DesktopSessionTreeNode[] {
-	return nodes.map((node) => ({
-		id: node.entry.id,
-		parentId: node.entry.parentId,
-		type: node.entry.type,
-		timestamp: node.entry.timestamp,
-		title: buildEntryTitle(node.entry),
-		summary: buildEntrySummary(node.entry),
-		label: node.label,
-		labelTimestamp: node.labelTimestamp,
-		children: toDesktopSessionTree(node.children),
-	}));
+export function toDesktopSessionTree(
+  nodes: SessionTreeNode[],
+  maxDepth = MAX_DESKTOP_SESSION_TREE_DEPTH,
+  currentDepth = 0
+): DesktopSessionTreeNode[] {
+  if (currentDepth > maxDepth) {
+    return []
+  }
+  return nodes.map((node) => {
+    const hasChildren = node.children.length > 0
+    const children = currentDepth >= maxDepth ? [] : toDesktopSessionTree(node.children, maxDepth, currentDepth + 1)
+    return {
+      id: node.entry.id,
+      parentId: node.entry.parentId,
+      type: node.entry.type,
+      timestamp: node.entry.timestamp,
+      title: buildEntryTitle(node.entry),
+      summary: buildEntrySummary(node.entry),
+      label: node.label,
+      labelTimestamp: node.labelTimestamp,
+      hasMoreChildren: currentDepth >= maxDepth && hasChildren,
+      children
+    }
+  })
 }
 
 /**
- * 构建 session tree entry 标题。
- * @param entry - Pi session entry。
- * @returns 标题。
+ * 从完整 session tree 中取指定节点的子树切片。
+ * @param roots - 完整 session tree roots。
+ * @param parentId - 父节点 ID；null 表示 roots。
+ * @param maxDepth - 返回深度。
+ * @returns desktop-safe session tree nodes。
  */
+export function toDesktopSessionTreeChildren(
+  roots: SessionTreeNode[],
+  parentId: string | null,
+  maxDepth = MAX_DESKTOP_SESSION_TREE_DEPTH
+): DesktopSessionTreeNode[] {
+  if (parentId === null) {
+    return toDesktopSessionTree(roots, maxDepth)
+  }
+  const parent = findSessionTreeNode(roots, parentId)
+  return parent ? toDesktopSessionTree(parent.children, maxDepth) : []
+}
+
+function findSessionTreeNode(nodes: SessionTreeNode[], id: string): SessionTreeNode | undefined {
+  const stack = [...nodes]
+  while (stack.length > 0) {
+    const node = stack.shift()!
+    if (node.entry.id === id) {
+      return node
+    }
+    stack.unshift(...node.children)
+  }
+  return undefined
+}
+
+/**
+ * 将当前 branch 上的 message entry ID 附加到可渲染 desktop messages。
+ * @param messages - 已转换的 desktop messages。
+ * @param branchEntries - 当前 leaf 到 root 的 entry 路径。
+ * @returns 带 sessionEntryId 的 desktop messages。
+ */
+function attachSessionEntryIds(messages: ThreadSnapshot["messages"], branchEntries: SessionEntry[]): ThreadSnapshot["messages"] {
+	const messageEntryIds = branchEntries.flatMap((entry) => {
+		if (entry.type !== "message" || !isRenderableConversationMessage(entry.message)) {
+			return [];
+		}
+		return [entry.id];
+	});
+	let index = 0;
+	return messages.map((message) => {
+		if (message.role !== "user" && message.role !== "assistant") {
+			return message;
+		}
+		const sessionEntryId = messageEntryIds[index++];
+		return sessionEntryId ? { ...message, sessionEntryId } : message;
+	});
+}
+
 function buildEntryTitle(entry: SessionEntry): string {
 	switch (entry.type) {
 		case "message":

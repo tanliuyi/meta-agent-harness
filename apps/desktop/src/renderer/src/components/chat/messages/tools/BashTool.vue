@@ -9,6 +9,7 @@ import {
   getToolDetails,
   getToolArgs,
   getToolResultText,
+  getToolStatusLabel,
   isToolError,
   joinSummary,
   truncateSummary,
@@ -28,6 +29,15 @@ const summary = computed(() =>
 const result = computed(() => getToolResultText(props.message, props.toolCall))
 const isError = computed(() => isToolError(props.message, props.toolCall))
 const status = computed(() => props.toolCall?.status)
+const name = computed(() =>
+  getToolStatusLabel(status.value, {
+    queued: '准备执行',
+    running: '正在执行',
+    succeeded: '已执行',
+    failed: '执行失败',
+    cancelled: '已取消执行'
+  })
+)
 const truncation = computed(() => readRecord(details.value.truncation))
 const isTruncated = computed(
   () => readBoolean(details.value.truncated) || truncation.value !== undefined
@@ -37,6 +47,11 @@ const fullOutputPath = computed(
     readString(details.value.fullOutputPath) ??
     readString(props.toolCall?.result, 'fullOutputPath') ??
     extractFullOutputPath(result.value)
+)
+const hasContent = computed(() =>
+  Boolean(
+    result.value || isError.value || isTruncated.value || fullOutputPath.value || actionError.value
+  )
 )
 const truncationLabel = computed(() => getTruncationLabel(truncation.value))
 
@@ -122,7 +137,14 @@ function readBoolean(value: unknown): boolean {
 </script>
 
 <template>
-  <BaseTool name="已执行" :summary="summary" :result="result" :status="status" :is-error="isError">
+  <BaseTool
+    :name="name"
+    :summary="summary"
+    :result="result"
+    :status="status"
+    :is-error="isError"
+    :content-available="hasContent"
+  >
     <template #icon>
       <TerminalIcon :size="14" />
     </template>

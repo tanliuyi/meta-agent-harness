@@ -2,7 +2,7 @@
  * 本文件测试 workspace-session 的 IPC event snapshot 投影。
  */
 
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
 import { applyEventToSessions, type WorkspaceSession } from '../workspace-session'
 import useWorkspaceProjectStore from '../workspace-project'
@@ -26,6 +26,10 @@ const fixtureTimestamp = Date.parse('2026-07-01T00:00:00.000Z')
 beforeEach(() => {
   setActivePinia(createPinia())
   vi.clearAllMocks()
+})
+
+afterEach(() => {
+  vi.useRealTimers()
 })
 
 describe('applyEventToSessions', () => {
@@ -242,6 +246,65 @@ describe('applyEventToSessions', () => {
         createdAt: '2026-07-01T00:00:00.000Z'
       }
     ])
+  })
+
+  it('将 message_end 的 sessionEntryId 合并到 live 消息', () => {
+    const sessions = createSessions()
+
+    applyEventToSessions(sessions, {
+      type: 'message_update',
+      threadId: 'thread-a',
+      message: createAssistantMessage('hello', fixtureTimestamp),
+      assistantMessageEvent: {
+        type: 'text_delta',
+        contentIndex: 0,
+        delta: 'hello',
+        partial: createAssistantMessage('hello', fixtureTimestamp)
+      }
+    })
+    applyEventToSessions(sessions, {
+      type: 'message_end',
+      threadId: 'thread-a',
+      sessionEntryId: 'entry-assistant',
+      message: createAssistantMessage('hello', fixtureTimestamp)
+    })
+
+    expect(sessions['thread-a']?.snapshot?.messages).toMatchObject([
+      {
+        id: 'assistant-2026-07-01T00:00:00.000Z',
+        role: 'assistant',
+        text: 'hello',
+        sessionEntryId: 'entry-assistant'
+      }
+    ])
+  })
+
+  it('仅在用户或 assistant 消息完成时刷新 session 活跃时间', () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-07-01T00:00:05.000Z'))
+    const sessions = createSessions()
+
+    applyEventToSessions(sessions, {
+      type: 'message_update',
+      threadId: 'thread-a',
+      message: createAssistantMessage('hello', fixtureTimestamp),
+      assistantMessageEvent: {
+        type: 'text_delta',
+        contentIndex: 0,
+        delta: 'hello',
+        partial: createAssistantMessage('hello', fixtureTimestamp)
+      }
+    })
+
+    expect(sessions['thread-a']?.updatedAt).toBe('2026-07-01T00:00:00.000Z')
+
+    applyEventToSessions(sessions, {
+      type: 'message_end',
+      threadId: 'thread-a',
+      message: createAssistantMessage('hello', fixtureTimestamp)
+    })
+
+    expect(sessions['thread-a']?.updatedAt).toBe('2026-07-01T00:00:05.000Z')
   })
 
   it('保留后端真实 tool execution event 的结构化字段', () => {
@@ -1148,14 +1211,20 @@ describe('workspace-session Project-first actions', () => {
     expect(store.activeSessionActionMessage).toBe('已运行 skill:test')
   })
 
-  it('暴露 compact、export、clone 和 fork session 操作', async () => {
+  it('暴露 compact、export、clone 和创建分支 thread 操作', async () => {
     const compact = vi.fn().mockResolvedValue({ cancelled: false })
     const exportSession = vi.fn().mockResolvedValue({ path: '/tmp/session.html' })
     const revealResourcePath = vi.fn().mockResolvedValue(undefined)
     const clone = vi.fn().mockResolvedValue(createSnapshot())
-    const fork = vi.fn().mockResolvedValue(createSnapshot())
+    const forkSnapshot = {
+      ...createSnapshot(),
+      threadId: 'thread-b',
+      sessionFile: '/tmp/fork-session.jsonl',
+      title: '分支会话'
+    }
+    const forkThread = vi.fn().mockResolvedValue({ cancelled: false, snapshot: forkSnapshot })
     const getSnapshot = vi.fn().mockResolvedValue(createSnapshot())
-    installCodingAgentApi({ compact, exportSession, revealResourcePath, clone, fork, getSnapshot })
+    installCodingAgentApi({ compact, exportSession, revealResourcePath, clone, forkThread, getSnapshot })
     const store = useWorkspaceSessionStore()
     store.sessions['thread-a'] = snapshotToWorkspaceSession(createSnapshot())
     await store.setActiveSessionId('thread-a')
@@ -1164,12 +1233,12 @@ describe('workspace-session Project-first actions', () => {
     await store.exportActiveSession()
     await store.openActiveExport()
     await store.revealActiveExport()
+    expect(store.activeExportResult).toEqual({ path: '/tmp/session.html' })
     await store.cloneActiveSession()
     await store.forkActiveSession('assistant-a')
 
     expect(compact).toHaveBeenCalledWith({ threadId: 'thread-a', customInstructions: undefined })
     expect(exportSession).toHaveBeenCalledWith({ threadId: 'thread-a' })
-    expect(store.activeExportResult).toEqual({ path: '/tmp/session.html' })
     expect(revealResourcePath).toHaveBeenNthCalledWith(1, {
       path: '/tmp/session.html',
       mode: 'open'
@@ -1179,12 +1248,62 @@ describe('workspace-session Project-first actions', () => {
       mode: 'reveal'
     })
     expect(clone).toHaveBeenCalledWith('thread-a')
-    expect(fork).toHaveBeenCalledWith({
+    expect(forkThread).toHaveBeenCalledWith({
       threadId: 'thread-a',
       entryId: 'assistant-a',
       position: 'at'
     })
-    expect(store.activeSessionActionMessage).toBe('已从选中消息分叉')
+    expect(store.activeSessionId).toBe('thread-b')
+    expect(store.sessionsByProject['project-a']?.map((session) => session.threadId)).toEqual(
+      expect.arrayContaining(['thread-a', 'thread-b'])
+    )
+    expect(store.activeSessionActionMessage).toBe('已创建分支会话')
+  })
+
+  it('取消 session tree 导航时保留当前 snapshot 与草稿', async () => {
+    const initialSnapshot: ThreadSnapshot = {
+      ...createSnapshot(),
+      currentEntryId: 'entry-a',
+      messages: [
+        {
+          id: 'message-a',
+          role: 'user',
+          text: 'before',
+          raw: { role: 'user', content: 'before', timestamp: fixtureTimestamp }
+        }
+      ]
+    }
+    const navigateTree = vi.fn().mockResolvedValue({
+      cancelled: true,
+      snapshot: {
+        ...createSnapshot(),
+        currentEntryId: 'entry-b',
+        messages: [
+          {
+            id: 'message-b',
+            role: 'assistant',
+            text: 'should not apply'
+          }
+        ]
+      }
+    })
+    installCodingAgentApi({ getSnapshot: vi.fn().mockResolvedValue(initialSnapshot), navigateTree })
+    const store = useWorkspaceSessionStore()
+    store.sessions['thread-a'] = snapshotToWorkspaceSession(initialSnapshot)
+    await store.setActiveSessionId('thread-a')
+    store.draftMessage = createComposerContent('keep draft')
+
+    await store.navigateActiveSessionTree('entry-b')
+
+    expect(navigateTree).toHaveBeenCalledWith({
+      threadId: 'thread-a',
+      entryId: 'entry-b',
+      summarize: false
+    })
+    expect(store.activeSnapshot?.currentEntryId).toBe('entry-a')
+    expect(store.activeSnapshot?.messages).toEqual(initialSnapshot.messages)
+    expect(store.draftMessage).toEqual(createComposerContent('keep draft'))
+    expect(store.activeSessionActionMessage).toBe('Tree 导航已取消')
   })
 
   it('消费 compaction 事件并刷新持久化后的 snapshot', async () => {

@@ -3,6 +3,7 @@
  */
 
 import type { CwdPath, IsoTime, SessionFile, ThreadId } from "./identity.ts";
+import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import type { RpcResponse, RpcSessionState } from "../../modes/rpc/rpc-types.ts";
 import type { DesktopSessionTreeNode } from "./snapshot.ts";
 
@@ -59,4 +60,9 @@ export type ThreadLiveState = RpcSessionState & {
 export type ThreadMessagesResponse = Extract<
 	RpcResponse,
 	{ command: "get_messages"; success: true }
->["data"];
+>["data"] & {
+	/** 当前 branch 中与可渲染 message 对齐的 session entry IDs。 */
+	messageEntryIds?: string[];
+	/** Pi live messages。 */
+	messages: AgentMessage[];
+};

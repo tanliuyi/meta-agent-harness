@@ -7,6 +7,7 @@ import {
   getStringArg,
   getToolArgs,
   getToolResultText,
+  getToolStatusLabel,
   isToolError,
   joinSummary,
   type ToolComponentProps
@@ -28,10 +29,19 @@ const summary = computed(() =>
 const result = computed(() => getToolResultText(props.message, props.toolCall))
 const isError = computed(() => isToolError(props.message, props.toolCall))
 const status = computed(() => props.toolCall?.status)
+const name = computed(() =>
+  getToolStatusLabel(status.value, {
+    queued: '准备读取',
+    running: '正在读取',
+    succeeded: '已读取',
+    failed: '读取失败',
+    cancelled: '已取消读取'
+  })
+)
 </script>
 
 <template>
-  <BaseTool name="已读取" :summary="summary" :result="result" :status="status" :is-error="isError">
+  <BaseTool :name="name" :summary="summary" :result="result" :status="status" :is-error="isError">
     <template #summary>
       <span v-if="fileName" class="read-tool__path">{{ fileName }}</span>
       <span v-if="offset" class="read-tool__meta">offset={{ offset }}</span>

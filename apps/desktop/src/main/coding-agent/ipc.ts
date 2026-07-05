@@ -32,11 +32,15 @@ import type {
   FileReferenceCompletionResult,
   ExtensionUiResponseInput,
   ForkInput,
+  ForkThreadInput,
   ImportSessionInput,
   IpcResult,
   ListThreadsInput,
+  LoadSessionTreeChildrenInput,
+  LoadSessionTreePathInput,
   LoginProviderOAuthInput,
   ModelOAuthPromptResponseInput,
+  NavigateTreeInput,
   NewSessionInput,
   PromptImageDraft,
   PromptImageAttachment,
@@ -49,6 +53,7 @@ import type {
   SelectResourcePathInput,
   SelectSessionFileInput,
   SetThreadTitleInput,
+  SetSessionEntryLabelInput,
   SetProviderApiKeyInput,
   SetProjectTrustInput,
   SetModelInput,
@@ -95,6 +100,9 @@ export function registerCodingAgentIpc(options: CodingAgentIpcOptions = {}): Cod
         createWorker: options.createWorker ?? createUtilityProcessWorkerClient,
         onEvent: (event) => {
           cacheWorkerProjectionEvent(store, event)
+          if (isThreadActivityEvent(event)) {
+            manager.touchThreadActivity(event.threadId)
+          }
           const ipcEvent = toCodingAgentIpcEvent(event)
           if (!ipcEvent) {
             return
@@ -217,7 +225,30 @@ export function registerCodingAgentIpc(options: CodingAgentIpcOptions = {}): Cod
     manager.exportSession(input)
   )
   handle(manager, codingAgentChannels.fork, (input: ForkInput) => manager.fork(input))
+  handle(manager, codingAgentChannels.forkThread, async (input: ForkThreadInput) => {
+    const result = await manager.forkThread(input)
+    if (result.snapshot) {
+      publishCodingAgentEvent(subscribers, {
+        type: 'threadSnapshot',
+        threadId: result.snapshot.threadId,
+        snapshot: result.snapshot
+      })
+    }
+    return result
+  })
   handle(manager, codingAgentChannels.clone, (threadId: string) => manager.clone(threadId))
+  handle(manager, codingAgentChannels.navigateTree, (input: NavigateTreeInput) =>
+    manager.navigateTree(input)
+  )
+  handle(manager, codingAgentChannels.loadSessionTreeChildren, (input: LoadSessionTreeChildrenInput) =>
+    manager.loadSessionTreeChildren(input)
+  )
+  handle(manager, codingAgentChannels.loadSessionTreePath, (input: LoadSessionTreePathInput) =>
+    manager.loadSessionTreePath(input)
+  )
+  handle(manager, codingAgentChannels.setSessionEntryLabel, (input: SetSessionEntryLabelInput) =>
+    manager.setSessionEntryLabel(input)
+  )
   handle(manager, codingAgentChannels.setThreadTitle, (input: SetThreadTitleInput) =>
     manager.setThreadTitle(input)
   )
@@ -664,4 +695,35 @@ export function toCodingAgentIpcEvent(event: WorkerEnvelope): CodingAgentIpcEven
     }
   }
   return undefined
+}
+
+/**
+ * 判断 worker 事件是否代表 thread 会话内容活跃。
+ * @param event - worker 事件信封。
+ * @returns 是否需要刷新 thread updatedAt。
+ */
+function isThreadActivityEvent(
+  event: WorkerEnvelope
+): event is WorkerEnvelope & { kind: 'event'; eventType: 'canonical'; threadId: string } {
+  return (
+    event.kind === 'event' &&
+    event.eventType === 'canonical' &&
+    typeof event.threadId === 'string' &&
+    event.event.type === 'message_end' &&
+    isConversationMessage(event.event.message)
+  )
+}
+
+/**
+ * 判断消息是否是用户或 assistant 的会话消息。
+ * @param message - 原始 agent message。
+ * @returns 是否是会话活跃消息。
+ */
+function isConversationMessage(message: unknown): boolean {
+  return (
+    typeof message === 'object' &&
+    message !== null &&
+    'role' in message &&
+    (message.role === 'user' || message.role === 'assistant')
+  )
 }

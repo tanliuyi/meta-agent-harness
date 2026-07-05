@@ -110,6 +110,8 @@ export type WorkspaceSessionRuntime = {
   compaction?: WorkspaceCompactionState
   /** 最近一次导出结果。 */
   lastExport?: ExportSessionResult
+  /** fork/switch 前的 session 文件，用于快速切回。 */
+  previousSessionFile?: string
   /** 是否正在刷新当前 thread snapshot。 */
   loadingSnapshot: boolean
   /** 当前 thread 最近一次错误。 */
@@ -289,6 +291,10 @@ export default defineStore('workspace-session', () => {
   const sessionActionMessageByThreadId = shallowReactive<Record<string, string | undefined>>({})
 
   const workspaceProject = useWorkspaceProjectStore()
+
+  /** Chat timeline 请求 SessionPanel Tree 定位的 entry。 */
+  const treeFocusRequest = ref<{ entryId: string; requestId: number }>()
+  const loadingTreeChildrenByEntryId = shallowReactive<Record<string, boolean>>({})
 
   /** 待提交的渲染版本更新。 */
   const pendingRevisions = new Map<string, MessageRenderState>()
@@ -803,6 +809,9 @@ export default defineStore('workspace-session', () => {
 
   /** 当前活跃会话最近一次导出结果。 */
   const activeExportResult = computed(() => activeRuntime.value?.lastExport)
+
+  /** 当前活跃会话可快速切回的上一个 session 文件。 */
+  const activePreviousSessionFile = computed(() => activeRuntime.value?.previousSessionFile)
 
   /** 当前活跃会话的最近事件。 */
   const activeEvents = computed(() => activeRuntime.value?.events ?? [])
@@ -1512,6 +1521,7 @@ export default defineStore('workspace-session', () => {
     if (!threadId || !nextPath) {
       return
     }
+    const previousPath = activeSnapshot.value?.sessionFile
     try {
       const snapshot = await window.api.codingAgent.switchSession({
         threadId,
@@ -1521,9 +1531,37 @@ export default defineStore('workspace-session', () => {
       syncToolCallsByIdFromSnapshot(snapshot)
       syncRenderStateFromSnapshot(snapshot)
       setContextActiveThreadId(snapshot.threadId)
+      if (previousPath && previousPath !== snapshot.sessionFile) {
+        ensureRuntime(threadId).previousSessionFile = previousPath
+      }
       sessionActionMessageByThreadId[threadId] = `已切换到 ${nextPath}`
     } catch (error) {
       ensureRuntime(threadId).errorMessage = error instanceof Error ? error.message : String(error)
+    }
+  }
+
+  /**
+   * 切回当前 thread 记录的上一个 session 文件。
+   */
+  const switchActivePreviousSession = async (): Promise<void> => {
+    const previousPath = activePreviousSessionFile.value
+    if (!previousPath) {
+      return
+    }
+    await switchActiveSessionPath(previousPath)
+  }
+
+  /**
+   * 请求 SessionPanel Tree 定位指定 entry。
+   * @param entryId - session entry ID。
+   */
+  const focusActiveSessionTreeEntry = (entryId: string): void => {
+    if (!entryId) {
+      return
+    }
+    treeFocusRequest.value = {
+      entryId,
+      requestId: (treeFocusRequest.value?.requestId ?? 0) + 1
     }
   }
 
@@ -1556,11 +1594,120 @@ export default defineStore('workspace-session', () => {
       return
     }
     try {
-      const snapshot = await window.api.codingAgent.fork({ threadId, entryId, position: 'at' })
+      const result = await window.api.codingAgent.forkThread({ threadId, entryId, position: 'at' })
+      if (result.cancelled || !result.snapshot) {
+        sessionActionMessageByThreadId[threadId] = '分支会话创建已取消'
+        return
+      }
+      const snapshot = result.snapshot
       mergeSnapshot(sessions, snapshot)
       syncToolCallsByIdFromSnapshot(snapshot)
       syncRenderStateFromSnapshot(snapshot)
-      sessionActionMessageByThreadId[threadId] = '已从选中消息分叉'
+      ensureRuntime(snapshot.threadId)
+      setContextActiveThreadId(snapshot.threadId)
+      workspaceProject.setActiveProjectId(snapshot.projectId)
+      sessionActionMessageByThreadId[snapshot.threadId] = '已创建分支会话'
+    } catch (error) {
+      ensureRuntime(threadId).errorMessage = error instanceof Error ? error.message : String(error)
+    }
+  }
+
+  /**
+   * 在当前 session tree 内导航。
+   * @param entryId - 目标 entry ID。
+   */
+  const navigateActiveSessionTree = async (entryId: string): Promise<void> => {
+    const threadId = activeSessionId.value
+    if (!threadId || !entryId) {
+      return
+    }
+    try {
+      const result = await window.api.codingAgent.navigateTree({ threadId, entryId, summarize: false })
+      if (result.cancelled || result.aborted) {
+        sessionActionMessageByThreadId[threadId] = result.aborted
+          ? 'Tree 导航已中止'
+          : 'Tree 导航已取消'
+        return
+      }
+      mergeSnapshot(sessions, result.snapshot)
+      syncToolCallsByIdFromSnapshot(result.snapshot)
+      syncRenderStateFromSnapshot(result.snapshot)
+      if (result.editorText !== undefined) {
+        draftMessage.value = createComposerContentFromText(result.editorText)
+      } else {
+        clearComposerDraft(threadId)
+      }
+      sessionActionMessageByThreadId[threadId] = result.editorText
+        ? '已回到选中消息，可编辑后重新发送'
+        : '已移动到选中节点'
+    } catch (error) {
+      ensureRuntime(threadId).errorMessage = error instanceof Error ? error.message : String(error)
+    }
+  }
+
+  /**
+   * 懒加载当前 session tree 的子节点。
+   * @param parentId - 父 entry ID。
+   */
+  const loadActiveSessionTreeChildren = async (parentId: string): Promise<void> => {
+    const threadId = activeSessionId.value
+    const snapshot = activeSnapshot.value
+    if (!threadId || !snapshot || !parentId || loadingTreeChildrenByEntryId[parentId]) {
+      return
+    }
+    loadingTreeChildrenByEntryId[parentId] = true
+    try {
+      const children = await window.api.codingAgent.loadSessionTreeChildren({
+        threadId,
+        parentId,
+        maxDepth: 2
+      })
+      mergeSessionTreeChildren(snapshot.sessionTree ?? [], parentId, children)
+    } catch (error) {
+      ensureRuntime(threadId).errorMessage = error instanceof Error ? error.message : String(error)
+    } finally {
+      loadingTreeChildrenByEntryId[parentId] = false
+    }
+  }
+
+  /**
+   * 获取当前 session tree 中 root 到目标 entry 的路径。
+   * @param entryId - 目标 entry ID。
+   * @returns entry ID 路径。
+   */
+  const loadActiveSessionTreePath = async (entryId?: string): Promise<string[]> => {
+    const threadId = activeSessionId.value
+    if (!threadId) {
+      return []
+    }
+    try {
+      return await window.api.codingAgent.loadSessionTreePath({ threadId, entryId })
+    } catch (error) {
+      ensureRuntime(threadId).errorMessage = error instanceof Error ? error.message : String(error)
+      return []
+    }
+  }
+
+  /**
+   * 设置当前 session tree entry label。
+   * @param entryId - 目标 entry ID。
+   * @param label - 新 label；空字符串表示清除。
+   */
+  const setActiveSessionEntryLabel = async (entryId: string, label: string): Promise<void> => {
+    const threadId = activeSessionId.value
+    if (!threadId || !entryId) {
+      return
+    }
+    try {
+      const snapshot = await window.api.codingAgent.setSessionEntryLabel({
+        threadId,
+        entryId,
+        label: label.trim() || undefined
+      })
+      mergeSnapshot(sessions, snapshot)
+      syncToolCallsByIdFromSnapshot(snapshot)
+      syncRenderStateFromSnapshot(snapshot)
+      sessionActionMessageByThreadId[threadId] = label.trim() ? 'Label 已保存' : 'Label 已清除'
     } catch (error) {
       ensureRuntime(threadId).errorMessage = error instanceof Error ? error.message : String(error)
     }
@@ -1936,6 +2083,7 @@ export default defineStore('workspace-session', () => {
     activeModelOptions,
     activeModelOptionsLoading,
     activePendingApprovals,
+    activePreviousSessionFile,
     activeProjectId,
     activeRetryState,
     activeRuntime,
@@ -1969,7 +2117,11 @@ export default defineStore('workspace-session', () => {
     loadModelOptions,
     loading,
     loadingThreads,
+    loadingTreeChildrenByEntryId,
     maxSessionPanelWidth,
+    focusActiveSessionTreeEntry,
+    loadActiveSessionTreeChildren,
+    loadActiveSessionTreePath,
     minSessionPanelWidth,
     orphanModel,
     orphanThinkingLevel,
@@ -1990,10 +2142,12 @@ export default defineStore('workspace-session', () => {
     exportActiveSession,
     importActiveSessionFromPicker,
     forkActiveSession,
+    navigateActiveSessionTree,
     cycleActiveModel,
     cycleActiveThinkingLevel,
     newActiveSession,
     setActiveModel,
+    setActiveSessionEntryLabel,
     setActiveAutoCompaction,
     setActiveAutoRetry,
     setActiveThinkingLevel,
@@ -2002,8 +2156,10 @@ export default defineStore('workspace-session', () => {
     setActiveSessionId,
     setActiveSessionPanelOpen,
     setActiveSessionPanelWidth,
+    switchActivePreviousSession,
     switchActiveSessionPath,
     startNewSession,
+    treeFocusRequest,
     unsubscribe
   }
 })
@@ -2018,6 +2174,24 @@ function snapshotToSession(snapshot: ThreadSnapshot): WorkspaceSession {
     ...snapshotToSummary(snapshot),
     snapshot
   }
+}
+
+function mergeSessionTreeChildren(
+  roots: NonNullable<ThreadSnapshot['sessionTree']>,
+  parentId: string,
+  children: NonNullable<ThreadSnapshot['sessionTree']>
+): boolean {
+  const stack = [...roots]
+  while (stack.length > 0) {
+    const node = stack.shift()!
+    if (node.id === parentId) {
+      node.children = children
+      node.hasMoreChildren = false
+      return true
+    }
+    stack.unshift(...node.children)
+  }
+  return false
 }
 
 /**
@@ -2270,6 +2444,36 @@ function sortSessionsByUpdatedAt(sessions: WorkspaceSession[]): WorkspaceSession
   return [...sessions].sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))
 }
 
+/**
+ * 从 agent event 中提取会话活跃时间。
+ * @param event - agent session IPC event。
+ * @returns 活跃时间；非会话内容事件返回 undefined。
+ */
+function getActivityUpdatedAt(event: AgentSessionIpcEvent): string | undefined {
+  if (event.type !== 'message_end') {
+    return undefined
+  }
+  const message = event.message
+  if (!isConversationMessage(message)) {
+    return undefined
+  }
+  return new Date().toISOString()
+}
+
+/**
+ * 判断消息是否是用户或 assistant 的会话消息。
+ * @param message - 原始 agent message。
+ * @returns 是否是会话活跃消息。
+ */
+function isConversationMessage(message: unknown): boolean {
+  return (
+    typeof message === 'object' &&
+    message !== null &&
+    'role' in message &&
+    (message.role === 'user' || message.role === 'assistant')
+  )
+}
+
 function getModelLabel(model: { provider?: string; id?: string; displayName?: string }): string {
   if (model.displayName) return model.displayName
   if (model.provider && model.id) return `${model.provider}/${model.id}`
@@ -2336,6 +2540,10 @@ export function applyEventToSessions(
     }
     const messageId = applyAgentSessionEvent(session.snapshot, event as AgentSessionIpcEvent)
     session.status = session.snapshot.status
+    const updatedAt = getActivityUpdatedAt(event as AgentSessionIpcEvent)
+    if (updatedAt) {
+      session.updatedAt = updatedAt
+    }
     if (messageId && onMessageRevision) {
       onMessageRevision(messageId, event.type === 'message_end' ? 'complete' : 'streaming')
     }
@@ -2417,11 +2625,15 @@ function applyAgentSessionEvent(
               (usage.cacheRead || 0) +
               (usage.cacheWrite || 0)
           if (totalTokens > 0) {
-            snapshot.context = {
-              tokens: totalTokens,
-              contextWindow: snapshot.context.contextWindow,
-              percent: Math.round((totalTokens / snapshot.context.contextWindow) * 100)
+            const contextWindow = snapshot.context.contextWindow
+            const nextContext: NonNullable<ThreadSnapshot['context']> = { tokens: totalTokens }
+            if (contextWindow !== undefined) {
+              nextContext.contextWindow = contextWindow
+              if (contextWindow > 0) {
+                nextContext.percent = Math.round((totalTokens / contextWindow) * 100)
+              }
             }
+            snapshot.context = nextContext
           }
         }
       }
@@ -2469,7 +2681,8 @@ function upsertMessageEvent(
   const id = getPiMessageId(snapshot.messages, content)
   upsertById(snapshot.messages, {
     id,
-    ...content
+    ...content,
+    ...(event.sessionEntryId ? { sessionEntryId: event.sessionEntryId } : {})
   })
   return id
 }

@@ -5,10 +5,17 @@
 
 import type { JSONContent } from '@tiptap/vue-3'
 import { computed, nextTick, ref, watch } from 'vue'
+import { onClickOutside } from '@vueuse/core'
 import { BaseButton, BaseIconButton } from '@renderer/components/base'
 import SendIcon from '@renderer/components/icons/SendIcon.vue'
 import { Command } from '@renderer/components/ui/command'
 import ScrollArea from '@renderer/components/ui/scroll-area/ScrollArea.vue'
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger
+} from '@renderer/components/ui/tooltip'
 import {
   Select,
   SelectContent,
@@ -180,6 +187,7 @@ const fileCompletionScrollRef = ref<{
 }>()
 const composerShellRef = ref<HTMLElement>()
 const commandSearchInputRef = ref<HTMLInputElement>()
+const commandPaletteRef = ref<HTMLElement>()
 const isEditorFocused = ref(false)
 const commandPaletteOpen = ref(false)
 const commandSearch = ref('')
@@ -448,6 +456,10 @@ function toggleCommandPalette(): void {
 function closeCommandPalette(): void {
   commandPaletteOpen.value = false
 }
+
+onClickOutside(commandPaletteRef, closeCommandPalette, {
+  ignore: ['.composer__commands']
+})
 
 /**
  * 高亮 command palette 项。
@@ -724,7 +736,7 @@ function clearExtensionDraft(id: string): void {
         </div>
       </ScrollArea>
     </Command>
-    <div v-if="commandPaletteOpen" class="composer__command-palette">
+    <div v-if="commandPaletteOpen" ref="commandPaletteRef" class="composer__command-palette">
       <header class="composer__command-palette-header">
         <CommandIcon :size="14" />
         <input
@@ -893,27 +905,41 @@ function clearExtensionDraft(id: string): void {
         </div>
         <div style="margin-right: auto">
           <div class="composer__left-actions">
-            <BaseIconButton
-              type="button"
-              size="medium"
-              class="composer__attach"
-              label="添加图片"
-              :disabled="selectingImages"
-              @click="openImagePicker"
-            >
-              <PlusIcon :size="16" />
-            </BaseIconButton>
-            <BaseIconButton
-              type="button"
-              size="medium"
-              class="composer__commands"
-              label="打开命令面板"
-              :active="commandPaletteOpen"
-              :disabled="!canOpenCommandPalette"
-              @click="toggleCommandPalette"
-            >
-              <CommandIcon :size="15" />
-            </BaseIconButton>
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger as-child>
+                  <BaseIconButton
+                    type="button"
+                    size="medium"
+                    class="composer__attach"
+                    label="添加图片"
+                    :disabled="selectingImages"
+                    @click="openImagePicker"
+                  >
+                    <PlusIcon :size="16" />
+                  </BaseIconButton>
+                </TooltipTrigger>
+                <TooltipContent>添加图片</TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger as-child>
+                  <BaseIconButton
+                    type="button"
+                    size="medium"
+                    class="composer__commands"
+                    label="打开命令面板"
+                    :active="commandPaletteOpen"
+                    :disabled="!canOpenCommandPalette"
+                    @click="toggleCommandPalette"
+                  >
+                    <CommandIcon :size="15" />
+                  </BaseIconButton>
+                </TooltipTrigger>
+                <TooltipContent>命令面板 (⌘K)</TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
           </div>
         </div>
         <Select
@@ -1165,6 +1191,10 @@ function clearExtensionDraft(id: string): void {
   outline: 0;
 }
 
+.composer__command-palette-header input:focus-visible {
+  box-shadow: none;
+}
+
 .composer__command-palette-scroll {
   min-width: 0;
   min-height: 0;
@@ -1313,7 +1343,8 @@ function clearExtensionDraft(id: string): void {
   height: var(--composer-action-control-height) !important;
   line-height: 1 !important;
 
-  &:hover {
+  &:hover,
+  &.is-active {
     background: var(--color-surface-hover);
   }
 }

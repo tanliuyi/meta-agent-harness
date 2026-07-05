@@ -28,6 +28,8 @@ export interface DesktopSessionTreeNode {
 	label?: string;
 	/** 标签时间。 */
 	labelTimestamp?: string;
+	/** 是否还有未加载的子节点。 */
+	hasMoreChildren?: boolean;
 	/** 子节点。 */
 	children: DesktopSessionTreeNode[];
 }
@@ -36,6 +38,8 @@ export interface DesktopSessionTreeNode {
 export interface DesktopMessage {
 	/** 消息 ID。 */
 	id: string;
+	/** 对应的 session entry ID；用于从 UI 对这条消息执行 tree/fork 操作。 */
+	sessionEntryId?: string;
 	/** 消息角色。 */
 	role: "user" | "assistant" | "tool" | "system";
 	/** Agent 系统事件语义，用于展示非用户/工具/AI 正文的持久化事件。 */

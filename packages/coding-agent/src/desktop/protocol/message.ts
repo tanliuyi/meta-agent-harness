@@ -44,14 +44,28 @@ export function toDesktopMessageContent(message: AgentMessage): DesktopMessageCo
 }
 
 /**
+ * 判断 AgentMessage 是否会渲染成可操作的 user/assistant desktop message。
+ * @param message - 原始 agent 消息。
+ * @returns 是否应分配 session entry ID。
+ */
+export function isRenderableConversationMessage(message: AgentMessage): boolean {
+	const content = toDesktopMessageContent(message);
+	return content?.role === "user" || content?.role === "assistant";
+}
+
+/**
  * 将 AgentMessage 转换为 DesktopMessage。
  * @param message - 原始 agent 消息。
  * @param id - desktop message ID。
  * @returns Desktop 消息；不应展示的消息返回 undefined。
  */
-export function toDesktopMessage(message: AgentMessage, id: string): DesktopMessage | undefined {
+export function toDesktopMessage(
+	message: AgentMessage,
+	id: string,
+	sessionEntryId?: string,
+): DesktopMessage | undefined {
 	const content = toDesktopMessageContent(message);
-	return content ? { id, ...content } : undefined;
+	return content ? { id, ...content, ...(sessionEntryId ? { sessionEntryId } : {}) } : undefined;
 }
 
 /**
@@ -59,10 +73,18 @@ export function toDesktopMessage(message: AgentMessage, id: string): DesktopMess
  * @param messages - Pi live/context messages。
  * @returns desktop messages。
  */
-export function toDesktopMessages(messages: AgentMessage[]): DesktopMessage[] {
+export function toDesktopMessages(messages: AgentMessage[], sessionEntryIds: string[] = []): DesktopMessage[] {
+	let sessionEntryIndex = 0;
 	return messages.flatMap((message, index) => {
 		const item = toDesktopMessage(message, `message-${index}`);
-		return item ? [item] : [];
+		if (!item) {
+			return [];
+		}
+		if (item.role === "user" || item.role === "assistant") {
+			const sessionEntryId = sessionEntryIds[sessionEntryIndex++];
+			return [{ ...item, ...(sessionEntryId ? { sessionEntryId } : {}) }];
+		}
+		return [item];
 	});
 }
 

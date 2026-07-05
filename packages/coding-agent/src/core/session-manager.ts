@@ -870,7 +870,9 @@ export class SessionManager {
 		for (const entry of this.fileEntries) {
 			if (entry.type === "session") continue;
 			this.byId.set(entry.id, entry);
-			this.leafId = entry.id;
+			if (entry.type !== "label") {
+				this.leafId = entry.id;
+			}
 			if (entry.type === "label") {
 				if (entry.label) {
 					this.labelsById.set(entry.targetId, entry.label);
@@ -1146,7 +1148,9 @@ export class SessionManager {
 			targetId,
 			label,
 		};
-		this._appendEntry(entry);
+		this.fileEntries.push(entry);
+		this.byId.set(entry.id, entry);
+		this._persist(entry);
 		if (label) {
 			this.labelsById.set(targetId, label);
 			this.labelTimestampsById.set(targetId, entry.timestamp);
@@ -1299,7 +1303,7 @@ export class SessionManager {
 	 * Useful for extracting a single conversation path from a branched session.
 	 * Returns the new session file path, or undefined if not persisting.
 	 */
-	createBranchedSession(leafId: string): string | undefined {
+	createBranchedSession(leafId: string, options?: { flush?: boolean }): string | undefined {
 		const previousSessionFile = this.sessionFile;
 		const path = this.getBranch(leafId);
 		if (path.length === 0) {
@@ -1370,9 +1374,8 @@ export class SessionManager {
 			// and avoiding the duplicate-header bug when _persist()'s
 			// no-assistant guard later resets flushed to false.
 			const hasAssistant = this.fileEntries.some((e) => e.type === "message" && e.message.role === "assistant");
-			if (hasAssistant) {
-				this._rewriteFile();
-				this.flushed = true;
+			if (hasAssistant || options?.flush) {
+				this.writeSessionFile();
 			} else {
 				this.flushed = false;
 			}
@@ -1399,6 +1402,12 @@ export class SessionManager {
 		this.sessionId = newSessionId;
 		this._buildIndex();
 		return undefined;
+	}
+
+	writeSessionFile(): void {
+		if (!this.persist || !this.sessionFile) return;
+		this._rewriteFile();
+		this.flushed = true;
 	}
 
 	/**

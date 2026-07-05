@@ -110,6 +110,58 @@ describe("RuntimeDesktopWorkerService", () => {
 		]);
 	});
 
+	it("message_end 持久化后补充 sessionEntryId", async () => {
+		let listener: ((event: AgentSessionEvent) => void) | undefined;
+		const message = createAssistantMessage("done");
+		const events: WorkerEventEnvelope[] = [];
+		const service = new RuntimeDesktopWorkerService(async () =>
+			createRuntime({
+				session: {
+					subscribe: (next: typeof listener) => {
+						listener = next;
+						return () => {};
+					},
+					sessionManager: {
+						getBranch: () => [
+							{
+								type: "message",
+								id: "entry-assistant",
+								parentId: null,
+								timestamp: "2026-07-01T00:00:00.000Z",
+								message,
+							},
+						],
+					},
+				},
+			}),
+		);
+		service.setEventSink((event) => events.push(event));
+		await service.startThread({ threadId: "thread-1", cwd: "H:/repo" });
+
+		listener?.({ type: "message_end", message });
+		expect(events).toEqual([
+			{
+				kind: "event",
+				eventType: "projection",
+				threadId: "thread-1",
+				event: { type: "thread.stateChanged", threadId: "thread-1", status: "idle" },
+			},
+		]);
+
+		await Promise.resolve();
+
+		expect(events.at(-1)).toMatchObject({
+			kind: "event",
+			eventType: "canonical",
+			threadId: "thread-1",
+			event: {
+				type: "message_end",
+				message,
+				sessionEntryId: "entry-assistant",
+			},
+		});
+	});
+
 	it("edit tool 结束后派生 file.changed projection", async () => {
 		let listener: ((event: { type: string; [key: string]: unknown }) => void) | undefined;
 		const events: WorkerEventEnvelope[] = [];
@@ -205,5 +257,24 @@ function createModel(id: string) {
 		},
 		contextWindow: 128000,
 		maxTokens: 16384,
+	};
+}
+
+function createAssistantMessage(text: string): Extract<AgentSessionEvent, { type: "message_end" }>["message"] {
+	return {
+		role: "assistant",
+		content: [{ type: "text", text }],
+		api: "openai-responses",
+		provider: "openai",
+		model: "gpt-test",
+		usage: {
+			input: 1,
+			output: 1,
+			cacheRead: 0,
+			cacheWrite: 0,
+			totalTokens: 2,
+			cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+		},
+		stopReason: "stop",
 	};
 }

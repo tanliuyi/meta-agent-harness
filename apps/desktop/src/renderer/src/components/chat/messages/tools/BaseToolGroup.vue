@@ -149,7 +149,7 @@ const open = ref(props.defaultOpen)
   flex-direction: column;
   gap: var(--space-1);
   min-width: 0;
-  padding: var(--space-2);
+  padding: var(--space-2) 0;
 
   :deep(.tool-message) {
     width: 100%;

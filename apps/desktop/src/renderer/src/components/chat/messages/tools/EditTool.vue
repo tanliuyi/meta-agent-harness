@@ -9,6 +9,7 @@ import {
   getToolArgs,
   getToolDetails,
   getToolResultText,
+  getToolStatusLabel,
   isToolError,
   joinSummary,
   type ToolComponentProps
@@ -38,6 +39,15 @@ const diff = computed(() => {
 })
 const isError = computed(() => isToolError(props.message, props.toolCall))
 const status = computed(() => props.toolCall?.status)
+const name = computed(() =>
+  getToolStatusLabel(status.value, {
+    queued: '准备编辑',
+    running: '正在编辑',
+    succeeded: '已编辑',
+    failed: '编辑失败',
+    cancelled: '已取消编辑'
+  })
+)
 
 function countDisplayDiffStats(value: unknown): { additions: number; deletions: number } {
   if (typeof value !== 'string') {
@@ -55,7 +65,7 @@ function countDisplayDiffStats(value: unknown): { additions: number; deletions: 
 
 <template>
   <BaseTool
-    name="已编辑"
+    :name="name"
     :summary="summary"
     :result="result"
     :status="status"
@@ -92,13 +102,25 @@ function countDisplayDiffStats(value: unknown): { additions: number; deletions: 
 }
 
 .edit-tool__additions {
+  --diff-added-fg: #1a7f37;
+
   margin-inline-start: var(--space-1);
-  color: var(--color-primary);
+  color: var(--diff-added-fg);
 }
 
 .edit-tool__deletions {
+  --diff-removed-fg: #cf222e;
+
   margin-inline-start: var(--space-1);
-  color: var(--color-danger);
+  color: var(--diff-removed-fg);
+}
+
+:global(:root[data-theme='dark']) .edit-tool__additions {
+  --diff-added-fg: #3fb950;
+}
+
+:global(:root[data-theme='dark']) .edit-tool__deletions {
+  --diff-removed-fg: #f85149;
 }
 
 :deep(.edit-tool__diff-result) {

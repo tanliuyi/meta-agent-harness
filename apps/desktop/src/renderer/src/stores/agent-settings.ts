@@ -53,7 +53,6 @@ const useAgentSettingsStore = defineStore('agent-settings', () => {
     error.value = null
     try {
       applySnapshot(await window.api.codingAgent.getAgentSettings())
-      await loadResourceSnapshot()
     } catch (cause) {
       error.value = cause instanceof Error ? cause.message : 'Agent 设置加载失败'
     } finally {

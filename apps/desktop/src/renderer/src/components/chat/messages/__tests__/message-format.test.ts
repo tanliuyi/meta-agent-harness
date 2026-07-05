@@ -134,4 +134,71 @@ describe('message-format', () => {
       { type: 'fileReference', fileArg: 'src/App.vue', label: 'App.vue' }
     ])
   })
+
+  it('renders Pi skill command wrappers as a compact skill segment', () => {
+    const message = {
+      id: 'message-f',
+      role: 'user',
+      text:
+        '<skill name="pdf" location="/Users/me/.agents/skills/pdf/SKILL.md">\n' +
+        'References are relative to /Users/me/.agents/skills/pdf.\n\n' +
+        '# PDF\n\nUse the skill body.\n' +
+        '</skill>',
+      raw: {
+        role: 'user',
+        content:
+          '<skill name="pdf" location="/Users/me/.agents/skills/pdf/SKILL.md">\n' +
+          'References are relative to /Users/me/.agents/skills/pdf.\n\n' +
+          '# PDF\n\nUse the skill body.\n' +
+          '</skill>',
+        timestamp: 1783036800000
+      },
+      createdAt: '2026-07-03T00:00:00.000Z'
+    } satisfies ThreadMessage
+
+    expect(getUserMessageDisplayText(message)).toBe('skill:pdf')
+    expect(getUserMessageDisplaySegments(message)).toEqual([
+      {
+        type: 'skillReference',
+        name: 'pdf',
+        label: 'skill:pdf',
+        location: '/Users/me/.agents/skills/pdf/SKILL.md'
+      }
+    ])
+  })
+
+  it('keeps skill command arguments visible and parses file chips inside them', () => {
+    const message = {
+      id: 'message-g',
+      role: 'user',
+      text:
+        '<skill name="review" location="/Users/me/.agents/skills/review/SKILL.md">\n' +
+        '# Review\n\nUse the skill body.\n' +
+        '</skill>\n\n' +
+        '检查 @src/App.vue',
+      raw: {
+        role: 'user',
+        content:
+          '<skill name="review" location="/Users/me/.agents/skills/review/SKILL.md">\n' +
+          '# Review\n\nUse the skill body.\n' +
+          '</skill>\n\n' +
+          '检查 @src/App.vue',
+        timestamp: 1783036800000
+      },
+      createdAt: '2026-07-03T00:00:00.000Z'
+    } satisfies ThreadMessage
+
+    expect(getUserMessageDisplayText(message)).toBe('skill:review\n\n检查 @src/App.vue')
+    expect(getUserMessageDisplaySegments(message)).toEqual([
+      {
+        type: 'skillReference',
+        name: 'review',
+        label: 'skill:review',
+        location: '/Users/me/.agents/skills/review/SKILL.md'
+      },
+      { type: 'text', text: '\n\n' },
+      { type: 'text', text: '检查 ' },
+      { type: 'fileReference', fileArg: 'src/App.vue', label: 'App.vue' }
+    ])
+  })
 })

@@ -134,7 +134,6 @@ export async function restoreThread(core: ThreadManagerCore, threadId: string): 
   delete restoredThread.archivedAt
   core.saveThread({
     ...restoredThread,
-    status: thread.status === 'stopped' ? thread.status : 'stopped',
-    updatedAt: new Date().toISOString()
+    status: thread.status === 'stopped' ? thread.status : 'stopped'
   })
 }

@@ -23,6 +23,70 @@ describe("handleRuntimeCommand", () => {
 		});
 	});
 
+	/** 验证 get_messages 返回当前 branch 中可渲染消息对应的 entry ID。 */
+	it("get_messages 返回可渲染消息对应的 entry ID", async () => {
+		const customMessage = {
+			role: "custom",
+			customType: "note",
+			content: "system note",
+		};
+		const userMessage = { role: "user", content: "hello" };
+		const emptyAssistantMessage = {
+			role: "assistant",
+			content: [],
+			api: "responses",
+			provider: "openai",
+			model: "gpt-test",
+			usage: {
+				input: 1,
+				output: 0,
+				cacheRead: 0,
+				cacheWrite: 0,
+				totalTokens: 1,
+				cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+			},
+			stopReason: "toolUse",
+		};
+		const assistantMessage = {
+			role: "assistant",
+			content: [{ type: "text", text: "world" }],
+			api: "responses",
+			provider: "openai",
+			model: "gpt-test",
+			usage: {
+				input: 1,
+				output: 1,
+				cacheRead: 0,
+				cacheWrite: 0,
+				totalTokens: 2,
+				cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+			},
+			stopReason: "stop",
+		};
+		const host = createHost(
+			createSession({
+				messages: [customMessage, userMessage, emptyAssistantMessage, assistantMessage],
+				sessionManager: {
+					...createSession().sessionManager,
+					getBranch: () => [
+						{ type: "message", id: "entry-custom", parentId: null, timestamp: "1", message: customMessage },
+						{ type: "message", id: "entry-user", parentId: "entry-custom", timestamp: "2", message: userMessage },
+						{ type: "message", id: "entry-empty-assistant", parentId: "entry-user", timestamp: "3", message: emptyAssistantMessage },
+						{ type: "message", id: "entry-assistant", parentId: "entry-empty-assistant", timestamp: "4", message: assistantMessage },
+					],
+				},
+			}),
+		);
+
+		const response = await handleRuntimeCommand(host, command("1", { type: "get_messages" }));
+
+		expect(response?.success).toBe(true);
+		expect(response?.data).toMatchObject({
+			messages: [customMessage, userMessage, emptyAssistantMessage, assistantMessage],
+			messageEntryIds: ["entry-user", "entry-assistant"],
+		});
+	});
+
 	/** 验证 set_session_name 拒绝空名称。 */
 	it("set_session_name 拒绝空名称", async () => {
 		const host = createHost();
@@ -33,6 +97,30 @@ describe("handleRuntimeCommand", () => {
 		expect(response?.error?.code).toBe("invalid_command");
 	});
 
+	/** 验证 set_session_entry_label 写入 label 变更。 */
+	it("set_session_entry_label 写入 label 变更", async () => {
+		let received: { entryId: string; label?: string } | undefined;
+		const host = createHost(
+			createSession({
+				sessionManager: {
+					...createSession().sessionManager,
+					appendLabelChange: (entryId: string, label?: string) => {
+						received = { entryId, label };
+						return "label-entry";
+					},
+				},
+			}),
+		);
+
+		const response = await handleRuntimeCommand(
+			host,
+			command("1", { type: "set_session_entry_label", entryId: "entry-a", label: "  Important  " }),
+		);
+
+		expect(response?.success).toBe(true);
+		expect(received).toEqual({ entryId: "entry-a", label: "Important" });
+	});
+
 	/** 验证 clone 在无 leaf entry 时 fail-first。 */
 	it("clone 在没有 leaf entry 时 fail-first", async () => {
 		const host = createHost();
@@ -41,6 +129,23 @@ describe("handleRuntimeCommand", () => {
 
 		expect(response?.success).toBe(false);
 		expect(response?.error?.code).toBe("invalid_state");
+	});
+
+	/** 验证 create_fork_session 只返回新 session 文件，不替换当前 runtime。 */
+	it("create_fork_session 返回新 session 文件", async () => {
+		const host = createHost();
+
+		const response = await handleRuntimeCommand(
+			host,
+			command("1", { type: "create_fork_session", entryId: "entry-a", position: "at" }),
+		);
+
+		expect(response?.success).toBe(true);
+		expect(response?.data).toEqual({
+			sessionFile: "fork.jsonl",
+			text: undefined,
+			cancelled: false,
+		});
 	});
 
 	/** 验证 set_model 找不到模型时返回结构化错误。 */
@@ -248,6 +353,7 @@ function createHost(session = createSession()): RuntimeCommandHandlerHost {
 			switchSession: async () => ({ cancelled: false }),
 			importFromJsonl: async () => ({ cancelled: false }),
 			fork: async () => ({ cancelled: false }),
+			createForkedSessionFile: async () => ({ cancelled: false, sessionFile: "fork.jsonl" }),
 			dispose: async () => {},
 		} as RuntimeCommandHandlerHost["runtime"],
 	};
@@ -275,6 +381,9 @@ function createSession(overrides: Record<string, unknown> = {}): RuntimeCommandH
 		sessionManager: {
 			getCwd: () => "/tmp/project",
 			getLeafId: () => null,
+			getTree: () => [],
+			getBranch: () => [],
+			appendLabelChange: () => "label-entry",
 		},
 		extensionRunner: {
 			getRegisteredCommands: () => [

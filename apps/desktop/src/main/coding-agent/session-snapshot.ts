@@ -54,8 +54,11 @@ export function buildSnapshotFromSession(input: BuildSnapshotFromSessionInput): 
  * @param messages - Pi live/context messages。
  * @returns desktop messages。
  */
-export function toThreadMessages(messages: AgentMessage[]): ThreadMessage[] {
-  return toDesktopMessages(messages)
+export function toThreadMessages(
+  messages: AgentMessage[],
+  sessionEntryIds: string[] = []
+): ThreadMessage[] {
+  return toDesktopMessages(messages, sessionEntryIds)
 }
 
 /**

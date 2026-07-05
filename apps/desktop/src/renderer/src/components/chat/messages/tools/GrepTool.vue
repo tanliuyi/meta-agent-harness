@@ -8,6 +8,7 @@ import {
   getStringArg,
   getToolArgs,
   getToolResultText,
+  getToolStatusLabel,
   isToolError,
   joinSummary,
   truncateSummary,
@@ -39,10 +40,19 @@ const summary = computed(() =>
 const result = computed(() => getToolResultText(props.message, props.toolCall))
 const isError = computed(() => isToolError(props.message, props.toolCall))
 const status = computed(() => props.toolCall?.status)
+const name = computed(() =>
+  getToolStatusLabel(status.value, {
+    queued: '准备搜索',
+    running: '正在搜索',
+    succeeded: '已搜索',
+    failed: '搜索失败',
+    cancelled: '已取消搜索'
+  })
+)
 </script>
 
 <template>
-  <BaseTool name="已搜索" :summary="summary" :result="result" :status="status" :is-error="isError">
+  <BaseTool :name="name" :summary="summary" :result="result" :status="status" :is-error="isError">
     <template #summary>
       <span v-if="pattern" class="grep-tool__pattern">{{ pattern }}</span>
       <span v-if="target" class="grep-tool__target">{{ target }}</span>

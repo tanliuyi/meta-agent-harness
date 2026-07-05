@@ -47,7 +47,7 @@ export function getMessageText(message: ThreadMessage): string | undefined {
 }
 
 /**
- * 获取 user message 的桌面展示文本，隐藏 Pi @file 上下文块。
+ * 获取 user message 的桌面展示文本，隐藏 Pi @file 与 skill 上下文块。
  * @param message - Thread message。
  * @returns 用户可见文本。
  */
@@ -56,7 +56,15 @@ export function getUserMessageDisplayText(message: ThreadMessage): string | unde
   if (!text) {
     return undefined
   }
-  const displayText = text.replace(/<file\b[^>]*>[\s\S]*?<\/file>\s*/g, '').trim()
+  const skillBlock = parseDisplaySkillBlock(text)
+  if (skillBlock) {
+    const userMessage = skillBlock.userMessage ? stripHiddenFileBlocks(skillBlock.userMessage) : ''
+    return userMessage
+      ? `${getSkillReferenceLabel(skillBlock.name)}\n\n${userMessage}`
+      : getSkillReferenceLabel(skillBlock.name)
+  }
+
+  const displayText = stripHiddenFileBlocks(text)
   return displayText || undefined
 }
 
@@ -73,15 +81,44 @@ export type UserMessageDisplaySegment =
       fileArg: string
       label: string
     }
+  | {
+      type: 'skillReference'
+      name: string
+      label: string
+      location: string
+    }
 
 /**
- * 获取 user message 的展示片段，仅识别纯文本和 @file 引用。
+ * 获取 user message 的展示片段，识别纯文本、@file 引用和 skill 引用。
  * @param message - Thread message。
  * @returns 用户可见展示片段。
  */
 export function getUserMessageDisplaySegments(message: ThreadMessage): UserMessageDisplaySegment[] {
-  const text = getUserMessageDisplayText(message)
-  return text ? parseUserMessageDisplaySegments(text) : []
+  const text = getMessageText(message)
+  if (!text) {
+    return []
+  }
+
+  const skillBlock = parseDisplaySkillBlock(text)
+  if (skillBlock) {
+    const segments: UserMessageDisplaySegment[] = [
+      {
+        type: 'skillReference',
+        name: skillBlock.name,
+        label: getSkillReferenceLabel(skillBlock.name),
+        location: skillBlock.location
+      }
+    ]
+    const userMessage = skillBlock.userMessage ? stripHiddenFileBlocks(skillBlock.userMessage) : ''
+    if (userMessage) {
+      pushTextSegment(segments, '\n\n')
+      segments.push(...parseUserMessageDisplaySegments(userMessage))
+    }
+    return segments
+  }
+
+  const displayText = stripHiddenFileBlocks(text)
+  return displayText ? parseUserMessageDisplaySegments(displayText) : []
 }
 
 /**
@@ -129,6 +166,38 @@ function pushTextSegment(segments: UserMessageDisplaySegment[], text: string): v
     return
   }
   segments.push({ type: 'text', text })
+}
+
+interface ParsedDisplaySkillBlock {
+  name: string
+  location: string
+  userMessage: string | undefined
+}
+
+function parseDisplaySkillBlock(text: string): ParsedDisplaySkillBlock | null {
+  return parseSkillBlock(text) ?? parseSkillBlock(stripHiddenFileBlocks(text))
+}
+
+function parseSkillBlock(text: string): ParsedDisplaySkillBlock | null {
+  const match = text.match(
+    /^<skill\s+name="([^"]+)"\s+location="([^"]+)">\n?[\s\S]*?\n?<\/skill>(?:\n\n([\s\S]+))?$/
+  )
+  if (!match) {
+    return null
+  }
+  return {
+    name: match[1],
+    location: match[2],
+    userMessage: match[3]?.trim() || undefined
+  }
+}
+
+function stripHiddenFileBlocks(text: string): string {
+  return text.replace(/<file\b[^>]*>[\s\S]*?<\/file>\s*/g, '').trim()
+}
+
+function getSkillReferenceLabel(name: string): string {
+  return `skill:${name}`
 }
 
 function trimTrailingFileReferencePunctuation(value: string): string {

@@ -29,13 +29,53 @@ export type CanonicalAgentCommand =
 			/** 可选的工作目录覆盖。 */
 			cwdOverride?: string;
 	  }
+		| {
+				/** 命令类型：分叉。 */
+				type: "fork";
+				/** 入口消息 ID。 */
+				entryId: string;
+				/** 分叉位置。 */
+				position?: "before" | "at";
+		  }
+		| {
+				/** 命令类型：创建分叉 session 文件，不替换当前 runtime。 */
+				type: "create_fork_session";
+				/** 入口消息 ID。 */
+				entryId: string;
+				/** 分叉位置。 */
+				position?: "before" | "at";
+		  }
 	| {
-			/** 命令类型：分叉。 */
-			type: "fork";
-			/** 入口消息 ID。 */
+			/** 命令类型：在当前 session tree 内导航。 */
+			type: "navigate_tree";
+			/** 目标 entry ID。 */
 			entryId: string;
-			/** 分叉位置。 */
-			position?: "before" | "at";
+			/** 是否摘要离开的分支。 */
+			summarize?: boolean;
+			/** 自定义摘要指令。 */
+			customInstructions?: string;
+	  }
+	| {
+			/** 命令类型：加载 session tree 子节点。 */
+			type: "get_session_tree_children";
+			/** 父 entry ID；null 表示 roots。 */
+			parentId: string | null;
+			/** 返回深度。 */
+			maxDepth?: number;
+	  }
+	| {
+			/** 命令类型：获取 root 到 entry 的路径。 */
+			type: "get_session_tree_path";
+			/** 目标 entry ID；未传则使用当前 leaf。 */
+			entryId?: string;
+	  }
+	| {
+			/** 命令类型：设置 session entry label。 */
+			type: "set_session_entry_label";
+			/** 目标 entry ID。 */
+			entryId: string;
+			/** 新 label；空值表示清除。 */
+			label?: string;
 	  };
 
 /**
@@ -73,6 +113,11 @@ const canonicalCommandTypes = new Set<string>([
 	"switch_session",
 	"import_session",
 	"fork",
+	"create_fork_session",
+	"navigate_tree",
+	"get_session_tree_children",
+	"get_session_tree_path",
+	"set_session_entry_label",
 	"clone",
 	"get_fork_messages",
 	"get_last_assistant_text",

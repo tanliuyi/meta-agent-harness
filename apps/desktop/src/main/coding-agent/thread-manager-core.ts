@@ -145,12 +145,15 @@ export class ThreadManagerCore {
     const response = await this.workers.send(threadId, { type: 'get_state' })
 
     if (response.success) {
-      const liveProjection = await this.getLiveProjection(threadId)
       const liveState = response.data as Partial<ThreadLiveState>
       this.syncThreadMetadataFromLiveState(thread, liveState)
-      const snapshot = this.buildSnapshot(thread, {
+      const currentThread = this.requireThread(threadId)
+      const liveProjection = await this.getLiveProjection(threadId)
+      const persistedProjection = this.getPersistedProjectionFallback(currentThread, liveProjection)
+      const snapshot = this.buildSnapshot(currentThread, {
+        ...(persistedProjection ?? {}),
         ...liveState,
-        ...(liveProjection ?? {})
+        ...(hasRenderableMessages(liveProjection) ? liveProjection : {})
       })
       return snapshot
     }
@@ -206,7 +209,7 @@ export class ThreadManagerCore {
     const data = response.data as ThreadMessagesResponse | undefined
     return data
       ? {
-          messages: toThreadMessages(data.messages),
+          messages: toThreadMessages(data.messages, data.messageEntryIds),
           toolCalls: toThreadToolCalls(data.messages, threadId),
           fileChanges: toThreadFileChanges(data.messages, threadId)
         }
@@ -306,6 +309,37 @@ export class ThreadManagerCore {
   }
 
   /**
+   * live worker 偶发返回空 projection 时，从 JSONL session 补回历史消息与 tree。
+   * @param thread - 当前线程摘要。
+   * @param liveProjection - worker 返回的 live projection。
+   * @returns 持久化 projection 兜底。
+   */
+  private getPersistedProjectionFallback(
+    thread: ThreadSummary,
+    liveProjection: Pick<ThreadSnapshot, 'messages' | 'toolCalls' | 'fileChanges'> | undefined
+  ):
+    | Pick<
+        ThreadSnapshot,
+        'messages' | 'toolCalls' | 'fileChanges' | 'sessionTree' | 'currentEntryId'
+      >
+    | undefined {
+    if (hasRenderableMessages(liveProjection)) {
+      return undefined
+    }
+    const persistedSnapshot = this.buildSnapshotFromSessionFile(thread)
+    if (!persistedSnapshot || persistedSnapshot.messages.length === 0) {
+      return undefined
+    }
+    return {
+      messages: persistedSnapshot.messages,
+      toolCalls: persistedSnapshot.toolCalls,
+      fileChanges: persistedSnapshot.fileChanges,
+      sessionTree: persistedSnapshot.sessionTree,
+      currentEntryId: persistedSnapshot.currentEntryId
+    }
+  }
+
+  /**
    * 尽力记录 store 错误。
    * @param threadId - 线程 ID。
    * @param error - 错误。
@@ -330,7 +364,17 @@ export class ThreadManagerCore {
    */
   updateThread(threadId: string, patch: Partial<ThreadSummary>): void {
     const thread = this.requireThread(threadId)
-    this.saveThread({ ...thread, ...patch, updatedAt: new Date().toISOString() })
+    this.saveThread({ ...thread, ...patch })
+  }
+
+  /**
+   * 记录 thread 会话内容活跃时间。
+   * @param threadId - 线程 ID。
+   * @param updatedAt - 活跃时间，默认当前时间。
+   */
+  touchThreadActivity(threadId: string, updatedAt = new Date().toISOString()): void {
+    const thread = this.requireThread(threadId)
+    this.saveThread({ ...thread, updatedAt })
   }
 
   /**
@@ -507,4 +551,10 @@ function buildContextUsage(usage: ContextUsage | undefined): ThreadSnapshot['con
     contextWindow: usage.contextWindow,
     percent: usage.percent === null ? undefined : Math.round(usage.percent)
   }
+}
+
+function hasRenderableMessages(
+  projection: Pick<ThreadSnapshot, 'messages'> | undefined
+): projection is Pick<ThreadSnapshot, 'messages'> {
+  return Boolean(projection?.messages.length)
 }

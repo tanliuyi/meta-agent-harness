@@ -176,12 +176,10 @@ const usedTokensText = computed(() => (isUnknown.value ? '?' : formatTokens(used
 
   &.is-warning {
     color: var(--color-accent);
-    background: color-mix(in srgb, var(--color-accent) 9%, transparent);
   }
 
   &.is-danger {
     color: var(--color-danger);
-    background: color-mix(in srgb, var(--color-danger) 9%, transparent);
   }
 
   &.is-unknown {

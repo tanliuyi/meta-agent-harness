@@ -61,7 +61,13 @@ const codingAgent: CodingAgentApi = {
   importSession: (input) => invokeCodingAgent(codingAgentChannels.importSession, input),
   exportSession: (input) => invokeCodingAgent(codingAgentChannels.exportSession, input),
   fork: (input) => invokeCodingAgent(codingAgentChannels.fork, input),
+  forkThread: (input) => invokeCodingAgent(codingAgentChannels.forkThread, input),
   clone: (threadId) => invokeCodingAgent(codingAgentChannels.clone, threadId),
+  navigateTree: (input) => invokeCodingAgent(codingAgentChannels.navigateTree, input),
+  loadSessionTreeChildren: (input) =>
+    invokeCodingAgent(codingAgentChannels.loadSessionTreeChildren, input),
+  loadSessionTreePath: (input) => invokeCodingAgent(codingAgentChannels.loadSessionTreePath, input),
+  setSessionEntryLabel: (input) => invokeCodingAgent(codingAgentChannels.setSessionEntryLabel, input),
   setThreadTitle: (input) => invokeCodingAgent(codingAgentChannels.setThreadTitle, input),
   renameThread: (input) => invokeCodingAgent(codingAgentChannels.renameThread, input),
   archiveThread: (threadId) => invokeCodingAgent(codingAgentChannels.archiveThread, threadId),

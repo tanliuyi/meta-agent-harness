@@ -3,6 +3,15 @@ import type { RenderableThreadMessage } from '../renderable-message'
 import { formatUnknown, getMessageRawRecord, getMessageText, isRecord } from '../message-format'
 
 export type ToolCall = ThreadSnapshot['toolCalls'][number]
+export type ToolStatus = ToolCall['status']
+
+export interface ToolStatusLabels {
+  queued: string
+  running: string
+  succeeded: string
+  failed: string
+  cancelled: string
+}
 
 export interface ToolComponentProps {
   message?: RenderableThreadMessage
@@ -61,6 +70,19 @@ export function isToolError(
     (message ? getMessageRawRecord(message).isError === true : false) ||
     toolCall?.status === 'failed'
   )
+}
+
+/**
+ * 获取工具当前状态的标题文案。
+ * @param status - 工具状态。
+ * @param labels - 状态标题文案。
+ * @returns 当前状态标题。
+ */
+export function getToolStatusLabel(
+  status: ToolStatus | undefined,
+  labels: ToolStatusLabels
+): string {
+  return status ? labels[status] : labels.succeeded
 }
 
 /**

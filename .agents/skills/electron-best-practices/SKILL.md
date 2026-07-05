@@ -1,8 +1,8 @@
 ---
 name: electron-best-practices
-description: "Guide AI agents through Electron app development with React including security patterns, type-safe IPC, React integration, packaging with code signing, and testing. Keywords: electron, electron-vite, electron-forge, contextBridge, IPC, security, react, packaging, code signing, notarization, playwright, desktop app."
+description: "Guide AI agents through Electron app development including security patterns, type-safe IPC, packaging with code signing, and testing. Keywords: electron, electron-vite, electron-forge, contextBridge, IPC, security, packaging, code signing, notarization, playwright, desktop app."
 license: MIT
-compatibility: Requires Deno for analysis scripts. Applicable to any Electron project using TypeScript and React.
+compatibility: Requires Deno for analysis scripts. Applicable to any Electron project using TypeScript.
 metadata:
   author: agent-skills
   version: "1.0"
@@ -11,9 +11,9 @@ metadata:
   mode: assistive
 ---
 
-# Electron + React Best Practices
+# Electron Best Practices
 
-Guide AI agents in building secure, production-ready Electron applications with React. This skill provides security patterns, type-safe IPC communication, project setup guidance, packaging and code signing workflows, and tools for analysis, scaffolding, and type generation.
+Guide AI agents in building secure, production-ready Electron applications. This skill provides security patterns, type-safe IPC communication, project setup guidance, packaging and code signing workflows, and tools for analysis, scaffolding, and type generation.
 
 ## When to Use This Skill
 
@@ -30,7 +30,6 @@ Do NOT use this skill when:
 - Building Tauri apps (different paradigm, use Tauri-specific guidance)
 - Building pure web apps with no desktop requirements
 - Targeting Electron versions below 20 (security defaults differ)
-- Using non-React renderer frameworks (use framework-specific skills)
 
 ## Core Principles
 
@@ -88,25 +87,10 @@ src/
 ├── preload/        # Secure bridge via contextBridge
 │   ├── index.ts
 │   └── index.d.ts  # TypeScript declarations for exposed APIs
-└── renderer/       # React application (pure web, no Node access)
+└── renderer/       # Renderer application (pure web, no Node access)
     ├── src/
     └── index.html
 ```
-
-### 4. React Integration Patterns
-
-React 18's concurrent features work normally in Electron's Chromium-based renderer. Strict Mode's double-invocation of effects catches IPC listener leaks that would otherwise cause memory issues. Always return cleanup functions from effects that register IPC listeners:
-
-```typescript
-useEffect(() => {
-  const cleanup = window.electronAPI.onUpdateCounter((value) => {
-    setCount(value);
-  });
-  return cleanup;
-}, []);
-```
-
-For multi-window applications, the main process should serve as the single source of truth for shared state. Use electron-store for persistence combined with IPC broadcasting so any window's mutation updates all others.
 
 ## Quick Reference
 
@@ -117,7 +101,7 @@ For multi-window applications, the main process should serve as the single sourc
 | Preload | Typed function wrappers | Exposing raw `ipcRenderer` |
 | Build tool | electron-vite | webpack-based toolchains |
 | Packaging | Electron Forge | Manual packaging |
-| State | Zustand + electron-store | Redux for simple apps |
+| State | Main process + electron-store | Framework-specific state libraries |
 | Testing | Playwright E2E | Spectron (deprecated) |
 | Updates | electron-updater | Manual update checks |
 | Signing | CI-integrated code signing | Unsigned releases |
@@ -204,7 +188,7 @@ Examples:
 
 ### scaffold-electron-app.ts
 
-Scaffold a new Electron + React project with secure defaults:
+Scaffold a new Electron project with secure defaults:
 
 ```bash
 deno run --allow-read --allow-write scripts/scaffold-electron-app.ts [options]
@@ -212,18 +196,17 @@ deno run --allow-read --allow-write scripts/scaffold-electron-app.ts [options]
 Options:
   --name <name>     App name (required)
   --path <path>     Target directory (default: ./)
-  --with-react      Include React setup
   --with-trpc       Include electron-trpc
   --with-tests      Include Playwright tests
 
 Examples:
-  # Basic app with React
+  # Basic app
   deno run --allow-read --allow-write scripts/scaffold-electron-app.ts \
-    --name "my-app" --with-react
+    --name "my-app"
 
   # Full setup with trpc and tests
   deno run --allow-read --allow-write scripts/scaffold-electron-app.ts \
-    --name "my-app" --with-react --with-trpc --with-tests
+    --name "my-app" --with-trpc --with-tests
 ```
 
 ### generate-ipc-types.ts
@@ -265,10 +248,6 @@ Examples:
 - `references/architecture/process-separation.md` - Main, preload, and renderer roles
 - `references/architecture/multi-window-state.md` - Shared state across windows
 
-### React Integration
-- `references/integration/react-patterns.md` - useEffect cleanup, Strict Mode
-- `references/integration/state-management.md` - Zustand and electron-store patterns
-
 ### Packaging & Distribution
 - `references/packaging/code-signing.md` - Platform-specific signing workflows
 - `references/packaging/auto-updates.md` - electron-updater configuration
@@ -289,7 +268,6 @@ Examples:
 - `assets/templates/main-process.ts.md` - Main process starter template
 - `assets/templates/preload-script.ts.md` - Preload script with contextBridge
 - `assets/templates/ipc-handler.ts.md` - IPC handler module template
-- `assets/templates/react-root.tsx.md` - React root component template
 
 ### Configuration Examples
 - `assets/configs/electron-vite.config.ts.md` - electron-vite configuration

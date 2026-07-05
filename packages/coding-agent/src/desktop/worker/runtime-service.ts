@@ -3,9 +3,12 @@
  */
 
 import type { AgentSessionRuntime } from "../../core/agent-session-runtime.ts";
+import type { AgentSessionEvent } from "../../core/agent-session.ts";
+import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import { createDesktopError } from "../protocol/error.ts";
 import { createWorkerErrorResponse, createWorkerResponse, type WorkerCommandEnvelope, type WorkerEventEnvelope, type WorkerResponseEnvelope } from "../protocol/envelope.ts";
 import type { ThreadId } from "../protocol/identity.ts";
+import { toDesktopMessageContent } from "../protocol/message.ts";
 import type { StartThreadInput } from "../protocol/thread.ts";
 import { createDesktopFileChangeFromEditResult } from "../protocol/tool.ts";
 import type { DesktopWorkerService } from "./service.ts";
@@ -204,7 +207,11 @@ export class RuntimeDesktopWorkerService implements DesktopWorkerService {
 			return;
 		}
 		this.unsubscribeSession = runtime.session.subscribe((event) => {
-			this.eventSink?.({ kind: "event", eventType: "canonical", threadId, event });
+			if (event.type === "message_end") {
+				this.emitMessageEndAfterPersistence(threadId, runtime, event);
+			} else {
+				this.eventSink?.({ kind: "event", eventType: "canonical", threadId, event });
+			}
 			if (event.type === "tool_execution_start" || event.type === "tool_execution_update") {
 				this.toolArgsByCallId.set(event.toolCallId, event.args);
 			}
@@ -231,4 +238,35 @@ export class RuntimeDesktopWorkerService implements DesktopWorkerService {
 			});
 		});
 	}
+
+	private emitMessageEndAfterPersistence(
+		threadId: ThreadId,
+		runtime: AgentSessionRuntime,
+		event: Extract<AgentSessionEvent, { type: "message_end" }>,
+	): void {
+		const session = runtime.session;
+		queueMicrotask(() => {
+			const sessionEntryId = getPersistedMessageEntryId(session.sessionManager.getBranch(), event.message);
+			this.eventSink?.({
+				kind: "event",
+				eventType: "canonical",
+				threadId,
+				event: (sessionEntryId ? { ...event, sessionEntryId } : event) as AgentSessionEvent,
+			});
+		});
+	}
+}
+
+function getPersistedMessageEntryId(
+	entries: Array<{ type: string; id: string; message?: unknown }>,
+	message: AgentMessage,
+): string | undefined {
+	for (let index = entries.length - 1; index >= 0; index--) {
+		const entry = entries[index];
+		if (entry?.type !== "message" || entry.message !== message) {
+			continue;
+		}
+		return toDesktopMessageContent(entry.message as AgentMessage) ? entry.id : undefined;
+	}
+	return undefined;
 }

@@ -1,8 +1,10 @@
 <script setup lang="ts">
+import { computed } from 'vue'
 import PencilIcon from '@renderer/components/icons/PencilIcon.vue'
 import ToolMessage from '../ToolMessage.vue'
 import BaseToolGroup from './BaseToolGroup.vue'
 import type { ToolCall, ToolGroupStatus } from './tool-group'
+import { getToolStatusLabel } from './tool-message'
 
 const props = defineProps<{
   toolCallIds: string[]
@@ -10,11 +12,21 @@ const props = defineProps<{
   summary: string
   status?: ToolGroupStatus
 }>()
+
+const name = computed(() =>
+  getToolStatusLabel(props.status, {
+    queued: '准备变更文件',
+    running: '正在变更文件',
+    succeeded: '文件变更',
+    failed: '文件变更失败',
+    cancelled: '已取消文件变更'
+  })
+)
 </script>
 
 <template>
   <BaseToolGroup
-    name="文件变更"
+    :name="name"
     :summary="props.summary"
     :status="props.status"
     :is-error="props.status === 'failed'"

@@ -22,7 +22,9 @@ import {
   getUserMessageDisplaySegments
 } from './message-format'
 import BaseIconButton from '@/components/base/BaseIconButton.vue'
-import { Check, Copy } from 'lucide-vue-next'
+import SkillIcon from '@/components/icons/SkillIcon.vue'
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
+import { Check, Copy, GitFork, MapPin, Pencil } from 'lucide-vue-next'
 
 const COLLAPSED_MAX_HEIGHT = 320
 const USER_MESSAGE_MAX_WIDTH = 640
@@ -31,6 +33,12 @@ const FILE_REFERENCE_FALLBACK_EXTRA_WIDTH = 36
 
 const props = defineProps<{
   message: RenderableThreadMessage
+}>()
+
+const emit = defineEmits<{
+  forkFromMessage: [entryId: string]
+  locateInTree: [entryId: string]
+  navigateTree: [entryId: string]
 }>()
 
 const fileAttachments = computed(() => getMessageFileAttachments(props.message))
@@ -63,6 +71,21 @@ async function copyMessageText(): Promise<void> {
   } catch (err) {
     console.error('Failed to copy message:', err)
   }
+}
+
+function forkFromMessage(): void {
+  if (!props.message.sessionEntryId) return
+  emit('forkFromMessage', props.message.sessionEntryId)
+}
+
+function locateInTree(): void {
+  if (!props.message.sessionEntryId) return
+  emit('locateInTree', props.message.sessionEntryId)
+}
+
+function navigateTree(): void {
+  if (!props.message.sessionEntryId) return
+  emit('navigateTree', props.message.sessionEntryId)
 }
 
 const isExpanded = ref(false)
@@ -195,7 +218,7 @@ function getRichInlineItems(
   textFont: string,
   textLetterSpacing: number
 ): RichInlineItem[] | null {
-  if (!displaySegments.value.some((segment) => segment.type === 'fileReference')) {
+  if (!displaySegments.value.some((segment) => segment.type !== 'text')) {
     return null
   }
 
@@ -365,8 +388,18 @@ function toggleExpand(): void {
         <div v-if="displaySegments.length > 0" class="user-message__text">
           <template v-for="(segment, index) in displaySegments" :key="index">
             <span v-if="segment.type === 'text'">{{ segment.text }}</span>
-            <span v-else class="file-reference-node" :title="segment.fileArg">
+            <span
+              v-else-if="segment.type === 'fileReference'"
+              class="file-reference-node"
+              :title="segment.fileArg"
+            >
               <span class="file-reference-node__icon">@</span>
+              <span class="file-reference-node__label">{{ segment.label }}</span>
+            </span>
+            <span v-else class="file-reference-node skill-reference-node" :title="segment.location">
+              <span class="file-reference-node__icon">
+                <SkillIcon :size="14" />
+              </span>
               <span class="file-reference-node__label">{{ segment.label }}</span>
             </span>
           </template>
@@ -383,14 +416,45 @@ function toggleExpand(): void {
     </div>
     <div class="message__actions">
       <span class="message__time">{{ formattedTime }}</span>
-      <BaseIconButton
-        :label="isCopied ? '已复制' : '复制消息'"
-        size="small"
-        @click="copyMessageText"
-      >
-        <Check v-if="isCopied" :size="14" />
-        <Copy v-else :size="14" />
-      </BaseIconButton>
+      <TooltipProvider>
+        <Tooltip v-if="message.sessionEntryId">
+          <TooltipTrigger as-child>
+            <BaseIconButton label="从这里编辑" size="small" @click="navigateTree">
+              <Pencil :size="14" />
+            </BaseIconButton>
+          </TooltipTrigger>
+          <TooltipContent>从这里编辑</TooltipContent>
+        </Tooltip>
+        <Tooltip v-if="message.sessionEntryId">
+          <TooltipTrigger as-child>
+            <BaseIconButton label="在 Tree 中定位" size="small" @click="locateInTree">
+              <MapPin :size="14" />
+            </BaseIconButton>
+          </TooltipTrigger>
+          <TooltipContent>在 Tree 中定位</TooltipContent>
+        </Tooltip>
+        <Tooltip v-if="message.sessionEntryId">
+          <TooltipTrigger as-child>
+            <BaseIconButton label="创建分支会话" size="small" @click="forkFromMessage">
+              <GitFork :size="14" />
+            </BaseIconButton>
+          </TooltipTrigger>
+          <TooltipContent>创建分支会话</TooltipContent>
+        </Tooltip>
+        <Tooltip>
+          <TooltipTrigger as-child>
+            <BaseIconButton
+              :label="isCopied ? '已复制' : '复制消息'"
+              size="small"
+              @click="copyMessageText"
+            >
+              <Check v-if="isCopied" :size="14" />
+              <Copy v-else :size="14" />
+            </BaseIconButton>
+          </TooltipTrigger>
+          <TooltipContent>{{ isCopied ? '已复制' : '复制消息' }}</TooltipContent>
+        </Tooltip>
+      </TooltipProvider>
     </div>
   </div>
 </template>

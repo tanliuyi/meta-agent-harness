@@ -320,11 +320,11 @@ const processingCollapseResult = computed<ProcessingCollapseResult>(() => {
     const processEndIndex = hasFinalReply ? finalReplyIndex : endIndex
     const hiddenItems = items.slice(boundaryIndex, processEndIndex)
     const isActiveSegment = segmentEndIndex < 0 && !hasFinalReply && isRunning.value
-    if (hiddenItems.length === 0 && !isActiveSegment) {
-      continue
-    }
     if (hasFinalReply) {
       finalReplyKeys.add(items[finalReplyIndex].key)
+    }
+    if (hiddenItems.length === 0 && !isActiveSegment) {
+      continue
     }
     contexts.push({
       key: `${workspaceSession.activeSessionId ?? 'session'}:${boundaryIndex}`,
@@ -753,6 +753,18 @@ function isCollapsedHistoryOpen(
   return !item.collapsible || Boolean(collapsedHistoryOpenByKey.value[item.key])
 }
 
+async function forkFromMessage(entryId: string): Promise<void> {
+  await workspaceSession.forkActiveSession(entryId)
+}
+
+function locateMessageInTree(entryId: string): void {
+  workspaceSession.focusActiveSessionTreeEntry(entryId)
+}
+
+async function navigateMessageTree(entryId: string): Promise<void> {
+  await workspaceSession.navigateActiveSessionTree(entryId)
+}
+
 /**
  * 将 assistant message 的 thinking、text content 拆成 timeline 项。
  * @param message - assistant message。
@@ -816,7 +828,7 @@ function getAssistantTimelineItems(message: RenderableThreadMessage): UngroupedT
 }
 
 /**
- * 在指定范围内查找最终回复候选：assistant 正文已开始，且同一 assistant message 尚无 toolCall。
+ * 在指定范围内查找最终回复候选：assistant 正文已完成，且没有工具调用。
  * @param items - timeline 项。
  * @param startIndex - 起始下标，包含。
  * @param endIndex - 结束下标，不包含。
@@ -834,6 +846,7 @@ function findFinalReplyIndexInRange(
       item.type === 'message' &&
       item.message.role === 'assistant' &&
       Boolean(item.text) &&
+      item.message.renderState === 'complete' &&
       !hasAssistantToolCall(item.message)
     ) {
       candidateIndex = index
@@ -1464,6 +1477,9 @@ function getToolCallRevision(toolCall: DesktopToolCall | undefined): unknown[] {
             :tool-calls="viewItem.toolCalls"
             :summary="viewItem.summary"
             :status="viewItem.status"
+            @fork-from-message="forkFromMessage"
+            @locate-in-tree="locateMessageInTree"
+            @navigate-tree="navigateMessageTree"
           />
         </div>
 
@@ -1558,7 +1574,7 @@ function getToolCallRevision(toolCall: DesktopToolCall | undefined): unknown[] {
 .chat-view__timeline-inner {
   display: flex;
   flex-direction: column;
-  gap: var(--space-5);
+  gap: var(--space-3);
   max-width: 768px;
   min-height: 100%;
   margin: 0 auto;
@@ -1677,22 +1693,18 @@ function getToolCallRevision(toolCall: DesktopToolCall | undefined): unknown[] {
 }
 
 .chat-view__activity {
+  flex-shrink: 0;
   display: inline-flex;
   align-items: center;
   gap: var(--space-2);
   align-self: flex-start;
-  margin-top: var(--space-1);
-  padding: var(--space-1) var(--space-2);
+  padding: var(--space-1) 0;
   color: var(--color-text-muted);
-  font-size: var(--font-size-ui-sm);
-  background: var(--chat-activity-bg);
-  border: 1px solid var(--chat-activity-border);
-  border-radius: 999px;
-  box-shadow: var(--shadow-sm);
+  font-size: var(--font-size-ui);
 
   span:first-child {
-    width: 6px;
-    height: 6px;
+    width: 8px;
+    height: 8px;
     background: var(--color-primary);
     border-radius: 50%;
     animation: pulse 1.1s var(--ease-standard) infinite;

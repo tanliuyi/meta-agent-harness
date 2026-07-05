@@ -7,6 +7,7 @@ import {
   getFileName,
   getStringArg,
   getToolArgs,
+  getToolStatusLabel,
   isToolError,
   joinSummary,
   type ToolComponentProps
@@ -27,10 +28,19 @@ const contentSize = computed(() => {
 const summary = computed(() => joinSummary([fileName.value, contentSize.value]))
 const isError = computed(() => isToolError(props.message, props.toolCall))
 const status = computed(() => props.toolCall?.status)
+const name = computed(() =>
+  getToolStatusLabel(status.value, {
+    queued: '准备写入',
+    running: '正在写入',
+    succeeded: '已写入',
+    failed: '写入失败',
+    cancelled: '已取消写入'
+  })
+)
 </script>
 
 <template>
-  <BaseTool name="已写入" :summary="summary" :status="status" :is-error="isError">
+  <BaseTool :name="name" :summary="summary" :status="status" :is-error="isError">
     <template #icon>
       <PencilIcon :size="14" />
     </template>

@@ -342,6 +342,57 @@ export class AgentSessionRuntime {
 		return { cancelled: false, selectedText };
 	}
 
+	async createForkedSessionFile(
+		entryId: string,
+		options?: { position?: "before" | "at" },
+	): Promise<{ cancelled: boolean; sessionFile?: string; selectedText?: string }> {
+		const position = options?.position ?? "before";
+		const beforeResult = await this.emitBeforeFork(entryId, { position });
+		if (beforeResult.cancelled) {
+			return { cancelled: true };
+		}
+
+		const selectedEntry = this.session.sessionManager.getEntry(entryId);
+		if (!selectedEntry) {
+			throw new Error("Invalid entry ID for forking");
+		}
+
+		let targetLeafId: string | null;
+		let selectedText: string | undefined;
+		if (position === "at") {
+			targetLeafId = selectedEntry.id;
+		} else {
+			if (selectedEntry.type !== "message" || selectedEntry.message.role !== "user") {
+				throw new Error("Invalid entry ID for forking");
+			}
+			targetLeafId = selectedEntry.parentId;
+			selectedText = extractUserMessageText(selectedEntry.message.content);
+		}
+
+		if (!this.session.sessionManager.isPersisted()) {
+			throw new Error("Cannot create fork session file from a non-persisted session");
+		}
+
+		const currentSessionFile = this.session.sessionFile;
+		if (!currentSessionFile) {
+			throw new Error("Persisted session is missing a session file");
+		}
+
+		const sessionDir = this.session.sessionManager.getSessionDir();
+		if (!targetLeafId) {
+			const sessionManager = SessionManager.create(this.cwd, sessionDir, { parentSession: currentSessionFile });
+			sessionManager.writeSessionFile();
+			return { cancelled: false, sessionFile: sessionManager.getSessionFile(), selectedText };
+		}
+
+		const sessionManager = SessionManager.open(currentSessionFile, sessionDir);
+		const sessionFile = sessionManager.createBranchedSession(targetLeafId, { flush: true });
+		if (!sessionFile) {
+			throw new Error("Failed to create forked session");
+		}
+		return { cancelled: false, sessionFile, selectedText };
+	}
+
 	/**
 	 * Import a session JSONL file and switch runtime state to the imported session.
 	 *

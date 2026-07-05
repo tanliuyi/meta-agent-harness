@@ -58,6 +58,47 @@ describe("desktop message conversion", () => {
 		]);
 	});
 
+	it("只给 user/assistant 消息附加 session entry ID", () => {
+		const messages: AgentMessage[] = [
+			{
+				role: "custom",
+				content: "compacted context",
+				customType: "compaction",
+				timestamp: Date.parse("2026-07-01T00:00:00.000Z"),
+			},
+			{ role: "user", content: "hello", timestamp: 1 },
+			{
+				role: "assistant",
+				content: [{ type: "text", text: "world" }],
+				api: "responses",
+				provider: "openai",
+				model: "gpt-5",
+				usage: {
+					input: 1,
+					output: 1,
+					cacheRead: 0,
+					cacheWrite: 0,
+					totalTokens: 2,
+					cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+				},
+				stopReason: "stop",
+				timestamp: 2,
+			},
+		];
+
+		expect(
+			toDesktopMessages(messages, ["entry-user", "entry-assistant"]).map((message) => ({
+				role: message.role,
+				text: message.text,
+				sessionEntryId: message.sessionEntryId,
+			})),
+		).toEqual([
+			{ role: "system", text: "compacted context", sessionEntryId: undefined },
+			{ role: "user", text: "hello", sessionEntryId: "entry-user" },
+			{ role: "assistant", text: "world", sessionEntryId: "entry-assistant" },
+		]);
+	});
+
 	it("跳过没有文本内容的 assistant 消息", () => {
 		const message: AgentMessage = {
 			role: "assistant",

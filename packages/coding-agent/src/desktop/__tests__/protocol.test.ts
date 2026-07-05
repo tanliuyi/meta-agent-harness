@@ -12,6 +12,11 @@ describe("desktop protocol command guards", () => {
 	it("识别 Pi 同构 canonical 命令", () => {
 		expect(isCanonicalAgentCommand({ type: "prompt" })).toBe(true);
 		expect(isCanonicalAgentCommand({ type: "get_messages" })).toBe(true);
+		expect(isCanonicalAgentCommand({ type: "navigate_tree" })).toBe(true);
+		expect(isCanonicalAgentCommand({ type: "get_session_tree_children" })).toBe(true);
+		expect(isCanonicalAgentCommand({ type: "get_session_tree_path" })).toBe(true);
+		expect(isCanonicalAgentCommand({ type: "set_session_entry_label" })).toBe(true);
+		expect(isCanonicalAgentCommand({ type: "create_fork_session" })).toBe(true);
 		expect(isCanonicalAgentCommand({ type: "worker.snapshot" })).toBe(false);
 	});
 

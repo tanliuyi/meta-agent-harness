@@ -18,7 +18,7 @@ import type {
   ExtensionUiRequest,
   ThreadSnapshot
 } from '@shared/coding-agent/types'
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, ref, watch } from 'vue'
 
 const workspaceProject = useWorkspaceProjectStore()
 const workspaceSession = useWorkspaceSessionStore()
@@ -55,7 +55,11 @@ type SessionTreeNode = NonNullable<ThreadSnapshot['sessionTree']>[number]
 type FileChange = ThreadSnapshot['fileChanges'][number]
 type ApprovalScope = ApprovalResponse['scope']
 type OnOffValue = 'on' | 'off'
+type SessionTreeFilter = 'all' | 'user' | 'labeled' | 'no-tools'
 type SessionPanelTabId = 'session' | 'changes' | 'tree' | 'commands' | 'extensions' | 'approvals'
+
+const MAX_VISIBLE_TREE_DEPTH = 8
+const TREE_INDENT_PX = 12
 
 interface SessionPanelTab {
   id: SessionPanelTabId
@@ -65,6 +69,7 @@ interface SessionPanelTab {
 type FlatSessionTreeNode = {
   node: SessionTreeNode
   depth: number
+  visualDepth: number
 }
 
 /** 当前活跃 session leaf entry，可作为 fork 默认位置。 */
@@ -74,6 +79,28 @@ const currentEntryId = computed(() => workspaceSession.activeSnapshot?.currentEn
 const sessionTreeRows = computed<FlatSessionTreeNode[]>(() =>
   flattenSessionTree(workspaceSession.activeSnapshot?.sessionTree ?? [])
 )
+
+/** 过滤后的 session tree 展示行。 */
+const visibleSessionTreeRows = computed(() =>
+  sessionTreeRows.value.filter((row) => isVisibleSessionTreeRow(row))
+)
+
+/** 选中的 session tree entry。 */
+const selectedTreeEntryId = ref<string>()
+const selectedTreeLabelDraft = ref('')
+
+/** 当前选中的 session tree row；未选中时默认当前 leaf。 */
+const selectedTreeRow = computed(() => {
+  const visibleRows = visibleSessionTreeRows.value
+  const rows = visibleRows.length ? visibleRows : sessionTreeRows.value
+  return (
+    rows.find(({ node }) => node.id === selectedTreeEntryId.value) ??
+    rows.find(({ node }) => node.id === currentEntryId.value) ??
+    rows[0]
+  )
+})
+
+const sessionTreeListRef = ref<HTMLElement>()
 
 /** 当前文件变更列表。 */
 const fileChanges = computed(() => workspaceSession.activeSnapshot?.fileChanges ?? [])
@@ -126,6 +153,13 @@ const onOffOptions: Array<{ label: string; value: OnOffValue }> = [
   { label: 'Off', value: 'off' }
 ]
 
+const sessionTreeFilterOptions: Array<{ label: string; value: SessionTreeFilter }> = [
+  { label: 'All', value: 'all' },
+  { label: 'User', value: 'user' },
+  { label: 'Labeled', value: 'labeled' },
+  { label: 'No tools', value: 'no-tools' }
+]
+
 const sessionPanelTabs: SessionPanelTab[] = [
   { id: 'session', label: 'Session' },
   { id: 'changes', label: 'Changes' },
@@ -141,6 +175,9 @@ const SESSION_PANEL_ACTIVE_TAB_STORAGE_KEY = 'meta-agent.session-panel.active-ta
 const activeTabId = ref<SessionPanelTabId>('session')
 const openTabIds = ref<SessionPanelTabId[]>(sessionPanelTabs.map((tab) => tab.id))
 const attentionTabIds = ref<SessionPanelTabId[]>([])
+const sessionTreeQuery = ref('')
+const sessionTreeFilter = ref<SessionTreeFilter>('all')
+const expandedTreeEntryIds = ref<string[]>([])
 
 const openTabs = computed(() => sessionPanelTabs.filter((tab) => openTabIds.value.includes(tab.id)))
 const closedTabs = computed(() =>
@@ -176,6 +213,43 @@ watch(
     }
   },
   { immediate: true }
+)
+
+watch(
+  [visibleSessionTreeRows, currentEntryId],
+  ([rows, currentId]) => {
+    if (selectedTreeEntryId.value && rows.some(({ node }) => node.id === selectedTreeEntryId.value)) {
+      return
+    }
+    selectedTreeEntryId.value =
+      rows.find(({ node }) => node.id === currentId)?.node.id ?? rows[0]?.node.id
+  },
+  { immediate: true }
+)
+
+watch(
+  () => workspaceSession.treeFocusRequest,
+  (request) => {
+    if (!request) {
+      return
+    }
+    void focusSessionTreeEntry(request.entryId)
+  }
+)
+
+watch(
+  () => selectedTreeRow.value?.node.id,
+  () => {
+    selectedTreeLabelDraft.value = selectedTreeRow.value?.node.label ?? ''
+  },
+  { immediate: true }
+)
+
+watch(
+  () => selectedTreeRow.value?.node.label,
+  (label) => {
+    selectedTreeLabelDraft.value = label ?? ''
+  }
 )
 
 watch(
@@ -367,8 +441,186 @@ function getExtensionRequestTitle(request: ExtensionUiRequest): string {
  * @param depth - 当前层级。
  * @returns 展平后的节点。
  */
-function flattenSessionTree(nodes: SessionTreeNode[], depth = 0): FlatSessionTreeNode[] {
-  return nodes.flatMap((node) => [{ node, depth }, ...flattenSessionTree(node.children, depth + 1)])
+function flattenSessionTree(
+  nodes: SessionTreeNode[],
+  depth = 0,
+  visualDepth = 0
+): FlatSessionTreeNode[] {
+  return nodes.flatMap((node) => {
+    const nodeVisualDepth = shouldIndentSessionTreeNode(node) ? visualDepth : 0
+    const childVisualDepth = visualDepth + (shouldIndentSessionTreeNode(node) ? 1 : 0)
+    const children = isTreeNodeExpanded(node)
+      ? flattenSessionTree(node.children, depth + 1, childVisualDepth)
+      : []
+    return [{ node, depth, visualDepth: nodeVisualDepth }, ...children]
+  })
+}
+
+function getSessionTreeIndent(visualDepth: number): string {
+  return `${Math.min(visualDepth, MAX_VISIBLE_TREE_DEPTH) * TREE_INDENT_PX}px`
+}
+
+function isCompressedTreeDepth(visualDepth: number): boolean {
+  return visualDepth > MAX_VISIBLE_TREE_DEPTH
+}
+
+function shouldIndentSessionTreeNode(node: SessionTreeNode): boolean {
+  return !['model_change', 'thinking_level_change'].includes(node.type)
+}
+
+function isVisibleSessionTreeRow(row: FlatSessionTreeNode): boolean {
+  const { node } = row
+  if (!matchesSessionTreeFilter(node)) {
+    return false
+  }
+  const query = sessionTreeQuery.value.trim().toLowerCase()
+  if (!query) {
+    return true
+  }
+  return [node.id, node.type, node.title, node.label, node.summary]
+    .filter((value): value is string => Boolean(value))
+    .some((value) => value.toLowerCase().includes(query))
+}
+
+function matchesSessionTreeFilter(node: SessionTreeNode): boolean {
+  switch (sessionTreeFilter.value) {
+    case 'user':
+      return node.type === 'message' && node.title.startsWith('user:')
+    case 'labeled':
+      return Boolean(node.label)
+    case 'no-tools':
+      return !isToolSessionTreeNode(node)
+    case 'all':
+      return true
+  }
+}
+
+function isToolSessionTreeNode(node: SessionTreeNode): boolean {
+  return node.title.startsWith('toolResult:') || node.title.startsWith('tool:')
+}
+
+function canForkTreeNode(node: SessionTreeNode): boolean {
+  return node.type !== 'truncated'
+}
+
+function canExpandTreeNode(node: SessionTreeNode): boolean {
+  return node.children.length > 0 || Boolean(node.hasMoreChildren)
+}
+
+function isTreeNodeExpanded(node: SessionTreeNode): boolean {
+  return expandedTreeEntryIds.value.includes(node.id)
+}
+
+async function toggleTreeNodeExpansion(node: SessionTreeNode): Promise<void> {
+  if (!canExpandTreeNode(node)) {
+    return
+  }
+  if (isTreeNodeExpanded(node)) {
+    expandedTreeEntryIds.value = expandedTreeEntryIds.value.filter((id) => id !== node.id)
+    return
+  }
+  if (node.hasMoreChildren && node.children.length === 0) {
+    await workspaceSession.loadActiveSessionTreeChildren(node.id)
+  }
+  expandedTreeEntryIds.value = [...expandedTreeEntryIds.value, node.id]
+}
+
+function canNavigateTreeNode(node: SessionTreeNode): boolean {
+  return node.type !== 'truncated'
+}
+
+function getNavigateTreeActionLabel(node: SessionTreeNode): string {
+  return node.type === 'message' && node.title.startsWith('user:') ? 'Edit from here' : 'Continue here'
+}
+
+function isSelectedTreeNode(node: SessionTreeNode): boolean {
+  return selectedTreeRow.value?.node.id === node.id
+}
+
+function selectTreeNode(node: SessionTreeNode): void {
+  selectedTreeEntryId.value = node.id
+}
+
+async function locateCurrentTreeNode(): Promise<void> {
+  if (!currentEntryId.value) {
+    return
+  }
+  await focusSessionTreeEntry(currentEntryId.value)
+}
+
+async function focusSessionTreeEntry(entryId: string): Promise<void> {
+  selectTab('tree')
+  if (!visibleSessionTreeRows.value.some(({ node }) => node.id === entryId)) {
+    sessionTreeFilter.value = 'all'
+    sessionTreeQuery.value = ''
+  }
+  const path = await workspaceSession.loadActiveSessionTreePath(entryId)
+  const parentIds = path.slice(0, -1)
+  for (const parentId of parentIds) {
+    const node = findSessionTreeNodeById(parentId)
+    if (node?.hasMoreChildren && node.children.length === 0) {
+      await workspaceSession.loadActiveSessionTreeChildren(parentId)
+    }
+    if (!expandedTreeEntryIds.value.includes(parentId)) {
+      expandedTreeEntryIds.value = [...expandedTreeEntryIds.value, parentId]
+    }
+  }
+  selectedTreeEntryId.value = entryId
+  await nextTick()
+  const targetElement = Array.from(
+    sessionTreeListRef.value?.querySelectorAll<HTMLElement>('.session-tree__item') ?? []
+  ).find((element) => element.dataset.treeEntryId === entryId)
+  targetElement?.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
+}
+
+function findSessionTreeNodeById(entryId: string): SessionTreeNode | undefined {
+  const stack = [...(workspaceSession.activeSnapshot?.sessionTree ?? [])]
+  while (stack.length > 0) {
+    const node = stack.shift()!
+    if (node.id === entryId) {
+      return node
+    }
+    stack.unshift(...node.children)
+  }
+  return undefined
+}
+
+async function forkSelectedTreeNode(): Promise<void> {
+  const node = selectedTreeRow.value?.node
+  if (!node || !canForkTreeNode(node)) {
+    return
+  }
+  await workspaceSession.forkActiveSession(node.id)
+}
+
+async function navigateSelectedTreeNode(): Promise<void> {
+  const node = selectedTreeRow.value?.node
+  if (!node || !canNavigateTreeNode(node)) {
+    return
+  }
+  await workspaceSession.navigateActiveSessionTree(node.id)
+}
+
+async function copySelectedTreeEntryId(): Promise<void> {
+  const id = selectedTreeRow.value?.node.id
+  if (!id) {
+    return
+  }
+  await navigator.clipboard.writeText(id)
+}
+
+async function saveSelectedTreeLabel(): Promise<void> {
+  const node = selectedTreeRow.value?.node
+  if (!node) {
+    return
+  }
+  await workspaceSession.setActiveSessionEntryLabel(node.id, selectedTreeLabelDraft.value)
+  await focusSessionTreeEntry(node.id)
+}
+
+async function clearSelectedTreeLabel(): Promise<void> {
+  selectedTreeLabelDraft.value = ''
+  await saveSelectedTreeLabel()
 }
 
 /**
@@ -654,6 +906,15 @@ defineEmits<{
               <strong>{{ currentEntryId ?? '-' }}</strong>
             </div>
           </div>
+          <div v-if="workspaceSession.activePreviousSessionFile" class="session-previous">
+            <div>
+              <span>Previous session</span>
+              <strong>{{ getFileName(workspaceSession.activePreviousSessionFile) }}</strong>
+            </div>
+            <BaseButton size="sm" variant="ghost" @click="workspaceSession.switchActivePreviousSession()">
+              Switch back
+            </BaseButton>
+          </div>
           <div class="session-primary-actions">
             <BaseButton
               size="sm"
@@ -703,7 +964,7 @@ defineEmits<{
               :disabled="!hasActiveThread || !currentEntryId"
               @click="currentEntryId && workspaceSession.forkActiveSession(currentEntryId)"
             >
-              Fork
+              创建分支会话
             </BaseButton>
           </div>
           <div class="session-path-form">
@@ -870,39 +1131,139 @@ defineEmits<{
         <section v-if="activeTabId === 'tree'" class="session-section" role="tabpanel">
           <header class="session-section__header">
             <h3>Tree</h3>
+            <BaseButton
+              size="sm"
+              variant="ghost"
+              :disabled="!currentEntryId"
+              @click="locateCurrentTreeNode"
+            >
+              Locate current
+            </BaseButton>
           </header>
           <div v-if="sessionTreeRows.length === 0" class="session-empty">No session entries</div>
-          <div v-else class="session-tree">
-            <article
-              v-for="{ node, depth } in sessionTreeRows"
-              :key="node.id"
-              class="session-tree__item"
-              :class="{ 'is-current': node.id === currentEntryId }"
-              :title="depth > 0 ? `Depth ${depth}` : undefined"
-            >
-              <div class="session-tree__content">
-                <div class="session-tree__row">
-                  <span class="session-tree__title">{{ node.label || node.title }}</span>
-                  <span v-if="node.id === currentEntryId" class="session-tree__current"
-                    >Current</span
-                  >
-                </div>
+          <template v-else>
+            <div class="session-tree-toolbar">
+              <BaseField
+                id="session-tree-search"
+                v-model="sessionTreeQuery"
+                label="Search tree"
+                type="search"
+                placeholder="Search entries"
+              />
+              <BaseSegmentedControl
+                label="Tree filter"
+                :model-value="sessionTreeFilter"
+                :options="sessionTreeFilterOptions"
+                @update:model-value="sessionTreeFilter = $event"
+              />
+            </div>
+            <div v-if="selectedTreeRow" class="session-tree-selection">
+              <div>
+                <span>Selected</span>
+                <strong>{{ selectedTreeRow.node.label || selectedTreeRow.node.title }}</strong>
                 <small>
-                  <span>{{ node.type }}</span>
-                  <span>{{ new Date(node.timestamp).toLocaleString() }}</span>
+                  {{ selectedTreeRow.node.type }} ·
+                  {{ new Date(selectedTreeRow.node.timestamp).toLocaleString() }} · Depth
+                  {{ selectedTreeRow.depth }}
                 </small>
-                <p v-if="node.summary">{{ node.summary }}</p>
               </div>
-              <BaseButton
-                class="session-tree__action"
-                size="sm"
-                variant="ghost"
-                @click="workspaceSession.forkActiveSession(node.id)"
+              <div class="session-tree-label-form">
+                <BaseField
+                  id="session-tree-label"
+                  v-model="selectedTreeLabelDraft"
+                  label="Label"
+                  placeholder="Add label"
+                />
+                <div class="session-tree-label-form__actions">
+                  <BaseButton size="sm" variant="secondary" @click="saveSelectedTreeLabel">
+                    Save
+                  </BaseButton>
+                  <BaseButton size="sm" variant="ghost" @click="clearSelectedTreeLabel">
+                    Clear
+                  </BaseButton>
+                </div>
+              </div>
+              <div class="session-tree-selection__actions">
+                <BaseButton
+                  size="sm"
+                  variant="secondary"
+                  :disabled="!canNavigateTreeNode(selectedTreeRow.node)"
+                  @click="navigateSelectedTreeNode"
+                >
+                  {{ getNavigateTreeActionLabel(selectedTreeRow.node) }}
+                </BaseButton>
+                <BaseButton
+                  size="sm"
+                  variant="ghost"
+                  :disabled="!canForkTreeNode(selectedTreeRow.node)"
+                  @click="forkSelectedTreeNode"
+                >
+                  创建分支会话
+                </BaseButton>
+                <BaseButton size="sm" variant="ghost" @click="copySelectedTreeEntryId">
+                  Copy ID
+                </BaseButton>
+              </div>
+            </div>
+            <div v-if="visibleSessionTreeRows.length === 0" class="session-empty">
+              No matching entries
+            </div>
+            <div v-else ref="sessionTreeListRef" class="session-tree">
+              <div
+                v-for="{ node, depth, visualDepth } in visibleSessionTreeRows"
+                :key="node.id"
+                class="session-tree__item"
+                :class="{
+                  'is-current': node.id === currentEntryId,
+                  'is-selected': isSelectedTreeNode(node),
+                  'is-truncated': node.type === 'truncated'
+                }"
+                :data-tree-entry-id="node.id"
+                :style="{ '--session-tree-indent': getSessionTreeIndent(visualDepth) }"
+                :title="depth > 0 ? `Depth ${depth}` : undefined"
               >
-                Fork
-              </BaseButton>
-            </article>
-          </div>
+                <BaseIconButton
+                  class="session-tree__disclosure"
+                  :class="{ 'is-open': isTreeNodeExpanded(node) }"
+                  size="small"
+                  :label="isTreeNodeExpanded(node) ? '收起子节点' : '展开子节点'"
+                  :disabled="!canExpandTreeNode(node) || workspaceSession.loadingTreeChildrenByEntryId[node.id]"
+                  @click.stop="toggleTreeNodeExpansion(node)"
+                >
+                  <svg
+                    v-if="!workspaceSession.loadingTreeChildrenByEntryId[node.id]"
+                    viewBox="0 0 16 16"
+                    aria-hidden="true"
+                  >
+                    <path d="M6 4l4 4-4 4" />
+                  </svg>
+                  <svg v-else viewBox="0 0 16 16" aria-hidden="true">
+                    <circle cx="8" cy="8" r="2" />
+                  </svg>
+                </BaseIconButton>
+                <button
+                  type="button"
+                  class="session-tree__content"
+                  @click="selectTreeNode(node)"
+                >
+                  <span class="session-tree__row">
+                    <span class="session-tree__title">{{ node.label || node.title }}</span>
+                    <span v-if="isCompressedTreeDepth(visualDepth)" class="session-tree__depth"
+                      >D{{ depth }}</span
+                    >
+                    <span v-if="node.id === currentEntryId" class="session-tree__current"
+                      >Current</span
+                    >
+                  </span>
+                  <small>
+                    <span>{{ node.type }}</span>
+                    <span>{{ new Date(node.timestamp).toLocaleString() }}</span>
+                  </small>
+                  <span v-if="node.summary" class="session-tree__summary">{{ node.summary }}</span>
+                </button>
+              </div>
+            </div>
+          </template>
         </section>
 
         <section v-if="activeTabId === 'commands'" class="session-section" role="tabpanel">
@@ -1378,7 +1739,8 @@ dd {
   gap: 6px;
 }
 
-.session-browser-summary div {
+.session-browser-summary div,
+.session-previous {
   min-width: 0;
   padding: 7px 8px;
   background: var(--color-surface-raised);
@@ -1386,8 +1748,23 @@ dd {
   border-radius: var(--radius-md);
 }
 
+.session-previous {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: var(--space-2);
+  align-items: center;
+}
+
+.session-previous > div {
+  display: grid;
+  gap: 1px;
+  min-width: 0;
+}
+
 .session-browser-summary span,
-.session-browser-summary strong {
+.session-browser-summary strong,
+.session-previous span,
+.session-previous strong {
   display: block;
   min-width: 0;
   overflow: hidden;
@@ -1395,12 +1772,14 @@ dd {
   white-space: nowrap;
 }
 
-.session-browser-summary span {
+.session-browser-summary span,
+.session-previous span {
   color: var(--color-text-muted);
   font-size: var(--font-size-ui-2xs);
 }
 
-.session-browser-summary strong {
+.session-browser-summary strong,
+.session-previous strong {
   color: var(--color-text);
   font-size: var(--font-size-ui-xs);
   font-weight: 650;
@@ -1677,6 +2056,77 @@ dd {
   font-size: var(--font-size-ui-xs);
 }
 
+.session-tree-toolbar {
+  display: grid;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.session-tree-toolbar :deep(.base-segmented-control) {
+  width: 100%;
+}
+
+.session-tree-toolbar :deep(.base-segmented-control__item) {
+  min-width: 0;
+  padding: 0 6px;
+  white-space: nowrap;
+}
+
+.session-tree-selection {
+  display: grid;
+  gap: var(--space-2);
+  min-width: 0;
+  padding: 7px 8px;
+  background: var(--color-surface-raised);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+}
+
+.session-tree-selection > div:first-child {
+  display: grid;
+  gap: 1px;
+  min-width: 0;
+}
+
+.session-tree-label-form {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: var(--space-2);
+  align-items: end;
+  min-width: 0;
+}
+
+.session-tree-label-form__actions,
+.session-tree-selection__actions {
+  display: flex;
+  flex: 0 0 auto;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+  align-items: center;
+  justify-content: flex-end;
+}
+
+.session-tree-selection span,
+.session-tree-selection strong,
+.session-tree-selection small {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.session-tree-selection span,
+.session-tree-selection small {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-ui-2xs);
+}
+
+.session-tree-selection strong {
+  color: var(--color-text);
+  font-size: var(--font-size-ui-xs);
+  font-weight: 650;
+}
+
 .session-tree {
   display: grid;
   min-width: 0;
@@ -1685,21 +2135,20 @@ dd {
 
 .session-tree__item {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-columns: 18px minmax(0, 1fr);
   gap: var(--space-1);
-  align-items: center;
+  align-items: start;
   min-width: 0;
   min-height: 38px;
-  padding: 5px 6px;
+  padding: 5px 6px 5px calc(6px + var(--session-tree-indent, 0px));
+  color: inherit;
+  background: transparent;
+  border: 0;
   border-left: 2px solid transparent;
   border-radius: var(--radius-sm);
 
   &:hover {
     background: var(--color-surface-raised);
-
-    .session-tree__action {
-      opacity: 1;
-    }
   }
 }
 
@@ -1708,10 +2157,33 @@ dd {
   border-left-color: var(--color-primary);
 }
 
+.session-tree__item.is-selected {
+  outline: 1px solid var(--color-primary-outline);
+  outline-offset: -1px;
+}
+
+.session-tree__item.is-truncated {
+  opacity: 0.72;
+}
+
 .session-tree__content {
   display: grid;
   gap: 1px;
+  width: 100%;
   min-width: 0;
+  padding: 0;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  background: transparent;
+  border: 0;
+  border-radius: var(--radius-xs);
+  cursor: pointer;
+
+  &:focus-visible {
+    outline: none;
+    box-shadow: inset var(--shadow-focus);
+  }
 }
 
 .session-tree__row {
@@ -1721,9 +2193,36 @@ dd {
   min-width: 0;
 }
 
+.session-tree__disclosure {
+  flex: 0 0 auto;
+  width: 18px;
+  height: 18px;
+  color: var(--color-text-muted);
+
+  :deep(svg) {
+    width: 14px;
+    height: 14px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.8;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    transition: transform var(--duration-fast) var(--ease-standard);
+  }
+
+  :deep(circle) {
+    fill: currentColor;
+    stroke: none;
+  }
+
+  &.is-open :deep(svg) {
+    transform: rotate(90deg);
+  }
+}
+
 .session-tree__title,
 .session-tree__content small,
-.session-tree__content p {
+.session-tree__summary {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1738,7 +2237,7 @@ dd {
 }
 
 .session-tree__content small,
-.session-tree__content p {
+.session-tree__summary {
   margin: 0;
   color: var(--color-text-muted);
   font-size: var(--font-size-ui-2xs);
@@ -1762,28 +2261,33 @@ dd {
   content: '·';
 }
 
-.session-tree__content p {
+.session-tree__summary {
   display: -webkit-box;
   -webkit-line-clamp: 1;
   -webkit-box-orient: vertical;
   line-height: 1.35;
 }
 
-.session-tree__current {
+.session-tree__current,
+.session-tree__depth {
   flex: 0 0 auto;
   min-height: 18px;
   padding: 0 6px;
-  color: var(--color-primary-strong);
   font-size: var(--font-size-ui-2xs);
   font-weight: 700;
   line-height: 18px;
   background: var(--color-surface);
-  border: 1px solid var(--color-primary-outline);
   border-radius: var(--radius-xs);
 }
 
-.session-tree__action {
-  opacity: 0.72;
+.session-tree__current {
+  color: var(--color-primary-strong);
+  border: 1px solid var(--color-primary-outline);
+}
+
+.session-tree__depth {
+  color: var(--color-text-muted);
+  border: 1px solid var(--color-border);
 }
 
 .extension-kv-list,

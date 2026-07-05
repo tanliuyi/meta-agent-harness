@@ -24,6 +24,7 @@ const props = withDefaults(
     resultClass?: string
     errorLabel?: string
     errorText?: string
+    contentAvailable?: boolean
   }>(),
   {
     summary: '',
@@ -39,22 +40,24 @@ const props = withDefaults(
     contentClass: '',
     resultClass: '',
     errorLabel: 'error',
-    errorText: 'true'
+    errorText: 'true',
+    contentAvailable: undefined
   }
 )
 
 const slots = useSlots()
-const hasContent = computed(() =>
+const inferredHasContent = computed(() =>
   Boolean(
     props.result || props.isError || slots.default || slots.content || slots.error || slots.result
   )
 )
+const hasContent = computed(() => props.contentAvailable ?? inferredHasContent.value)
 const contentStyle = computed(() => ({ maxHeight: props.maxContentHeight }))
 </script>
 
 <template>
   <Collapsible
-    :default-open="defaultOpen"
+    :default-open="defaultOpen && hasContent"
     class="tool-message"
     :class="[
       `tool-message--${tone}`,
@@ -65,7 +68,11 @@ const contentStyle = computed(() => ({ maxHeight: props.maxContentHeight }))
     ]"
     :data-status="status"
   >
-    <CollapsibleTrigger class="tool-message__trigger">
+    <CollapsibleTrigger
+      class="tool-message__trigger"
+      :disabled="!hasContent"
+      :data-clickable="hasContent"
+    >
       <slot
         name="header"
         :tool-name="name"
@@ -149,8 +156,8 @@ const contentStyle = computed(() => ({ maxHeight: props.maxContentHeight }))
   & :deep(.tool-message__content) {
     margin: 0;
     overflow: hidden;
-    background: var(--color-canvas);
-    border-radius: 0 0 var(--radius-lg) var(--radius-lg);
+    background: var(--color-code-bg);
+    // border-radius: 0 0 var(--radius-lg) var(--radius-lg);
 
     .tool-message__result,
     .tool-message__content-inner {
@@ -238,6 +245,14 @@ const contentStyle = computed(() => ({ maxHeight: props.maxContentHeight }))
 
   &:hover {
     color: var(--color-hover);
+  }
+
+  &:disabled {
+    cursor: default;
+  }
+
+  &:disabled:hover {
+    color: inherit;
   }
 
   &:focus-visible {

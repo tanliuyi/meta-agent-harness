@@ -57,8 +57,18 @@ export const codingAgentChannels = {
   exportSession: 'coding-agent:export-session',
   /** 从指定节点分叉线程。 */
   fork: 'coding-agent:fork',
+  /** 从指定节点创建新的分支线程。 */
+  forkThread: 'coding-agent:fork-thread',
   /** 克隆线程。 */
   clone: 'coding-agent:clone',
+  /** 在当前 session tree 内导航。 */
+  navigateTree: 'coding-agent:navigate-tree',
+  /** 加载 session tree 子节点。 */
+  loadSessionTreeChildren: 'coding-agent:load-session-tree-children',
+  /** 加载 root 到指定 entry 的路径。 */
+  loadSessionTreePath: 'coding-agent:load-session-tree-path',
+  /** 设置 session entry label。 */
+  setSessionEntryLabel: 'coding-agent:set-session-entry-label',
   /** 设置线程标题。 */
   setThreadTitle: 'coding-agent:set-thread-title',
   /** 重命名线程。 */

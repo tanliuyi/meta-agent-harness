@@ -13,7 +13,11 @@ import type {
   ExportSessionResult,
   ExtensionUiResponseInput,
   ForkInput,
+  ForkThreadInput,
+  ForkThreadResult,
   ImportSessionInput,
+  LoadSessionTreeChildrenInput,
+  LoadSessionTreePathInput,
   LoginProviderOAuthInput,
   CustomProviderSummary,
   ModelOAuthPromptResponseInput,
@@ -23,6 +27,8 @@ import type {
   ModelRegistrySnapshot,
   ModelSettingsDiagnostic,
   ModelSettingsSnapshot,
+  NavigateTreeInput,
+  NavigateTreeResult,
   NewSessionInput,
   PromptInput,
   ProjectSummary,
@@ -34,6 +40,7 @@ import type {
   ResourcePackageProgressEvent,
   ResourcePackageSummary,
   ResourceSnapshot,
+  SetSessionEntryLabelInput,
   SetThreadTitleInput,
   SetProjectTrustInput,
   SetModelInput,
@@ -79,9 +86,14 @@ import {
   clone,
   exportSession,
   fork,
+  forkThread,
   importSession,
+  loadSessionTreeChildren,
+  loadSessionTreePath,
+  navigateTree,
   newSession,
   renameThread,
+  setSessionEntryLabel,
   setThreadTitle,
   switchSession
 } from './thread-session-commands'
@@ -255,12 +267,59 @@ export class CodingThreadManager extends ThreadManagerCore {
   }
 
   /**
+   * 从指定位置创建新的分支线程。
+   * @param input - 分支输入。
+   * @returns 分支线程创建结果。
+   */
+  forkThread(input: ForkThreadInput): Promise<ForkThreadResult> {
+    return forkThread(this, input)
+  }
+
+  /**
    * 克隆线程。
    * @param threadId - 线程 ID。
    * @returns 线程快照。
    */
   clone(threadId: string): Promise<ThreadSnapshot> {
     return clone(this, threadId)
+  }
+
+  /**
+   * 在当前 session tree 内导航。
+   * @param input - 导航输入。
+   * @returns 导航结果。
+   */
+  navigateTree(input: NavigateTreeInput): Promise<NavigateTreeResult> {
+    return navigateTree(this, input)
+  }
+
+  /**
+   * 加载 session tree 子节点。
+   * @param input - 加载输入。
+   * @returns 子节点列表。
+   */
+  loadSessionTreeChildren(
+    input: LoadSessionTreeChildrenInput
+  ): Promise<NonNullable<ThreadSnapshot['sessionTree']>> {
+    return loadSessionTreeChildren(this, input)
+  }
+
+  /**
+   * 加载 root 到指定 entry 的路径。
+   * @param input - 加载输入。
+   * @returns entry ID 路径。
+   */
+  loadSessionTreePath(input: LoadSessionTreePathInput): Promise<string[]> {
+    return loadSessionTreePath(this, input)
+  }
+
+  /**
+   * 设置 session entry label。
+   * @param input - label 输入。
+   * @returns 最新 snapshot。
+   */
+  setSessionEntryLabel(input: SetSessionEntryLabelInput): Promise<ThreadSnapshot> {
+    return setSessionEntryLabel(this, input)
   }
 
   /**

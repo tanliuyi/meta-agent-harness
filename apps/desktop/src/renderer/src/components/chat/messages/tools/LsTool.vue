@@ -7,6 +7,7 @@ import {
   getStringArg,
   getToolArgs,
   getToolResultText,
+  getToolStatusLabel,
   isToolError,
   joinSummary,
   type ToolComponentProps
@@ -23,10 +24,19 @@ const summary = computed(() =>
 const result = computed(() => getToolResultText(props.message, props.toolCall))
 const isError = computed(() => isToolError(props.message, props.toolCall))
 const status = computed(() => props.toolCall?.status)
+const name = computed(() =>
+  getToolStatusLabel(status.value, {
+    queued: '准备列出',
+    running: '正在列出',
+    succeeded: '已列出',
+    failed: '列出失败',
+    cancelled: '已取消列出'
+  })
+)
 </script>
 
 <template>
-  <BaseTool name="已列出" :summary="summary" :result="result" :status="status" :is-error="isError">
+  <BaseTool :name="name" :summary="summary" :result="result" :status="status" :is-error="isError">
     <template #summary>
       <span class="ls-tool__target">{{ target }}</span>
       <span v-if="limit" class="ls-tool__meta">limit={{ limit }}</span>

@@ -314,6 +314,64 @@ export interface ForkInput extends ThreadIdInput {
   position?: 'before' | 'at'
 }
 
+/** 创建分支线程输入。 */
+export interface ForkThreadInput extends ForkInput {
+  /** 新线程标题；未传时由源线程标题派生。 */
+  title?: string
+}
+
+/** 创建分支线程结果。 */
+export interface ForkThreadResult {
+  /** 是否被 hook 取消。 */
+  cancelled: boolean
+  /** 新分支线程快照；取消时不存在。 */
+  snapshot?: ThreadSnapshot
+}
+
+/** Session tree 导航输入。 */
+export interface NavigateTreeInput extends ThreadIdInput {
+  /** 目标 entry ID。 */
+  entryId: string
+  /** 是否摘要离开的分支。 */
+  summarize?: boolean
+  /** 自定义摘要指令。 */
+  customInstructions?: string
+}
+
+/** Session tree 导航结果。 */
+export interface NavigateTreeResult {
+  /** 最新线程快照。 */
+  snapshot: ThreadSnapshot
+  /** 需要回填到 composer 的文本，通常来自 user/custom message。 */
+  editorText?: string
+  /** 是否取消。 */
+  cancelled?: boolean
+  /** 是否被中止。 */
+  aborted?: boolean
+}
+
+/** 加载 session tree 子节点输入。 */
+export interface LoadSessionTreeChildrenInput extends ThreadIdInput {
+  /** 父 entry ID；null 表示 roots。 */
+  parentId: string | null
+  /** 返回深度。 */
+  maxDepth?: number
+}
+
+/** 加载 session tree 路径输入。 */
+export interface LoadSessionTreePathInput extends ThreadIdInput {
+  /** 目标 entry ID；未传则使用当前 leaf。 */
+  entryId?: string
+}
+
+/** 设置 session entry label 输入。 */
+export interface SetSessionEntryLabelInput extends ThreadIdInput {
+  /** 目标 entry ID。 */
+  entryId: string
+  /** 新 label；空值表示清除。 */
+  label?: string
+}
+
 /** 重命名线程输入。 */
 export interface RenameThreadInput extends ThreadIdInput {
   /** 新名称。 */
@@ -964,6 +1022,8 @@ export interface DiagnosticsInput {
 export type AgentSessionIpcEvent = PackageAgentSessionEvent & {
   /** 关联线程 ID。 */
   threadId: string
+  /** 与当前 session tree 对应的 entry ID，仅 message_end 持久化后可用。 */
+  sessionEntryId?: string
 }
 
 /** Desktop UI projection IPC 事件。 */
@@ -1093,8 +1153,18 @@ export interface CodingAgentApi {
   exportSession(input: ExportSessionInput): Promise<ExportSessionResult>
   /** 分叉线程。 */
   fork(input: ForkInput): Promise<ThreadSnapshot>
+  /** 从指定节点创建新的分支线程。 */
+  forkThread(input: ForkThreadInput): Promise<ForkThreadResult>
   /** 克隆线程。 */
   clone(threadId: string): Promise<ThreadSnapshot>
+  /** 在当前 session tree 内导航。 */
+  navigateTree(input: NavigateTreeInput): Promise<NavigateTreeResult>
+  /** 加载 session tree 子节点。 */
+  loadSessionTreeChildren(input: LoadSessionTreeChildrenInput): Promise<NonNullable<ThreadSnapshot['sessionTree']>>
+  /** 加载 root 到指定 entry 的路径。 */
+  loadSessionTreePath(input: LoadSessionTreePathInput): Promise<string[]>
+  /** 设置 session entry label。 */
+  setSessionEntryLabel(input: SetSessionEntryLabelInput): Promise<ThreadSnapshot>
   /** 设置线程标题。 */
   setThreadTitle(input: SetThreadTitleInput): Promise<ThreadSummary>
   /** 重命名线程。 */

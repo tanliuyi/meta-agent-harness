@@ -63,30 +63,48 @@ function parseDisplayDiff(diff: string): DiffLine[] {
 
 <style lang="scss" scoped>
 .diff-viewer {
-  --diff-line-number-width: 30px;
-  --diff-marker-width: 18px;
-  --diff-code-bg: var(--color-canvas);
-  --diff-gutter-bg: var(--color-surface-raised);
-  --diff-border: var(--color-border);
-  --diff-text: var(--color-text);
-  --diff-muted: var(--color-text-subtle);
-  --diff-added-bg: var(--color-diff-added-bg);
-  --diff-added-gutter-bg: var(--color-diff-added-gutter-bg);
-  --diff-added-fg: var(--color-primary);
-  --diff-removed-bg: var(--color-diff-removed-bg);
-  --diff-removed-gutter-bg: var(--color-diff-removed-gutter-bg);
-  --diff-removed-fg: var(--color-danger);
-  --diff-skipped-bg: var(--color-surface-raised);
+  --diff-line-number-width: 48px;
+  --diff-marker-width: 22px;
+  --diff-code-bg: #ffffff;
+  --diff-gutter-bg: #f6f8fa;
+  --diff-border: #d0d7de;
+  --diff-text: #24292f;
+  --diff-muted: #57606a;
+  --diff-line-hover-bg: #f6f8fa;
+  --diff-added-bg: #e6ffec;
+  --diff-added-gutter-bg: #ccffd8;
+  --diff-added-fg: #1a7f37;
+  --diff-removed-bg: #ffebe9;
+  --diff-removed-gutter-bg: #ffd7d5;
+  --diff-removed-fg: #cf222e;
+  --diff-skipped-fg: var(--diff-muted);
 
   min-width: 100%;
   max-height: inherit;
   overflow: auto;
   color: var(--diff-text);
   font-family: var(--font-mono);
-  font-size: 12px;
+  font-size: var(--font-size-code);
   font-weight: var(--font-weight-code);
   line-height: 20px;
   background: var(--diff-code-bg);
+  border-radius: inherit;
+}
+
+:global(:root[data-theme='dark']) .diff-viewer {
+  --diff-code-bg: #0d1117;
+  --diff-gutter-bg: #161b22;
+  --diff-border: #30363d;
+  --diff-text: #c9d1d9;
+  --diff-muted: #8b949e;
+  --diff-line-hover-bg: rgb(177 186 196 / 12%);
+  --diff-added-bg: rgb(46 160 67 / 15%);
+  --diff-added-gutter-bg: rgb(46 160 67 / 30%);
+  --diff-added-fg: #3fb950;
+  --diff-removed-bg: rgb(248 81 73 / 15%);
+  --diff-removed-gutter-bg: rgb(248 81 73 / 30%);
+  --diff-removed-fg: #f85149;
+  --diff-skipped-fg: var(--diff-muted);
 }
 
 .diff-viewer__line {
@@ -94,6 +112,11 @@ function parseDisplayDiff(diff: string): DiffLine[] {
   grid-template-columns: var(--diff-line-number-width) var(--diff-marker-width) minmax(24rem, 1fr);
   width: max-content;
   min-width: 100%;
+  min-height: 20px;
+}
+
+.diff-viewer__line:hover {
+  background: var(--diff-line-hover-bg);
 }
 
 .diff-viewer__line--added {
@@ -105,14 +128,14 @@ function parseDisplayDiff(diff: string): DiffLine[] {
 }
 
 .diff-viewer__line--skipped {
-  background: var(--diff-skipped-bg);
+  color: var(--diff-skipped-fg);
 }
 
 .diff-viewer__line-number {
   position: sticky;
   left: 0;
   z-index: 2;
-  padding: 0 6px 0 2px;
+  padding: 0 8px 0 6px;
   color: var(--diff-muted);
   background: var(--diff-gutter-bg);
   text-align: right;
@@ -129,26 +152,39 @@ function parseDisplayDiff(diff: string): DiffLine[] {
 }
 
 .diff-viewer__line--skipped .diff-viewer__line-number {
-  background: var(--diff-skipped-bg);
+  background: var(--diff-gutter-bg);
+  color: var(--diff-skipped-fg);
 }
 
 .diff-viewer__marker {
-  padding: 0 3px;
+  position: sticky;
+  left: var(--diff-line-number-width);
+  z-index: 2;
+  padding: 0 4px;
   color: var(--diff-muted);
+  background: var(--diff-code-bg);
   text-align: center;
   user-select: none;
+  border-right: 1px solid transparent;
 }
 
 .diff-viewer__line--added .diff-viewer__marker {
   color: var(--diff-added-fg);
+  background: var(--diff-added-bg);
 }
 
 .diff-viewer__line--removed .diff-viewer__marker {
   color: var(--diff-removed-fg);
+  background: var(--diff-removed-bg);
+}
+
+.diff-viewer__line--skipped .diff-viewer__marker {
+  color: var(--diff-skipped-fg);
+  background: var(--diff-code-bg);
 }
 
 .diff-viewer__content {
-  padding: 0 16px 0 4px;
+  padding: 0 16px 0 8px;
   white-space: pre;
 }
 </style>

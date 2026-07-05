@@ -6,15 +6,23 @@ import type {
   ExportSessionInput,
   ExportSessionResult,
   ForkInput,
+  ForkThreadInput,
+  ForkThreadResult,
   ImportSessionInput,
+  LoadSessionTreeChildrenInput,
+  LoadSessionTreePathInput,
+  NavigateTreeInput,
+  NavigateTreeResult,
   NewSessionInput,
   RenameThreadInput,
+  SetSessionEntryLabelInput,
   SetThreadTitleInput,
   SwitchSessionInput,
   ThreadSnapshot,
   ThreadSummary
 } from '@shared/coding-agent/types'
 import type { ThreadManagerCore } from './thread-manager-core'
+import { createThread } from './thread-lifecycle'
 
 /**
  * 创建新会话。
@@ -98,6 +106,117 @@ export async function fork(core: ThreadManagerCore, input: ForkInput): Promise<T
 }
 
 /**
+ * 从指定 entry 创建新的分支 thread，不替换源 thread 的 session。
+ * @param core - thread 管理核心。
+ * @param input - 分支输入。
+ * @returns 创建结果；hook 取消时不包含 snapshot。
+ */
+export async function forkThread(
+  core: ThreadManagerCore,
+  input: ForkThreadInput
+): Promise<ForkThreadResult> {
+  const sourceThread = core.requireThread(input.threadId)
+  const result = await core.sendData<{
+    sessionFile?: string
+    cancelled?: boolean
+  }>(input.threadId, {
+    type: 'create_fork_session',
+    entryId: input.entryId,
+    position: input.position
+  })
+  if (result.cancelled) {
+    return { cancelled: true }
+  }
+  if (!result.sessionFile) {
+    throw new Error('fork did not return a session file')
+  }
+  const snapshot = await createThread(core, {
+    projectId: sourceThread.projectId,
+    sessionFile: result.sessionFile,
+    title: input.title?.trim() || createForkThreadTitle(sourceThread.title)
+  })
+  return { cancelled: false, snapshot }
+}
+
+/**
+ * 在当前 session tree 内导航。
+ * @param core - thread 管理核心。
+ * @param input - 导航输入。
+ * @returns 导航结果与最新 snapshot。
+ */
+export async function navigateTree(
+  core: ThreadManagerCore,
+  input: NavigateTreeInput
+): Promise<NavigateTreeResult> {
+  const result = await core.sendData<Omit<NavigateTreeResult, 'snapshot'>>(input.threadId, {
+    type: 'navigate_tree',
+    entryId: input.entryId,
+    summarize: input.summarize,
+    customInstructions: input.customInstructions
+  })
+  return {
+    ...result,
+    snapshot: await snapshotAndSyncThread(core, input.threadId)
+  }
+}
+
+/**
+ * 加载 session tree 子节点。
+ * @param core - thread 管理核心。
+ * @param input - 加载输入。
+ * @returns 子节点列表。
+ */
+export async function loadSessionTreeChildren(
+  core: ThreadManagerCore,
+  input: LoadSessionTreeChildrenInput
+): Promise<NonNullable<ThreadSnapshot['sessionTree']>> {
+  const result = await core.sendData<{ children: NonNullable<ThreadSnapshot['sessionTree']> }>(
+    input.threadId,
+    {
+      type: 'get_session_tree_children',
+      parentId: input.parentId,
+      maxDepth: input.maxDepth
+    }
+  )
+  return result.children
+}
+
+/**
+ * 加载 root 到指定 entry 的 session tree 路径。
+ * @param core - thread 管理核心。
+ * @param input - 加载输入。
+ * @returns entry ID 路径。
+ */
+export async function loadSessionTreePath(
+  core: ThreadManagerCore,
+  input: LoadSessionTreePathInput
+): Promise<string[]> {
+  const result = await core.sendData<{ path: string[] }>(input.threadId, {
+    type: 'get_session_tree_path',
+    entryId: input.entryId
+  })
+  return result.path
+}
+
+/**
+ * 设置 session entry label。
+ * @param core - thread 管理核心。
+ * @param input - label 输入。
+ * @returns 最新 snapshot。
+ */
+export async function setSessionEntryLabel(
+  core: ThreadManagerCore,
+  input: SetSessionEntryLabelInput
+): Promise<ThreadSnapshot> {
+  await core.sendOk(input.threadId, {
+    type: 'set_session_entry_label',
+    entryId: input.entryId,
+    label: input.label
+  })
+  return await snapshotAndSyncThread(core, input.threadId)
+}
+
+/**
  * 克隆当前会话。
  * @param core - thread 管理核心。
  * @param threadId - thread ID。
@@ -171,4 +290,14 @@ async function snapshotAndSyncThread(
     title: snapshot.title
   })
   return snapshot
+}
+
+/**
+ * 为分支 thread 派生标题。
+ * @param sourceTitle - 源 thread 标题。
+ * @returns 分支标题。
+ */
+function createForkThreadTitle(sourceTitle?: string): string {
+  const title = sourceTitle?.trim()
+  return title ? `${title} · 分支` : '分支会话'
 }

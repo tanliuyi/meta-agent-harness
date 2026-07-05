@@ -7,7 +7,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { resolveSessionCwd, SessionManager } from "../../core/session-manager.ts";
-import { buildSnapshotFromSession } from "../storage/session-snapshot.ts";
+import { buildSnapshotFromSession, toDesktopSessionTreeChildren } from "../storage/session-snapshot.ts";
 
 const roots: string[] = [];
 
@@ -27,8 +27,8 @@ describe("buildSnapshotFromSession", () => {
 		const cwd = join(root, "repo");
 		const sessionDir = join(root, "sessions");
 		const manager = SessionManager.create(cwd, sessionDir);
-		manager.appendMessage({ role: "user", content: "hello", timestamp: 1 });
-		manager.appendMessage({ role: "assistant", content: "world", timestamp: 2 });
+		const userEntryId = manager.appendMessage({ role: "user", content: "hello", timestamp: 1 });
+		const assistantEntryId = manager.appendMessage({ role: "assistant", content: "world", timestamp: 2 });
 		manager.appendModelChange("openai", "gpt-test");
 		manager.appendThinkingLevelChange("high");
 		manager.appendSessionInfo("测试会话");
@@ -58,9 +58,9 @@ describe("buildSnapshotFromSession", () => {
 			model: { provider: "openai", id: "gpt-test" },
 			thinkingLevel: "high",
 		});
-		expect(snapshot.messages.map((message) => ({ role: message.role, text: message.text }))).toEqual([
-			{ role: "user", text: "hello" },
-			{ role: "assistant", text: "world" },
+		expect(snapshot.messages.map((message) => ({ role: message.role, text: message.text, sessionEntryId: message.sessionEntryId }))).toEqual([
+			{ role: "user", text: "hello", sessionEntryId: userEntryId },
+			{ role: "assistant", text: "world", sessionEntryId: assistantEntryId },
 		]);
 		expect(snapshot.currentEntryId).toBe(leafId);
 		expect(snapshot.sessionTree).toMatchObject([
@@ -79,6 +79,74 @@ describe("buildSnapshotFromSession", () => {
 		expect(resolveSessionCwd(sessionFile, join(root, "fallback"), join(root, "override"))).toBe(
 			join(root, "override"),
 		);
+	});
+
+	it("持久化 snapshot 的 sessionEntryId 跳过不可操作的 message entry", () => {
+		const root = mkdtempSync(join(tmpdir(), "desktop-session-"));
+		roots.push(root);
+		const cwd = join(root, "repo");
+		const sessionDir = join(root, "sessions");
+		const manager = SessionManager.create(cwd, sessionDir);
+		manager.appendCustomMessageEntry("note", "system note", true);
+		const userEntryId = manager.appendMessage({ role: "user", content: "hello", timestamp: 1 });
+		manager.appendMessage({
+			role: "assistant",
+			content: [],
+			api: "responses",
+			provider: "openai",
+			model: "gpt-test",
+			usage: {
+				input: 1,
+				output: 0,
+				cacheRead: 0,
+				cacheWrite: 0,
+				totalTokens: 1,
+				cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+			},
+			stopReason: "toolUse",
+			timestamp: 2,
+		});
+		const assistantEntryId = manager.appendMessage({ role: "assistant", content: "world", timestamp: 3 });
+		const sessionFile = manager.getSessionFile();
+		if (!sessionFile) {
+			throw new Error("session file is required");
+		}
+
+		const snapshot = buildSnapshotFromSession({
+			thread: {
+				threadId: "thread-1",
+				cwd,
+				status: "stopped",
+				createdAt: "2026-07-01T00:00:00.000Z",
+				updatedAt: "2026-07-01T00:00:00.000Z",
+			},
+			sessionFile,
+		});
+
+		expect(snapshot.messages.map((message) => ({ role: message.role, text: message.text, sessionEntryId: message.sessionEntryId }))).toEqual([
+			{ role: "system", text: "system note", sessionEntryId: undefined },
+			{ role: "user", text: "hello", sessionEntryId: userEntryId },
+			{ role: "assistant", text: "world", sessionEntryId: assistantEntryId },
+		]);
+	});
+
+	it("label 变更不推进当前 leaf，且 reload 后保持原 leaf", () => {
+		const root = mkdtempSync(join(tmpdir(), "desktop-session-"));
+		roots.push(root);
+		const cwd = join(root, "repo");
+		const sessionDir = join(root, "sessions");
+		const manager = SessionManager.create(cwd, sessionDir);
+		manager.appendMessage({ role: "user", content: "hello", timestamp: 1 });
+		const assistantEntryId = manager.appendMessage({ role: "assistant", content: "world", timestamp: 2 });
+		const sessionFile = manager.getSessionFile();
+		if (!sessionFile) {
+			throw new Error("session file is required");
+		}
+
+		manager.appendLabelChange(assistantEntryId, "Important");
+
+		expect(manager.getLeafId()).toBe(assistantEntryId);
+		expect(SessionManager.open(sessionFile, sessionDir).getLeafId()).toBe(assistantEntryId);
 	});
 
 	it("从 assistant toolCall block 派生工具调用参数", () => {
@@ -280,6 +348,49 @@ describe("buildSnapshotFromSession", () => {
 				},
 			],
 		});
+	});
+
+	it("session tree 默认浅层返回并标记可继续加载的子节点", () => {
+		const root = mkdtempSync(join(tmpdir(), "desktop-session-"));
+		roots.push(root);
+		const cwd = join(root, "repo");
+		const sessionDir = join(root, "sessions");
+		const manager = SessionManager.create(cwd, sessionDir);
+		const ids = [
+			manager.appendMessage({ role: "user", content: "one", timestamp: 1 }),
+			manager.appendMessage({ role: "assistant", content: "two", timestamp: 2 }),
+			manager.appendMessage({ role: "user", content: "three", timestamp: 3 }),
+			manager.appendMessage({ role: "assistant", content: "four", timestamp: 4 }),
+			manager.appendMessage({ role: "user", content: "five", timestamp: 5 }),
+		];
+
+		const shallow = toDesktopSessionTreeChildren(manager.getTree(), null, 1);
+		expect(shallow).toMatchObject([
+			{
+				id: ids[0],
+				children: [
+					{
+						id: ids[1],
+						hasMoreChildren: true,
+						children: [],
+					},
+				],
+			},
+		]);
+
+		const children = toDesktopSessionTreeChildren(manager.getTree(), ids[1], 1);
+		expect(children).toMatchObject([
+			{
+				id: ids[2],
+				children: [
+					{
+						id: ids[3],
+						hasMoreChildren: true,
+						children: [],
+					},
+				],
+			},
+		]);
 	});
 
 	/** 验证 cwd 解析复用完整 JSONL parser，不依赖短读 header。 */

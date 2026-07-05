@@ -5,6 +5,7 @@
 import { createDesktopError } from "../protocol/error.ts";
 import { createWorkerErrorResponse, createWorkerResponse, type WorkerCommandEnvelope, type WorkerResponseEnvelope } from "../protocol/envelope.ts";
 import type { CanonicalAgentCommand } from "../protocol/commands/canonical.ts";
+import { toDesktopSessionTreeChildren } from "../storage/session-snapshot.ts";
 import { rebindIfNeeded, type RuntimeCommandHandlerHost } from "./runtime-command-host.ts";
 
 /**
@@ -42,10 +43,47 @@ export async function handleRuntimeSessionCommand(
 			await rebindIfNeeded(host, result.cancelled);
 			return createWorkerResponse(envelope.id, command.type, result);
 		}
-		case "fork": {
-			const result = await host.runtime.fork(command.entryId, { position: command.position });
-			await rebindIfNeeded(host, result.cancelled);
-			return createWorkerResponse(envelope.id, command.type, { text: result.selectedText, cancelled: result.cancelled });
+			case "fork": {
+				const result = await host.runtime.fork(command.entryId, { position: command.position });
+				await rebindIfNeeded(host, result.cancelled);
+				return createWorkerResponse(envelope.id, command.type, { text: result.selectedText, cancelled: result.cancelled });
+			}
+			case "create_fork_session": {
+				const result = await host.runtime.createForkedSessionFile(command.entryId, { position: command.position });
+				return createWorkerResponse(envelope.id, command.type, {
+					sessionFile: result.sessionFile,
+					text: result.selectedText,
+					cancelled: result.cancelled,
+				});
+			}
+			case "navigate_tree": {
+				const result = await session.navigateTree(command.entryId, {
+					summarize: command.summarize,
+					customInstructions: command.customInstructions,
+			});
+			return createWorkerResponse(envelope.id, command.type, {
+				editorText: result.editorText,
+				cancelled: result.cancelled,
+				aborted: result.aborted,
+			});
+		}
+		case "get_session_tree_children": {
+			return createWorkerResponse(envelope.id, command.type, {
+				children: toDesktopSessionTreeChildren(
+					session.sessionManager.getTree(),
+					command.parentId,
+					command.maxDepth,
+				),
+			});
+		}
+		case "get_session_tree_path": {
+			return createWorkerResponse(envelope.id, command.type, {
+				path: session.sessionManager.getBranch(command.entryId).map((entry) => entry.id),
+			});
+		}
+		case "set_session_entry_label": {
+			session.sessionManager.appendLabelChange(command.entryId, command.label?.trim() || undefined);
+			return createWorkerResponse(envelope.id, command.type, undefined);
 		}
 		case "clone": {
 			const leafId = session.sessionManager.getLeafId();
