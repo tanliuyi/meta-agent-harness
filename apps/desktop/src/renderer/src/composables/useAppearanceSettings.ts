@@ -60,10 +60,14 @@ function readStoredFontSize(
  * @param range - 可用范围。
  * @returns 合法字体大小。
  */
-function normalizeFontSize(
-  value: number | string | null,
+export function normalizeFontSize(
+  value: number | string | null | undefined,
   range: typeof UI_FONT_SIZE_RANGE | typeof CODE_FONT_SIZE_RANGE
 ): number {
+  if (value === null || value === undefined || value === '') {
+    return range.defaultValue
+  }
+
   const parsed = Number(value)
 
   if (!Number.isFinite(parsed)) {
@@ -93,7 +97,7 @@ function applyFontSizes(nextUiFontSize: number, nextCodeFontSize: number): void 
  * 设置 UI 字体大小。
  * @param value - 目标字体大小。
  */
-function setUiFontSize(value: number | string): void {
+function setUiFontSize(value: number | string | null | undefined): void {
   uiFontSize.value = normalizeFontSize(value, UI_FONT_SIZE_RANGE)
 }
 
@@ -101,7 +105,7 @@ function setUiFontSize(value: number | string): void {
  * 设置代码字体大小。
  * @param value - 目标字体大小。
  */
-function setCodeFontSize(value: number | string): void {
+function setCodeFontSize(value: number | string | null | undefined): void {
   codeFontSize.value = normalizeFontSize(value, CODE_FONT_SIZE_RANGE)
 }
 

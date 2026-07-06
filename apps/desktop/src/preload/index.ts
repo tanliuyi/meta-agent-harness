@@ -19,6 +19,13 @@ interface WindowControlApi {
 }
 
 /**
+ * 渲染进程启动时即可同步读取的运行时信息。
+ */
+interface RuntimeApi {
+  platform: NodeJS.Platform
+}
+
+/**
  * 调用 main IPC 并解包结构化结果。
  * @param channel - IPC channel。
  * @param args - 参数。
@@ -138,7 +145,11 @@ const windowControl: WindowControlApi = {
 /**
  * 注入到 window 的受控 API 集合。
  */
-const api = { codingAgent, windowControl }
+const runtime: RuntimeApi = {
+  platform: process.platform
+}
+
+const api = { codingAgent, runtime, windowControl }
 
 if (process.contextIsolated) {
   try {

@@ -11,6 +11,9 @@ export interface WindowControlApi {
 
 export interface MetaAgentApi {
   codingAgent: import('@shared/coding-agent/types').CodingAgentApi
+  runtime: {
+    platform: NodeJS.Platform
+  }
   windowControl: WindowControlApi
 }
 

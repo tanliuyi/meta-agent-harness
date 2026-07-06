@@ -112,7 +112,7 @@ const styles = computed(() => {
 
   span {
     color: var(--color-text-muted);
-    font-family: var(--font-mono);
+    font-family: var(--font-mono) !important;
     font-size: var(--font-size-ui-xs);
   }
 }

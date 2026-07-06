@@ -12,12 +12,12 @@ const workspaceViewSettings = useWorkspaceViewSettings()
 
 const uiFontSizeModel = computed({
   get: () => appearanceSettings.uiFontSize.value,
-  set: (value: number | string) => appearanceSettings.setUiFontSize(value)
+  set: (value: number | string | null | undefined) => appearanceSettings.setUiFontSize(value)
 })
 
 const codeFontSizeModel = computed({
   get: () => appearanceSettings.codeFontSize.value,
-  set: (value: number | string) => appearanceSettings.setCodeFontSize(value)
+  set: (value: number | string | null | undefined) => appearanceSettings.setCodeFontSize(value)
 })
 </script>
 

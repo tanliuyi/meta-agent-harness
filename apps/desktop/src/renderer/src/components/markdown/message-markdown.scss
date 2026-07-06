@@ -121,7 +121,7 @@
   .markstream-vue .inline-code,
   .inline-code,
   .streaming-inline-code {
-    font-family: var(--font-mono);
+    font-family: var(--font-mono) !important;
     font-size: var(--font-size-code);
     font-weight: var(--font-weight-code);
   }
@@ -141,7 +141,7 @@
   .markstream-vue pre code,
   .streaming-code-block,
   .streaming-code-block code {
-    font-family: var(--font-mono);
+    font-family: var(--font-mono) !important;
     font-weight: var(--font-weight-code);
   }
 

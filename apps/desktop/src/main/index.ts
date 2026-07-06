@@ -127,12 +127,11 @@ app.whenReady().then(async () => {
     optimizer.watchWindowShortcuts(window)
   })
 
-  // IPC 测试
   ipcMain.on('ping', () => console.log('pong'))
-  registerCodingAgentIpc()
   registerWindowControlIpc()
 
   createWindow()
+  registerCodingAgentIpc()
 
   app.on('activate', function () {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()

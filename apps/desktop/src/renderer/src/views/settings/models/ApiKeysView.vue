@@ -528,7 +528,7 @@ async function cancelOAuthPrompt(): Promise<void> {
 
   strong {
     color: var(--color-text);
-    font-family: var(--font-mono);
+    font-family: var(--font-mono) !important;
     font-size: var(--font-size-ui-lg);
     letter-spacing: 0;
   }

@@ -112,7 +112,7 @@
 
   span {
     color: var(--color-text-subtle);
-    font-family: var(--font-mono);
+    font-family: var(--font-mono) !important;
     font-size: var(--font-size-ui-xs);
   }
 

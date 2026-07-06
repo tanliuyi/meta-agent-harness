@@ -10,18 +10,27 @@
  */
 
 import { Minus, Minimize2, X, Maximize2 } from 'lucide-vue-next'
-import { onMounted, ref } from 'vue'
+import { onMounted, onUnmounted, ref } from 'vue'
 import { useAppStore } from '@renderer/stores/app'
 
 const app = useAppStore()
 const isMaximized = ref(false)
 
-onMounted(async () => {
+async function refreshMaximizedState(): Promise<void> {
   isMaximized.value = await window.api.windowControl.isMaximized()
+}
 
-  window.addEventListener('resize', async () => {
-    isMaximized.value = await window.api.windowControl.isMaximized()
-  })
+onMounted(async () => {
+  if (app.isMac) {
+    return
+  }
+
+  await refreshMaximizedState()
+  window.addEventListener('resize', refreshMaximizedState)
+})
+
+onUnmounted(() => {
+  window.removeEventListener('resize', refreshMaximizedState)
 })
 
 async function handleMinimize(): Promise<void> {
@@ -30,7 +39,7 @@ async function handleMinimize(): Promise<void> {
 
 async function handleMaximize(): Promise<void> {
   await window.api.windowControl.maximize()
-  isMaximized.value = await window.api.windowControl.isMaximized()
+  await refreshMaximizedState()
 }
 
 async function handleClose(): Promise<void> {

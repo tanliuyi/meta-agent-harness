@@ -5,6 +5,13 @@
 import { defineStore } from 'pinia'
 
 /**
+ * 读取 preload 注入的同步运行时信息；测试或降级环境没有注入时返回 null。
+ */
+function getInitialPlatform(): string | null {
+  return window.api?.runtime?.platform ?? null
+}
+
+/**
  * 应用级 Store。
  * 提供应用名称、运行平台等全局基础状态。
  */
@@ -14,7 +21,7 @@ export const useAppStore = defineStore('app', {
     name: 'Meta Agent',
 
     /** 当前运行平台。 */
-    platform: null as string | null
+    platform: getInitialPlatform()
   }),
   getters: {
     /** 是否运行在 macOS。 */

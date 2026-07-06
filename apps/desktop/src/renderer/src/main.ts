@@ -16,14 +16,14 @@ import './styles/base.scss'
 /**
  * 初始化并挂载 Vue 应用实例。
  */
-async function bootstrap(): Promise<void> {
+function bootstrap(): void {
   const app = createApp(App)
 
   app.use(pinia).use(router)
 
-  await useAppStore(pinia).initializeRuntime()
-
   app.mount('#app')
+
+  void useAppStore(pinia).initializeRuntime()
 }
 
-void bootstrap()
+bootstrap()

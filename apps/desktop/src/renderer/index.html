@@ -28,14 +28,20 @@
           document.documentElement.dataset.theme = resolvedTheme
           document.documentElement.style.colorScheme = resolvedTheme
 
-          const uiFontSize = Number(window.localStorage.getItem('meta-agent.ui-font-size'))
-          const codeFontSize = Number(window.localStorage.getItem('meta-agent.code-font-size'))
-          const normalizedUiFontSize = Number.isFinite(uiFontSize)
-            ? Math.min(16, Math.max(11, Math.round(uiFontSize)))
-            : 14
-          const normalizedCodeFontSize = Number.isFinite(codeFontSize)
-            ? Math.min(18, Math.max(11, Math.round(codeFontSize)))
-            : 13
+          const storedUiFontSize = window.localStorage.getItem('meta-agent.ui-font-size')
+          const storedCodeFontSize = window.localStorage.getItem('meta-agent.code-font-size')
+          const normalizeFontSize = (value, min, max, defaultValue) => {
+            if (value === null || value === '') {
+              return defaultValue
+            }
+            const parsed = Number(value)
+            if (!Number.isFinite(parsed)) {
+              return defaultValue
+            }
+            return Math.min(max, Math.max(min, Math.round(parsed)))
+          }
+          const normalizedUiFontSize = normalizeFontSize(storedUiFontSize, 11, 16, 14)
+          const normalizedCodeFontSize = normalizeFontSize(storedCodeFontSize, 11, 18, 13)
 
           document.documentElement.style.setProperty('--font-size-ui', `${normalizedUiFontSize}px`)
           document.documentElement.style.setProperty(
@@ -74,14 +80,14 @@
     </script>
     <link
       rel="preload"
-      href="/src/assets/fonts/SourceHanSansSC-VF.woff2"
+      href="/fonts/SourceHanSansSC-VF.woff2"
       as="font"
       type="font/woff2"
       crossorigin
     />
     <link
       rel="preload"
-      href="/src/assets/fonts/JetBrainsMono-Regular.woff2"
+      href="/fonts/JetBrainsMono-Regular.woff2"
       as="font"
       type="font/woff2"
       crossorigin

@@ -241,7 +241,7 @@
 }
 
 .json-field textarea {
-  font-family: var(--font-mono);
+  font-family: var(--font-mono) !important;
   font-weight: var(--font-weight-code);
 }
 

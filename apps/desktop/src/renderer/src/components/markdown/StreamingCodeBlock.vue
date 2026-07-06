@@ -162,7 +162,7 @@ watch(
   padding: var(--space-1) var(--space-2);
   color: var(--color-text-muted);
   font-size: var(--font-size-ui-sm);
-  font-family: var(--font-mono);
+  font-family: var(--font-mono) !important;
   background: var(--code-block-header-bg);
   border-bottom: 1px solid var(--color-border);
 }
@@ -188,7 +188,7 @@ watch(
 .streaming-code-block__pre,
 .streaming-code-block__highlight {
   margin: 0;
-  font-family: var(--font-mono);
+  font-family: var(--font-mono) !important;
   font-size: var(--font-size-code);
   font-weight: var(--font-weight-code);
   line-height: var(--markdown-code-line-height);
