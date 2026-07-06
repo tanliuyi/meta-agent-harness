@@ -1,5 +1,5 @@
 import type { ThreadSnapshot } from '@shared/coding-agent/types'
-import { isRecord } from '../message-format'
+import { isRecord } from '../../support/message-format'
 
 export type ToolCall = ThreadSnapshot['toolCalls'][number]
 export type GroupableToolCall = Pick<ToolCall, 'toolCallId' | 'toolName' | 'args'>

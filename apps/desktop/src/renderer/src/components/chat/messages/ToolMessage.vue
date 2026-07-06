@@ -1,8 +1,7 @@
 <script setup lang="ts">
 import { computed, type Component } from 'vue'
-import type { ThreadSnapshot } from '@shared/coding-agent/types'
-import { getMessageRawRecord } from './message-format'
-import type { RenderableThreadMessage } from './renderable-message'
+import type { ThreadMessage, ThreadSnapshot } from '@shared/coding-agent/types'
+import { getMessageRawRecord } from './support/message-format'
 import BashTool from './tools/BashTool.vue'
 import DefaultTool from './tools/DefaultTool.vue'
 import EditTool from './tools/EditTool.vue'
@@ -13,7 +12,7 @@ import ReadTool from './tools/ReadTool.vue'
 import WriteTool from './tools/WriteTool.vue'
 
 const props = defineProps<{
-  message?: RenderableThreadMessage
+  message?: ThreadMessage
   toolCall?: ThreadSnapshot['toolCalls'][number]
 }>()
 

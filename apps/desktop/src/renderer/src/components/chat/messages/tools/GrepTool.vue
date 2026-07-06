@@ -13,7 +13,7 @@ import {
   joinSummary,
   truncateSummary,
   type ToolComponentProps
-} from './tool-message'
+} from './support/tool-message'
 
 const props = defineProps<ToolComponentProps>()
 

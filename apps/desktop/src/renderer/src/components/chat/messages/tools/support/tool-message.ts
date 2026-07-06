@@ -1,6 +1,10 @@
-import type { ThreadSnapshot } from '@shared/coding-agent/types'
-import type { RenderableThreadMessage } from '../renderable-message'
-import { formatUnknown, getMessageRawRecord, getMessageText, isRecord } from '../message-format'
+import type { ThreadMessage, ThreadSnapshot } from '@shared/coding-agent/types'
+import {
+  formatUnknown,
+  getMessageRawRecord,
+  getMessageText,
+  isRecord
+} from '../../support/message-format'
 
 export type ToolCall = ThreadSnapshot['toolCalls'][number]
 export type ToolStatus = ToolCall['status']
@@ -14,7 +18,7 @@ export interface ToolStatusLabels {
 }
 
 export interface ToolComponentProps {
-  message?: RenderableThreadMessage
+  message?: ThreadMessage
   toolCall?: ToolCall
 }
 
@@ -44,7 +48,7 @@ export function getToolDetails(toolCall: ToolCall | undefined): Record<string, u
  * @returns 展示文本。
  */
 export function getToolResultText(
-  message: RenderableThreadMessage | undefined,
+  message: ThreadMessage | undefined,
   toolCall: ToolCall | undefined
 ): string | undefined {
   return (
@@ -63,7 +67,7 @@ export function getToolResultText(
  * @returns 是否错误。
  */
 export function isToolError(
-  message: RenderableThreadMessage | undefined,
+  message: ThreadMessage | undefined,
   toolCall: ToolCall | undefined
 ): boolean {
   return (

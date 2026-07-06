@@ -186,7 +186,7 @@ watch(
     pre {
       margin: 0;
       color: inherit;
-      font-family: var(--font-mono);
+      font-family: var(--font-mono) !important;
       font-size: var(--font-size-code);
       font-weight: var(--font-weight-code);
       min-width: 100%;

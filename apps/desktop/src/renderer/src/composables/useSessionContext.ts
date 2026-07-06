@@ -2,8 +2,9 @@
  * useSessionContext.ts - 提供 workspace session 上下文注入与读取能力。
  */
 
-import { computed, inject, provide, toValue } from 'vue'
-import type { ComputedRef, InjectionKey, MaybeRefOrGetter } from 'vue'
+import { computed, inject, provide, readonly, ref, toValue } from 'vue'
+import type { ComputedRef, InjectionKey, MaybeRefOrGetter, Ref } from 'vue'
+import type { SessionPanelTabId } from '@renderer/components/session/panel/model/types'
 import type { ThreadStatus } from '@shared/coding-agent/types'
 
 /** 会话状态类型。 */
@@ -31,12 +32,25 @@ export type SessionPanelState = {
   width: number
 }
 
+export type SessionPanelTabRequest = {
+  /** 目标 tab ID。 */
+  tabId: SessionPanelTabId
+  /** tab 自定义参数。 */
+  params?: Record<string, unknown>
+  /** 单调递增请求 ID，用于重复请求同一 tab 时触发 watch。 */
+  requestId: number
+}
+
 /** 会话上下文对象。 */
 export type SessionContext = {
   /** 面板状态计算属性。 */
   panel: ComputedRef<SessionPanelState>
   /** 会话信息计算属性。 */
   session: ComputedRef<SessionInfo>
+  /** 请求打开面板 tab。 */
+  panelTabRequest: Readonly<Ref<SessionPanelTabRequest | undefined>>
+  /** 打开面板 tab。 */
+  openPanelTab: (tabId: SessionPanelTabId, params?: Record<string, unknown>) => void
   /** 设置面板展开状态。 */
   setPanelOpen: (open: boolean) => void
   /** 设置面板宽度。 */
@@ -69,9 +83,22 @@ export const provideSessionContext = ({
   setPanelWidth,
   session
 }: ProvideSessionContextOptions): SessionContext => {
+  const panelTabRequest = ref<SessionPanelTabRequest>()
+
+  const openPanelTab = (tabId: SessionPanelTabId, params?: Record<string, unknown>): void => {
+    setPanelOpen(true)
+    panelTabRequest.value = {
+      tabId,
+      params,
+      requestId: (panelTabRequest.value?.requestId ?? 0) + 1
+    }
+  }
+
   const context: SessionContext = {
     panel: computed(() => toValue(panel)),
     session: computed(() => toValue(session)),
+    panelTabRequest: readonly(panelTabRequest),
+    openPanelTab,
     setPanelOpen,
     setPanelWidth
   }

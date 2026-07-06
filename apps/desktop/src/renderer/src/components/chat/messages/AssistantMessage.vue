@@ -1,15 +1,17 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
-import type { RenderableThreadMessage } from './renderable-message'
-import { formatMessageTime, getMessageText } from './message-format'
+import type { ThreadMessage } from '@shared/coding-agent/types'
+import { formatMessageTime, getMessageText } from './support/message-format'
 import StreamingMarkdown from '../../markdown/StreamingMarkdown.vue'
 import BaseIconButton from '@/components/base/BaseIconButton.vue'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { Check, Copy, CornerDownRight, GitFork, MapPin } from 'lucide-vue-next'
 
 const props = defineProps<{
-  message: RenderableThreadMessage
+  message: ThreadMessage
   text?: string
+  revision?: number
+  isStreaming?: boolean
   /** 是否是最终回复（无工具调用的 assistant 消息）。 */
   isFinalReply?: boolean
   /** 消息更新是否已完成。 */
@@ -65,8 +67,8 @@ function navigateTree(): void {
     <div class="assistant-message">
       <StreamingMarkdown
         :source="source"
-        :revision="message.revision"
-        :is-streaming="message.renderState === 'streaming'"
+        :revision="revision ?? 1"
+        :is-streaming="Boolean(isStreaming)"
         :message-id="message.id"
       />
     </div>

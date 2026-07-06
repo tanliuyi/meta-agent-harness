@@ -1,127 +1,100 @@
 <script setup lang="ts">
-import { computed, ref, type CSSProperties } from 'vue'
-import { useVirtualizer, type VirtualItem } from '@tanstack/vue-virtual'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch, type CSSProperties } from 'vue'
+import { useVirtualizer } from '@tanstack/vue-virtual'
 import ScrollArea from '@renderer/components/ui/scroll-area/ScrollArea.vue'
-
-type DiffLineKind = 'added' | 'removed' | 'context' | 'skipped'
-
-interface DiffLine {
-  key: string
-  kind: DiffLineKind
-  lineNumber?: number
-  marker: '' | '+' | '-'
-  text: string
-}
-
-interface ParsedDisplayDiff {
-  lines: DiffLine[]
-  contentColumns: number
-}
-
-interface VirtualDiffLineRow {
-  line: DiffLine
-  virtualItem: VirtualItem
-  transform: string
-}
+import {
+  createVirtualDiffLineRows,
+  measureDiffContentWidth,
+  parseDisplayDiff
+} from './display/diffDisplay'
 
 type ScrollAreaInstance = {
   getViewport: () => HTMLElement | undefined
 }
 
 const DIFF_LINE_HEIGHT = 20
+type MaybeRefValue<T> = T extends { value: infer Value } ? Value : T
+type DiffVirtualizerOptions = MaybeRefValue<Parameters<typeof useVirtualizer>[0]>
 
 const props = defineProps<{
   diff: string
 }>()
 
+const viewerRef = ref<HTMLElement>()
 const scrollAreaRef = ref<ScrollAreaInstance | null>(null)
+const measuredContentWidth = ref<number>()
+let measureRaf: number | null = null
 
 const parsedDiff = computed(() => parseDisplayDiff(props.diff))
 const lines = computed(() => parsedDiff.value.lines)
-const virtualizer = useVirtualizer(
-  computed(() => ({
-    count: lines.value.length,
-    getScrollElement: () => scrollAreaRef.value?.getViewport() ?? null,
-    estimateSize: () => DIFF_LINE_HEIGHT,
+const getDiffScrollElement = (): HTMLElement | null => scrollAreaRef.value?.getViewport() ?? null
+const estimateDiffLineSize = (): number => DIFF_LINE_HEIGHT
+const virtualizerOptions = computed<DiffVirtualizerOptions>((previous) => {
+  const count = lines.value.length
+  if (previous?.count === count) {
+    return previous
+  }
+  return {
+    count,
+    getScrollElement: getDiffScrollElement,
+    estimateSize: estimateDiffLineSize,
     overscan: 12
-  }))
-)
+  }
+})
+const virtualizer = useVirtualizer(virtualizerOptions)
 const virtualItems = computed(() => virtualizer.value.getVirtualItems())
 const virtualTotalSize = computed(() => virtualizer.value.getTotalSize())
-const virtualRows = computed<VirtualDiffLineRow[]>(() => {
-  const sourceLines = lines.value
-  const rows: VirtualDiffLineRow[] = []
-
-  for (const virtualItem of virtualItems.value) {
-    const line = sourceLines[virtualItem.index]
-    if (line) {
-      rows.push({
-        line,
-        virtualItem,
-        transform: `translateY(${virtualItem.start}px)`
-      })
-    }
-  }
-
-  return rows
-})
+const virtualRows = computed(() => createVirtualDiffLineRows(virtualItems.value, lines.value))
 const viewerStyle = computed<CSSProperties>(() => ({
-  '--diff-content-width': `${parsedDiff.value.contentColumns}ch`,
+  '--diff-content-width': measuredContentWidth.value
+    ? `${measuredContentWidth.value}px`
+    : `${parsedDiff.value.contentColumns}ch`,
   '--diff-line-height': `${DIFF_LINE_HEIGHT}px`
 }))
 const tableStyle = computed<CSSProperties>(() => ({
   height: `${virtualTotalSize.value}px`
 }))
 
-function parseDisplayDiff(diff: string): ParsedDisplayDiff {
-  let contentColumns = 48
-  const lines = diff.split('\n').map<DiffLine>((line, index) => {
-    const match = line.match(/^([+\- ])(\s*\d+)\s(.*)$/)
-    if (!match) {
-      const text = line.trim() === '...' ? '...' : line
-      contentColumns = Math.max(contentColumns, getDisplayColumnLength(text) + 2)
-      return {
-        key: `${index}:skipped:`,
-        kind: 'skipped',
-        marker: '',
-        text
-      }
-    }
-
-    const [, marker, rawLineNumber = '', text = ''] = match
-    const lineNumber = Number.parseInt(rawLineNumber.trim(), 10)
-    const key = `${index}:${marker}:${Number.isNaN(lineNumber) ? '' : lineNumber}`
-    contentColumns = Math.max(contentColumns, getDisplayColumnLength(text) + 2)
-
-    if (marker === '+') {
-      return { key, kind: 'added', lineNumber, marker: '+', text }
-    }
-    if (marker === '-') {
-      return { key, kind: 'removed', lineNumber, marker: '-', text }
-    }
-    const kind: DiffLineKind = text.trim() === '...' ? 'skipped' : 'context'
-    return {
-      key,
-      kind,
-      lineNumber: Number.isNaN(lineNumber) ? undefined : lineNumber,
-      marker: '',
-      text
-    }
+function scheduleMeasureContentWidth(): void {
+  if (measureRaf !== null) return
+  measureRaf = window.requestAnimationFrame(() => {
+    measureRaf = null
+    measureContentWidth()
   })
-
-  return { lines, contentColumns }
 }
 
-function getDisplayColumnLength(value: string): number {
-  return Array.from(value).reduce((length, char) => {
-    const codePoint = char.codePointAt(0) ?? 0
-    return length + (codePoint > 0x2e80 ? 2 : 1)
-  }, 0)
+function measureContentWidth(): void {
+  const viewer = viewerRef.value
+  if (!viewer) {
+    measuredContentWidth.value = undefined
+    return
+  }
+
+  measuredContentWidth.value = measureDiffContentWidth(lines.value, window.getComputedStyle(viewer))
 }
+
+onMounted(() => {
+  scheduleMeasureContentWidth()
+})
+
+watch(
+  lines,
+  () => {
+    measuredContentWidth.value = undefined
+    void nextTick(scheduleMeasureContentWidth)
+  },
+  { deep: false }
+)
+
+onBeforeUnmount(() => {
+  if (measureRaf !== null) {
+    window.cancelAnimationFrame(measureRaf)
+  }
+})
 </script>
 
 <template>
-  <div class="diff-viewer" :style="viewerStyle">
+  <div ref="viewerRef" class="diff-viewer" :style="viewerStyle">
     <ScrollArea ref="scrollAreaRef" scrollbars="both" class="diff-viewer__scroll">
       <div
         class="diff-viewer__table"
@@ -133,13 +106,13 @@ function getDisplayColumnLength(value: string): number {
         <div
           v-for="row in virtualRows"
           :key="row.line.key"
+          v-memo="[row.line]"
           class="diff-viewer__line"
           :class="`diff-viewer__line--${row.line.kind}`"
           :data-index="row.virtualItem.index"
           :aria-rowindex="row.virtualItem.index + 1"
           :style="{ transform: row.transform }"
           role="row"
-          v-memo="[row.line]"
         >
           <span class="diff-viewer__line-number" role="cell">{{ row.line.lineNumber ?? '' }}</span>
           <span class="diff-viewer__marker" role="cell">
@@ -156,6 +129,11 @@ function getDisplayColumnLength(value: string): number {
 .diff-viewer {
   --diff-line-number-width: 48px;
   --diff-marker-width: 22px;
+  --diff-content-padding-x: 20px;
+  --diff-content-min-width: calc(var(--diff-content-width) + var(--diff-content-padding-x));
+  --diff-row-min-width: calc(
+    var(--diff-line-number-width) + var(--diff-marker-width) + var(--diff-content-min-width)
+  );
   --diff-code-bg: #ffffff;
   --diff-gutter-bg: #f6f8fa;
   --diff-border: #d0d7de;
@@ -177,7 +155,7 @@ function getDisplayColumnLength(value: string): number {
   max-height: inherit;
   overflow: hidden;
   color: var(--diff-text);
-  font-family: var(--font-mono);
+  font-family: var(--font-mono) !important;
   font-size: var(--font-size-code);
   font-weight: var(--font-weight-code);
   line-height: var(--diff-line-height);
@@ -221,11 +199,8 @@ function getDisplayColumnLength(value: string): number {
 .diff-viewer__table {
   position: relative;
   display: block;
-  width: max(
-    100%,
-    calc(var(--diff-line-number-width) + var(--diff-marker-width) + var(--diff-content-width))
-  );
-  min-width: 100%;
+  width: 100%;
+  min-width: var(--diff-row-min-width);
 }
 
 .diff-viewer__line {
@@ -234,11 +209,8 @@ function getDisplayColumnLength(value: string): number {
   left: 0;
   display: flex;
   align-items: stretch;
-  width: max(
-    100%,
-    calc(var(--diff-line-number-width) + var(--diff-marker-width) + var(--diff-content-width))
-  );
-  min-width: 100%;
+  width: 100%;
+  min-width: var(--diff-row-min-width);
   height: var(--diff-line-height);
 }
 
@@ -311,10 +283,10 @@ function getDisplayColumnLength(value: string): number {
 }
 
 .diff-viewer__content {
+  box-sizing: border-box;
   display: block;
-  flex: 0 0 auto;
-  width: var(--diff-content-width);
-  min-width: var(--diff-content-width);
+  flex: 1 0 auto;
+  min-width: 0;
   padding: 0 12px 0 8px;
   overflow: visible;
   white-space: pre;

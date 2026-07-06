@@ -3,8 +3,8 @@ import { computed } from 'vue'
 import PencilIcon from '@renderer/components/icons/PencilIcon.vue'
 import ToolMessage from '../ToolMessage.vue'
 import BaseToolGroup from './BaseToolGroup.vue'
-import type { ToolCall, ToolGroupStatus } from './tool-group'
-import { getToolStatusLabel } from './tool-message'
+import type { ToolCall, ToolGroupStatus } from './support/tool-group'
+import { getToolStatusLabel } from './support/tool-message'
 
 const props = defineProps<{
   toolCallIds: string[]

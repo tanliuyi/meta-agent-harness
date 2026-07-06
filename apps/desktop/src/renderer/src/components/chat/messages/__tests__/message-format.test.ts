@@ -5,7 +5,7 @@ import {
   getUserMessageDisplaySegments,
   getUserMessageDisplayText,
   parseUserMessageDisplaySegments
-} from '../message-format'
+} from '../support/message-format'
 import type { ThreadMessage } from '@shared/coding-agent/types'
 
 describe('message-format', () => {

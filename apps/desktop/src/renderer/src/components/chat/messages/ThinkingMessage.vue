@@ -1,16 +1,17 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import { useResizeObserver } from '@vueuse/core'
-import type { RenderableThreadMessage } from './renderable-message'
-import { getMessageThinkingText } from './message-format'
+import type { ThreadMessage } from '@shared/coding-agent/types'
+import { getMessageThinkingText } from './support/message-format'
 import ScrollArea from '@/components/ui/scroll-area/ScrollArea.vue'
 import StreamingMarkdown from '../../markdown/StreamingMarkdown.vue'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 
 const props = defineProps<{
-  message?: RenderableThreadMessage
+  message?: ThreadMessage
   messageId?: string
   text?: string
+  revision?: number
   isStreaming?: boolean
   collapseWhenResponseAppears?: boolean
 }>()
@@ -28,7 +29,7 @@ const firstLine = computed(() => {
   const truncated = first.length > 120 ? `${first.slice(0, 120)}` : first
   return hasMore ? `${truncated}…` : truncated
 })
-const revision = computed(() => props.message?.revision ?? 1)
+const revision = computed(() => props.revision ?? 1)
 const markdownMessageId = computed(() => props.messageId ?? props.message?.id ?? 'thinking')
 const open = ref(props.isStreaming ?? false)
 const scrollAreaRef = ref<InstanceType<typeof ScrollArea> | null>(null)
@@ -175,7 +176,7 @@ onBeforeUnmount(() => {
   max-width: 100%;
   padding: 0;
   color: var(--color-text-muted);
-  font-family: var(--font-mono);
+  font-family: var(--font-mono) !important;
   font-size: var(--font-size-ui);
   letter-spacing: 0;
   text-align: left;

@@ -11,7 +11,7 @@ import {
   type RichInlineItem
 } from '@chenglou/pretext/rich-inline'
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import type { RenderableThreadMessage } from './renderable-message'
+import type { ThreadMessage } from '@shared/coding-agent/types'
 import {
   formatMessageTime,
   getMessageFileAttachments,
@@ -20,7 +20,7 @@ import {
   getUserMessageDisplayText,
   getStandaloneMessageImages,
   getUserMessageDisplaySegments
-} from './message-format'
+} from './support/message-format'
 import BaseIconButton from '@/components/base/BaseIconButton.vue'
 import SkillIcon from '@/components/icons/SkillIcon.vue'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
@@ -32,7 +32,7 @@ const USER_MESSAGE_MAX_RATIO = 0.88
 const FILE_REFERENCE_FALLBACK_EXTRA_WIDTH = 36
 
 const props = defineProps<{
-  message: RenderableThreadMessage
+  message: ThreadMessage
 }>()
 
 const emit = defineEmits<{

@@ -3,7 +3,7 @@ import { ref } from 'vue'
 import { ChevronRight } from 'lucide-vue-next'
 import ToolGroupIcon from '@renderer/components/icons/ToolGroupIcon.vue'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
-import type { ToolGroupStatus } from './tool-group'
+import type { ToolGroupStatus } from './support/tool-group'
 
 const props = withDefaults(
   defineProps<{

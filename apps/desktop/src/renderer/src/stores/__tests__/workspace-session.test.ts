@@ -2092,19 +2092,14 @@ describe('workspace-session Project-first actions', () => {
     expect(store.hasDraftMessage).toBe(false)
   })
 
-  it('新会话草稿首次发送前应用暂存 thinking level 并同步 snapshot', async () => {
+  it('新会话草稿首次发送前把暂存 thinking level 传给初始 thread', async () => {
     const snapshot = {
       ...createSnapshot(),
       threadId: 'thread-new',
-      projectId: 'project-a'
-    }
-    const refreshedSnapshot = {
-      ...snapshot,
+      projectId: 'project-a',
       thinkingLevel: 'high' as const
     }
     const createThread = vi.fn().mockResolvedValue(snapshot)
-    const setThinkingLevel = vi.fn().mockResolvedValue(undefined)
-    const getSnapshot = vi.fn().mockResolvedValue(refreshedSnapshot)
     const prompt = vi.fn().mockResolvedValue(undefined)
     const setThreadTitle = vi.fn().mockResolvedValue({
       threadId: snapshot.threadId,
@@ -2115,7 +2110,7 @@ describe('workspace-session Project-first actions', () => {
       updatedAt: '2026-07-01T00:00:00.000Z',
       title: 'first prompt'
     })
-    installCodingAgentApi({ createThread, setThinkingLevel, getSnapshot, prompt, setThreadTitle })
+    installCodingAgentApi({ createThread, prompt, setThreadTitle })
     const store = useWorkspaceSessionStore()
     store.startNewSession('project-a')
     await store.setActiveThinkingLevel('high')
@@ -2123,9 +2118,7 @@ describe('workspace-session Project-first actions', () => {
 
     await store.sendPrompt()
 
-    expect(createThread).toHaveBeenCalledWith({ projectId: 'project-a' })
-    expect(setThinkingLevel).toHaveBeenCalledWith({ threadId: 'thread-new', level: 'high' })
-    expect(getSnapshot).toHaveBeenCalledWith('thread-new')
+    expect(createThread).toHaveBeenCalledWith({ projectId: 'project-a', thinkingLevel: 'high' })
     expect(prompt).toHaveBeenCalledWith({ threadId: 'thread-new', message: 'first prompt' })
     expect(store.sessions['thread-new']?.snapshot?.thinkingLevel).toBe('high')
   })

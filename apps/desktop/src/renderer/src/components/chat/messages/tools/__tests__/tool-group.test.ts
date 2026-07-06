@@ -5,7 +5,7 @@ import {
   summarizeExploreToolGroup,
   summarizeMutationToolGroup,
   type ToolCall
-} from '../tool-group'
+} from '../support/tool-group'
 
 type TestItem =
   | { type: 'tool'; key: string; toolCall: ToolCall }

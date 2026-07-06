@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import { formatUnknown, getMessageRawRecord } from '../message-format'
+import { formatUnknown, getMessageRawRecord } from '../support/message-format'
 import BaseTool from './BaseTool.vue'
 import {
   countObjectKeys,
@@ -8,7 +8,7 @@ import {
   isToolError,
   truncateSummary,
   type ToolComponentProps
-} from './tool-message'
+} from './support/tool-message'
 
 const props = defineProps<ToolComponentProps>()
 

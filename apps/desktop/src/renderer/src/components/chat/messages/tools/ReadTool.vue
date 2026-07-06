@@ -11,7 +11,7 @@ import {
   isToolError,
   joinSummary,
   type ToolComponentProps
-} from './tool-message'
+} from './support/tool-message'
 
 const props = defineProps<ToolComponentProps>()
 

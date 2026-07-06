@@ -1,10 +1,10 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
-import type { RenderableThreadMessage } from './renderable-message'
-import { formatMessageTime, getMessageText } from './message-format'
+import type { ThreadMessage } from '@shared/coding-agent/types'
+import { formatMessageTime, getMessageText } from './support/message-format'
 
 const props = defineProps<{
-  message: RenderableThreadMessage
+  message: ThreadMessage
 }>()
 
 const createdAtLabel = computed(() => formatMessageTime(props.message.createdAt))
@@ -73,7 +73,7 @@ const canExpand = computed(() => messageText.value.length > 360)
   align-items: center;
   justify-content: space-between;
   gap: var(--space-2);
-  font-family: var(--font-mono);
+  font-family: var(--font-mono) !important;
   font-size: var(--font-size-ui-xs);
   line-height: 1.3;
 
@@ -101,7 +101,7 @@ const canExpand = computed(() => messageText.value.length > 360)
     min-height: 16px;
     padding: 0 5px;
     color: var(--color-text-subtle);
-    font-family: var(--font-mono);
+    font-family: var(--font-mono) !important;
     font-size: var(--font-size-ui-2xs);
     line-height: 16px;
     background: var(--color-surface);

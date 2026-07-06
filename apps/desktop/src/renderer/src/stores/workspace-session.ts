@@ -5,6 +5,14 @@
 import { defineStore } from 'pinia'
 import { computed, reactive, ref, shallowReactive } from 'vue'
 import useWorkspaceProjectStore from './workspace-project'
+import {
+  createComposerContentFromText,
+  createEmptyComposerContent,
+  ensureComposerDraft,
+  ensureComposerImages,
+  getPromptImagePayload,
+  type ComposerImageAttachment
+} from './workspace-session-composer'
 import { useToast } from '@renderer/composables/useToast'
 import { formatFileArgForInsertion } from '@shared/coding-agent/file-reference-format'
 import { toDesktopMessageContent } from '@shared/coding-agent/types'
@@ -22,9 +30,6 @@ import type {
   LoadSessionTreeBranchesInput,
   LoadSessionTreeBranchesResult,
   ModelInfo,
-  PromptImage,
-  PromptImageFile,
-  PromptImageAttachment,
   ThinkingLevel,
   ThreadSnapshot,
   ThreadMessage,
@@ -41,11 +46,7 @@ export type SessionUiState = {
   panelWidth: number
 }
 
-/** Composer 中尚未发送的图片附件。 */
-export type ComposerImageAttachment = PromptImageAttachment & {
-  /** 前端稳定 ID。 */
-  id: string
-}
+export type { ComposerImageAttachment } from './workspace-session-composer'
 
 /** 运行中消息的交付方式。 */
 export type RunningMessageDelivery = 'steer' | 'followUp'
@@ -224,49 +225,21 @@ const createUiState = (): SessionUiState => ({
 })
 
 /**
- * 创建空白 Composer 文档。
- * @returns Tiptap 空文档。
- */
-const createEmptyComposerContent = (): JSONContent => ({
-  type: 'doc',
-  content: [
-    {
-      type: 'paragraph'
-    }
-  ]
-})
-
-/**
- * 从纯文本创建 Composer 文档。
- * @param text - 纯文本。
- * @returns Tiptap 文档。
- */
-const createComposerContentFromText = (text: string): JSONContent => {
-  const lines = text.split('\n')
-  return {
-    type: 'doc',
-    content: [
-      {
-        type: 'paragraph',
-        content: lines.flatMap((line, index) => {
-          const nodes: JSONContent[] = []
-          if (index > 0) {
-            nodes.push({ type: 'hardBreak' })
-          }
-          if (line) {
-            nodes.push({ type: 'text', text: line })
-          }
-          return nodes
-        })
-      }
-    ]
-  }
-}
-
-/**
  * Composer 文本缓存，避免频繁从同一份 Tiptap JSON 递归取文本。
  */
 const composerTextCache = new WeakMap<JSONContent, string>()
+
+/** 空工具调用索引，避免 computed 读取路径创建新对象或写入 store。 */
+const emptyToolCallsById: WorkspaceToolCallsById = Object.freeze({})
+
+/** 空工具调用结构列表，避免 computed 读取路径创建新数组或写入 store。 */
+const emptyToolCallStructures = Object.freeze([]) as unknown as WorkspaceToolCallStructure[]
+
+/** 空 Composer 草稿，作为纯读兜底；真实 thread 草稿在切换时显式初始化。 */
+const emptyComposerDraft = createEmptyComposerContent()
+
+/** 空 Composer 图片列表，避免草稿 getter 为无附件 thread 创建新数组。 */
+const emptyComposerImages = Object.freeze([]) as unknown as ComposerImageAttachment[]
 
 /**
  * Workspace Session Store。
@@ -354,6 +327,9 @@ export default defineStore('workspace-session', () => {
     return contexts[contextId]
   }
 
+  /** 默认上下文在 store 创建时初始化，后续 computed 保持纯读。 */
+  const mainContextState = ensureSessionContext(defaultSessionContextId)
+
   /**
    * 获取指定上下文当前 thread 对应的面板 UI 状态。
    * 未选中 thread 时使用上下文 orphan 面板状态。
@@ -367,6 +343,29 @@ export default defineStore('workspace-session', () => {
     }
     context.sessionPanels[context.activeThreadId] ??= createUiState()
     return context.sessionPanels[context.activeThreadId]
+  }
+
+  /**
+   * 纯读取当前面板状态；初始化由上下文切换路径负责。
+   * @param contextId - 上下文 ID。
+   * @returns 面板 UI 状态。
+   */
+  function readSessionPanelState(contextId = defaultSessionContextId): SessionUiState {
+    const context = contexts[contextId] ?? mainContextState
+    if (!context.activeThreadId) {
+      return context.panel
+    }
+    return context.sessionPanels[context.activeThreadId] ?? context.panel
+  }
+
+  /**
+   * 初始化 thread 绑定的 Composer UI 状态。
+   * @param context - 会话上下文。
+   * @param threadId - thread ID。
+   */
+  function initializeThreadComposerState(context: WorkspaceSessionContext, threadId: string): void {
+    context.composerDrafts[threadId] ??= createEmptyComposerContent()
+    context.composerImageAttachments[threadId] ??= []
   }
 
   /**
@@ -578,6 +577,8 @@ export default defineStore('workspace-session', () => {
     context.activeThreadId = threadId
     writeSessionActiveThreadId(threadId, contextId)
     if (threadId) {
+      context.sessionPanels[threadId] ??= createUiState()
+      initializeThreadComposerState(context, threadId)
       context.selectedProjectId = sessions[threadId]?.projectId ?? context.selectedProjectId
       if (context.selectedProjectId) {
         workspaceProject.setActiveProjectId(context.selectedProjectId)
@@ -840,7 +841,7 @@ export default defineStore('workspace-session', () => {
   }
 
   /** 默认上下文。 */
-  const mainContext = computed(() => ensureSessionContext(defaultSessionContextId))
+  const mainContext = computed(() => mainContextState)
 
   /** 当前活跃会话 ID。 */
   const activeSessionId = computed(() => mainContext.value.activeThreadId)
@@ -855,12 +856,16 @@ export default defineStore('workspace-session', () => {
 
   /** 当前活跃会话的工具调用索引。 */
   const activeToolCallsById = computed<WorkspaceToolCallsById>(() =>
-    activeSessionId.value ? ensureToolCallsById(activeSessionId.value) : {}
+    activeSessionId.value
+      ? (toolCallsByThreadId[activeSessionId.value] ?? emptyToolCallsById)
+      : emptyToolCallsById
   )
 
   /** 当前活跃会话的工具调用结构列表。 */
   const activeToolCallStructures = computed<WorkspaceToolCallStructure[]>(() =>
-    activeSessionId.value ? ensureToolCallStructures(activeSessionId.value) : []
+    activeSessionId.value
+      ? (toolCallStructuresByThreadId[activeSessionId.value] ?? emptyToolCallStructures)
+      : emptyToolCallStructures
   )
 
   /** 当前活跃或新会话草稿所属 Project ID。 */
@@ -880,7 +885,7 @@ export default defineStore('workspace-session', () => {
   const activeRuntime = computed(() => getRuntime(activeSessionId.value))
 
   /** 当前活跃会话面板状态。 */
-  const activeSessionPanel = computed(() => getSessionPanelState(defaultSessionContextId))
+  const activeSessionPanel = computed(() => readSessionPanelState(defaultSessionContextId))
 
   /** 当前活跃会话的审批请求。 */
   const activePendingApprovals = computed(() => activeRuntime.value?.approvals ?? {})
@@ -975,7 +980,7 @@ export default defineStore('workspace-session', () => {
       const threadId = activeSessionId.value
       const context = mainContext.value
       return threadId
-        ? ensureComposerDraft(context.composerDrafts, threadId)
+        ? (context.composerDrafts[threadId] ?? emptyComposerDraft)
         : context.orphanDraftMessage
     },
     set: (value: JSONContent) => {
@@ -994,7 +999,7 @@ export default defineStore('workspace-session', () => {
     const threadId = activeSessionId.value
     const context = mainContext.value
     return threadId
-      ? ensureComposerImages(context.composerImageAttachments, threadId)
+      ? (context.composerImageAttachments[threadId] ?? emptyComposerImages)
       : context.orphanImageAttachments
   })
 
@@ -1029,7 +1034,7 @@ export default defineStore('workspace-session', () => {
    */
   const loadThreads = async (
     contextId = defaultSessionContextId,
-    options: { selectLatestActiveProjectThread?: boolean } = {}
+    options: { deferActiveSnapshot?: boolean; selectLatestActiveProjectThread?: boolean } = {}
   ): Promise<void> => {
     loadingThreads.value = true
     globalErrorMessage.value = undefined
@@ -1070,7 +1075,11 @@ export default defineStore('workspace-session', () => {
         context.selectedProjectId = workspaceProject.activeProjectId
       }
       if (context.activeThreadId) {
-        await refreshSnapshot(context.activeThreadId)
+        if (options.deferActiveSnapshot) {
+          void refreshSnapshot(context.activeThreadId)
+        } else {
+          await refreshSnapshot(context.activeThreadId)
+        }
       }
     } catch (error) {
       globalErrorMessage.value = error instanceof Error ? error.message : String(error)
@@ -1086,7 +1095,10 @@ export default defineStore('workspace-session', () => {
   const createThread = async (
     projectId: string,
     contextId = defaultSessionContextId,
-    options: Pick<CreateThreadInput, 'sessionFile' | 'title' | 'cwdOverride'> = {}
+    options: Pick<
+      CreateThreadInput,
+      'sessionFile' | 'title' | 'cwdOverride' | 'initialModel' | 'thinkingLevel'
+    > = {}
   ): Promise<ThreadSnapshot | undefined> => {
     if (!projectId) {
       globalErrorMessage.value = '请先打开 Project'
@@ -1284,7 +1296,11 @@ export default defineStore('workspace-session', () => {
         const orphanModel = context.orphanModel
         const orphanThinkingLevel = context.orphanThinkingLevel
         const snapshot = await window.api.codingAgent.createThread({
-          projectId: context.selectedProjectId!
+          projectId: context.selectedProjectId!,
+          ...(orphanModel
+            ? { initialModel: { provider: orphanModel.provider, modelId: orphanModel.modelId } }
+            : {}),
+          ...(orphanThinkingLevel ? { thinkingLevel: orphanThinkingLevel } : {})
         })
         mergeSnapshot(sessions, snapshot)
         syncToolCallsByIdFromSnapshot(snapshot)
@@ -1298,23 +1314,6 @@ export default defineStore('workspace-session', () => {
         context.composerImageAttachments[createdThreadId] = orphanImages
         runtime = ensureRuntime(createdThreadId)
         runtime.errorMessage = undefined
-        if (orphanModel) {
-          await window.api.codingAgent.setModel({
-            threadId: createdThreadId,
-            provider: orphanModel.provider,
-            modelId: orphanModel.modelId
-          })
-        }
-        if (orphanThinkingLevel) {
-          await window.api.codingAgent.setThinkingLevel({
-            threadId: createdThreadId,
-            level: orphanThinkingLevel
-          })
-          const updatedSnapshot = await window.api.codingAgent.getSnapshot(createdThreadId)
-          mergeSnapshot(sessions, updatedSnapshot)
-          syncToolCallsByIdFromSnapshot(updatedSnapshot)
-          syncRenderStateFromSnapshot(updatedSnapshot)
-        }
       }
       if (!threadId) {
         return
@@ -2523,65 +2522,6 @@ function isSameToolCallStructure(
     left.startedAt === right.startedAt &&
     left.finishedAt === right.finishedAt
   )
-}
-
-/**
- * 确保指定会话存在 Composer 草稿。
- * @param threadId - thread ID。
- * @returns Composer 草稿。
- */
-function ensureComposerDraft(
-  composerDrafts: Record<string, JSONContent>,
-  threadId: string
-): JSONContent {
-  composerDrafts[threadId] ??= createEmptyComposerContent()
-  return composerDrafts[threadId]
-}
-
-/**
- * 确保指定会话存在图片附件草稿。
- * @param composerImages - 图片附件草稿桶。
- * @param threadId - thread ID。
- * @returns 图片附件列表。
- */
-function ensureComposerImages(
-  composerImages: Record<string, ComposerImageAttachment[]>,
-  threadId: string
-): ComposerImageAttachment[] {
-  composerImages[threadId] ??= []
-  return composerImages[threadId]
-}
-
-/**
- * 去除仅供 Composer UI 使用的附件元信息。
- * @param image - Composer 图片附件。
- * @returns Prompt 图片内容。
- */
-function toPromptImage(image: ComposerImageAttachment): PromptImage {
-  return {
-    type: image.type,
-    mimeType: image.mimeType,
-    data: image.data
-  }
-}
-
-/**
- * 将 Composer 图片草稿拆成 Pi @file 图片和 inline 图片。
- * @param images - Composer 图片附件。
- * @returns prompt 图片 payload。
- */
-function getPromptImagePayload(images: ComposerImageAttachment[]): {
-  images?: PromptImage[]
-  imageFiles?: PromptImageFile[]
-} {
-  const imageFiles = images
-    .filter((image): image is ComposerImageAttachment & { path: string } => Boolean(image.path))
-    .map((image) => ({ path: image.path, inlineFallback: toPromptImage(image) }))
-  const inlineImages = images.filter((image) => !image.path).map(toPromptImage)
-  return {
-    ...(inlineImages.length > 0 ? { images: inlineImages } : {}),
-    ...(imageFiles.length > 0 ? { imageFiles } : {})
-  }
 }
 
 /**

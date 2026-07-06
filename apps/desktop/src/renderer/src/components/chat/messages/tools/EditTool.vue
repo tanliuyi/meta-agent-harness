@@ -3,6 +3,7 @@ import { computed } from 'vue'
 import BaseTool from './BaseTool.vue'
 import PencilIcon from '@renderer/components/icons/PencilIcon.vue'
 import DiffViewer from './DiffViewer.vue'
+import { countDisplayDiffStats } from './display/diffDisplay'
 import {
   getFileName,
   getStringArg,
@@ -13,7 +14,7 @@ import {
   isToolError,
   joinSummary,
   type ToolComponentProps
-} from './tool-message'
+} from './support/tool-message'
 
 const props = defineProps<ToolComponentProps>()
 
@@ -48,19 +49,6 @@ const name = computed(() =>
     cancelled: '已取消编辑'
   })
 )
-
-function countDisplayDiffStats(value: unknown): { additions: number; deletions: number } {
-  if (typeof value !== 'string') {
-    return { additions: 0, deletions: 0 }
-  }
-  let additions = 0
-  let deletions = 0
-  for (const line of value.split('\n')) {
-    if (/^\+\s*\d+\s/.test(line)) additions++
-    if (/^-\s*\d+\s/.test(line)) deletions++
-  }
-  return { additions, deletions }
-}
 </script>
 
 <template>

@@ -15,34 +15,42 @@ import ToolMessage from './messages/ToolMessage.vue'
 import UserMessage from './messages/UserMessage.vue'
 import ExploreToolGroup from './messages/tools/ExploreToolGroup.vue'
 import MutationToolGroup from './messages/tools/MutationToolGroup.vue'
-import {
-  getToolGroupStatus,
-  groupTimelineTools,
-  type ToolCall,
-  type ToolGroupStatus,
-  type ToolGroupTimelineItem
-} from './messages/tools/tool-group'
-import { getMessageRawRecord, getMessageText, isRecord } from './messages/message-format'
-import { toRenderableMessage, type RenderableThreadMessage } from './messages/renderable-message'
+import type { ToolCall, ToolGroupStatus } from './messages/tools/support/tool-group'
 import useAgentSettingsStore from '@renderer/stores/agent-settings'
 import useModelSettingsStore from '@renderer/stores/model-settings'
 import useWorkspaceSessionStore from '@renderer/stores/workspace-session'
 import useWorkspaceProjectStore from '@renderer/stores/workspace-project'
+import { useSessionContext } from '@renderer/composables/useSessionContext'
 import type { DesktopToolCall } from '../../../../../../../packages/coding-agent/src/desktop/protocol/tool.ts'
 import ScrollArea from '../ui/scroll-area/ScrollArea.vue'
 import type {
   ComposerImageAttachment,
-  WorkspaceToolCallStructure
+  MessageRenderState
 } from '@renderer/stores/workspace-session'
+import {
+  createDisplayTimelineItems,
+  createProcessingCollapseResult,
+  createTimelineItems,
+  getTimelineItemToolGroupStatus,
+  getToolResultMessageToolCall,
+  isCollapsedHistoryItem,
+  resolveTimelineToolCall as resolveTimelineToolCallFromState,
+  type CollapsedHistoryTimelineItem,
+  type ProcessingCollapseContext,
+  type ProcessingCollapseResult,
+  type TimelineItem
+} from './timeline/chatTimelineDisplay'
 import type {
   ExtensionUiRequest,
   PromptImageAttachment,
   PromptImageDraft,
+  ThreadMessage,
   ThinkingLevel
 } from '@shared/coding-agent/types'
 import type { TokenUsage } from './composer/Usage.vue'
 
 const workspaceSession = useWorkspaceSessionStore()
+const { openPanelTab } = useSessionContext()
 const workspaceProject = useWorkspaceProjectStore()
 const agentSettings = useAgentSettingsStore()
 const modelSettings = useModelSettingsStore()
@@ -51,39 +59,6 @@ type TimelineScrollBehavior = 'auto' | 'smooth'
 type ScrollAreaInstance = InstanceType<typeof ScrollArea>
 const NEAR_BOTTOM_DISTANCE = 32
 const STICKY_BOTTOM_DISTANCE = 2
-type TimelineItem =
-  | {
-      type: 'collapsed-history'
-      key: string
-      hiddenCount: number
-      hiddenTurnCount: number
-      durationLabel?: string
-      collapsible: boolean
-    }
-  | {
-      type: 'message'
-      key: string
-      message: RenderableThreadMessage
-      text?: string
-      toolCall?: DesktopToolCall
-      revision: number
-    }
-  | {
-      type: 'thinking'
-      key: string
-      message: RenderableThreadMessage
-      text: string
-      collapseWhenResponseAppears: boolean
-      revision: number
-    }
-  | {
-      type: 'tool'
-      key: string
-      toolCall: DesktopToolCall
-    }
-  | ToolGroupTimelineItem
-type UngroupedTimelineItem = Exclude<TimelineItem, ToolGroupTimelineItem>
-type CollapsedHistoryTimelineItem = Extract<TimelineItem, { type: 'collapsed-history' }>
 type TimelineItemComponent =
   | typeof UserMessage
   | typeof AssistantMessage
@@ -104,9 +79,10 @@ type TimelineViewItem = {
     'is-pending': boolean
   }
   component?: TimelineItemComponent
-  message?: RenderableThreadMessage
+  message?: ThreadMessage
   messageId: string
   text?: string
+  revision: number
   isStreaming: boolean
   /** 是否是最终回复（无工具调用的 assistant 消息）。 */
   isFinalReply: boolean
@@ -124,16 +100,7 @@ type TimelineViewItem = {
 const collapsedHistoryOpenByKey = ref<Record<string, boolean>>({})
 
 /** 当前会话的渲染消息列表。 */
-const messages = computed<RenderableThreadMessage[]>(() => {
-  const snapshotMessages = workspaceSession.activeSnapshot?.messages ?? []
-  const threadId = workspaceSession.activeSnapshot?.threadId
-  return snapshotMessages.map((message) => {
-    const state = threadId
-      ? workspaceSession.getMessageRenderState(threadId, message.id)
-      : { revision: 1, renderState: 'complete' as const }
-    return toRenderableMessage(message, state)
-  })
-})
+const messages = computed<ThreadMessage[]>(() => workspaceSession.activeSnapshot?.messages ?? [])
 
 /** 当前会话的工具调用结构列表。 */
 const toolCallStructures = computed(() => workspaceSession.activeToolCallStructures)
@@ -238,114 +205,26 @@ const activityLabel = computed(() => (isCompacting.value ? '正在压缩上下�
 const processingNow = ref(Date.now())
 
 /** 当前会话的统一时间线。 */
-const timelineItems = computed<TimelineItem[]>(() => {
-  const consumedToolCallIds = new Set<string>()
-  const items: UngroupedTimelineItem[] = []
-  for (const message of messages.value) {
-    if (message.role === 'assistant') {
-      items.push(...getAssistantTimelineItems(message))
-      for (const toolCallId of message.toolCallIds ?? []) {
-        const toolCall = resolveTimelineToolCall(toolCallId)
-        if (!toolCall) {
-          continue
-        }
-        consumedToolCallIds.add(toolCall.toolCallId)
-        items.push({
-          type: 'tool',
-          key: `tool-${toolCall.toolCallId}`,
-          toolCall
-        })
-      }
-      continue
-    }
-    const toolCall = message.role === 'tool' ? getToolResultMessageToolCall(message) : undefined
-    if (toolCall) {
-      consumedToolCallIds.add(toolCall.toolCallId)
-    }
-    items.push({
-      type: 'message',
-      key: message.id,
-      message,
-      toolCall,
-      revision: message.revision
-    })
-  }
-  for (const toolCall of toolCallStructures.value) {
-    if (consumedToolCallIds.has(toolCall.toolCallId)) {
-      continue
-    }
-    const resolvedToolCall = resolveTimelineToolCall(toolCall.toolCallId)
-    if (!resolvedToolCall) {
-      continue
-    }
-    items.push({
-      type: 'tool',
-      key: `tool-${resolvedToolCall.toolCallId}`,
-      toolCall: resolvedToolCall
-    })
-  }
-  return groupTimelineTools(items)
-})
-
-type ProcessingCollapseContext = {
-  key: string
-  boundaryIndex: number
-  processEndIndex: number
-  hiddenCount: number
-  hiddenTurnCount: number
-  durationLabel?: string
-  collapsible: boolean
-}
-
-/** 处理段上下文与最终回复 key 集合。 */
-interface ProcessingCollapseResult {
-  contexts: ProcessingCollapseContext[]
-  finalReplyKeys: Set<string>
-}
+const timelineItems = computed<TimelineItem[]>(() =>
+  createTimelineItems({
+    messages: messages.value,
+    toolCallStructures: toolCallStructures.value,
+    getMessageRenderState,
+    resolveTimelineToolCall,
+    getToolResultMessageToolCall: resolveToolResultMessageToolCall,
+    hideThinkingBlock: hideThinkingBlock.value
+  })
+)
 
 /** 当前会话内所有 user prompt/steer/follow-up 对应的处理段。 */
-const processingCollapseResult = computed<ProcessingCollapseResult>(() => {
-  const items = timelineItems.value
-  const contexts: ProcessingCollapseContext[] = []
-  const finalReplyKeys = new Set<string>()
-  for (let index = 0; index < items.length; index += 1) {
-    if (!isUserMessageItem(items[index])) {
-      continue
-    }
-    const boundaryIndex = index + 1
-    const segmentEndIndex = findNextUserMessageIndex(items, boundaryIndex)
-    const endIndex = segmentEndIndex < 0 ? items.length : segmentEndIndex
-    const finalReplyIndex = findFinalReplyIndexInRange(items, boundaryIndex, endIndex)
-    const hasFinalReply = finalReplyIndex >= boundaryIndex
-    const processEndIndex = hasFinalReply ? finalReplyIndex : endIndex
-    const hiddenItems = items.slice(boundaryIndex, processEndIndex)
-    const isActiveSegment = segmentEndIndex < 0 && !hasFinalReply && isRunning.value
-    if (hasFinalReply) {
-      finalReplyKeys.add(items[finalReplyIndex].key)
-    }
-    if (hiddenItems.length === 0 && !isActiveSegment) {
-      continue
-    }
-    contexts.push({
-      key: `${workspaceSession.activeSessionId ?? 'session'}:${boundaryIndex}`,
-      boundaryIndex,
-      processEndIndex,
-      hiddenCount: hiddenItems.length,
-      hiddenTurnCount: countTurns(hiddenItems),
-      durationLabel: formatProcessingDuration(
-        items[index],
-        hiddenItems,
-        hasFinalReply
-          ? items[finalReplyIndex]
-          : segmentEndIndex >= 0
-            ? items[segmentEndIndex]
-            : undefined
-      ),
-      collapsible: hasFinalReply || segmentEndIndex >= 0
-    })
-  }
-  return { contexts, finalReplyKeys }
-})
+const processingCollapseResult = computed<ProcessingCollapseResult>(() =>
+  createProcessingCollapseResult({
+    items: timelineItems.value,
+    isRunning: isRunning.value,
+    activeSessionId: workspaceSession.activeSessionId,
+    now: processingNow.value
+  })
+)
 
 /** 当前会话内所有 user prompt/steer/follow-up 对应的处理段。 */
 const processingCollapseContexts = computed<ProcessingCollapseContext[]>(
@@ -356,36 +235,17 @@ const processingCollapseContexts = computed<ProcessingCollapseContext[]>(
 const finalReplyKeys = computed<Set<string>>(() => processingCollapseResult.value.finalReplyKeys)
 
 /** 实际渲染的时间线；运行开始即展示 trigger，最终回复开始后才收起过程项。 */
-const displayTimelineItems = computed<TimelineItem[]>(() => {
-  const contexts = processingCollapseContexts.value
-  if (contexts.length === 0) {
-    return timelineItems.value
-  }
-  const items: TimelineItem[] = []
-  let cursor = 0
-  for (const context of contexts) {
-    items.push(...timelineItems.value.slice(cursor, context.boundaryIndex))
-    const collapsedItem: TimelineItem = {
-      type: 'collapsed-history',
-      key: `collapsed-history:${context.key}`,
-      hiddenCount: context.hiddenCount,
-      hiddenTurnCount: context.hiddenTurnCount,
-      durationLabel: context.durationLabel,
-      collapsible: context.collapsible
-    }
-    items.push(collapsedItem)
-    if (isCollapsedHistoryOpen(collapsedItem)) {
-      items.push(...timelineItems.value.slice(context.boundaryIndex, context.processEndIndex))
-    }
-    cursor = context.processEndIndex
-  }
-  items.push(...timelineItems.value.slice(cursor))
-  return items
-})
+const displayTimelineItems = computed<TimelineItem[]>(() =>
+  createDisplayTimelineItems({
+    timelineItems: timelineItems.value,
+    contexts: processingCollapseContexts.value,
+    isCollapsedHistoryOpen
+  })
+)
 
 /** 模板直接消费的时间线视图模型，避免 patch 阶段重复调用 item getter。 */
-const displayTimelineViewItems = computed<TimelineViewItem[]>(() =>
-  displayTimelineItems.value.map(toTimelineViewItem)
+const displayTimelineViewItems = computed<TimelineViewItem[]>((previous) =>
+  createStableTimelineViewItems(displayTimelineItems.value, previous)
 )
 
 watch(
@@ -436,7 +296,7 @@ const canSend = computed(() =>
  * @returns Vue component。
  */
 function getMessageComponent(
-  role: RenderableThreadMessage['role']
+  role: ThreadMessage['role']
 ): typeof UserMessage | typeof AssistantMessage | typeof SystemMessage | typeof ToolMessage {
   switch (role) {
     case 'user':
@@ -592,8 +452,20 @@ function getTimelineItemClassSuffix(item: TimelineItem): string {
  * @param item - timeline 项。
  * @returns 消息。
  */
-function getTimelineItemMessage(item: TimelineItem): RenderableThreadMessage | undefined {
+function getTimelineItemMessage(item: TimelineItem): ThreadMessage | undefined {
   return item.type === 'message' || item.type === 'thinking' ? item.message : undefined
+}
+
+/**
+ * 获取单条消息的渲染状态，避免为整条 timeline 重新包装消息对象。
+ * @param message - 原始消息。
+ * @returns 渲染状态。
+ */
+function getMessageRenderState(message: ThreadMessage): MessageRenderState {
+  const threadId = workspaceSession.activeSnapshot?.threadId
+  return threadId
+    ? workspaceSession.getMessageRenderState(threadId, message.id)
+    : { revision: 1, renderState: 'complete' }
 }
 
 /**
@@ -621,7 +493,7 @@ function getTimelineItemMessageId(item: TimelineItem): string {
  */
 function getTimelineItemStreaming(item: TimelineItem): boolean {
   return item.type === 'message' || item.type === 'thinking'
-    ? item.message.renderState === 'streaming'
+    ? item.renderState === 'streaming'
     : false
 }
 
@@ -671,18 +543,6 @@ function getTimelineItemToolGroupSummary(item: TimelineItem): string | undefined
 }
 
 /**
- * 获取工具组聚合状态。
- * @param item - timeline 项。
- * @returns 工具组状态。
- */
-function getTimelineItemToolGroupStatus(item: TimelineItem): ToolGroupStatus | undefined {
-  if (item.type !== 'tool-group') {
-    return undefined
-  }
-  return getToolGroupStatus(item.toolCalls)
-}
-
-/**
  * 将 timeline item 转成模板消费的稳定视图模型。
  * @param item - timeline 项。
  * @returns timeline 视图模型。
@@ -708,6 +568,7 @@ function toTimelineViewItem(item: TimelineItem): TimelineViewItem {
     message: getTimelineItemMessage(item),
     messageId: getTimelineItemMessageId(item),
     text: getTimelineItemText(item),
+    revision: item.type === 'message' || item.type === 'thinking' ? item.revision : 1,
     isStreaming,
     isFinalReply: finalReplyKeys.value.has(item.key),
     isDone: !isStreaming,
@@ -720,15 +581,64 @@ function toTimelineViewItem(item: TimelineItem): TimelineViewItem {
   }
 }
 
-/**
- * 判断 timeline 项是否是自动折叠的历史占位。
- * @param item - timeline 项。
- * @returns 是否折叠历史项。
- */
-function isCollapsedHistoryItem(
-  item: TimelineItem
-): item is Extract<TimelineItem, { type: 'collapsed-history' }> {
-  return item.type === 'collapsed-history'
+function createStableTimelineViewItems(
+  items: TimelineItem[],
+  previous: TimelineViewItem[] | undefined
+): TimelineViewItem[] {
+  let hasChanged = previous?.length !== items.length
+  const next: TimelineViewItem[] = []
+
+  for (let index = 0; index < items.length; index += 1) {
+    const viewItem = toTimelineViewItem(items[index])
+    const previousItem = previous?.[index]
+    if (previousItem && isSameTimelineViewItem(previousItem, viewItem)) {
+      next.push(previousItem)
+    } else {
+      hasChanged = true
+      next.push(viewItem)
+    }
+  }
+
+  return hasChanged ? next : (previous ?? next)
+}
+
+function isSameTimelineViewItem(left: TimelineViewItem, right: TimelineViewItem): boolean {
+  return (
+    left.key === right.key &&
+    left.item === right.item &&
+    left.className === right.className &&
+    left.isCollapsedHistory === right.isCollapsedHistory &&
+    left.collapsedItem === right.collapsedItem &&
+    left.collapsedOpen === right.collapsedOpen &&
+    isSameCollapsedIconClass(left.collapsedIconClass, right.collapsedIconClass) &&
+    left.component === right.component &&
+    left.message === right.message &&
+    left.messageId === right.messageId &&
+    left.text === right.text &&
+    left.revision === right.revision &&
+    left.isStreaming === right.isStreaming &&
+    left.isFinalReply === right.isFinalReply &&
+    left.isDone === right.isDone &&
+    left.collapseWhenResponseAppears === right.collapseWhenResponseAppears &&
+    left.toolCall === right.toolCall &&
+    left.toolCallIds === right.toolCallIds &&
+    left.toolCalls === right.toolCalls &&
+    left.summary === right.summary &&
+    left.status === right.status
+  )
+}
+
+function isSameCollapsedIconClass(
+  left: TimelineViewItem['collapsedIconClass'],
+  right: TimelineViewItem['collapsedIconClass']
+): boolean {
+  if (left === right) {
+    return true
+  }
+  return (
+    left?.['is-collapsed'] === right?.['is-collapsed'] &&
+    left?.['is-pending'] === right?.['is-pending']
+  )
 }
 
 /**
@@ -758,224 +668,11 @@ async function forkFromMessage(entryId: string): Promise<void> {
 }
 
 function locateMessageInTree(entryId: string): void {
-  workspaceSession.focusActiveSessionTreeEntry(entryId)
+  openPanelTab('tree', { entryId })
 }
 
 async function navigateMessageTree(entryId: string): Promise<void> {
   await workspaceSession.navigateActiveSessionTree(entryId)
-}
-
-/**
- * 将 assistant message 的 thinking、text content 拆成 timeline 项。
- * @param message - assistant message。
- * @returns timeline 项。
- */
-function getAssistantTimelineItems(message: RenderableThreadMessage): UngroupedTimelineItem[] {
-  const content = getMessageRawRecord(message).content
-  if (!Array.isArray(content)) {
-    const text = getMessageText(message)
-    return text
-      ? [
-          {
-            type: 'message',
-            key: `${message.id}:text`,
-            message,
-            text,
-            revision: message.revision
-          }
-        ]
-      : []
-  }
-
-  const items: UngroupedTimelineItem[] = []
-  content.forEach((part, index) => {
-    if (!isRecord(part) || typeof part.type !== 'string') {
-      return
-    }
-    if (
-      part.type === 'thinking' &&
-      typeof part.thinking === 'string' &&
-      part.thinking &&
-      !hideThinkingBlock.value
-    ) {
-      items.push({
-        type: 'thinking',
-        key: `${message.id}:thinking:${index}`,
-        message,
-        text: part.thinking,
-        collapseWhenResponseAppears: hasFollowingResponseContent(
-          content,
-          index,
-          Boolean(message.toolCallIds?.length)
-        ),
-        revision: message.revision
-      })
-      return
-    }
-    if (part.type === 'text' && typeof part.text === 'string' && part.text) {
-      items.push({
-        type: 'message',
-        key: `${message.id}:text:${index}`,
-        message,
-        text: part.text,
-        revision: message.revision
-      })
-      return
-    }
-  })
-
-  return items
-}
-
-/**
- * 在指定范围内查找最终回复候选：assistant 正文已完成，且没有工具调用。
- * @param items - timeline 项。
- * @param startIndex - 起始下标，包含。
- * @param endIndex - 结束下标，不包含。
- * @returns timeline 下标，未找到时返回 -1。
- */
-function findFinalReplyIndexInRange(
-  items: TimelineItem[],
-  startIndex: number,
-  endIndex: number
-): number {
-  let candidateIndex = -1
-  for (let index = startIndex; index < endIndex; index += 1) {
-    const item = items[index]
-    if (
-      item.type === 'message' &&
-      item.message.role === 'assistant' &&
-      Boolean(item.text) &&
-      item.message.renderState === 'complete' &&
-      !hasAssistantToolCall(item.message)
-    ) {
-      candidateIndex = index
-    }
-  }
-  return candidateIndex
-}
-
-/**
- * 查找下一个 user message。
- * @param items - timeline 项。
- * @param startIndex - 起始下标，包含。
- * @returns user message 下标，未找到时返回 -1。
- */
-function findNextUserMessageIndex(items: TimelineItem[], startIndex: number): number {
-  for (let index = startIndex; index < items.length; index += 1) {
-    if (isUserMessageItem(items[index])) {
-      return index
-    }
-  }
-  return -1
-}
-
-/**
- * 判断 timeline 项是否是 user message。
- * @param item - timeline 项。
- * @returns 是否 user message。
- */
-function isUserMessageItem(item: TimelineItem | undefined): boolean {
-  return item?.type === 'message' && item.message.role === 'user'
-}
-
-/**
- * 判断 assistant message 是否已经包含工具调用。
- * @param message - assistant message。
- * @returns 是否包含 toolCall block。
- */
-function hasAssistantToolCall(message: RenderableThreadMessage): boolean {
-  return Boolean(message.toolCallIds?.length)
-}
-
-/**
- * 粗略统计折叠区包含的历史轮次数。
- * @param items - 被折叠的 timeline 项。
- * @returns 历史轮次数。
- */
-function countTurns(items: TimelineItem[]): number {
-  const userMessageCount = items.filter(
-    (item) => item.type === 'message' && item.message.role === 'user'
-  ).length
-  return Math.max(1, userMessageCount)
-}
-
-/**
- * 格式化被折叠过程的处理耗时。
- * @param promptItem - 触发处理段的用户消息。
- * @param hiddenItems - 被折叠的过程项。
- * @param finalReplyItem - 最终回复项。
- * @returns 耗时标签。
- */
-function formatProcessingDuration(
-  promptItem: TimelineItem,
-  hiddenItems: TimelineItem[],
-  finalReplyItem: TimelineItem | undefined
-): string | undefined {
-  const startedAt =
-    getTimelineItemStartTime(promptItem) ??
-    hiddenItems.map(getTimelineItemStartTime).find((time) => time !== undefined)
-  const endedAt = getTimelineItemEndTime(finalReplyItem) ?? processingNow.value
-  if (startedAt === undefined || endedAt <= startedAt) {
-    return undefined
-  }
-  const seconds = Math.max(1, Math.round((endedAt - startedAt) / 1000))
-  if (seconds < 60) {
-    return `${seconds}s`
-  }
-  const minutes = Math.floor(seconds / 60)
-  const remainingSeconds = seconds % 60
-  return remainingSeconds > 0 ? `${minutes}m ${remainingSeconds}s` : `${minutes}m`
-}
-
-/**
- * 获取 timeline 项开始时间戳。
- * @param item - timeline 项。
- * @returns 时间戳。
- */
-function getTimelineItemStartTime(item: TimelineItem | undefined): number | undefined {
-  if (!item || item.type === 'collapsed-history') {
-    return undefined
-  }
-  if (item.type === 'tool') {
-    return parseTime(item.toolCall.startedAt)
-  }
-  if (item.type === 'tool-group') {
-    return item.toolCalls
-      .map((toolCall) => parseTime(toolCall.startedAt))
-      .find((time) => time !== undefined)
-  }
-  return parseTime(item.message.createdAt)
-}
-
-/**
- * 获取 timeline 项结束时间戳。
- * @param item - timeline 项。
- * @returns 时间戳。
- */
-function getTimelineItemEndTime(item: TimelineItem | undefined): number | undefined {
-  if (!item || item.type === 'collapsed-history') {
-    return undefined
-  }
-  if (item.type === 'tool') {
-    return parseTime(item.toolCall.finishedAt ?? item.toolCall.startedAt)
-  }
-  if (item.type === 'tool-group') {
-    return [...item.toolCalls]
-      .reverse()
-      .map((toolCall) => parseTime(toolCall.finishedAt ?? toolCall.startedAt))
-      .find((time) => time !== undefined)
-  }
-  return parseTime(item.message.createdAt)
-}
-
-/**
- * 从 timeline 结构索引中查找工具调用，避免父级订阅完整流式 result。
- * @param toolCallId - 工具调用 ID。
- * @returns 工具调用结构。
- */
-function findToolCallStructureById(toolCallId: string): WorkspaceToolCallStructure | undefined {
-  return toolCallStructures.value.find((toolCall) => toolCall.toolCallId === toolCallId)
 }
 
 /**
@@ -986,78 +683,11 @@ function findToolCallStructureById(toolCallId: string): WorkspaceToolCallStructu
  * @returns timeline 工具调用。
  */
 function resolveTimelineToolCall(toolCallId: string): DesktopToolCall | undefined {
-  const full = toolCallsById.value[toolCallId]
-  const structure = findToolCallStructureById(toolCallId)
-  if (!full) {
-    if (!structure) {
-      return undefined
-    }
-    return {
-      threadId: structure.threadId,
-      toolCallId: structure.toolCallId,
-      toolName: structure.toolName,
-      status: 'queued',
-      args: structure.args,
-      startedAt: structure.startedAt,
-      finishedAt: structure.finishedAt
-    }
-  }
-  if (!structure || !isGenericToolName(full.toolName)) {
-    return full
-  }
-  return {
-    ...full,
-    toolName: structure.toolName,
-    args: full.args ?? structure.args,
-    startedAt: full.startedAt ?? structure.startedAt,
-    finishedAt: full.finishedAt ?? structure.finishedAt
-  }
-}
-
-/**
- * 判断是否为通用工具名。
- * @param value - 工具名。
- * @returns 是否通用工具名。
- */
-function isGenericToolName(value: unknown): boolean {
-  return typeof value !== 'string' || value.trim() === '' || value === 'tool'
-}
-
-/**
- * 解析 ISO 时间。
- * @param value - ISO 时间。
- * @returns 时间戳。
- */
-function parseTime(value: string | undefined): number | undefined {
-  if (!value) {
-    return undefined
-  }
-  const time = new Date(value).getTime()
-  return Number.isNaN(time) ? undefined : time
-}
-
-/**
- * 判断指定 content block 后面是否已经出现正文或工具调用。
- * @param content - assistant content block 列表。
- * @param index - 当前 block 下标。
- * @returns 后续是否存在非空 text block 或 toolCall block。
- */
-function hasFollowingResponseContent(
-  content: unknown[],
-  index: number,
-  hasToolCalls: boolean
-): boolean {
-  return (
-    content
-      .slice(index + 1)
-      .some(
-        (part) =>
-          isRecord(part) &&
-          part.type === 'text' &&
-          typeof part.text === 'string' &&
-          Boolean(part.text)
-      ) || hasToolCalls
-  )
+  return resolveTimelineToolCallFromState({
+    toolCallId,
+    toolCallsById: toolCallsById.value,
+    toolCallStructures: toolCallStructures.value
+  })
 }
 
 /**
@@ -1065,14 +695,8 @@ function hasFollowingResponseContent(
  * @param message - Thread message。
  * @returns 工具调用投影。
  */
-function getToolResultMessageToolCall(
-  message: RenderableThreadMessage
-): DesktopToolCall | undefined {
-  const raw = getMessageRawRecord(message)
-  if (typeof raw.toolCallId !== 'string') {
-    return undefined
-  }
-  return toolCallsById.value[raw.toolCallId]
+function resolveToolResultMessageToolCall(message: ThreadMessage): DesktopToolCall | undefined {
+  return getToolResultMessageToolCall(message, toolCallsById.value)
 }
 
 /**
@@ -1221,6 +845,13 @@ function handleTimelineScrollbarPointerDown(): void {
  * 发送当前 Composer 草稿。
  */
 async function sendComposerPrompt(): Promise<void> {
+  if (!workspaceSession.activeSessionId) {
+    const model = activeModel.value
+    if (model) {
+      await workspaceSession.setActiveModel(model.provider, model.id)
+    }
+    await workspaceSession.setActiveThinkingLevel(activeThinkingLevel.value)
+  }
   await workspaceSession.sendPrompt(workspaceSession.defaultSessionContextId, runningDelivery.value)
 }
 
@@ -1468,6 +1099,7 @@ function getToolCallRevision(toolCall: DesktopToolCall | undefined): unknown[] {
             :message="viewItem.message"
             :message-id="viewItem.messageId"
             :text="viewItem.text"
+            :revision="viewItem.revision"
             :is-streaming="viewItem.isStreaming"
             :is-final-reply="viewItem.isFinalReply"
             :is-done="viewItem.isDone"
