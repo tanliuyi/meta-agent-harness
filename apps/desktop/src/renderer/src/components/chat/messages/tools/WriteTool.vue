@@ -60,4 +60,8 @@ const name = computed(() =>
 .write-tool__meta {
   color: var(--color-text-subtle);
 }
+
+.write-tool__path + .write-tool__meta {
+  margin-left: var(--space-1);
+}
 </style>

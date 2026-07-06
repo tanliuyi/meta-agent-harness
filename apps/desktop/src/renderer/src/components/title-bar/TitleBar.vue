@@ -81,15 +81,12 @@ async function handleDoubleClick(): Promise<void> {
   height: 36px;
   padding: 0 8px;
   background: var(--color-canvas);
-  border-bottom: 1px solid var(--color-border-muted);
   -webkit-app-region: drag;
   app-region: drag;
   user-select: none;
 }
 
 .title-bar__title {
-  flex: 1 1 auto;
-  padding-left: 8px;
   font-size: var(--font-size-ui);
   font-weight: 600;
   color: var(--color-text-muted);
@@ -103,6 +100,7 @@ async function handleDoubleClick(): Promise<void> {
   align-items: center;
   flex: 0 0 auto;
   gap: 4px;
+  margin-left: auto;
   -webkit-app-region: no-drag;
   app-region: no-drag;
 }

@@ -173,6 +173,7 @@ onBeforeUnmount(() => {
   gap: var(--space-2);
   width: fit-content;
   max-width: 100%;
+  padding: 0;
   color: var(--color-text-muted);
   font-family: var(--font-mono);
   font-size: var(--font-size-ui);

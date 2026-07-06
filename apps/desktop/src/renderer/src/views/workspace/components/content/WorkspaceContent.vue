@@ -165,7 +165,7 @@ const {
   flex-direction: row;
   justify-content: center;
   align-items: center;
-  width: auto;
+  width: var(--session-panel-actions-width);
   height: var(--session-header-height);
 }
 

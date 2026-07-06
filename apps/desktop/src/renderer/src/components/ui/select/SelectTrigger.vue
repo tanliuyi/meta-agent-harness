@@ -39,6 +39,16 @@ const forwardedProps = useForwardProps(delegatedProps)
 </template>
 
 <style scoped>
+[data-slot='select-trigger'] {
+  svg {
+    transition: transform var(--duration-fast) var(--ease-standard);
+  }
+
+  &[data-state='open'] svg {
+    transform: rotate(180deg);
+  }
+}
+
 [data-slot='select-trigger'][data-variant='borderless'],
 [data-slot='select-trigger'][data-variant='borderless']:hover,
 [data-slot='select-trigger'][data-variant='borderless']:focus-visible {
