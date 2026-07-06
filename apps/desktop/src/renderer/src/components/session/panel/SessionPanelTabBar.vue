@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { Plus } from 'lucide-vue-next'
-import type { SessionPanelOpenTab, SessionPanelTabCountMap, SessionPanelTabId } from './types'
+import type { SessionPanelOpenTab, SessionPanelTabCountMap, SessionPanelTabId } from './model/types'
 
 const props = defineProps<{
   activeTabInstanceId: string
@@ -26,9 +26,7 @@ function isTabAttention(tabId: SessionPanelTabId): boolean {
 }
 
 function isAddPanelAttention(): boolean {
-  return props.attentionTabIds.some(
-    (tabId) => !props.openTabs.some((tab) => tab.id === tabId)
-  )
+  return props.attentionTabIds.some((tabId) => !props.openTabs.some((tab) => tab.id === tabId))
 }
 
 function moveActiveTab(fromTabInstanceId: string, direction: 1 | -1): void {

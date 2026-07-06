@@ -1,35 +1,25 @@
 <script setup lang="ts">
-import { computed, defineAsyncComponent, watch } from 'vue'
-import type { Component } from 'vue'
+import { computed, watch } from 'vue'
 import ScrollArea from '@renderer/components/ui/scroll-area/ScrollArea.vue'
+import { useSessionContext } from '@renderer/composables/useSessionContext'
 import useWorkspaceSessionStore from '@renderer/stores/workspace-session'
 import SessionPanelTabBar from './SessionPanelTabBar.vue'
-import type { SessionPanelTab, SessionPanelTabCountMap, SessionPanelTabId } from './types'
-import { useSessionPanelTabsState } from './useSessionPanelTabsState'
+import type { SessionPanelTabCountMap } from './model/types'
+import { countRecordKeys, createStableSessionPanelTabCounts } from './state/sessionPanelCounts'
+import {
+  getSessionPanelTabComponent,
+  getSessionPanelTabRegistrations
+} from './state/sessionPanelTabRegistry'
+import { useSessionPanelTabsState } from './state/useSessionPanelTabsState'
 
 defineProps<{
   collapsed?: boolean
 }>()
 
 const workspaceSession = useWorkspaceSessionStore()
+const { panelTabRequest } = useSessionContext()
 
-const sessionPanelTabs: SessionPanelTab[] = [
-  { id: 'session', label: 'Session' },
-  { id: 'changes', label: 'Changes' },
-  { id: 'tree', label: 'Tree' },
-  { id: 'commands', label: 'Commands' },
-  { id: 'extensions', label: 'Extensions' },
-  { id: 'approvals', label: 'Approvals' }
-]
-
-const tabComponentMap = {
-  approvals: defineAsyncComponent(() => import('./tabs/ApprovalsTab.vue')),
-  changes: defineAsyncComponent(() => import('./tabs/ChangesTab.vue')),
-  commands: defineAsyncComponent(() => import('./tabs/CommandsTab.vue')),
-  extensions: defineAsyncComponent(() => import('./tabs/ExtensionsTab.vue')),
-  session: defineAsyncComponent(() => import('./tabs/SessionOverviewTab.vue')),
-  tree: defineAsyncComponent(() => import('./tabs/SessionTreeTab.vue'))
-} satisfies Record<SessionPanelTabId, Component>
+const sessionPanelTabs = getSessionPanelTabRegistrations()
 
 const {
   activeTabInstanceId,
@@ -45,43 +35,52 @@ const {
   openTabs,
   selectOpenTab,
   selectTab
-} = useSessionPanelTabsState(sessionPanelTabs, computed(() => workspaceSession.activeSessionId))
-
-const pendingApprovalsCount = computed(
-  () => Object.keys(workspaceSession.activePendingApprovals).length
-)
-const extensionUiRequestCount = computed(
-  () => Object.keys(workspaceSession.activeExtensionUiRequests).length
-)
-const extensionStatusCount = computed(
-  () => Object.values(workspaceSession.activeExtensionStatuses).filter(Boolean).length
-)
-const extensionWidgetCount = computed(
-  () => Object.keys(workspaceSession.activeExtensionWidgets).length
-)
-const sessionTreeEntryCount = computed(
-  () => workspaceSession.activeSnapshot?.sessionTree?.length ?? 0
+} = useSessionPanelTabsState(
+  sessionPanelTabs,
+  computed(() => workspaceSession.activeSessionId)
 )
 
-const tabCounts = computed<SessionPanelTabCountMap>(() => ({
-  approvals: pendingApprovalsCount.value,
-  changes: workspaceSession.activeSnapshot?.fileChanges.length ?? 0,
-  commands: workspaceSession.activeCommandsLoaded
-    ? workspaceSession.activeCommands.length
-    : undefined,
-  extensions:
-    extensionUiRequestCount.value + extensionStatusCount.value + extensionWidgetCount.value,
-  tree: sessionTreeEntryCount.value
-}))
+const pendingApprovalsCount = computed(() =>
+  countRecordKeys(workspaceSession.activePendingApprovals)
+)
+const extensionUiRequestCount = computed(() =>
+  countRecordKeys(workspaceSession.activeExtensionUiRequests)
+)
+const tabCounts = computed<SessionPanelTabCountMap>((previous) =>
+  createStableSessionPanelTabCounts(
+    {
+      approvals: pendingApprovalsCount.value,
+      changes: workspaceSession.activeSnapshot?.fileChanges.length ?? 0,
+      commands: workspaceSession.activeCommandsLoaded
+        ? workspaceSession.activeCommands.length
+        : undefined,
+      extensionStatuses: workspaceSession.activeExtensionStatuses,
+      extensionUiRequests: workspaceSession.activeExtensionUiRequests,
+      extensionWidgets: workspaceSession.activeExtensionWidgets,
+      tree: workspaceSession.activeSnapshot?.sessionTree?.length ?? 0
+    },
+    previous
+  )
+)
 
 const activeTabComponent = computed(() => {
-  return activeTabId.value ? tabComponentMap[activeTabId.value] : undefined
+  return activeTabId.value ? getSessionPanelTabComponent(activeTabId.value) : undefined
 })
 
 const activeTabKey = computed(() => {
   const sessionId = workspaceSession.activeSessionId ?? '__orphan__'
   return `${sessionId}:${activeTabInstanceId.value}`
 })
+
+watch(
+  panelTabRequest,
+  (request) => {
+    if (request) {
+      selectTab(request.tabId)
+    }
+  },
+  { immediate: true }
+)
 
 watch(
   () => workspaceSession.treeFocusRequest,
@@ -98,23 +97,17 @@ watch(activeTabId, (tabId) => {
   }
 })
 
-watch(
-  pendingApprovalsCount,
-  (count, previousCount) => {
-    if (count > previousCount) {
-      markTabAttention('approvals')
-    }
+watch(pendingApprovalsCount, (count, previousCount) => {
+  if (count > previousCount) {
+    markTabAttention('approvals')
   }
-)
+})
 
-watch(
-  extensionUiRequestCount,
-  (count, previousCount) => {
-    if (count > previousCount) {
-      markTabAttention('extensions')
-    }
+watch(extensionUiRequestCount, (count, previousCount) => {
+  if (count > previousCount) {
+    markTabAttention('extensions')
   }
-)
+})
 </script>
 
 <template>

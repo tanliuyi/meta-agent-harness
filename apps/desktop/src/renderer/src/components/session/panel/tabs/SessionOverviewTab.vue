@@ -12,8 +12,15 @@ import {
 } from '@renderer/components/ui/dialog'
 import useWorkspaceProjectStore from '@renderer/stores/workspace-project'
 import useWorkspaceSessionStore from '@renderer/stores/workspace-session'
-import { getFileName } from '../utils'
-import { onOffOptions, type OnOffValue } from '../types'
+import { getFileName } from '../shared/utils'
+import { onOffOptions, type OnOffValue } from '../model/types'
+import {
+  createSessionActionMenuSections,
+  formatRetryDelay,
+  getSessionLineageLabel,
+  getSessionModelLabel
+} from './display/sessionOverviewDisplay'
+import type { BaseDropdownMenuSection } from '@renderer/components/base/BaseDropdownMenu.vue'
 
 const workspaceProject = useWorkspaceProjectStore()
 const workspaceSession = useWorkspaceSessionStore()
@@ -34,31 +41,10 @@ const sessionTreeEntryCount = computed(
 const activeLineage = computed(
   () => workspaceSession.activeSnapshot?.lineage ?? workspaceSession.activeSession?.lineage
 )
-const activeLineageLabel = computed(() => {
-  const lineage = activeLineage.value
-  if (!lineage) {
-    return undefined
-  }
-  if (lineage.unavailable) {
-    return 'Fork source unavailable'
-  }
-  if (lineage.parentThreadTitle) {
-    return lineage.parentThreadArchivedAt
-      ? `${lineage.parentThreadTitle} (archived)`
-      : lineage.parentThreadTitle
-  }
-  if (lineage.parentSessionFile) {
-    return lineage.parentSessionMissing
-      ? 'Fork source missing'
-      : getFileName(lineage.parentSessionFile)
-  }
-  return undefined
-})
-const activeModelLabel = computed(() => {
-  const model = workspaceSession.activeSnapshot?.model
-  if (!model) return '-'
-  return model.displayName || `${model.provider}/${model.id}`
-})
+const activeLineageLabel = computed(() => getSessionLineageLabel(activeLineage.value))
+const activeModelLabel = computed(() =>
+  getSessionModelLabel(workspaceSession.activeSnapshot?.model)
+)
 const activeThinkingLabel = computed(() => workspaceSession.activeSnapshot?.thinkingLevel ?? '-')
 const autoCompactionValue = computed<OnOffValue>(() =>
   workspaceSession.activeSnapshot?.autoCompactionEnabled === false ? 'off' : 'on'
@@ -66,26 +52,9 @@ const autoCompactionValue = computed<OnOffValue>(() =>
 const autoRetryValue = computed<OnOffValue>(() =>
   workspaceSession.activeSnapshot?.autoRetryEnabled === false ? 'off' : 'on'
 )
-const sessionActionMenuSections = computed(() => [
-  {
-    items: [
-      { id: 'export', label: 'Export', disabled: !hasActiveThread.value },
-      { id: 'import', label: 'Import', disabled: !hasActiveThread.value },
-      { id: 'switch', label: 'Switch file', disabled: !hasActiveThread.value }
-    ]
-  },
-  {
-    items: [
-      { id: 'clone', label: 'Clone', disabled: !hasActiveThread.value },
-      { id: 'new', label: 'New session', disabled: !hasActiveThread.value },
-      {
-        id: 'fork',
-        label: '创建分支会话',
-        disabled: !hasActiveThread.value || !currentEntryId.value
-      }
-    ]
-  }
-])
+const sessionActionMenuSections = computed<BaseDropdownMenuSection[]>((previous) =>
+  createSessionActionMenuSections(hasActiveThread.value, Boolean(currentEntryId.value), previous)
+)
 
 async function switchSessionFromDraft(): Promise<void> {
   await workspaceSession.switchActiveSessionPath(sessionPathDraft.value)
@@ -98,11 +67,6 @@ async function setAutoCompactionValue(value: OnOffValue): Promise<void> {
 
 async function setAutoRetryValue(value: OnOffValue): Promise<void> {
   await workspaceSession.setActiveAutoRetry(value === 'on')
-}
-
-function formatRetryDelay(delayMs: number): string {
-  if (delayMs < 1000) return `${delayMs}ms`
-  return `${Math.round(delayMs / 1000)}s`
 }
 
 function openSessionPathDialog(): void {

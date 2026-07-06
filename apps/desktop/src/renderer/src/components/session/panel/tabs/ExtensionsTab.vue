@@ -11,6 +11,11 @@ import {
 } from '@renderer/components/ui/dialog'
 import useWorkspaceSessionStore from '@renderer/stores/workspace-session'
 import type { ExtensionUiRequest } from '@shared/coding-agent/types'
+import {
+  getExtensionInitialDraft,
+  getExtensionRequestDescription,
+  getExtensionRequestTitle
+} from './display/extensionDisplay'
 
 const workspaceSession = useWorkspaceSessionStore()
 const extensionDrafts = ref<Record<string, string>>({})
@@ -29,15 +34,8 @@ const extensionStatuses = computed(() =>
 )
 const extensionWidgets = computed(() => Object.entries(workspaceSession.activeExtensionWidgets))
 
-function getExtensionRequestTitle(request: ExtensionUiRequest): string {
-  return 'title' in request ? request.title : request.type
-}
-
 function getExtensionDraft(request: ExtensionUiRequest): string {
-  if (extensionDrafts.value[request.id] === undefined) {
-    extensionDrafts.value[request.id] = request.type === 'editor' ? (request.prefill ?? '') : ''
-  }
-  return extensionDrafts.value[request.id]
+  return extensionDrafts.value[request.id] ?? getExtensionInitialDraft(request)
 }
 
 function setExtensionDraft(id: string, value: string): void {
@@ -47,22 +45,11 @@ function setExtensionDraft(id: string, value: string): void {
   }
 }
 
-function getExtensionRequestDescription(request: ExtensionUiRequest): string {
-  if (request.type === 'confirm') {
-    return request.message
-  }
-  if (request.type === 'select') {
-    return `${request.options.length} options`
-  }
-  if (request.type === 'input') {
-    return request.placeholder || request.type
-  }
-  return request.type
-}
-
 function openExtensionRequestDialog(request: ExtensionUiRequest): void {
   activeExtensionRequestId.value = request.id
-  void getExtensionDraft(request)
+  if (extensionDrafts.value[request.id] === undefined) {
+    setExtensionDraft(request.id, getExtensionInitialDraft(request))
+  }
   isExtensionRequestDialogOpen.value = true
 }
 

@@ -1,16 +1,20 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { ref } from 'vue'
-import { useSessionPanelTabsState } from '../useSessionPanelTabsState'
-import type { SessionPanelTab } from '../types'
+import { useSessionPanelTabsState } from '../state/useSessionPanelTabsState'
+import type { SessionPanelTab } from '../model/types'
 
 const tabs: SessionPanelTab[] = [
-  { id: 'session', label: 'Session' },
-  { id: 'changes', label: 'Changes' },
-  { id: 'tree', label: 'Tree' },
-  { id: 'commands', label: 'Commands' },
-  { id: 'extensions', label: 'Extensions' },
-  { id: 'approvals', label: 'Approvals' }
+  { id: 'session', label: 'Session', allowMultiple: true },
+  { id: 'changes', label: 'Changes', allowMultiple: true },
+  { id: 'tree', label: 'Tree', allowMultiple: true },
+  { id: 'commands', label: 'Commands', allowMultiple: true },
+  { id: 'extensions', label: 'Extensions', allowMultiple: true },
+  { id: 'approvals', label: 'Approvals', allowMultiple: true }
 ]
+
+const singleSessionTabs: SessionPanelTab[] = tabs.map((tab) =>
+  tab.id === 'session' ? { ...tab, allowMultiple: false } : tab
+)
 
 beforeEach(() => {
   const storage = createMemoryStorage()
@@ -59,7 +63,7 @@ describe('useSessionPanelTabsState', () => {
     expect(state.openTabs.value.map((tab) => tab.id)).toEqual(['approvals'])
   })
 
-  it('允许同一种 tab 同时存在多个实例，并且关闭单个实例', () => {
+  it('允许声明支持多开的 tab 同时存在多个实例，并且关闭单个实例', () => {
     const sessionKey = ref<string | undefined>('thread-a')
     const state = useSessionPanelTabsState(tabs, sessionKey)
 
@@ -76,6 +80,18 @@ describe('useSessionPanelTabsState', () => {
     expect(state.openTabs.value.map((tab) => tab.instanceId)).not.toContain(firstTreeInstanceId)
     expect(state.openTabs.value.map((tab) => tab.instanceId)).toContain(secondTreeInstanceId)
     expect(state.openTabs.value.map((tab) => tab.id)).toEqual(['session', 'tree'])
+  })
+
+  it('不支持多开的 tab 已打开时再次打开会选中已有实例', () => {
+    const sessionKey = ref<string | undefined>('thread-a')
+    const state = useSessionPanelTabsState(singleSessionTabs, sessionKey)
+
+    const sessionInstanceId = state.activeTabInstanceId.value
+    state.openTab('session')
+
+    expect(state.activeTabInstanceId.value).toBe(sessionInstanceId)
+    expect(state.openTabs.value.map((tab) => tab.id)).toEqual(['session'])
+    expect(state.availableTabs.value.map((tab) => tab.id)).not.toContain('session')
   })
 })
 

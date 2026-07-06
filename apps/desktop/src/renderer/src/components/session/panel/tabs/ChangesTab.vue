@@ -1,73 +1,53 @@
 <script setup lang="ts">
 import { computed, ref, type ComponentPublicInstance } from 'vue'
-import { useVirtualizer, type VirtualItem } from '@tanstack/vue-virtual'
+import { useVirtualizer } from '@tanstack/vue-virtual'
 import DiffViewer from '@renderer/components/chat/messages/tools/DiffViewer.vue'
 import useWorkspaceSessionStore from '@renderer/stores/workspace-session'
-import type { ThreadSnapshot } from '@shared/coding-agent/types'
-import { getFileName } from '../utils'
+import { getFileName } from '../shared/utils'
+import {
+  countFileChangeStats,
+  createVirtualFileChangeRows,
+  formatAdditions,
+  formatDeletions,
+  getFileChangeId,
+  getReviewDiff
+} from './display/changesDisplay'
 
-type FileChange = ThreadSnapshot['fileChanges'][number]
-type VirtualFileChangeRow = {
-  virtualItem: VirtualItem
-  change: FileChange
-}
+type MaybeRefValue<T> = T extends { value: infer Value } ? Value : T
+type ChangeListVirtualizerOptions = MaybeRefValue<Parameters<typeof useVirtualizer>[0]>
 
 const workspaceSession = useWorkspaceSessionStore()
 const changeListRef = ref<HTMLElement>()
 
 const fileChanges = computed(() => workspaceSession.activeSnapshot?.fileChanges ?? [])
-const changeListVirtualizer = useVirtualizer(
-  computed(() => ({
-    count: fileChanges.value.length,
-    getScrollElement: () =>
-      changeListRef.value?.closest<HTMLElement>("[data-slot='scroll-area-viewport']") ?? null,
-    estimateSize: () => 382,
+const getChangeListScrollElement = (): HTMLElement | null =>
+  changeListRef.value?.closest<HTMLElement>("[data-slot='scroll-area-viewport']") ?? null
+const estimateChangeListSize = (): number => 382
+const changeListOptions = computed<ChangeListVirtualizerOptions>((previous) => {
+  const count = fileChanges.value.length
+  if (previous?.count === count) {
+    return previous
+  }
+  return {
+    count,
+    getScrollElement: getChangeListScrollElement,
+    estimateSize: estimateChangeListSize,
     overscan: 4,
     gap: 4
-  }))
-)
+  }
+})
+const changeListVirtualizer = useVirtualizer(changeListOptions)
 const virtualChangeItems = computed(() => changeListVirtualizer.value.getVirtualItems())
 const virtualChangeTotalSize = computed(() => changeListVirtualizer.value.getTotalSize())
-const virtualChangeRows = computed<VirtualFileChangeRow[]>(() => {
-  const rows: VirtualFileChangeRow[] = []
-  for (const virtualItem of virtualChangeItems.value) {
-    const change = fileChanges.value[virtualItem.index]
-    if (change) {
-      rows.push({ virtualItem, change })
-    }
-  }
-  return rows
-})
-const fileChangeStats = computed(() =>
-  fileChanges.value.reduce(
-    (stats, change) => ({
-      additions: stats.additions + (change.additions ?? 0),
-      deletions: stats.deletions + (change.deletions ?? 0)
-    }),
-    { additions: 0, deletions: 0 }
-  )
+const virtualChangeRows = computed(() =>
+  createVirtualFileChangeRows(virtualChangeItems.value, fileChanges.value)
 )
-
-function getFileChangeId(change: FileChange): string {
-  return `${change.toolCallId ?? change.createdAt}:${change.path}`
-}
-
-function getReviewDiff(change: FileChange | undefined): string | undefined {
-  return change?.diff || change?.patch
-}
+const fileChangeStats = computed(() => countFileChangeStats(fileChanges.value))
 
 function measureChangeItem(refValue: Element | ComponentPublicInstance | null): void {
   if (refValue instanceof Element) {
     changeListVirtualizer.value.measureElement(refValue)
   }
-}
-
-function formatAdditions(value: number | undefined): string {
-  return `+${value ?? 0}`
-}
-
-function formatDeletions(value: number | undefined): string {
-  return `-${value ?? 0}`
 }
 </script>
 

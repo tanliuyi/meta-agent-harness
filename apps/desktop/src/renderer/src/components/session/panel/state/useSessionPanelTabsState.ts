@@ -1,5 +1,5 @@
-import { computed, reactive, type Ref } from 'vue'
-import type { SessionPanelOpenTab, SessionPanelTab, SessionPanelTabId } from './types'
+import { computed, reactive, watch, type Ref } from 'vue'
+import type { SessionPanelOpenTab, SessionPanelTab, SessionPanelTabId } from '../model/types'
 
 const SESSION_PANEL_TABS_STORAGE_KEY = 'meta-agent.session-panel.tabs.v2'
 const SESSION_PANEL_ACTIVE_TAB_STORAGE_KEY = 'meta-agent.session-panel.active-tab.v2'
@@ -18,19 +18,30 @@ export function useSessionPanelTabsState(
   sessionKey: Ref<string | undefined>
 ) {
   const stateBySessionKey = reactive<Record<string, SessionPanelTabsState>>({})
+  const orphanState = ensureState(ORPHAN_SESSION_PANEL_TABS_KEY)
 
   const activeStateKey = computed(() => sessionKey.value || ORPHAN_SESSION_PANEL_TABS_KEY)
-  const activeState = computed(() => ensureState(activeStateKey.value))
+  watch(activeStateKey, (key) => ensureState(key), { flush: 'sync', immediate: true })
+  const activeState = computed(() => stateBySessionKey[activeStateKey.value] ?? orphanState)
 
   const activeTabInstanceId = computed(() => activeState.value.activeTabInstanceId)
   const activeOpenTab = computed(() =>
-    activeState.value.openTabs.find((tab) => tab.instanceId === activeState.value.activeTabInstanceId)
+    activeState.value.openTabs.find(
+      (tab) => tab.instanceId === activeState.value.activeTabInstanceId
+    )
   )
   const activeTabId = computed(() => activeOpenTab.value?.id)
-  const isAddPanelActive = computed(() => activeState.value.activeTabInstanceId === ADD_TAB_INSTANCE_ID)
+  const isAddPanelActive = computed(
+    () => activeState.value.activeTabInstanceId === ADD_TAB_INSTANCE_ID
+  )
   const attentionTabIds = computed(() => activeState.value.attentionTabIds)
   const openTabs = computed(() => activeState.value.openTabs)
-  const availableTabs = computed(() => sessionPanelTabs)
+  const availableTabs = computed(() =>
+    sessionPanelTabs.filter(
+      (tab) =>
+        tab.allowMultiple || !activeState.value.openTabs.some((openTab) => openTab.id === tab.id)
+    )
+  )
 
   function ensureState(key: string): SessionPanelTabsState {
     stateBySessionKey[key] ??= createState(key)
@@ -52,7 +63,9 @@ export function useSessionPanelTabsState(
   }
 
   function readStoredTab(key: string): string | undefined {
-    const value = window.localStorage.getItem(getStorageKey(SESSION_PANEL_ACTIVE_TAB_STORAGE_KEY, key))
+    const value = window.localStorage.getItem(
+      getStorageKey(SESSION_PANEL_ACTIVE_TAB_STORAGE_KEY, key)
+    )
     return value || undefined
   }
 
@@ -68,6 +81,7 @@ export function useSessionPanelTabsState(
         return undefined
       }
       const usedInstanceIds = new Set<string>()
+      const usedSingleInstanceTabIds = new Set<SessionPanelTabId>()
       const openTabs = parsed.flatMap((entry, index): SessionPanelOpenTab[] => {
         if (!isStoredOpenTab(entry)) {
           return []
@@ -76,12 +90,18 @@ export function useSessionPanelTabsState(
         if (!tab) {
           return []
         }
+        if (!tab.allowMultiple && usedSingleInstanceTabIds.has(tab.id)) {
+          return []
+        }
         const instanceId =
           entry.instanceId && !usedInstanceIds.has(entry.instanceId)
             ? entry.instanceId
             : `tab-${index + 1}`
         usedInstanceIds.add(instanceId)
-        return [{ ...tab, instanceId }]
+        if (!tab.allowMultiple) {
+          usedSingleInstanceTabIds.add(tab.id)
+        }
+        return [createOpenTabFromRegistration(tab, instanceId)]
       })
       return openTabs.length > 0 ? openTabs : undefined
     } catch {
@@ -89,14 +109,16 @@ export function useSessionPanelTabsState(
     }
   }
 
-  function isStoredOpenTab(value: unknown): value is { id: SessionPanelTabId; instanceId?: string } {
+  function isStoredOpenTab(
+    value: unknown
+  ): value is { id: SessionPanelTabId; instanceId?: string } {
     if (!value || typeof value !== 'object') {
       return false
     }
     const entry = value as Partial<SessionPanelOpenTab>
-    return isSessionPanelTabId(entry.id) && (
-      entry.instanceId === undefined ||
-      typeof entry.instanceId === 'string'
+    return (
+      isSessionPanelTabId(entry.id) &&
+      (entry.instanceId === undefined || typeof entry.instanceId === 'string')
     )
   }
 
@@ -147,6 +169,12 @@ export function useSessionPanelTabsState(
 
   function openTab(tabId: SessionPanelTabId): void {
     const state = activeState.value
+    const tab = sessionPanelTabs.find((item) => item.id === tabId)
+    const existingTab = state.openTabs.find((openTab) => openTab.id === tabId)
+    if (tab && !tab.allowMultiple && existingTab) {
+      selectOpenTab(existingTab.instanceId)
+      return
+    }
     const openTab = createOpenTab(tabId, state.nextTabInstanceIndex)
     state.nextTabInstanceIndex += 1
     state.openTabs = [...state.openTabs, openTab]
@@ -199,14 +227,25 @@ export function useSessionPanelTabsState(
 
   function createOpenTab(tabId: SessionPanelTabId, instanceIndex: number): SessionPanelOpenTab {
     const tab = sessionPanelTabs.find((item) => item.id === tabId) ?? sessionPanelTabs[0]
+    return createOpenTabFromRegistration(tab, `tab-${instanceIndex}`)
+  }
+
+  function createOpenTabFromRegistration(
+    tab: SessionPanelTab,
+    instanceId: string
+  ): SessionPanelOpenTab {
     return {
-      ...tab,
-      instanceId: `tab-${instanceIndex}`
+      id: tab.id,
+      label: tab.label,
+      allowMultiple: tab.allowMultiple,
+      instanceId
     }
   }
 
   function isKnownTabInstance(instanceId: string, openTabs: SessionPanelOpenTab[]): boolean {
-    return instanceId === ADD_TAB_INSTANCE_ID || openTabs.some((tab) => tab.instanceId === instanceId)
+    return (
+      instanceId === ADD_TAB_INSTANCE_ID || openTabs.some((tab) => tab.instanceId === instanceId)
+    )
   }
 
   function getNextTabInstanceIndex(openTabs: SessionPanelOpenTab[]): number {

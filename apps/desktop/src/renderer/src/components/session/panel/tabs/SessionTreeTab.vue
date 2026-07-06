@@ -3,6 +3,7 @@ import { computed, nextTick, onBeforeUnmount, ref, watch, type ComponentPublicIn
 import { useVirtualizer, type VirtualItem } from '@tanstack/vue-virtual'
 import { BaseButton, BaseContextMenu, BaseSegmentedControl } from '@renderer/components/base'
 import BaseField from '@renderer/components/base/BaseField.vue'
+import { useSessionContext } from '@renderer/composables/useSessionContext'
 import {
   Dialog,
   DialogContent,
@@ -12,18 +13,28 @@ import {
   DialogTitle
 } from '@renderer/components/ui/dialog'
 import useWorkspaceSessionStore from '@renderer/stores/workspace-session'
-import type {
-  SessionTreeBranchEntryRow,
-  SessionTreeBranchSegmentRow,
-  SessionTreeViewMode
-} from '@shared/coding-agent/types'
+import type { SessionTreeViewMode } from '@shared/coding-agent/types'
+import {
+  canForkTreeEntry,
+  canNavigateTreeEntry,
+  getSessionTreeIndent as getSessionTreeIndentValue,
+  getTreeEntryKindLabel,
+  getTreeEntryMenuSections,
+  getTreeEntryTitle,
+  getTreeEntryTone,
+  isCompressedTreeDepth as isCompressedTreeDepthValue,
+  toBranchEntryDisplayRow,
+  toTreeSegmentDisplayRow
+} from '../display/sessionTreeDisplay'
 import {
   sessionTreeFilterOptions,
   sessionTreeViewOptions,
   type SessionTreeDisplayRow,
   type SessionTreeEntryView,
   type SessionTreeFilter
-} from '../types'
+} from '../model/types'
+
+const { panelTabRequest } = useSessionContext()
 
 const MAX_VISIBLE_TREE_DEPTH = 6
 const TREE_INDENT_PX = 8
@@ -36,19 +47,6 @@ type VirtualSessionTreeRow = {
   displayRow: SessionTreeDisplayRow
   virtualItem: VirtualItem
   transform: string
-}
-
-type TreeEntryMenuItem = {
-  id: string
-  label: string
-  shortcut?: string
-  disabled?: boolean
-  danger?: boolean
-}
-
-type TreeEntryMenuSection = {
-  label?: string
-  items: TreeEntryMenuItem[]
 }
 
 const workspaceSession = useWorkspaceSessionStore()
@@ -65,6 +63,21 @@ const visibleSessionTreeRows = computed<SessionTreeDisplayRow[]>(() =>
     row.kind === 'segment' ? toTreeSegmentDisplayRow(row) : toBranchEntryDisplayRow(row)
   )
 )
+const visibleTreeEntries = computed<SessionTreeEntryView[]>(() =>
+  visibleSessionTreeRows.value
+    .filter((row): row is Extract<SessionTreeDisplayRow, { kind: 'entry' }> => row.kind === 'entry')
+    .map((row) => row.row)
+)
+const visibleTreeEntryIds = computed(() => new Set(visibleTreeEntries.value.map((row) => row.id)))
+const visibleTreeEntryIndexById = computed(() => {
+  const indexById = new Map<string, number>()
+  visibleSessionTreeRows.value.forEach((row, index) => {
+    if (row.kind === 'entry') {
+      indexById.set(row.row.id, index)
+    }
+  })
+  return indexById
+})
 
 const selectedTreeEntryId = ref<string>()
 const selectedTreeLabelDraft = ref('')
@@ -109,9 +122,7 @@ const virtualSessionTreeRows = computed<VirtualSessionTreeRow[]>(() => {
 })
 
 const selectedTreeEntry = computed(() => {
-  const entryRows = visibleSessionTreeRows.value
-    .filter((row): row is Extract<SessionTreeDisplayRow, { kind: 'entry' }> => row.kind === 'entry')
-    .map((row) => row.row)
+  const entryRows = visibleTreeEntries.value
   return (
     entryRows.find((row) => row.id === selectedTreeEntryId.value) ??
     entryRows.find((row) => row.id === currentEntryId.value) ??
@@ -119,21 +130,13 @@ const selectedTreeEntry = computed(() => {
   )
 })
 const treeLabelDialogEntry = computed(() =>
-  getVisibleTreeEntries().find((entry) => entry.id === treeLabelDialogEntryId.value)
+  visibleTreeEntries.value.find((entry) => entry.id === treeLabelDialogEntryId.value)
 )
 
 watch(
-  [visibleSessionTreeRows, currentEntryId],
-  ([rows, currentId]) => {
-    const entryRows = rows
-      .filter(
-        (row): row is Extract<SessionTreeDisplayRow, { kind: 'entry' }> => row.kind === 'entry'
-      )
-      .map((row) => row.row)
-    if (
-      selectedTreeEntryId.value &&
-      entryRows.some((row) => row.id === selectedTreeEntryId.value)
-    ) {
+  [visibleTreeEntries, visibleTreeEntryIds, currentEntryId],
+  ([entryRows, entryIds, currentId]) => {
+    if (selectedTreeEntryId.value && entryIds.has(selectedTreeEntryId.value)) {
       return
     }
     selectedTreeEntryId.value =
@@ -163,6 +166,20 @@ watch(sessionTreeQuery, () => {
 onBeforeUnmount(() => {
   clearQueuedSessionTreeBranchesView()
 })
+
+watch(
+  panelTabRequest,
+  (request) => {
+    if (request?.tabId !== 'tree') {
+      return
+    }
+    const entryId = request.params?.entryId
+    if (typeof entryId === 'string') {
+      void focusSessionTreeEntry(entryId)
+    }
+  },
+  { immediate: true }
+)
 
 watch(
   () => workspaceSession.treeFocusRequest,
@@ -202,43 +219,6 @@ watch(
   }
 )
 
-function toBranchEntryDisplayRow(
-  row: SessionTreeBranchEntryRow
-): Extract<SessionTreeDisplayRow, { kind: 'entry' }> {
-  return {
-    kind: 'entry',
-    id: row.id,
-    depth: row.depth,
-    visualDepth: row.visualDepth,
-    row: {
-      id: row.entryId,
-      parentId: row.parentId,
-      type: row.type,
-      timestamp: row.timestamp,
-      title: row.title,
-      summary: row.summary,
-      label: row.label,
-      labelTimestamp: row.labelTimestamp,
-      depth: row.depth,
-      visualDepth: row.visualDepth,
-      childCount: row.childCount,
-      leaf: row.leaf,
-      branchPoint: row.branchPoint,
-      current: row.current
-    }
-  }
-}
-
-function toTreeSegmentDisplayRow(row: SessionTreeBranchSegmentRow): SessionTreeDisplayRow {
-  return {
-    kind: 'segment',
-    id: row.id,
-    count: row.count,
-    depth: row.depth,
-    visualDepth: row.visualDepth
-  }
-}
-
 async function loadSessionTreeBranchesView(): Promise<void> {
   await workspaceSession.loadActiveSessionTreeBranches({
     query: sessionTreeQuery.value,
@@ -268,115 +248,11 @@ function clearQueuedSessionTreeBranchesView(): void {
 }
 
 function getSessionTreeIndent(visualDepth: number): string {
-  return `${Math.min(visualDepth, MAX_VISIBLE_TREE_DEPTH) * TREE_INDENT_PX}px`
+  return getSessionTreeIndentValue(visualDepth, MAX_VISIBLE_TREE_DEPTH, TREE_INDENT_PX)
 }
 
 function isCompressedTreeDepth(visualDepth: number): boolean {
-  return visualDepth > MAX_VISIBLE_TREE_DEPTH
-}
-
-function canForkTreeEntry(entry: SessionTreeEntryView): boolean {
-  return entry.type !== 'truncated'
-}
-
-function canNavigateTreeEntry(entry: SessionTreeEntryView): boolean {
-  return entry.type !== 'truncated'
-}
-
-function getVisibleTreeEntries(): SessionTreeEntryView[] {
-  return visibleSessionTreeRows.value
-    .filter((row): row is Extract<SessionTreeDisplayRow, { kind: 'entry' }> => row.kind === 'entry')
-    .map((row) => row.row)
-}
-
-function getNavigateTreeActionLabel(entry: SessionTreeEntryView): string {
-  return entry.type === 'message' && entry.title.startsWith('user:') ? '从这里编辑' : '从这里继续'
-}
-
-function getTreeEntryTitle(entry: SessionTreeEntryView): string {
-  if (entry.label) {
-    return entry.label
-  }
-  return entry.title.replace(/^(user|assistant|tool|toolResult):\s*/i, '').trim() || entry.title
-}
-
-function getTreeEntryKindLabel(entry: SessionTreeEntryView): string {
-  if (entry.type === 'message') {
-    if (entry.title.startsWith('user:')) {
-      return '用户'
-    }
-    if (entry.title.startsWith('assistant:')) {
-      return '助手'
-    }
-    return '消息'
-  }
-  switch (entry.type) {
-    case 'label':
-      return '标签'
-    case 'model_change':
-      return '模型'
-    case 'thinking_level_change':
-      return 'Thinking'
-    case 'compaction':
-      return '压缩'
-    case 'branch_summary':
-      return '摘要'
-    case 'custom_message':
-      return '自定义消息'
-    case 'custom':
-      return '自定义'
-    case 'truncated':
-      return '未加载'
-    default:
-      return entry.type
-  }
-}
-
-function getTreeEntryTone(entry: SessionTreeEntryView): string {
-  if (entry.current || entry.id === currentEntryId.value) {
-    return 'current'
-  }
-  if (entry.label) {
-    return 'labeled'
-  }
-  if (entry.type === 'message' && entry.title.startsWith('user:')) {
-    return 'user'
-  }
-  if (entry.type === 'message' && entry.title.startsWith('assistant:')) {
-    return 'assistant'
-  }
-  return 'default'
-}
-
-function getTreeEntryMenuSections(entry: SessionTreeEntryView): TreeEntryMenuSection[] {
-  return [
-    {
-      label: getTreeEntryTitle(entry),
-      items: [
-        {
-          id: 'navigate',
-          label: getNavigateTreeActionLabel(entry),
-          disabled: !canNavigateTreeEntry(entry)
-        },
-        {
-          id: 'fork',
-          label: '创建分支会话',
-          disabled: !canForkTreeEntry(entry)
-        }
-      ]
-    },
-    {
-      items: [
-        { id: 'label', label: entry.label ? '编辑标签' : '添加标签' },
-        {
-          id: 'clear-label',
-          label: '清除标签',
-          disabled: !entry.label
-        },
-        { id: 'copy-id', label: '复制 Entry ID' }
-      ]
-    }
-  ]
+  return isCompressedTreeDepthValue(visualDepth, MAX_VISIBLE_TREE_DEPTH)
 }
 
 function isSelectedTreeEntry(entry: SessionTreeEntryView): boolean {
@@ -440,7 +316,7 @@ async function locateCurrentTreeNode(): Promise<void> {
 }
 
 async function focusSessionTreeEntry(entryId: string): Promise<void> {
-  if (!visibleSessionTreeRows.value.some((row) => row.kind === 'entry' && row.row.id === entryId)) {
+  if (!visibleTreeEntryIds.value.has(entryId)) {
     sessionTreeViewMode.value = 'entries'
     sessionTreeFilter.value = 'all'
     sessionTreeQuery.value = ''
@@ -452,9 +328,7 @@ async function focusSessionTreeEntry(entryId: string): Promise<void> {
 }
 
 function scrollTreeEntryIntoView(entryId: string): void {
-  const targetIndex = visibleSessionTreeRows.value.findIndex(
-    (row) => row.kind === 'entry' && row.row.id === entryId
-  )
+  const targetIndex = visibleTreeEntryIndexById.value.get(entryId) ?? -1
   if (targetIndex === -1) {
     return
   }
@@ -595,13 +469,6 @@ async function clearSelectedTreeLabel(): Promise<void> {
               }"
               :title="displayRow.depth > 0 ? `Depth ${displayRow.depth}` : undefined"
               @dblclick="navigateTreeNode(displayRow.row)"
-              v-memo="[
-                displayRow,
-                virtualItem.index,
-                transform,
-                currentEntryId,
-                selectedTreeEntry?.id
-              ]"
             >
               <span
                 class="session-tree__marker"
@@ -618,7 +485,10 @@ async function clearSelectedTreeLabel(): Promise<void> {
                 @click="selectTreeEntry(displayRow.row)"
               >
                 <span class="session-tree__row">
-                  <span class="session-tree-kind" :class="`is-${getTreeEntryTone(displayRow.row)}`">
+                  <span
+                    class="session-tree-kind"
+                    :class="`is-${getTreeEntryTone(displayRow.row, currentEntryId)}`"
+                  >
                     {{ getTreeEntryKindLabel(displayRow.row) }}
                   </span>
                   <span class="session-tree__title">
@@ -649,7 +519,6 @@ async function clearSelectedTreeLabel(): Promise<void> {
               transform
             }"
             :title="displayRow.depth > 0 ? `Depth ${displayRow.depth}` : undefined"
-            v-memo="[displayRow, virtualItem.index, transform]"
           >
             <span class="session-tree__segment-line" aria-hidden="true" />
             <div class="session-tree__segment">

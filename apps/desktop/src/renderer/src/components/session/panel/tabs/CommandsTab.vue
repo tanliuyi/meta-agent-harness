@@ -4,29 +4,21 @@ import { BaseButton, BaseContextMenu } from '@renderer/components/base'
 import BaseField from '@renderer/components/base/BaseField.vue'
 import useWorkspaceSessionStore from '@renderer/stores/workspace-session'
 import type { CommandInfo } from '@shared/coding-agent/types'
+import {
+  commandMenuSections,
+  filterCommands,
+  getCommandClipboardText,
+  getCommandDescription,
+  getCommandKey,
+  getCommandName
+} from './display/commandDisplay'
 
 const workspaceSession = useWorkspaceSessionStore()
 const hasActiveThread = computed(() => Boolean(workspaceSession.activeSessionId))
 const commandQuery = ref('')
-const commandMenuSections = [
-  {
-    items: [
-      { id: 'run', label: '运行命令' },
-      { id: 'copy-name', label: '复制名称' }
-    ]
-  }
-]
-const filteredCommands = computed(() => {
-  const query = commandQuery.value.trim().toLowerCase()
-  if (!query) {
-    return workspaceSession.activeCommands
-  }
-  return workspaceSession.activeCommands.filter((command) =>
-    [command.name, command.description, command.source].some((value) =>
-      value?.toLowerCase().includes(query)
-    )
-  )
-})
+const filteredCommands = computed(() =>
+  filterCommands(workspaceSession.activeCommands, commandQuery.value)
+)
 
 watch(
   () => workspaceSession.activeSessionId,
@@ -38,21 +30,13 @@ watch(
   { immediate: true }
 )
 
-function getCommandName(command: CommandInfo): string {
-  return command.name
-}
-
-function getCommandDescription(command: CommandInfo): string {
-  return command.description || command.source
-}
-
 async function runCommandMenuAction(actionId: string, command: CommandInfo): Promise<void> {
   switch (actionId) {
     case 'run':
       workspaceSession.runCommand(getCommandName(command))
       break
     case 'copy-name':
-      await navigator.clipboard.writeText(`/${getCommandName(command)}`)
+      await navigator.clipboard.writeText(getCommandClipboardText(command))
       break
   }
 }
@@ -96,7 +80,7 @@ async function runCommandMenuAction(actionId: string, command: CommandInfo): Pro
     <div v-else class="command-list">
       <BaseContextMenu
         v-for="command in filteredCommands"
-        :key="`${command.source}:${command.name}`"
+        :key="getCommandKey(command)"
         :sections="commandMenuSections"
         @select="(item) => runCommandMenuAction(item.id, command)"
       >
