@@ -41,7 +41,14 @@ const name = computed(() =>
 </script>
 
 <template>
-  <BaseTool :name="name" :summary="summary" :result="result" :status="status" :is-error="isError">
+  <BaseTool
+    :name="name"
+    :summary="summary"
+    :result="result"
+    :status="status"
+    :is-error="isError"
+    :default-open="props.defaultOpen"
+  >
     <template #summary>
       <span v-if="fileName" class="read-tool__path">{{ fileName }}</span>
       <span v-if="offset" class="read-tool__meta">offset={{ offset }}</span>

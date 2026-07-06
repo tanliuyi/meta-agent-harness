@@ -21,6 +21,8 @@ export class ExtensionUiBridge {
 	private readonly threadId: ThreadId;
 	private readonly emit: (event: WorkerEventEnvelope) => void;
 	private readonly pending = new Map<string, PendingUiRequest<unknown>>();
+	private editorText = "";
+	private toolsExpanded = false;
 
 	/**
 	 * 创建 ExtensionUiBridge 实例。
@@ -42,7 +44,8 @@ export class ExtensionUiBridge {
 				this.requestDialog<string | undefined>(
 					{ type: "select", id: crypto.randomUUID(), title, options, timeoutMs: opts?.timeout },
 					opts,
-					(response) => ("cancelled" in response ? undefined : "value" in response ? response.value : undefined),
+					(response) =>
+						"cancelled" in response ? undefined : "value" in response && typeof response.value === "string" ? response.value : undefined,
 				),
 			confirm: (title, message, opts) =>
 				this.requestDialog<boolean>(
@@ -54,15 +57,18 @@ export class ExtensionUiBridge {
 				this.requestDialog<string | undefined>(
 					{ type: "input", id: crypto.randomUUID(), title, placeholder, timeoutMs: opts?.timeout },
 					opts,
-					(response) => ("cancelled" in response ? undefined : "value" in response ? response.value : undefined),
+					(response) =>
+						"cancelled" in response ? undefined : "value" in response && typeof response.value === "string" ? response.value : undefined,
 				),
 			notify: (message, notifyType) => this.emitUi({ type: "notify", id: crypto.randomUUID(), message, notifyType }),
 			setStatus: (statusKey, statusText) =>
 				this.emitUi({ type: "setStatus", id: crypto.randomUUID(), statusKey, statusText }),
-			setWorkingMessage: () => {},
-			setWorkingVisible: () => {},
-			setWorkingIndicator: () => {},
-			setHiddenThinkingLabel: () => {},
+			setWorkingMessage: (message) => this.emitUi({ type: "setWorkingMessage", id: crypto.randomUUID(), message }),
+			setWorkingVisible: (visible) => this.emitUi({ type: "setWorkingVisible", id: crypto.randomUUID(), visible }),
+			setWorkingIndicator: (options) =>
+				this.emitUi({ type: "setWorkingIndicator", id: crypto.randomUUID(), options }),
+			setHiddenThinkingLabel: (label) =>
+				this.emitUi({ type: "setHiddenThinkingLabel", id: crypto.randomUUID(), label }),
 			setWidget: (widgetKey, widgetLines, options) => {
 				if (widgetLines !== undefined && !Array.isArray(widgetLines)) {
 					throw new Error("desktop extension UI setWidget only accepts string arrays");
@@ -76,18 +82,36 @@ export class ExtensionUiBridge {
 				});
 			},
 			setTitle: (title) => this.emitUi({ type: "setTitle", id: crypto.randomUUID(), title }),
-			pasteToEditor: (text) => this.emitUi({ type: "setEditorText", id: crypto.randomUUID(), text }),
-			setEditorText: (text) => this.emitUi({ type: "setEditorText", id: crypto.randomUUID(), text }),
-			getEditorText: () => "",
+			pasteToEditor: (text) => {
+				this.editorText = text;
+				this.emitUi({ type: "setEditorText", id: crypto.randomUUID(), text });
+			},
+			setEditorText: (text) => {
+				this.editorText = text;
+				this.emitUi({ type: "setEditorText", id: crypto.randomUUID(), text });
+			},
+			getEditorText: () => this.editorText,
 			editor: (title, prefill) =>
 				this.requestDialog<string | undefined>(
 					{ type: "editor", id: crypto.randomUUID(), title, prefill },
 					undefined,
-					(response) => ("cancelled" in response ? undefined : "value" in response ? response.value : undefined),
+					(response) =>
+						"cancelled" in response ? undefined : "value" in response && typeof response.value === "string" ? response.value : undefined,
 				),
-			getToolsExpanded: () => false,
-			setToolsExpanded: () => {},
+			getToolsExpanded: () => this.toolsExpanded,
+			setToolsExpanded: (expanded) => {
+				this.toolsExpanded = expanded;
+				this.emitUi({ type: "setToolsExpanded", id: crypto.randomUUID(), expanded });
+			},
 		};
+	}
+
+	syncEditorText(text: string): void {
+		this.editorText = text;
+	}
+
+	syncToolsExpanded(expanded: boolean): void {
+		this.toolsExpanded = expanded;
 	}
 
 	/**

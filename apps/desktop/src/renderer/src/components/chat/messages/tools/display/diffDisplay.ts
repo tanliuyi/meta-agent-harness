@@ -1,5 +1,13 @@
-import { measureNaturalWidth, prepareWithSegments } from '@chenglou/pretext'
 import type { VirtualItem } from '@tanstack/vue-virtual'
+
+const DIFF_TEXT_WIDTH_CACHE_LIMIT = 4096
+const diffTextWidthCache = new Map<string, number>()
+let pretextModulePromise: Promise<PretextModule> | null = null
+
+type PretextModule = {
+  measureNaturalWidth: (typeof import('@chenglou/pretext'))['measureNaturalWidth']
+  prepareWithSegments: (typeof import('@chenglou/pretext'))['prepareWithSegments']
+}
 
 export type DiffLineKind = 'added' | 'removed' | 'context' | 'skipped'
 
@@ -99,19 +107,57 @@ export function countDisplayDiffStats(value: unknown): { additions: number; dele
   return { additions, deletions }
 }
 
-export function measureDiffContentWidth(lines: DiffLine[], style: CSSStyleDeclaration): number {
+export async function measureDiffContentWidth(
+  lines: DiffLine[],
+  style: CSSStyleDeclaration
+): Promise<number> {
   const font = getCanvasFont(style)
   const letterSpacing = readPixelValue(style.letterSpacing)
-  const maxWidth = lines.reduce((width, line) => {
-    const measured = measureNaturalWidth(
-      prepareWithSegments(line.text, font, {
-        letterSpacing,
-        whiteSpace: 'pre-wrap'
-      })
-    )
-    return Math.max(width, measured)
-  }, 0)
+  const pretext = await loadPretextModule()
+  let maxWidth = 0
+  for (const line of lines) {
+    const measured = measureDiffLineTextWidth(line.text, font, letterSpacing, pretext)
+    maxWidth = Math.max(maxWidth, measured)
+  }
   return Math.max(1, Math.ceil(maxWidth) + 1)
+}
+
+function measureDiffLineTextWidth(
+  text: string,
+  font: string,
+  letterSpacing: number,
+  pretext: PretextModule
+): number {
+  const cacheKey = getDiffTextWidthCacheKey(text, font, letterSpacing)
+  const cached = diffTextWidthCache.get(cacheKey)
+  if (cached !== undefined) {
+    diffTextWidthCache.delete(cacheKey)
+    diffTextWidthCache.set(cacheKey, cached)
+    return cached
+  }
+
+  const measured = pretext.measureNaturalWidth(
+    pretext.prepareWithSegments(text, font, {
+      letterSpacing,
+      whiteSpace: 'pre-wrap'
+    })
+  )
+  diffTextWidthCache.set(cacheKey, measured)
+  trimDiffTextWidthCache()
+  return measured
+}
+
+function getDiffTextWidthCacheKey(text: string, font: string, letterSpacing: number): string {
+  return `${font}\n${letterSpacing}\n${text}`
+}
+
+function trimDiffTextWidthCache(): void {
+  if (diffTextWidthCache.size <= DIFF_TEXT_WIDTH_CACHE_LIMIT) return
+
+  const staleKey = diffTextWidthCache.keys().next().value
+  if (staleKey !== undefined) {
+    diffTextWidthCache.delete(staleKey)
+  }
 }
 
 function getDisplayColumnLength(value: string): number {
@@ -134,4 +180,12 @@ function getCanvasFont(style: CSSStyleDeclaration): string {
 function readPixelValue(value: string): number {
   const parsed = Number.parseFloat(value)
   return Number.isFinite(parsed) ? parsed : 0
+}
+
+function loadPretextModule(): Promise<PretextModule> {
+  pretextModulePromise ??= import('@chenglou/pretext').then((pretext) => ({
+    measureNaturalWidth: pretext.measureNaturalWidth,
+    prepareWithSegments: pretext.prepareWithSegments
+  }))
+  return pretextModulePromise
 }

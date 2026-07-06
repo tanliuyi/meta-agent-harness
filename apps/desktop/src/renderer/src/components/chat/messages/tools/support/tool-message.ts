@@ -20,6 +20,7 @@ export interface ToolStatusLabels {
 export interface ToolComponentProps {
   message?: ThreadMessage
   toolCall?: ToolCall
+  defaultOpen?: boolean
 }
 
 /**

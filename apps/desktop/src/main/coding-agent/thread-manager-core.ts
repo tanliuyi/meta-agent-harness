@@ -24,6 +24,8 @@ import {
 import { resolveSessionCwd } from '../../../../../packages/coding-agent/src/core/session-manager'
 import { withThreadLineage } from './thread-lineage'
 
+type ServiceProvider<T> = T | (() => T)
+
 /**
  * Coding thread 管理核心类，负责线程注册、worker 路由和快照构建。
  */
@@ -39,9 +41,11 @@ export class ThreadManagerCore {
   /** Project trust 服务。 */
   private readonly projectTrustService: ProjectTrustService | undefined
   /** 全局模型设置服务。 */
-  private readonly modelSettingsService: ModelSettingsService | undefined
+  private modelSettingsService: ModelSettingsService | undefined
+  private readonly createModelSettingsService: (() => ModelSettingsService) | undefined
   /** 全局 Pi agent 设置服务。 */
-  private readonly agentSettingsService: AgentSettingsService | undefined
+  private agentSettingsService: AgentSettingsService | undefined
+  private readonly createAgentSettingsService: (() => AgentSettingsService) | undefined
 
   /**
    * 创建 ThreadManagerCore 实例。
@@ -53,15 +57,23 @@ export class ThreadManagerCore {
     store?: CodingThreadStore,
     projectStore?: ProjectStore,
     projectTrustService?: ProjectTrustService,
-    modelSettingsService?: ModelSettingsService,
-    agentSettingsService?: AgentSettingsService
+    modelSettingsService?: ServiceProvider<ModelSettingsService>,
+    agentSettingsService?: ServiceProvider<AgentSettingsService>
   ) {
     this.workers = workers
     this.store = store
     this.projectStore = projectStore
     this.projectTrustService = projectTrustService
-    this.modelSettingsService = modelSettingsService
-    this.agentSettingsService = agentSettingsService
+    if (typeof modelSettingsService === 'function') {
+      this.createModelSettingsService = modelSettingsService
+    } else {
+      this.modelSettingsService = modelSettingsService
+    }
+    if (typeof agentSettingsService === 'function') {
+      this.createAgentSettingsService = agentSettingsService
+    } else {
+      this.agentSettingsService = agentSettingsService
+    }
     const persistedThreads = [
       ...(store?.listThreads() ?? []),
       ...(store?.listThreads({ archived: true }) ?? [])
@@ -468,6 +480,9 @@ export class ThreadManagerCore {
    * @throws 当未配置服务时。
    */
   getModelSettingsService(): ModelSettingsService {
+    if (!this.modelSettingsService && this.createModelSettingsService) {
+      this.modelSettingsService = this.createModelSettingsService()
+    }
     if (!this.modelSettingsService) {
       throw new Error('model settings service is required')
     }
@@ -480,6 +495,9 @@ export class ThreadManagerCore {
    * @throws 当未配置服务时。
    */
   getAgentSettingsService(): AgentSettingsService {
+    if (!this.agentSettingsService && this.createAgentSettingsService) {
+      this.agentSettingsService = this.createAgentSettingsService()
+    }
     if (!this.agentSettingsService) {
       throw new Error('agent settings service is required')
     }

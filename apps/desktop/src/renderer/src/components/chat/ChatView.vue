@@ -16,6 +16,10 @@ import UserMessage from './messages/UserMessage.vue'
 import ExploreToolGroup from './messages/tools/ExploreToolGroup.vue'
 import MutationToolGroup from './messages/tools/MutationToolGroup.vue'
 import type { ToolCall, ToolGroupStatus } from './messages/tools/support/tool-group'
+import {
+  scheduleInitialSettingsLoad,
+  type InitialSettingsLoadSchedule
+} from './settings/initialSettingsLoad'
 import useAgentSettingsStore from '@renderer/stores/agent-settings'
 import useModelSettingsStore from '@renderer/stores/model-settings'
 import useWorkspaceSessionStore from '@renderer/stores/workspace-session'
@@ -54,6 +58,7 @@ const { openPanelTab } = useSessionContext()
 const workspaceProject = useWorkspaceProjectStore()
 const agentSettings = useAgentSettingsStore()
 const modelSettings = useModelSettingsStore()
+let initialSettingsLoadSchedule: InitialSettingsLoadSchedule | undefined
 
 type TimelineScrollBehavior = 'auto' | 'smooth'
 type ScrollAreaInstance = InstanceType<typeof ScrollArea>
@@ -199,7 +204,41 @@ const isCompacting = computed(() => Boolean(workspaceSession.activeCompactionSta
 const isRunning = computed(() => isThreadRunning.value || isCompacting.value)
 
 /** 当前会话 activity 文案。 */
-const activityLabel = computed(() => (isCompacting.value ? '正在压缩上下文' : '正在工作'))
+const activityLabel = computed(() =>
+  isCompacting.value
+    ? '正在压缩上下文'
+    : (workspaceSession.activeExtensionWorkingMessage ?? '正在工作')
+)
+
+/** extension 是否允许显示工作行。 */
+const activityVisible = computed(
+  () => isRunning.value && workspaceSession.activeExtensionWorkingVisible !== false
+)
+
+/** extension 自定义工作指示器帧。 */
+const activityIndicatorFrames = computed(
+  () => workspaceSession.activeExtensionWorkingIndicator?.frames
+)
+
+/** extension 自定义工作指示器轮播间隔。 */
+const activityIndicatorIntervalMs = computed(
+  () => workspaceSession.activeExtensionWorkingIndicator?.intervalMs ?? 250
+)
+
+/** 自定义工作指示器当前帧索引。 */
+const activityIndicatorFrameIndex = ref(0)
+
+/** 是否显示默认工作指示器。 */
+const showDefaultActivityIndicator = computed(() => activityIndicatorFrames.value === undefined)
+
+/** 自定义工作指示器文本。 */
+const activityIndicatorLabel = computed(() => {
+  const frames = activityIndicatorFrames.value
+  if (!frames || frames.length === 0) {
+    return ''
+  }
+  return frames[activityIndicatorFrameIndex.value % frames.length] ?? ''
+})
 
 /** 当前处理耗时 ticker。 */
 const processingNow = ref(Date.now())
@@ -284,6 +323,7 @@ const imageSelectionError = ref<string>()
 const selectingImages = ref(false)
 const runningDelivery = ref<'steer' | 'followUp'>('steer')
 let processingTimerId: number | null = null
+let activityIndicatorTimerId: number | null = null
 
 /** 是否允许发送消息。 */
 const canSend = computed(() =>
@@ -907,6 +947,77 @@ async function handleCancelExtensionRequest(request: ExtensionUiRequest): Promis
   })
 }
 
+/**
+ * 处理 extension 全局快捷键。
+ * @param event - 键盘事件。
+ */
+function handleExtensionShortcutKeyDown(event: KeyboardEvent): void {
+  if (event.defaultPrevented || event.isComposing) {
+    return
+  }
+  const shortcut = toPiShortcutId(event)
+  if (!shortcut) {
+    return
+  }
+  void workspaceSession.dispatchExtensionShortcut(shortcut).then((handled) => {
+    if (handled) {
+      event.preventDefault()
+      event.stopPropagation()
+    }
+  })
+}
+
+/**
+ * 将浏览器 KeyboardEvent 规范成 Pi KeyId。
+ * @param event - 键盘事件。
+ * @returns KeyId。
+ */
+function toPiShortcutId(event: KeyboardEvent): string | undefined {
+  const key = normalizeShortcutKey(event.key)
+  if (!key) {
+    return undefined
+  }
+  const hasModifier = event.shiftKey || event.ctrlKey || event.altKey || event.metaKey
+  if (!hasModifier && !isFunctionShortcutKey(key)) {
+    return undefined
+  }
+  const modifiers: string[] = []
+  if (event.shiftKey) modifiers.push('shift')
+  if (event.ctrlKey) modifiers.push('ctrl')
+  if (event.altKey) modifiers.push('alt')
+  if (event.metaKey) modifiers.push('meta')
+  return [...modifiers, key].join('+')
+}
+
+/**
+ * 标准化 KeyboardEvent.key。
+ * @param key - 浏览器 key。
+ * @returns Pi shortcut key。
+ */
+function normalizeShortcutKey(key: string): string | undefined {
+  if (!key || ['Shift', 'Control', 'Alt', 'Meta'].includes(key)) {
+    return undefined
+  }
+  const aliases: Record<string, string> = {
+    ArrowUp: 'up',
+    ArrowDown: 'down',
+    ArrowLeft: 'left',
+    ArrowRight: 'right',
+    Escape: 'escape',
+    ' ': 'space'
+  }
+  return aliases[key] ?? key.toLowerCase()
+}
+
+/**
+ * 判断无修饰键时是否仍可作为全局快捷键。
+ * @param key - 标准化 key。
+ * @returns 是否为功能键。
+ */
+function isFunctionShortcutKey(key: string): boolean {
+  return /^f\d{1,2}$/.test(key)
+}
+
 watch(
   () => workspaceSession.activeSessionId,
   (threadId) => {
@@ -964,21 +1075,38 @@ watch(
   { immediate: true }
 )
 
+watch(
+  [activityIndicatorFrames, activityIndicatorIntervalMs, activityVisible],
+  ([frames, intervalMs, visible]) => {
+    activityIndicatorFrameIndex.value = 0
+    if (activityIndicatorTimerId !== null) {
+      window.clearInterval(activityIndicatorTimerId)
+      activityIndicatorTimerId = null
+    }
+    if (!visible || !frames || frames.length <= 1) {
+      return
+    }
+    activityIndicatorTimerId = window.setInterval(() => {
+      activityIndicatorFrameIndex.value = (activityIndicatorFrameIndex.value + 1) % frames.length
+    }, Math.max(50, intervalMs))
+  },
+  { immediate: true }
+)
+
 useResizeObserver(timelineInnerRef, keepBottomInCurrentFrame)
 
 onMounted(async () => {
-  if (!agentSettings.snapshot) {
-    void agentSettings.load()
-  }
-  if (!modelSettings.snapshot) {
-    void modelSettings.load()
-  }
+  window.addEventListener('keydown', handleExtensionShortcutKeyDown, { capture: true })
+  initialSettingsLoadSchedule = scheduleInitialSettingsLoad(agentSettings, modelSettings)
   await nextTick()
   scheduleScrollToLatest('auto')
   updateScrollState()
 })
 
 onBeforeUnmount(() => {
+  window.removeEventListener('keydown', handleExtensionShortcutKeyDown, { capture: true })
+  initialSettingsLoadSchedule?.cancel()
+  initialSettingsLoadSchedule = undefined
   if (scrollRafId !== null) {
     cancelAnimationFrame(scrollRafId)
   }
@@ -987,6 +1115,9 @@ onBeforeUnmount(() => {
   }
   if (processingTimerId !== null) {
     window.clearInterval(processingTimerId)
+  }
+  if (activityIndicatorTimerId !== null) {
+    window.clearInterval(activityIndicatorTimerId)
   }
 })
 
@@ -1104,9 +1235,11 @@ function getToolCallRevision(toolCall: DesktopToolCall | undefined): unknown[] {
             :is-final-reply="viewItem.isFinalReply"
             :is-done="viewItem.isDone"
             :collapse-when-response-appears="viewItem.collapseWhenResponseAppears"
+            :hidden-label="workspaceSession.activeExtensionHiddenThinkingLabel"
             :tool-call="viewItem.toolCall"
             :tool-call-ids="viewItem.toolCallIds"
             :tool-calls="viewItem.toolCalls"
+            :default-open="workspaceSession.activeExtensionToolsExpanded"
             :summary="viewItem.summary"
             :status="viewItem.status"
             @fork-from-message="forkFromMessage"
@@ -1115,8 +1248,11 @@ function getToolCallRevision(toolCall: DesktopToolCall | undefined): unknown[] {
           />
         </div>
 
-        <div v-if="isRunning" class="chat-view__activity" aria-live="polite">
-          <span />
+        <div v-if="activityVisible" class="chat-view__activity" aria-live="polite">
+          <span v-if="showDefaultActivityIndicator" class="chat-view__activity-dot" />
+          <span v-else-if="activityIndicatorLabel" class="chat-view__activity-indicator">
+            {{ activityIndicatorLabel }}
+          </span>
           <span>
             {{ activityLabel }}
             <template v-if="hasPendingQueue">
@@ -1177,6 +1313,7 @@ function getToolCallRevision(toolCall: DesktopToolCall | undefined): unknown[] {
         @dismiss-image-error="handleDismissImageError"
         @load-commands="workspaceSession.loadCommands()"
         @run-command="workspaceSession.runCommand"
+        @text-change="workspaceSession.syncActiveEditorText"
         @respond-extension-request="handleRespondExtensionRequest"
         @cancel-extension-request="handleCancelExtensionRequest"
         @abort="workspaceSession.abortActive"
@@ -1334,12 +1471,18 @@ function getToolCallRevision(toolCall: DesktopToolCall | undefined): unknown[] {
   color: var(--color-text-muted);
   font-size: var(--font-size-ui);
 
-  span:first-child {
+  .chat-view__activity-dot {
     width: 8px;
     height: 8px;
     background: var(--color-primary);
     border-radius: 50%;
     animation: pulse 1.1s var(--ease-standard) infinite;
+  }
+
+  .chat-view__activity-indicator {
+    min-width: 1ch;
+    color: var(--color-primary);
+    font-family: var(--font-mono) !important;
   }
 }
 

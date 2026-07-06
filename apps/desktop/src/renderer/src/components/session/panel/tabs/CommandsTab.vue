@@ -8,6 +8,7 @@ import {
   commandMenuSections,
   filterCommands,
   getCommandClipboardText,
+  getCommandQueryArgs,
   getCommandDescription,
   getCommandKey,
   getCommandName
@@ -33,12 +34,17 @@ watch(
 async function runCommandMenuAction(actionId: string, command: CommandInfo): Promise<void> {
   switch (actionId) {
     case 'run':
-      workspaceSession.runCommand(getCommandName(command))
+      runCommand(command)
       break
     case 'copy-name':
       await navigator.clipboard.writeText(getCommandClipboardText(command))
       break
   }
+}
+
+function runCommand(command: CommandInfo): void {
+  const commandName = getCommandName(command)
+  workspaceSession.runCommand(commandName, getCommandQueryArgs(commandQuery.value, commandName))
 }
 </script>
 
@@ -65,7 +71,7 @@ async function runCommandMenuAction(actionId: string, command: CommandInfo): Pro
       v-model="commandQuery"
       label="Search commands"
       type="search"
-      placeholder="Search commands"
+      placeholder="Search commands or type /command args"
     />
     <div v-if="workspaceSession.activeCommandsLoading" class="session-empty">Loading...</div>
     <div
@@ -84,11 +90,7 @@ async function runCommandMenuAction(actionId: string, command: CommandInfo): Pro
         :sections="commandMenuSections"
         @select="(item) => runCommandMenuAction(item.id, command)"
       >
-        <button
-          type="button"
-          class="command-item"
-          @click="workspaceSession.runCommand(getCommandName(command))"
-        >
+        <button type="button" class="command-item" @click="runCommand(command)">
           <span>/{{ getCommandName(command) }}</span>
           <small>{{ getCommandDescription(command) }}</small>
         </button>

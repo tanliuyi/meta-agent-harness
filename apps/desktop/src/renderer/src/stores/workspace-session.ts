@@ -51,6 +51,12 @@ export type { ComposerImageAttachment } from './workspace-session-composer'
 /** 运行中消息的交付方式。 */
 export type RunningMessageDelivery = 'steer' | 'followUp'
 
+/** 扩展自定义工作指示器配置。 */
+type ExtensionWorkingIndicatorOptions = Extract<
+  ExtensionUiRequest,
+  { type: 'setWorkingIndicator' }
+>['options']
+
 /** 消息渲染状态。 */
 export interface MessageRenderState {
   /** 渲染版本号，流式更新时递增。 */
@@ -106,6 +112,16 @@ export type WorkspaceSessionRuntime = {
   extensionWidgets: Record<string, { lines: string[]; placement?: 'aboveEditor' | 'belowEditor' }>
   /** extension 设置的会话标题提示。 */
   extensionTitle?: string
+  /** extension 设置的工作中文案。 */
+  extensionWorkingMessage?: string
+  /** extension 设置的工作行可见性。 */
+  extensionWorkingVisible?: boolean
+  /** extension 设置的工作指示器。 */
+  extensionWorkingIndicator?: ExtensionWorkingIndicatorOptions
+  /** extension 设置的隐藏 thinking 标签。 */
+  extensionHiddenThinkingLabel?: string
+  /** extension 设置的工具输出展开状态。 */
+  extensionToolsExpanded?: boolean
   /** 最近接收到的 IPC 事件列表。 */
   events: CodingAgentIpcEvent[]
   /** 消息渲染状态，key 为 messageId。 */
@@ -902,6 +918,23 @@ export default defineStore('workspace-session', () => {
   /** 当前活跃会话的 extension 标题。 */
   const activeExtensionTitle = computed(() => activeRuntime.value?.extensionTitle)
 
+  /** 当前活跃会话的 extension 工作中文案。 */
+  const activeExtensionWorkingMessage = computed(() => activeRuntime.value?.extensionWorkingMessage)
+
+  /** 当前活跃会话的 extension 工作行可见性。 */
+  const activeExtensionWorkingVisible = computed(() => activeRuntime.value?.extensionWorkingVisible)
+
+  /** 当前活跃会话的 extension 工作指示器。 */
+  const activeExtensionWorkingIndicator = computed(() => activeRuntime.value?.extensionWorkingIndicator)
+
+  /** 当前活跃会话的 extension 隐藏 thinking 标签。 */
+  const activeExtensionHiddenThinkingLabel = computed(
+    () => activeRuntime.value?.extensionHiddenThinkingLabel
+  )
+
+  /** 当前活跃会话的 extension 工具输出展开状态。 */
+  const activeExtensionToolsExpanded = computed(() => activeRuntime.value?.extensionToolsExpanded)
+
   /** 当前活跃会话的自动重试状态。 */
   const activeRetryState = computed(() => activeRuntime.value?.retry)
 
@@ -1506,15 +1539,59 @@ export default defineStore('workspace-session', () => {
    * 运行当前 thread 的 slash/custom command。
    * @param command - command 名称。
    */
-  const runCommand = async (command: string, threadId = activeSessionId.value): Promise<void> => {
+  const runCommand = async (
+    command: string,
+    args?: string,
+    threadId = activeSessionId.value
+  ): Promise<void> => {
     if (!threadId) {
       return
     }
     try {
-      await window.api.codingAgent.runCommand({ threadId, command })
-      sessionActionMessageByThreadId[threadId] = `已运行 ${command}`
+      await window.api.codingAgent.runCommand({ threadId, command, ...(args ? { args } : {}) })
+      sessionActionMessageByThreadId[threadId] = `已运行 ${args ? `${command} ${args}` : command}`
     } catch (error) {
       ensureRuntime(threadId).errorMessage = error instanceof Error ? error.message : String(error)
+    }
+  }
+
+  /**
+   * 同步当前编辑器纯文本，供 Pi extension ctx.ui.getEditorText() 同步读取。
+   * @param text - 当前编辑器纯文本。
+   * @param threadId - thread ID。
+   */
+  const syncActiveEditorText = async (
+    text: string,
+    threadId = activeSessionId.value
+  ): Promise<void> => {
+    if (!threadId) {
+      return
+    }
+    try {
+      await window.api.codingAgent.syncExtensionEditorText({ threadId, text })
+    } catch {
+      // 编辑器同步是扩展运行时的辅助缓存，不应打断用户输入。
+    }
+  }
+
+  /**
+   * 触发当前 thread 的 Pi extension 快捷键。
+   * @param shortcut - Pi KeyId。
+   * @param threadId - thread ID。
+   * @returns 是否发送了快捷键。
+   */
+  const dispatchExtensionShortcut = async (
+    shortcut: string,
+    threadId = activeSessionId.value
+  ): Promise<boolean> => {
+    if (!threadId) {
+      return false
+    }
+    try {
+      return await window.api.codingAgent.dispatchExtensionShortcut({ threadId, shortcut })
+    } catch (error) {
+      ensureRuntime(threadId).errorMessage = error instanceof Error ? error.message : String(error)
+      return false
     }
   }
 
@@ -2208,6 +2285,21 @@ export default defineStore('workspace-session', () => {
       case 'setTitle':
         runtime.extensionTitle = request.title
         return
+      case 'setWorkingMessage':
+        runtime.extensionWorkingMessage = request.message
+        return
+      case 'setWorkingVisible':
+        runtime.extensionWorkingVisible = request.visible
+        return
+      case 'setWorkingIndicator':
+        runtime.extensionWorkingIndicator = request.options
+        return
+      case 'setHiddenThinkingLabel':
+        runtime.extensionHiddenThinkingLabel = request.label
+        return
+      case 'setToolsExpanded':
+        runtime.extensionToolsExpanded = request.expanded
+        return
       case 'setEditorText': {
         const draft = createComposerContentFromText(request.text)
         if (activeSessionId.value === threadId) {
@@ -2359,10 +2451,15 @@ export default defineStore('workspace-session', () => {
     activeCompactionState,
     activeEvents,
     activeExportResult,
-    activeExtensionStatuses,
-    activeExtensionTitle,
-    activeExtensionUiRequests,
-    activeExtensionWidgets,
+      activeExtensionStatuses,
+      activeExtensionHiddenThinkingLabel,
+      activeExtensionTitle,
+      activeExtensionToolsExpanded,
+      activeExtensionUiRequests,
+      activeExtensionWidgets,
+      activeExtensionWorkingIndicator,
+      activeExtensionWorkingMessage,
+      activeExtensionWorkingVisible,
     activeModelOptions,
     activeModelOptionsLoading,
     activePendingApprovals,
@@ -2393,7 +2490,8 @@ export default defineStore('workspace-session', () => {
     draftMessage,
     errorMessage,
     events: activeEvents,
-    ensureCommandsLoaded,
+      ensureCommandsLoaded,
+      dispatchExtensionShortcut,
     getContextActiveThreadId,
     getContextComposerDrafts,
     getComposerDraft,
@@ -2424,12 +2522,13 @@ export default defineStore('workspace-session', () => {
     respondApproval,
     respondExtensionUi,
     runtimeByThreadId,
-    runCommand,
-    sendPrompt,
+      runCommand,
+      sendPrompt,
     sessionList,
     sessionsByProject,
     sessions,
-    setActiveComposerDraft,
+      setActiveComposerDraft,
+      syncActiveEditorText,
     exportActiveSession,
     importActiveSessionFromPicker,
     forkActiveSession,

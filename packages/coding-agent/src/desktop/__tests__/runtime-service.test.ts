@@ -8,6 +8,7 @@ import type { AgentSessionEvent } from "../../core/agent-session.ts";
 import { RuntimeDesktopWorkerService } from "../worker/runtime-service.ts";
 import type { StartThreadInput } from "../protocol/thread.ts";
 import type { WorkerEventEnvelope } from "../protocol/envelope.ts";
+import type { ExtensionBindings } from "../../core/agent-session.ts";
 
 /** RuntimeDesktopWorkerService 测试套件。 */
 describe("RuntimeDesktopWorkerService", () => {
@@ -224,17 +225,116 @@ describe("RuntimeDesktopWorkerService", () => {
 			},
 		]);
 	});
+
+	it("为 extension command context 绑定真实 session lifecycle actions", async () => {
+		let bindings: ExtensionBindings | undefined;
+		let rebindSession: ((session: AgentSessionRuntime["session"]) => Promise<void>) | undefined;
+		let newSessionCalled = false;
+		let bindCount = 0;
+		const service = new RuntimeDesktopWorkerService(async () =>
+			createRuntime({
+				setRebindSession: (next) => {
+					rebindSession = next;
+				},
+				newSession: async () => {
+					newSessionCalled = true;
+					await rebindSession?.({} as AgentSessionRuntime["session"]);
+					return { cancelled: false };
+				},
+				session: {
+					bindExtensions: async (nextBindings: ExtensionBindings) => {
+						bindings = nextBindings;
+						bindCount++;
+					},
+				},
+			}),
+		);
+		await service.startThread({ threadId: "thread-1", cwd: "H:/repo" });
+
+		const result = await bindings?.commandContextActions?.newSession();
+
+		expect(result).toEqual({ cancelled: false });
+		expect(newSessionCalled).toBe(true);
+		expect(bindCount).toBe(2);
+		expect(bindings?.commandContextActions?.reload).toEqual(expect.any(Function));
+	});
+
+	it("同步 editor text 并触发 extension shortcut", async () => {
+		let bindings: ExtensionBindings | undefined;
+		const shortcutRuns: string[] = [];
+		const service = new RuntimeDesktopWorkerService(async () =>
+			createRuntime({
+				session: {
+					bindExtensions: async (nextBindings: ExtensionBindings) => {
+						bindings = nextBindings;
+					},
+					extensionRunner: {
+						executeShortcut: async (shortcut: string) => {
+							shortcutRuns.push(shortcut);
+							return true;
+						},
+					},
+				},
+			}),
+		);
+		await service.startThread({ threadId: "thread-1", cwd: "H:/repo" });
+
+		const syncResponse = await service.handle({
+			kind: "command",
+			id: "sync-editor",
+			command: { type: "ui.editorTextChanged", text: "hello args" },
+		});
+		const shortcutResponse = await service.handle({
+			kind: "command",
+			id: "shortcut",
+			command: { type: "shortcut.dispatch", shortcut: "shift+ctrl+k" },
+		});
+
+		expect(syncResponse.success).toBe(true);
+		expect(bindings?.uiContext?.getEditorText()).toBe("hello args");
+		expect(shortcutResponse.success).toBe(true);
+		expect(shortcutResponse.data).toEqual({ handled: true });
+		expect(shortcutRuns).toEqual(["shift+ctrl+k"]);
+	});
+
+	it("未注册 extension shortcut 返回未处理而不是错误", async () => {
+		const service = new RuntimeDesktopWorkerService(async () =>
+			createRuntime({
+				session: {
+					extensionRunner: {
+						executeShortcut: async () => false,
+					},
+				},
+			}),
+		);
+		await service.startThread({ threadId: "thread-1", cwd: "H:/repo" });
+
+		const shortcutResponse = await service.handle({
+			kind: "command",
+			id: "shortcut",
+			command: { type: "shortcut.dispatch", shortcut: "ctrl+c" },
+		});
+
+		expect(shortcutResponse.success).toBe(true);
+		expect(shortcutResponse.data).toEqual({ handled: false });
+	});
 });
 
 function createRuntime(overrides: Partial<AgentSessionRuntime> = {}): AgentSessionRuntime {
 	const session = {
 		subscribe: () => () => {},
 		bindExtensions: async () => {},
+		agent: { waitForIdle: async () => {} },
 		...((overrides.session as Record<string, unknown> | undefined) ?? {}),
 	};
 	const { session: _session, ...rest } = overrides;
 	return {
 		session,
+		setRebindSession: () => {},
+		setBeforeSessionInvalidate: () => {},
+		newSession: async () => ({ cancelled: false }),
+		fork: async () => ({ cancelled: false }),
+		switchSession: async () => ({ cancelled: false }),
 		dispose: async () => {},
 		...rest,
 	} as AgentSessionRuntime;

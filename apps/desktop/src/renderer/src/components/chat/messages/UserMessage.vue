@@ -1,15 +1,6 @@
 <script setup lang="ts">
-import {
-  measureLineStats,
-  prepareWithSegments,
-  type PreparedTextWithSegments
-} from '@chenglou/pretext'
-import {
-  measureRichInlineStats,
-  prepareRichInline,
-  type PreparedRichInline,
-  type RichInlineItem
-} from '@chenglou/pretext/rich-inline'
+import type { PreparedTextWithSegments } from '@chenglou/pretext'
+import type { PreparedRichInline, RichInlineItem } from '@chenglou/pretext/rich-inline'
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import type { ThreadMessage } from '@shared/coding-agent/types'
 import {
@@ -30,6 +21,8 @@ const COLLAPSED_MAX_HEIGHT = 320
 const USER_MESSAGE_MAX_WIDTH = 640
 const USER_MESSAGE_MAX_RATIO = 0.88
 const FILE_REFERENCE_FALLBACK_EXTRA_WIDTH = 36
+const TIGHT_WIDTH_MAX_TEXT_LENGTH = 360
+const TIGHT_WIDTH_MAX_SEGMENT_COUNT = 8
 
 const props = defineProps<{
   message: ThreadMessage
@@ -44,11 +37,13 @@ const emit = defineEmits<{
 const fileAttachments = computed(() => getMessageFileAttachments(props.message))
 const standaloneImages = computed(() => getStandaloneMessageImages(props.message))
 const displaySegments = computed(() => getUserMessageDisplaySegments(props.message))
-const displaySegmentsKey = computed(() => JSON.stringify(displaySegments.value))
+const displaySegmentsKey = computed(() => getDisplaySegmentsKey(displaySegments.value))
 const displayText = computed(() => getUserMessageDisplayText(props.message) ?? '')
 const shouldMeasureBubble = computed(
   () =>
     displayText.value.length > 0 &&
+    displayText.value.length <= TIGHT_WIDTH_MAX_TEXT_LENGTH &&
+    displaySegments.value.length <= TIGHT_WIDTH_MAX_SEGMENT_COUNT &&
     fileAttachments.value.length === 0 &&
     standaloneImages.value.length === 0
 )
@@ -94,12 +89,22 @@ const contentRef = ref<HTMLElement>()
 const measuredBubbleWidth = ref<string>()
 let resizeObserver: ResizeObserver | null = null
 let measureRaf: number | null = null
+let measureGeneration = 0
+let isDisposed = false
 let preparedCache: {
   font: string
   letterSpacing: number
   key: string
   prepared: PreparedMessageText
 } | null = null
+let pretextModulesPromise: Promise<PretextModules> | null = null
+
+type PretextModules = {
+  measureLineStats: (typeof import('@chenglou/pretext'))['measureLineStats']
+  measureRichInlineStats: (typeof import('@chenglou/pretext/rich-inline'))['measureRichInlineStats']
+  prepareRichInline: (typeof import('@chenglou/pretext/rich-inline'))['prepareRichInline']
+  prepareWithSegments: (typeof import('@chenglou/pretext'))['prepareWithSegments']
+}
 
 type PreparedMessageText =
   | {
@@ -122,11 +127,11 @@ function scheduleMeasure(): void {
   if (measureRaf !== null) return
   measureRaf = window.requestAnimationFrame(() => {
     measureRaf = null
-    measureBubbleWidth()
+    void measureBubbleWidth()
   })
 }
 
-function measureBubbleWidth(): void {
+async function measureBubbleWidth(): Promise<void> {
   const bubble = contentRef.value
   if (!bubble || !shouldMeasureBubble.value) {
     measuredBubbleWidth.value = undefined
@@ -155,8 +160,18 @@ function measureBubbleWidth(): void {
     readPixelValue(bubbleStyle.borderRightWidth)
   const maxContentWidth = Math.max(1, maxBubbleWidth - horizontalChrome)
   const letterSpacing = readLetterSpacing(textStyle.letterSpacing)
-  const prepared = getPreparedText(textElement, getCanvasFont(textStyle), letterSpacing)
-  const tightContentWidth = findTightContentWidth(prepared, maxContentWidth)
+  const generation = measureGeneration
+  const pretext = await loadPretextModules()
+  if (
+    isDisposed ||
+    generation !== measureGeneration ||
+    !contentRef.value ||
+    !shouldMeasureBubble.value
+  ) {
+    return
+  }
+  const prepared = getPreparedText(textElement, getCanvasFont(textStyle), letterSpacing, pretext)
+  const tightContentWidth = findTightContentWidth(prepared, maxContentWidth, pretext)
   const bubbleWidth = Math.min(maxBubbleWidth, Math.ceil(tightContentWidth + horizontalChrome))
 
   const nextWidth = `${Math.max(1, bubbleWidth)}px`
@@ -176,7 +191,8 @@ function getMessageLaneWidth(bubble: HTMLElement): number {
 function getPreparedText(
   textElement: HTMLElement,
   font: string,
-  letterSpacing: number
+  letterSpacing: number,
+  pretext: PretextModules
 ): PreparedMessageText {
   const key = getPreparedCacheKey(font, letterSpacing)
   if (
@@ -192,14 +208,14 @@ function getPreparedText(
     richItems === null
       ? ({
           kind: 'plain',
-          value: prepareWithSegments(displayText.value, font, {
+          value: pretext.prepareWithSegments(displayText.value, font, {
             letterSpacing,
             whiteSpace: 'pre-wrap'
           })
         } satisfies PreparedMessageText)
       : ({
           kind: 'rich',
-          value: prepareRichInline(richItems)
+          value: pretext.prepareRichInline(richItems)
         } satisfies PreparedMessageText)
   preparedCache = { font, key, letterSpacing, prepared }
   return prepared
@@ -267,15 +283,19 @@ function getRichInlineItems(
   )
 }
 
-function findTightContentWidth(prepared: PreparedMessageText, maxWidth: number): number {
-  const initialLineCount = measureTextStats(prepared, maxWidth).lineCount
+function findTightContentWidth(
+  prepared: PreparedMessageText,
+  maxWidth: number,
+  pretext: PretextModules
+): number {
+  const initialLineCount = measureTextStats(prepared, maxWidth, pretext).lineCount
   if (initialLineCount === 0) return 0
 
   let lo = 1
   let hi = Math.max(1, Math.ceil(maxWidth))
   while (lo < hi) {
     const mid = Math.floor((lo + hi) / 2)
-    const lineCount = measureTextStats(prepared, mid).lineCount
+    const lineCount = measureTextStats(prepared, mid, pretext).lineCount
     if (lineCount <= initialLineCount) {
       hi = mid
     } else {
@@ -283,19 +303,20 @@ function findTightContentWidth(prepared: PreparedMessageText, maxWidth: number):
     }
   }
 
-  return measureTextStats(prepared, lo).maxLineWidth
+  return measureTextStats(prepared, lo, pretext).maxLineWidth
 }
 
 function measureTextStats(
   prepared: PreparedMessageText,
-  maxWidth: number
+  maxWidth: number,
+  pretext: PretextModules
 ): {
   lineCount: number
   maxLineWidth: number
 } {
   return prepared.kind === 'plain'
-    ? measureLineStats(prepared.value, maxWidth)
-    : measureRichInlineStats(prepared.value, maxWidth)
+    ? pretext.measureLineStats(prepared.value, maxWidth)
+    : pretext.measureRichInlineStats(prepared.value, maxWidth)
 }
 
 function getCanvasFont(style: CSSStyleDeclaration): string {
@@ -317,7 +338,44 @@ function readPixelValue(value: string): number {
   return Number.isFinite(parsed) ? parsed : 0
 }
 
+function getDisplaySegmentsKey(segments: RichInlineDisplaySegment[]): string {
+  return segments
+    .map((segment) => {
+      if (segment.type === 'text') {
+        return `text:${segment.text.length}:${getTextKeySample(segment.text)}`
+      }
+      if (segment.type === 'fileReference') {
+        return `file:${segment.fileArg}:${segment.label}`
+      }
+      return `skill:${segment.name}:${segment.label}:${segment.location}`
+    })
+    .join('\n')
+}
+
+function getTextKeySample(text: string): string {
+  if (text.length <= TIGHT_WIDTH_MAX_TEXT_LENGTH) {
+    return text
+  }
+  return `${text.slice(0, 64)}…${text.slice(-64)}`
+}
+
+type RichInlineDisplaySegment = ReturnType<typeof getUserMessageDisplaySegments>[number]
+
+function loadPretextModules(): Promise<PretextModules> {
+  pretextModulesPromise ??= Promise.all([
+    import('@chenglou/pretext'),
+    import('@chenglou/pretext/rich-inline')
+  ]).then(([text, rich]) => ({
+    measureLineStats: text.measureLineStats,
+    measureRichInlineStats: rich.measureRichInlineStats,
+    prepareRichInline: rich.prepareRichInline,
+    prepareWithSegments: text.prepareWithSegments
+  }))
+  return pretextModulesPromise
+}
+
 watch([displayText, shouldMeasureBubble, displaySegmentsKey], () => {
+  measureGeneration += 1
   preparedCache = null
   void nextTick(scheduleMeasure)
 })
@@ -335,6 +393,8 @@ onMounted(() => {
 })
 
 onBeforeUnmount(() => {
+  isDisposed = true
+  measureGeneration += 1
   if (copyTimeout) clearTimeout(copyTimeout)
   if (measureRaf !== null) window.cancelAnimationFrame(measureRaf)
   resizeObserver?.disconnect()

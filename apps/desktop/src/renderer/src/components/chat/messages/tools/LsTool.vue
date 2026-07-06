@@ -36,7 +36,14 @@ const name = computed(() =>
 </script>
 
 <template>
-  <BaseTool :name="name" :summary="summary" :result="result" :status="status" :is-error="isError">
+  <BaseTool
+    :name="name"
+    :summary="summary"
+    :result="result"
+    :status="status"
+    :is-error="isError"
+    :default-open="props.defaultOpen"
+  >
     <template #summary>
       <span class="ls-tool__target">{{ target }}</span>
       <span v-if="limit" class="ls-tool__meta">limit={{ limit }}</span>

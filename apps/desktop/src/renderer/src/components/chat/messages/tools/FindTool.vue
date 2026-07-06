@@ -38,7 +38,14 @@ const name = computed(() =>
 </script>
 
 <template>
-  <BaseTool :name="name" :summary="summary" :result="result" :status="status" :is-error="isError">
+  <BaseTool
+    :name="name"
+    :summary="summary"
+    :result="result"
+    :status="status"
+    :is-error="isError"
+    :default-open="props.defaultOpen"
+  >
     <template #summary>
       <span v-if="pattern" class="find-tool__pattern">{{ pattern }}</span>
       <span v-if="target" class="find-tool__target">{{ target }}</span>

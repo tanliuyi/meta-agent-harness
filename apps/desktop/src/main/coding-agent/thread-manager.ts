@@ -9,6 +9,8 @@ import type {
   CreateProjectInput,
   CreateThreadInput,
   DiagnosticsInput,
+  ExtensionEditorTextInput,
+  ExtensionShortcutInput,
   ExportSessionInput,
   ExportSessionResult,
   ExtensionUiResponseInput,
@@ -42,6 +44,7 @@ import type {
   ResourcePackageProgressEvent,
   ResourcePackageSummary,
   ResourceSnapshot,
+  RunCommandInput,
   SetSessionEntryLabelInput,
   SetThreadTitleInput,
   SetProjectTrustInput,
@@ -78,9 +81,11 @@ import {
 import {
   compact,
   abortRetry,
+  dispatchExtensionShortcut,
   getCommands,
   respondApproval,
   respondUi,
+  syncExtensionEditorText,
   setAutoCompaction,
   setAutoRetry
 } from './thread-runtime-controls'
@@ -458,8 +463,24 @@ export class CodingThreadManager extends ThreadManagerCore {
    * 运行指定命令。
    * @param input - 命令输入。
    */
-  runCommand(input: { threadId: string; command: string }): Promise<void> {
+  runCommand(input: RunCommandInput): Promise<void> {
     return runCommand(this, input)
+  }
+
+  /**
+   * 同步扩展可读取的编辑器文本缓存。
+   * @param input - 编辑器文本输入。
+   */
+  syncExtensionEditorText(input: ExtensionEditorTextInput): Promise<void> {
+    return syncExtensionEditorText(this, input)
+  }
+
+  /**
+   * 触发扩展快捷键。
+   * @param input - 快捷键输入。
+   */
+  dispatchExtensionShortcut(input: ExtensionShortcutInput): Promise<boolean> {
+    return dispatchExtensionShortcut(this, input)
   }
 
   /**

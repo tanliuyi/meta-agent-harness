@@ -27,6 +27,8 @@ import type {
   CompactInput,
   CreateThreadInput,
   DiagnosticsInput,
+  ExtensionEditorTextInput,
+  ExtensionShortcutInput,
   ExportSessionInput,
   FileReferenceCompletionInput,
   FileReferenceCompletionResult,
@@ -50,6 +52,7 @@ import type {
   RenameProjectInput,
   RenameThreadInput,
   ResourcePackageInput,
+  RunCommandInput,
   RevealResourcePathInput,
   SelectResourcePathInput,
   SelectSessionFileInput,
@@ -80,6 +83,10 @@ export interface CodingAgentIpcOptions {
   manager?: CodingThreadManager
   /** 创建 worker 客户端的工厂函数。 */
   createWorker?: () => Promise<WorkerClient>
+  /** 可选的事件订阅集合，用于 deferred IPC 注册阶段提前收集 renderer 订阅。 */
+  subscribers?: Set<WebContents>
+  /** 是否在本函数内注册事件订阅 listener。 */
+  registerEventHandler?: boolean
 }
 
 /**
@@ -88,11 +95,11 @@ export interface CodingAgentIpcOptions {
  * @returns 创建的 CodingThreadManager 实例。
  */
 export function registerCodingAgentIpc(options: CodingAgentIpcOptions = {}): CodingThreadManager {
-  const subscribers = new Set<WebContents>()
+  const subscribers = options.subscribers ?? new Set<WebContents>()
   const projectStore = new ProjectStore()
   const projectTrustService = new ProjectTrustService()
-  const modelSettingsService = new ModelSettingsService()
-  const agentSettingsService = new AgentSettingsService()
+  let modelSettingsService: ModelSettingsService | undefined
+  let agentSettingsService: AgentSettingsService | undefined
   const store = new CodingThreadStore()
   const manager =
     options.manager ??
@@ -122,8 +129,8 @@ export function registerCodingAgentIpc(options: CodingAgentIpcOptions = {}): Cod
       store,
       projectStore,
       projectTrustService,
-      modelSettingsService,
-      agentSettingsService
+      () => (modelSettingsService ??= new ModelSettingsService()),
+      () => (agentSettingsService ??= new AgentSettingsService())
     )
 
   handle(manager, codingAgentChannels.createProject, async () => {
@@ -295,8 +302,14 @@ export function registerCodingAgentIpc(options: CodingAgentIpcOptions = {}): Cod
   handle(manager, codingAgentChannels.getCommands, (threadId: string) =>
     manager.getCommands(threadId)
   )
-  handle(manager, codingAgentChannels.runCommand, (input: { threadId: string; command: string }) =>
+  handle(manager, codingAgentChannels.runCommand, (input: RunCommandInput) =>
     manager.runCommand(input)
+  )
+  handle(manager, codingAgentChannels.syncExtensionEditorText, (input: ExtensionEditorTextInput) =>
+    manager.syncExtensionEditorText(input)
+  )
+  handle(manager, codingAgentChannels.dispatchExtensionShortcut, (input: ExtensionShortcutInput) =>
+    manager.dispatchExtensionShortcut(input)
   )
   handle(manager, codingAgentChannels.respondUi, (input: ExtensionUiResponseInput) =>
     manager.respondUi(input)
@@ -359,14 +372,16 @@ export function registerCodingAgentIpc(options: CodingAgentIpcOptions = {}): Cod
       publishCodingAgentEvent(subscribers, { type: 'resourcePackage', event })
     })
   )
-  ipcMain.on(codingAgentChannels.event, (event, action: 'subscribe' | 'unsubscribe') => {
-    if (action === 'subscribe') {
-      subscribers.add(event.sender)
-      event.sender.once('destroyed', () => subscribers.delete(event.sender))
-      return
-    }
-    subscribers.delete(event.sender)
-  })
+  if (options.registerEventHandler !== false) {
+    ipcMain.on(codingAgentChannels.event, (event, action: 'subscribe' | 'unsubscribe') => {
+      if (action === 'subscribe') {
+        subscribers.add(event.sender)
+        event.sender.once('destroyed', () => subscribers.delete(event.sender))
+        return
+      }
+      subscribers.delete(event.sender)
+    })
+  }
   app.once('before-quit', () => {
     void manager.shutdown()
     store.close()

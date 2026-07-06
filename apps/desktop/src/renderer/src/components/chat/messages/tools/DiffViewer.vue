@@ -24,6 +24,8 @@ const viewerRef = ref<HTMLElement>()
 const scrollAreaRef = ref<ScrollAreaInstance | null>(null)
 const measuredContentWidth = ref<number>()
 let measureRaf: number | null = null
+let measureGeneration = 0
+let isDisposed = false
 
 const parsedDiff = computed(() => parseDisplayDiff(props.diff))
 const lines = computed(() => parsedDiff.value.lines)
@@ -59,18 +61,23 @@ function scheduleMeasureContentWidth(): void {
   if (measureRaf !== null) return
   measureRaf = window.requestAnimationFrame(() => {
     measureRaf = null
-    measureContentWidth()
+    void measureContentWidth()
   })
 }
 
-function measureContentWidth(): void {
+async function measureContentWidth(): Promise<void> {
   const viewer = viewerRef.value
   if (!viewer) {
     measuredContentWidth.value = undefined
     return
   }
 
-  measuredContentWidth.value = measureDiffContentWidth(lines.value, window.getComputedStyle(viewer))
+  const generation = measureGeneration
+  const nextWidth = await measureDiffContentWidth(lines.value, window.getComputedStyle(viewer))
+  if (isDisposed || generation !== measureGeneration) {
+    return
+  }
+  measuredContentWidth.value = nextWidth
 }
 
 onMounted(() => {
@@ -80,6 +87,7 @@ onMounted(() => {
 watch(
   lines,
   () => {
+    measureGeneration += 1
     measuredContentWidth.value = undefined
     void nextTick(scheduleMeasureContentWidth)
   },
@@ -87,6 +95,8 @@ watch(
 )
 
 onBeforeUnmount(() => {
+  isDisposed = true
+  measureGeneration += 1
   if (measureRaf !== null) {
     window.cancelAnimationFrame(measureRaf)
   }

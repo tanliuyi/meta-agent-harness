@@ -11,6 +11,7 @@ const props = defineProps<{
   toolCalls: ToolCall[]
   summary: string
   status?: ToolGroupStatus
+  defaultOpen?: boolean
 }>()
 
 const name = computed(() =>
@@ -30,6 +31,7 @@ const name = computed(() =>
     :summary="props.summary"
     :status="props.status"
     :is-error="props.status === 'failed'"
+    :default-open="props.defaultOpen"
   >
     <template #icon>
       <SearchIcon :size="14" />
@@ -38,6 +40,7 @@ const name = computed(() =>
       v-for="toolCall in props.toolCalls"
       :key="toolCall.toolCallId"
       :tool-call="toolCall"
+      :default-open="props.defaultOpen"
     />
   </BaseToolGroup>
 </template>

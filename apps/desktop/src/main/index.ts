@@ -7,13 +7,15 @@ import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import windowStateKeeper from 'electron-window-state'
 import icon from '../../resources/icon.png?asset'
-import { registerCodingAgentIpc } from './coding-agent/ipc'
+import { installCodingAgentPackageDirEnv } from './coding-agent/coding-agent-package-dir'
+import { registerDeferredCodingAgentIpc } from './coding-agent/deferred-ipc'
 // import { installIpcLogger } from 'electron-ipc-logger'
 
 const defaultWindowBounds = {
   width: 1920,
   height: 1080
 }
+const initialRendererHash = '/new'
 
 /**
  * 为当前平台生成无边框窗口的 BrowserWindow 选项。
@@ -75,9 +77,11 @@ function createWindow(): void {
   })
 
   if (is.dev && process.env['ELECTRON_RENDERER_URL']) {
-    mainWindow.loadURL(process.env['ELECTRON_RENDERER_URL'])
+    const rendererUrl = new URL(process.env['ELECTRON_RENDERER_URL'])
+    rendererUrl.hash = initialRendererHash
+    mainWindow.loadURL(rendererUrl.toString())
   } else {
-    mainWindow.loadFile(join(__dirname, '../renderer/index.html'))
+    mainWindow.loadFile(join(__dirname, '../renderer/index.html'), { hash: initialRendererHash })
   }
 }
 
@@ -120,6 +124,8 @@ app.whenReady().then(async () => {
   //   logSize: 1000
   // })
 
+  installCodingAgentPackageDirEnv()
+
   // 在 Windows 上设置应用用户模型 ID
   electronApp.setAppUserModelId('com.meta-agent.desktop')
 
@@ -131,7 +137,7 @@ app.whenReady().then(async () => {
   registerWindowControlIpc()
 
   createWindow()
-  registerCodingAgentIpc()
+  registerDeferredCodingAgentIpc()
 
   app.on('activate', function () {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()

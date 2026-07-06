@@ -15,3 +15,5 @@ coverage/
 
 .DS_Store
 Thumbs.db
+.codex/
+tmp/electron-extension-dev/

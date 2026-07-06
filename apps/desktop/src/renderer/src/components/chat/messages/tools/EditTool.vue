@@ -62,6 +62,7 @@ const name = computed(() =>
     max-content-height="360px"
     content-class="edit-tool__diff-content"
     result-class="edit-tool__diff-result"
+    :default-open="props.defaultOpen"
   >
     <template #icon>
       <PencilIcon :size="14" />

@@ -14,12 +14,13 @@ const props = defineProps<{
   revision?: number
   isStreaming?: boolean
   collapseWhenResponseAppears?: boolean
+  hiddenLabel?: string
 }>()
 
 const thinkingText = computed(
   () => props.text ?? (props.message ? getMessageThinkingText(props.message) : '') ?? ''
 )
-const label = computed(() => (props.isStreaming ? 'Thinking' : 'Thought'))
+const label = computed(() => props.hiddenLabel ?? (props.isStreaming ? 'Thinking' : 'Thought'))
 const firstLine = computed(() => {
   const text = thinkingText.value
   if (!text) return ''

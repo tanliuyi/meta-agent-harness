@@ -365,12 +365,25 @@ async function loadExtensionModule(extensionPath: string, cacheToken?: Extension
 		}
 	}
 
+	const getJitiResolveOptions = () => {
+		if (isBunBinary) {
+			return { virtualModules: VIRTUAL_MODULES, tryNative: false };
+		}
+		try {
+			return { alias: getAliases() };
+		} catch {
+			return { virtualModules: VIRTUAL_MODULES, tryNative: false };
+		}
+	};
+
 	const jiti = createJiti(import.meta.url, {
 		moduleCache: false,
 		// In Bun binary: use virtualModules for bundled packages (no filesystem resolution)
 		// Also disable tryNative so jiti handles ALL imports (not just the entry point)
-		// In Node.js/dev: use aliases to resolve to node_modules paths
-		...(isBunBinary ? { virtualModules: VIRTUAL_MODULES, tryNative: false } : { alias: getAliases() }),
+		// In Node.js/dev: use aliases to resolve to node_modules paths.
+		// In packaged hosts without resolvable node_modules (Electron asar), fall back
+		// to the same bundled virtual modules used by the binary build.
+		...getJitiResolveOptions(),
 	});
 
 	const module = await jiti.import(extensionPath, { default: true });

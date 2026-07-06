@@ -4,7 +4,14 @@
  */
 
 import type { JSONContent } from '@tiptap/vue-3'
-import { computed, nextTick, ref, watch, type ComponentPublicInstance } from 'vue'
+import {
+  computed,
+  defineAsyncComponent,
+  nextTick,
+  ref,
+  watch,
+  type ComponentPublicInstance
+} from 'vue'
 import { useVirtualizer } from '@tanstack/vue-virtual'
 import { onClickOutside } from '@vueuse/core'
 import { BaseButton, BaseIconButton } from '@renderer/components/base'
@@ -28,10 +35,13 @@ import {
 import { useSelectContentWidth } from '@renderer/components/ui/select/useSelectContentWidth'
 import StopIcon from '@renderer/components/icons/StopIcon.vue'
 import { Command as CommandIcon, X } from 'lucide-vue-next'
-import PlainTextEditor from './PlainTextEditor.vue'
 import Usage from './Usage.vue'
 import type { TokenUsage } from './Usage.vue'
 import type { ComposerImageAttachment } from '@renderer/stores/workspace-session'
+import {
+  getCommandQueryArgs,
+  getCommandQueryName
+} from '@renderer/components/session/panel/tabs/display/commandDisplay'
 import type {
   CommandInfo,
   ExtensionUiRequest,
@@ -71,6 +81,8 @@ const thinkingOptions: Array<{ label: string; value: ThinkingLevel }> = [
   { label: 'High', value: 'high' },
   { label: 'XHigh', value: 'xhigh' }
 ]
+
+const PlainTextEditor = defineAsyncComponent(() => import('./PlainTextEditor.vue'))
 
 const props = withDefaults(
   defineProps<{
@@ -171,7 +183,7 @@ const emit = defineEmits<{
   /** 加载 command palette 列表。 */
   'load-commands': []
   /** 运行 command。 */
-  'run-command': [command: string]
+  'run-command': [command: string, args?: string]
   /** 响应 extension UI 请求。 */
   'respond-extension-request': [request: ExtensionUiRequest, value?: string | boolean]
   /** 取消 extension UI 请求。 */
@@ -255,6 +267,11 @@ const modelSelectLabels = computed(() => props.modelOptions.map((model) => forma
 const modelSelectContentWidth = useSelectContentWidth({
   labels: modelSelectLabels
 })
+function handleModelSelectOpenChange(open: boolean): void {
+  if (open) {
+    modelSelectContentWidth.scheduleMeasureContentWidth()
+  }
+}
 const modelSelectScrollAreaRef = ref<ScrollAreaInstance | null>(null)
 const modelSelectVirtualizer = useVirtualizer(
   computed(() => ({
@@ -296,6 +313,11 @@ const projectSelectLabels = computed(() => props.projects.map((project) => proje
 const projectSelectContentWidth = useSelectContentWidth({
   labels: projectSelectLabels
 })
+function handleProjectSelectOpenChange(open: boolean): void {
+  if (open) {
+    projectSelectContentWidth.scheduleMeasureContentWidth()
+  }
+}
 
 /** 当前 thinking level 展示文本。 */
 const currentThinkingLabel = computed(
@@ -309,7 +331,7 @@ const canOpenCommandPalette = computed(() => Boolean(props.threadId))
 
 /** command palette 过滤结果。 */
 const filteredCommands = computed(() => {
-  const query = commandSearch.value.trim().toLowerCase()
+  const query = getCommandQueryName(commandSearch.value).toLowerCase()
   if (!query) {
     return props.commands
   }
@@ -523,7 +545,7 @@ function highlightPaletteCommand(index: number): void {
  * @param command - command 名称。
  */
 function runPaletteCommand(command: string): void {
-  emit('run-command', command)
+  emit('run-command', command, getCommandQueryArgs(commandSearch.value, command))
   closeCommandPalette()
 }
 
@@ -995,6 +1017,7 @@ function clearExtensionDraft(id: string): void {
           :model-value="currentModelValue"
           :disabled="isModelSelectDisabled"
           @update:model-value="handleModelChange"
+          @update:open="handleModelSelectOpenChange"
         >
           <SelectTrigger
             :ref="modelSelectContentWidth.setTriggerRef"
@@ -1029,7 +1052,11 @@ function clearExtensionDraft(id: string): void {
                     )
                   "
                 >
-                  {{ modelOptions[virtualItem.index] ? formatModelLabel(modelOptions[virtualItem.index]) : '' }}
+                  {{
+                    modelOptions[virtualItem.index]
+                      ? formatModelLabel(modelOptions[virtualItem.index])
+                      : ''
+                  }}
                 </SelectItem>
               </SelectGroup>
             </ScrollArea>
@@ -1114,6 +1141,7 @@ function clearExtensionDraft(id: string): void {
         :model-value="projectId ?? ''"
         :disabled="isRunning || projects.length === 0"
         @update:model-value="handleProjectChange"
+        @update:open="handleProjectSelectOpenChange"
       >
         <SelectTrigger
           :ref="projectSelectContentWidth.setTriggerRef"

@@ -344,7 +344,7 @@
 .session-section {
   display: grid;
   gap: var(--space-2);
-  padding: 0 var(--space-2);
+  padding: 0 var(--space-4);
   min-width: 0;
 }
 
@@ -1233,7 +1233,7 @@
 
 @container (max-width: 420px) {
   .session-section {
-    padding-inline: var(--space-1);
+    padding-inline: var(--space-3);
   }
 
   .session-action-strip {

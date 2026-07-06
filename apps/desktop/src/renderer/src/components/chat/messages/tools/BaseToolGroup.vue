@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { ref, watch } from 'vue'
 import { ChevronRight } from 'lucide-vue-next'
 import ToolGroupIcon from '@renderer/components/icons/ToolGroupIcon.vue'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
@@ -21,6 +21,13 @@ const props = withDefaults(
 )
 
 const open = ref(props.defaultOpen)
+
+watch(
+  () => props.defaultOpen,
+  (defaultOpen) => {
+    open.value = defaultOpen
+  }
+)
 </script>
 
 <template>

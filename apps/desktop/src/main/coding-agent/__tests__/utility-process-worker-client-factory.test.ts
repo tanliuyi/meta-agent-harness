@@ -2,14 +2,17 @@
  * 本文件测试 Electron utilityProcess worker client 工厂。
  */
 
-import { mkdtempSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { PassThrough } from 'node:stream'
 import { EventEmitter } from 'node:events'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { WorkerHangInfo } from '../worker-types'
-import { createUtilityProcessWorkerClient } from '../utility-process-worker-client-factory'
+import {
+  createUtilityProcessWorkerClient,
+  resolveUtilityWorkerEntry
+} from '../utility-process-worker-client-factory'
 
 const forkMock = vi.hoisted(() => vi.fn())
 
@@ -22,6 +25,7 @@ vi.mock('electron', () => ({
 describe('createUtilityProcessWorkerClient', () => {
   afterEach(() => {
     forkMock.mockReset()
+    vi.unstubAllEnvs()
   })
 
   it('通过 Electron utilityProcess 启动 worker 子进程', async () => {
@@ -33,7 +37,10 @@ describe('createUtilityProcessWorkerClient', () => {
     await createUtilityProcessWorkerClient({ workerEntry })
 
     expect(forkMock).toHaveBeenCalledWith(workerEntry, [], {
-      env: process.env,
+      env: expect.objectContaining({
+        ...process.env,
+        PI_PACKAGE_DIR: expect.any(String)
+      }),
       stdio: ['ignore', 'pipe', 'pipe'],
       serviceName: 'Coding Agent Worker'
     })
@@ -59,6 +66,16 @@ describe('createUtilityProcessWorkerClient', () => {
     })
     expect(hangInfo[0]?.silentMs).toBeGreaterThanOrEqual(20)
     expect(child.kill).toHaveBeenCalled()
+  })
+
+  it('默认 worker 入口兼容 electron-vite chunks 目录', async () => {
+    const distDir = mkdtempSync(join(tmpdir(), 'meta-agent-dist-'))
+    const chunksDir = join(distDir, 'chunks')
+    const workerEntry = join(distDir, 'coding-agent-utility-worker.js')
+    mkdirSync(chunksDir)
+    writeFileSync(workerEntry, '')
+
+    expect(resolveUtilityWorkerEntry(chunksDir)).toBe(workerEntry)
   })
 })
 

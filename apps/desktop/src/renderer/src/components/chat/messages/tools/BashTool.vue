@@ -92,6 +92,7 @@ async function revealFullOutput(mode: 'open' | 'reveal'): Promise<void> {
     :status="status"
     :is-error="isError"
     :content-available="hasContent"
+    :default-open="props.defaultOpen"
   >
     <template #icon>
       <TerminalIcon :size="14" />

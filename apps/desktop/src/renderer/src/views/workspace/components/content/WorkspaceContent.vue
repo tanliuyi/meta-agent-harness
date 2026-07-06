@@ -21,6 +21,7 @@ import {
   createStableSessionInfo,
   createStableSessionPanelState
 } from './state/workspace-content-state'
+import { loadWorkspaceStartupData } from './state/workspace-startup'
 
 /** 分隔条宽度（像素）。 */
 const RESIZER_WIDTH = 1
@@ -71,8 +72,10 @@ provideSessionContext({
 
 /** 组件挂载时加载 Project 与当前 Project 下的 thread。 */
 onMounted(async () => {
-  await workspaceProject.loadProjects()
-  await workspaceSession.loadThreads(undefined, { deferActiveSnapshot: true })
+  await loadWorkspaceStartupData({
+    loadProjects: workspaceProject.loadProjects,
+    loadThreads: workspaceSession.loadThreads
+  })
 })
 
 /**

@@ -32,7 +32,28 @@ interface RuntimeApi {
  * @returns 成功值。
  */
 async function invokeCodingAgent<T>(channel: string, ...args: unknown[]): Promise<T> {
-  return unwrapIpcResult(await ipcRenderer.invoke(channel, ...args))
+  const startedAt = Date.now()
+  let attempt = 0
+
+  while (true) {
+    try {
+      return unwrapIpcResult(await ipcRenderer.invoke(channel, ...args))
+    } catch (error) {
+      if (!isMissingHandlerError(error) || Date.now() - startedAt > 5000) {
+        throw error
+      }
+      await delay(Math.min(25 * 2 ** attempt, 200))
+      attempt += 1
+    }
+  }
+}
+
+function isMissingHandlerError(error: unknown): boolean {
+  return error instanceof Error && error.message.includes('No handler registered')
+}
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
 /**
@@ -93,6 +114,10 @@ const codingAgent: CodingAgentApi = {
   abortRetry: (threadId) => invokeCodingAgent(codingAgentChannels.abortRetry, threadId),
   getCommands: (threadId) => invokeCodingAgent(codingAgentChannels.getCommands, threadId),
   runCommand: (input) => invokeCodingAgent(codingAgentChannels.runCommand, input),
+  syncExtensionEditorText: (input) =>
+    invokeCodingAgent(codingAgentChannels.syncExtensionEditorText, input),
+  dispatchExtensionShortcut: (input) =>
+    invokeCodingAgent(codingAgentChannels.dispatchExtensionShortcut, input),
   respondUi: (input) => invokeCodingAgent(codingAgentChannels.respondUi, input),
   respondApproval: (input) => invokeCodingAgent(codingAgentChannels.respondApproval, input),
   listDiagnostics: (input) => invokeCodingAgent(codingAgentChannels.listDiagnostics, input),

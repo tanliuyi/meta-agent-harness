@@ -4,6 +4,8 @@
 
 import type { AgentSessionRuntime } from "../../core/agent-session-runtime.ts";
 import type { AgentSessionEvent } from "../../core/agent-session.ts";
+import type { ExtensionCommandContextActions } from "../../core/extensions/index.ts";
+import { KeybindingsManager } from "../../core/keybindings.ts";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import { createDesktopError } from "../protocol/error.ts";
 import { createWorkerErrorResponse, createWorkerResponse, type WorkerCommandEnvelope, type WorkerEventEnvelope, type WorkerResponseEnvelope } from "../protocol/envelope.ts";
@@ -76,8 +78,15 @@ export class RuntimeDesktopWorkerService implements DesktopWorkerService {
 		this.approvalBridge = new ApprovalBridge(input.threadId, (event) => this.eventSink?.(event));
 		this.runtime = await this.createRuntime(input, { approvalBridge: this.approvalBridge, hasUI: true });
 		this.uiBridge = new ExtensionUiBridge(input.threadId, (event) => this.eventSink?.(event));
-		await this.runtime.session.bindExtensions({ uiContext: this.uiBridge.createContext(), mode: "rpc" });
-		this.bindSessionEvents();
+		this.runtime.setRebindSession(async () => {
+			await this.bindRuntimeSession();
+		});
+		this.runtime.setBeforeSessionInvalidate(() => {
+			this.unsubscribeSession?.();
+			this.unsubscribeSession = undefined;
+			this.toolArgsByCallId.clear();
+		});
+		await this.bindRuntimeSession();
 		this.started = true;
 		this.eventSink?.({
 			kind: "event",
@@ -132,6 +141,14 @@ export class RuntimeDesktopWorkerService implements DesktopWorkerService {
 				);
 			}
 		}
+		if (envelope.command.type === "ui.editorTextChanged") {
+			this.uiBridge?.syncEditorText(envelope.command.text);
+			return createWorkerResponse(envelope.id, envelope.command.type, { ok: true });
+		}
+		if (envelope.command.type === "ui.toolsExpandedChanged") {
+			this.uiBridge?.syncToolsExpanded(envelope.command.expanded);
+			return createWorkerResponse(envelope.id, envelope.command.type, { ok: true });
+		}
 		if (!this.started) {
 			return createWorkerErrorResponse(
 				envelope.id,
@@ -146,12 +163,16 @@ export class RuntimeDesktopWorkerService implements DesktopWorkerService {
 				createDesktopError("invalid_state", "worker runtime is missing", false),
 			);
 		}
+		if (envelope.command.type === "shortcut.dispatch") {
+			const handled = await this.runtime.session.extensionRunner.executeShortcut(
+				envelope.command.shortcut,
+				KeybindingsManager.create().getResolvedBindings(),
+			);
+			return createWorkerResponse(envelope.id, envelope.command.type, { handled });
+		}
 		const response = await handleRuntimeCommand(
 			{
 				runtime: this.runtime,
-				rebindSession: async () => {
-					this.bindSessionEvents();
-				},
 				projectTrustContextFactory: (cwd) =>
 					createDesktopProjectTrustContext({
 						cwd,
@@ -193,6 +214,93 @@ export class RuntimeDesktopWorkerService implements DesktopWorkerService {
 			throw new Error("approval bridge is missing");
 		}
 		return this.approvalBridge;
+	}
+
+	private requireRuntime(): AgentSessionRuntime {
+		if (!this.runtime) {
+			throw new Error("worker runtime is missing");
+		}
+		return this.runtime;
+	}
+
+	private createCommandContextActions(): ExtensionCommandContextActions {
+		return {
+			waitForIdle: () => this.requireRuntime().session.agent.waitForIdle(),
+			newSession: (options) => this.requireRuntime().newSession(options),
+			fork: async (entryId, options) => {
+				const result = await this.requireRuntime().fork(entryId, options);
+				return { cancelled: result.cancelled };
+			},
+			navigateTree: async (targetId, options) => {
+				const result = await this.requireRuntime().session.navigateTree(targetId, {
+					summarize: options?.summarize,
+					customInstructions: options?.customInstructions,
+					replaceInstructions: options?.replaceInstructions,
+					label: options?.label,
+				});
+				return { cancelled: result.cancelled };
+			},
+			switchSession: (sessionPath, options) =>
+				this.requireRuntime().switchSession(sessionPath, {
+					...options,
+					projectTrustContextFactory: (cwd) =>
+						createDesktopProjectTrustContext({
+							cwd,
+							approvalBridge: this.requireApprovalBridge(),
+							hasUI: true,
+						}),
+				}),
+			reload: async () => {
+				await this.requireRuntime().session.reload({
+					beforeSessionStart: async () => {
+						this.toolArgsByCallId.clear();
+					},
+				});
+			},
+		};
+	}
+
+	private emitExtensionError(error: { extensionPath: string; event: string; error: string; stack?: string }): void {
+		const threadId = this.threadId;
+		if (!threadId) {
+			return;
+		}
+		this.eventSink?.({
+			kind: "event",
+			eventType: "projection",
+			threadId,
+			event: {
+				type: "thread.error",
+				threadId,
+				diagnostic: {
+					id: `extension-${Date.now()}`,
+					severity: "error",
+					source: "runtime",
+					threadId,
+					message: `${error.extensionPath}: ${error.error}`,
+					details: { event: error.event, stack: error.stack },
+					createdAt: new Date().toISOString(),
+				},
+			},
+		});
+	}
+
+	private async bindRuntimeSession(): Promise<void> {
+		const runtime = this.requireRuntime();
+		const uiBridge = this.uiBridge;
+		if (!uiBridge) {
+			throw new Error("extension UI bridge is missing");
+		}
+		await runtime.session.bindExtensions({
+			uiContext: uiBridge.createContext(),
+			mode: "rpc",
+			commandContextActions: this.createCommandContextActions(),
+			shutdownHandler: () => {
+				void this.stop("extension-shutdown");
+			},
+			onError: (error) => this.emitExtensionError(error),
+		});
+		this.bindSessionEvents();
 	}
 
 	/**

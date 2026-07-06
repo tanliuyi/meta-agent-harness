@@ -101,6 +101,10 @@ export const codingAgentChannels = {
   getCommands: 'coding-agent:get-commands',
   /** 运行指定命令。 */
   runCommand: 'coding-agent:run-command',
+  /** 同步编辑器文本给扩展运行时。 */
+  syncExtensionEditorText: 'coding-agent:sync-extension-editor-text',
+  /** 触发扩展快捷键。 */
+  dispatchExtensionShortcut: 'coding-agent:dispatch-extension-shortcut',
   /** 响应 UI 扩展的请求。 */
   respondUi: 'coding-agent:respond-ui',
   /** 响应审批请求。 */

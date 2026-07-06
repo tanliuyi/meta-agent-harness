@@ -34,6 +34,7 @@ const status = computed(() => props.toolCall?.status)
     :result="result"
     :status="status"
     :is-error="isError"
+    :default-open="props.defaultOpen"
   >
     <template #summary>
       <span v-if="summary" class="default-tool__summary">{{ summary }}</span>

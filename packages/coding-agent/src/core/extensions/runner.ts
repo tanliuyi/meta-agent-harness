@@ -90,7 +90,7 @@ const buildBuiltinKeybindings = (resolvedKeybindings: KeybindingsConfig): BuiltI
 		const keyList = Array.isArray(keys) ? keys : [keys];
 		const restrictOverride = (RESERVED_KEYBINDINGS_FOR_EXTENSION_CONFLICTS as readonly string[]).includes(keybinding);
 		for (const key of keyList) {
-			const normalizedKey = key.toLowerCase() as KeyId;
+			const normalizedKey = canonicalizeShortcutKey(key);
 			// If multiple actions bind the same key, the reserved action wins so extensions
 			// remain blocked by reserved shortcuts regardless of iteration order.
 			const existing = builtinKeybindings[normalizedKey];
@@ -102,6 +102,19 @@ const buildBuiltinKeybindings = (resolvedKeybindings: KeybindingsConfig): BuiltI
 		}
 	}
 	return builtinKeybindings;
+};
+
+const canonicalizeShortcutKey = (key: KeyId): KeyId => {
+	const parts = key
+		.toLowerCase()
+		.split("+")
+		.map((part) => part.trim())
+		.filter(Boolean);
+	const modifiers = ["shift", "ctrl", "alt", "meta"];
+	const keyPart = parts.find((part) => !modifiers.includes(part));
+	return [...modifiers.filter((modifier) => parts.includes(modifier)), ...(keyPart ? [keyPart] : [])].join(
+		"+",
+	) as KeyId;
 };
 
 /** Combined result from all before_agent_start handlers */
@@ -456,7 +469,7 @@ export class ExtensionRunner {
 
 		for (const ext of this.extensions) {
 			for (const [key, shortcut] of ext.shortcuts) {
-				const normalizedKey = key.toLowerCase() as KeyId;
+				const normalizedKey = canonicalizeShortcutKey(key);
 
 				const builtInKeybinding = builtinKeybindings[normalizedKey];
 				if (builtInKeybinding?.restrictOverride === true) {
@@ -489,6 +502,26 @@ export class ExtensionRunner {
 
 	getShortcutDiagnostics(): ResourceDiagnostic[] {
 		return this.shortcutDiagnostics;
+	}
+
+	async executeShortcut(shortcut: KeyId, resolvedKeybindings: KeybindingsConfig): Promise<boolean> {
+		const normalizedShortcut = canonicalizeShortcutKey(shortcut);
+		const registeredShortcut = this.getShortcuts(resolvedKeybindings).get(normalizedShortcut);
+		if (!registeredShortcut) {
+			return false;
+		}
+		try {
+			await registeredShortcut.handler(this.createContext());
+			return true;
+		} catch (err) {
+			this.emitError({
+				extensionPath: registeredShortcut.extensionPath,
+				event: "shortcut",
+				error: err instanceof Error ? err.message : String(err),
+				stack: err instanceof Error ? err.stack : undefined,
+			});
+			return true;
+		}
 	}
 
 	invalidate(

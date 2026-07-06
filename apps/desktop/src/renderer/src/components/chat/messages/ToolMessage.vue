@@ -14,6 +14,7 @@ import WriteTool from './tools/WriteTool.vue'
 const props = defineProps<{
   message?: ThreadMessage
   toolCall?: ThreadSnapshot['toolCalls'][number]
+  defaultOpen?: boolean
 }>()
 
 const toolName = computed(() => {
@@ -54,5 +55,5 @@ function getToolComponent(name: string): Component {
 </script>
 
 <template>
-  <component :is="toolComponent" :message="message" :tool-call="toolCall" />
+  <component :is="toolComponent" :message="message" :tool-call="toolCall" :default-open="defaultOpen" />
 </template>

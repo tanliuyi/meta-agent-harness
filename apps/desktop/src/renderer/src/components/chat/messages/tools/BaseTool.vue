@@ -70,7 +70,9 @@ watch(
     }
     if (defaultOpen) {
       open.value = true
+      return
     }
+    open.value = false
   },
   { immediate: true }
 )

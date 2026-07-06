@@ -6,6 +6,9 @@ import type {
   CommandInfo,
   CompactInput,
   CompactionResult,
+  ExtensionEditorTextInput,
+  ExtensionShortcutInput,
+  ExtensionShortcutResult,
   ExtensionUiResponseInput,
   ApprovalResponseInput,
   ToggleInput
@@ -72,6 +75,34 @@ export async function getCommands(
     type: 'get_commands'
   })
   return result.commands
+}
+
+/**
+ * 同步 renderer 编辑器文本给 worker 内的扩展 UI 上下文缓存。
+ * @param core - thread 管理核心。
+ * @param input - 编辑器文本输入。
+ */
+export async function syncExtensionEditorText(
+  core: ThreadManagerCore,
+  input: ExtensionEditorTextInput
+): Promise<void> {
+  await core.sendOk(input.threadId, { type: 'ui.editorTextChanged', text: input.text })
+}
+
+/**
+ * 触发 Pi extension 注册的快捷键。
+ * @param core - thread 管理核心。
+ * @param input - 快捷键输入。
+ */
+export async function dispatchExtensionShortcut(
+  core: ThreadManagerCore,
+  input: ExtensionShortcutInput
+): Promise<boolean> {
+  const result = await core.sendData<ExtensionShortcutResult>(input.threadId, {
+    type: 'shortcut.dispatch',
+    shortcut: input.shortcut
+  })
+  return result.handled
 }
 
 /**

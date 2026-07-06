@@ -1081,6 +1081,26 @@ export interface CompactionResult {
 export interface RunCommandInput extends ThreadIdInput {
   /** 要执行的命令名称。 */
   command: string
+  /** 传递给 Pi extension command handler 的参数。 */
+  args?: string
+}
+
+/** 扩展编辑器文本同步输入。 */
+export interface ExtensionEditorTextInput extends ThreadIdInput {
+  /** 当前编辑器纯文本。 */
+  text: string
+}
+
+/** 扩展快捷键触发输入。 */
+export interface ExtensionShortcutInput extends ThreadIdInput {
+  /** Pi KeyId，例如 ctrl+shift+p。 */
+  shortcut: string
+}
+
+/** 扩展快捷键触发结果。 */
+export interface ExtensionShortcutResult {
+  /** 是否有 extension 处理该快捷键。 */
+  handled: boolean
 }
 
 /** 扩展 UI 响应输入。 */
@@ -1304,6 +1324,10 @@ export interface CodingAgentApi {
   getCommands(threadId: string): Promise<CommandInfo[]>
   /** 运行指定命令。 */
   runCommand(input: RunCommandInput): Promise<void>
+  /** 同步编辑器文本给扩展运行时。 */
+  syncExtensionEditorText(input: ExtensionEditorTextInput): Promise<void>
+  /** 触发扩展快捷键。 */
+  dispatchExtensionShortcut(input: ExtensionShortcutInput): Promise<boolean>
   /** 响应 UI 扩展请求。 */
   respondUi(input: ExtensionUiResponseInput): Promise<void>
   /** 响应审批请求。 */

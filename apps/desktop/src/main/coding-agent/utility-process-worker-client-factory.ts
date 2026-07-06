@@ -8,6 +8,7 @@ import { utilityProcess } from 'electron'
 import type { WorkerClient } from './worker-types'
 import { TransportWorkerClient } from './transport-worker-client'
 import { UtilityProcessWorkerTransport } from './utility-process-worker-transport'
+import { getCodingAgentWorkerEnv } from './coding-agent-package-dir'
 
 /**
  * Utility process worker 客户端工厂选项。
@@ -30,12 +31,12 @@ export interface UtilityProcessWorkerClientFactoryOptions {
 export async function createUtilityProcessWorkerClient(
   options: UtilityProcessWorkerClientFactoryOptions = {}
 ): Promise<WorkerClient> {
-  const workerEntry = options.workerEntry ?? getDefaultUtilityWorkerEntry()
+  const workerEntry = options.workerEntry ?? resolveUtilityWorkerEntry()
   if (!existsSync(workerEntry)) {
     throw new Error(`coding agent utility worker entry not found: ${workerEntry}`)
   }
   const child = utilityProcess.fork(workerEntry, [], {
-    env: process.env,
+    env: getCodingAgentWorkerEnv(),
     stdio: ['ignore', 'pipe', 'pipe'],
     serviceName: 'Coding Agent Worker'
   })
@@ -52,9 +53,14 @@ export async function createUtilityProcessWorkerClient(
  * 优先读取环境变量 CODING_AGENT_UTILITY_WORKER_ENTRY，否则使用构建产物目录下的 coding-agent-utility-worker.js。
  * @returns 默认 worker 入口路径。
  */
-function getDefaultUtilityWorkerEntry(): string {
-  return (
-    process.env.CODING_AGENT_UTILITY_WORKER_ENTRY ??
-    join(__dirname, 'coding-agent-utility-worker.js')
-  )
+export function resolveUtilityWorkerEntry(baseDir = __dirname): string {
+  if (process.env.CODING_AGENT_UTILITY_WORKER_ENTRY) {
+    return process.env.CODING_AGENT_UTILITY_WORKER_ENTRY
+  }
+
+  const candidates = [
+    join(baseDir, 'coding-agent-utility-worker.js'),
+    join(baseDir, '..', 'coding-agent-utility-worker.js')
+  ]
+  return candidates.find((candidate) => existsSync(candidate)) ?? candidates[0]
 }

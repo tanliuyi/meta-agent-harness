@@ -2,6 +2,8 @@
  * 定义 extension UI request 在 desktop transport 中的结构。
  */
 
+import type { WorkingIndicatorOptions } from "../../core/extensions/types.ts";
+
 /** Extension UI 请求联合类型。 */
 export type ExtensionUiRequest =
 	| {
@@ -97,6 +99,58 @@ export type ExtensionUiRequest =
 			id: string;
 			/** 文本内容。 */
 			text: string;
+	  }
+	| {
+			/** 请求类型：读取编辑器文本。 */
+			type: "getEditorText";
+			/** 请求 ID。 */
+			id: string;
+	  }
+	| {
+			/** 请求类型：设置工作消息。 */
+			type: "setWorkingMessage";
+			/** 请求 ID。 */
+			id: string;
+			/** 工作消息；未传表示恢复默认。 */
+			message?: string;
+	  }
+	| {
+			/** 请求类型：设置工作行可见性。 */
+			type: "setWorkingVisible";
+			/** 请求 ID。 */
+			id: string;
+			/** 是否可见。 */
+			visible: boolean;
+	  }
+	| {
+			/** 请求类型：设置工作指示器。 */
+			type: "setWorkingIndicator";
+			/** 请求 ID。 */
+			id: string;
+			/** 指示器选项；未传表示恢复默认。 */
+			options?: WorkingIndicatorOptions;
+	  }
+	| {
+			/** 请求类型：设置隐藏 thinking 标签。 */
+			type: "setHiddenThinkingLabel";
+			/** 请求 ID。 */
+			id: string;
+			/** 标签；未传表示恢复默认。 */
+			label?: string;
+	  }
+	| {
+			/** 请求类型：读取工具展开状态。 */
+			type: "getToolsExpanded";
+			/** 请求 ID。 */
+			id: string;
+	  }
+	| {
+			/** 请求类型：设置工具展开状态。 */
+			type: "setToolsExpanded";
+			/** 请求 ID。 */
+			id: string;
+			/** 是否展开。 */
+			expanded: boolean;
 	  };
 
 /** Extension UI 响应联合类型。 */
@@ -118,4 +172,10 @@ export type ExtensionUiResponse =
 			id: string;
 			/** 是否取消。 */
 			cancelled: true;
+	  }
+	| {
+			/** 请求 ID。 */
+			id: string;
+			/** 布尔返回值。 */
+			value: boolean;
 	  };

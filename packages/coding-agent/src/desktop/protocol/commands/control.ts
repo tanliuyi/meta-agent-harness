@@ -5,6 +5,7 @@
 import type { ApprovalResponse } from "../approval.ts";
 import type { ExtensionUiResponse } from "../extension-ui.ts";
 import type { StartThreadInput } from "../thread.ts";
+import type { KeyId } from "../../../core/keybindings.ts";
 
 /** Desktop worker 控制命令联合类型。 */
 export type DesktopControlCommand =
@@ -45,6 +46,24 @@ export type DesktopControlCommand =
 			type: "approval.respond";
 			/** 审批响应。 */
 			response: ApprovalResponse;
+	  }
+	| {
+			/** 命令类型：同步 renderer 编辑器文本到扩展 UI 缓存。 */
+			type: "ui.editorTextChanged";
+			/** 当前编辑器文本。 */
+			text: string;
+	  }
+	| {
+			/** 命令类型：同步 renderer 工具展开状态到扩展 UI 缓存。 */
+			type: "ui.toolsExpandedChanged";
+			/** 是否展开。 */
+			expanded: boolean;
+	  }
+	| {
+			/** 命令类型：触发扩展快捷键。 */
+			type: "shortcut.dispatch";
+			/** 快捷键 ID。 */
+			shortcut: KeyId;
 	  };
 
 /**
@@ -65,4 +84,7 @@ const controlCommandTypes = new Set<string>([
 	"worker.ping",
 	"ui.respond",
 	"approval.respond",
+	"ui.editorTextChanged",
+	"ui.toolsExpandedChanged",
+	"shortcut.dispatch",
 ]);

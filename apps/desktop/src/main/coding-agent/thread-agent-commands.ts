@@ -6,6 +6,7 @@ import type {
   PromptImage,
   PromptImageFile,
   PromptInput,
+  RunCommandInput,
   TextInput
 } from '@shared/coding-agent/types'
 import type { ThreadManagerCore } from './thread-manager-core'
@@ -76,11 +77,23 @@ export async function abort(core: ThreadManagerCore, threadId: string): Promise<
  * @param core - thread 管理核心。
  * @param input - 包含 threadId 与 command 的输入。
  */
-export async function runCommand(
-  core: ThreadManagerCore,
-  input: { threadId: string; command: string }
-): Promise<void> {
-  await prompt(core, { threadId: input.threadId, message: `/${input.command}` })
+export async function runCommand(core: ThreadManagerCore, input: RunCommandInput): Promise<void> {
+  await prompt(core, {
+    threadId: input.threadId,
+    message: toSlashCommand(input.command, input.args)
+  })
+}
+
+/**
+ * 将命令名称与参数还原为 Pi slash command 输入。
+ * @param command - command 名称。
+ * @param args - command 参数。
+ * @returns slash command 文本。
+ */
+export function toSlashCommand(command: string, args?: string): string {
+  const commandName = command.trim().replace(/^\/+/, '')
+  const commandArgs = args ?? ''
+  return commandArgs ? `/${commandName} ${commandArgs}` : `/${commandName}`
 }
 
 /**

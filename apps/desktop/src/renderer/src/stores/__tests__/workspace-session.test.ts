@@ -1188,6 +1188,41 @@ describe('workspace-session Project-first actions', () => {
     )
     capturedEventListener?.(
       createExtensionUiRequestedEvent('thread-a', {
+        type: 'setWorkingMessage',
+        id: 'ui-working-message',
+        message: 'Indexing'
+      })
+    )
+    capturedEventListener?.(
+      createExtensionUiRequestedEvent('thread-a', {
+        type: 'setWorkingVisible',
+        id: 'ui-working-visible',
+        visible: false
+      })
+    )
+    capturedEventListener?.(
+      createExtensionUiRequestedEvent('thread-a', {
+        type: 'setWorkingIndicator',
+        id: 'ui-working-indicator',
+        options: { frames: ['-', '+'], intervalMs: 100 }
+      })
+    )
+    capturedEventListener?.(
+      createExtensionUiRequestedEvent('thread-a', {
+        type: 'setHiddenThinkingLabel',
+        id: 'ui-thinking-label',
+        label: 'Hidden reasoning'
+      })
+    )
+    capturedEventListener?.(
+      createExtensionUiRequestedEvent('thread-a', {
+        type: 'setToolsExpanded',
+        id: 'ui-tools-expanded',
+        expanded: true
+      })
+    )
+    capturedEventListener?.(
+      createExtensionUiRequestedEvent('thread-a', {
         type: 'notify',
         id: 'ui-notify',
         message: 'Extension finished',
@@ -1208,6 +1243,11 @@ describe('workspace-session Project-first actions', () => {
     expect(store.activeExtensionWidgets).toEqual({
       notes: { lines: ['one', 'two'], placement: undefined }
     })
+    expect(store.activeExtensionWorkingMessage).toBe('Indexing')
+    expect(store.activeExtensionWorkingVisible).toBe(false)
+    expect(store.activeExtensionWorkingIndicator).toEqual({ frames: ['-', '+'], intervalMs: 100 })
+    expect(store.activeExtensionHiddenThinkingLabel).toBe('Hidden reasoning')
+    expect(store.activeExtensionToolsExpanded).toBe(true)
     expect(store.draftMessage).toEqual(createComposerContentWithHardBreak('hello', 'world'))
     expect(toastMock.warning).toHaveBeenCalledWith('Extension', 'Extension finished')
 
@@ -1241,12 +1281,55 @@ describe('workspace-session Project-first actions', () => {
     await store.setActiveSessionId('thread-a')
 
     await store.loadCommands()
-    await store.runCommand('skill:test')
+    await store.runCommand('skill:test', 'with args')
 
     expect(getCommands).toHaveBeenCalledWith('thread-a')
     expect(store.activeCommands.map((command) => command.name)).toEqual(['skill:test'])
-    expect(runCommand).toHaveBeenCalledWith({ threadId: 'thread-a', command: 'skill:test' })
-    expect(store.activeSessionActionMessage).toBe('已运行 skill:test')
+    expect(runCommand).toHaveBeenCalledWith({
+      threadId: 'thread-a',
+      command: 'skill:test',
+      args: 'with args'
+    })
+    expect(store.activeSessionActionMessage).toBe('已运行 skill:test with args')
+  })
+
+  it('同步 editor text 并触发 extension shortcut', async () => {
+    const syncExtensionEditorText = vi.fn().mockResolvedValue(undefined)
+    const dispatchExtensionShortcut = vi.fn().mockResolvedValue(true)
+    installCodingAgentApi({ syncExtensionEditorText, dispatchExtensionShortcut })
+    const store = useWorkspaceSessionStore()
+    store.sessions['thread-a'] = snapshotToWorkspaceSession(createSnapshot())
+    await store.setActiveSessionId('thread-a')
+
+    await store.syncActiveEditorText('hello from composer')
+    const handled = await store.dispatchExtensionShortcut('shift+ctrl+k')
+
+    expect(syncExtensionEditorText).toHaveBeenCalledWith({
+      threadId: 'thread-a',
+      text: 'hello from composer'
+    })
+    expect(dispatchExtensionShortcut).toHaveBeenCalledWith({
+      threadId: 'thread-a',
+      shortcut: 'shift+ctrl+k'
+    })
+    expect(handled).toBe(true)
+  })
+
+  it('extension shortcut 未命中时不写入错误状态', async () => {
+    const dispatchExtensionShortcut = vi.fn().mockResolvedValue(false)
+    installCodingAgentApi({ dispatchExtensionShortcut })
+    const store = useWorkspaceSessionStore()
+    store.sessions['thread-a'] = snapshotToWorkspaceSession(createSnapshot())
+    await store.setActiveSessionId('thread-a')
+
+    const handled = await store.dispatchExtensionShortcut('ctrl+c')
+
+    expect(dispatchExtensionShortcut).toHaveBeenCalledWith({
+      threadId: 'thread-a',
+      shortcut: 'ctrl+c'
+    })
+    expect(handled).toBe(false)
+    expect(store.errorMessage).toBeUndefined()
   })
 
   it('按需加载 command，进入会话本身不触发 commands API', async () => {
