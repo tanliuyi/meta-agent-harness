@@ -4,6 +4,7 @@
 
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
+import { isProxy } from 'vue'
 import useAgentSettingsStore from '../agent-settings'
 import type { AgentSettingsSnapshot } from '@shared/coding-agent/types'
 
@@ -41,6 +42,119 @@ describe('agent-settings store', () => {
     expect(getResourceSnapshot).not.toHaveBeenCalled()
     expect(store.snapshot?.storage.agentDir).toBe('/tmp/agent')
     expect(store.resourceSnapshot).toBeNull()
+  })
+
+  it('保存资源后沿用当前 resource snapshot 输入刷新', async () => {
+    const snapshot = createAgentSettingsSnapshot()
+    const updateAgentSettings = vi.fn().mockResolvedValue(snapshot)
+    const getResourceSnapshot = vi.fn().mockResolvedValue({
+      resources: {
+        extensions: [],
+        skills: [],
+        prompts: [],
+        themes: []
+      },
+      extensions: [],
+      diagnostics: []
+    })
+    installCodingAgentApi({
+      getAgentSettings: vi.fn().mockResolvedValue(snapshot),
+      updateAgentSettings,
+      getResourceSnapshot
+    })
+
+    const store = useAgentSettingsStore()
+    await store.load()
+    await store.loadResourceSnapshot({ threadId: 'thread-a' })
+    await store.saveResources()
+
+    expect(getResourceSnapshot).toHaveBeenNthCalledWith(1, { threadId: 'thread-a' })
+    expect(getResourceSnapshot).toHaveBeenNthCalledWith(2, { threadId: 'thread-a' })
+    const refreshedInput = getResourceSnapshot.mock.calls[1]?.[0]
+    expect(isProxy(refreshedInput)).toBe(false)
+    expect(() => structuredClone(refreshedInput)).not.toThrow()
+  })
+
+  it('禁用用户级扩展路径时写入全局 resources 并刷新快照', async () => {
+    const snapshot = createAgentSettingsSnapshot()
+    const updateAgentSettings = vi.fn().mockResolvedValue(snapshot)
+    const getResourceSnapshot = vi.fn().mockResolvedValue({
+      resources: {
+        extensions: [],
+        skills: [],
+        prompts: [],
+        themes: []
+      },
+      extensions: [],
+      diagnostics: []
+    })
+    installCodingAgentApi({
+      getAgentSettings: vi.fn().mockResolvedValue(snapshot),
+      updateAgentSettings,
+      getResourceSnapshot
+    })
+
+    const store = useAgentSettingsStore()
+    await store.load()
+    await store.loadResourceSnapshot({ cwd: '/project', projectTrusted: true })
+    await store.setExtensionPathEnabled('/project/ext.ts', false)
+
+    expect(updateAgentSettings).toHaveBeenCalledWith({
+      resources: {
+        packages: [],
+        extensions: ['-/project/ext.ts'],
+        skills: [],
+        prompts: []
+      }
+    })
+    expect(getResourceSnapshot).toHaveBeenLastCalledWith({ cwd: '/project', projectTrusted: true })
+  })
+
+  it('保存项目级扩展路径时调用 project IPC 并沿用当前视角刷新', async () => {
+    const getResourceSnapshot = vi.fn().mockResolvedValue({
+      resources: {
+        extensions: [
+          {
+            path: '/project/ext.ts',
+            enabled: false,
+            sourceInfo: {
+              path: '/project/ext.ts',
+              source: 'local',
+              scope: 'project',
+              origin: 'top-level'
+            }
+          }
+        ],
+        skills: [],
+        prompts: [],
+        themes: []
+      },
+      extensions: [],
+      diagnostics: []
+    })
+    const updateProjectExtensionPaths = vi.fn().mockResolvedValue(['-/project/ext.ts'])
+    installCodingAgentApi({
+      getResourceSnapshot,
+      updateProjectExtensionPaths
+    })
+
+    const store = useAgentSettingsStore()
+    await store.loadResourceSnapshot({ cwd: '/project', projectTrusted: true })
+    await store.saveProjectExtensionPaths('/project', ['-/project/ext.ts'])
+
+    expect(updateProjectExtensionPaths).toHaveBeenCalledWith({
+      cwd: '/project',
+      extensions: ['-/project/ext.ts']
+    })
+    expect(store.projectExtensionPaths).toEqual(['-/project/ext.ts'])
+    expect(store.projectExtensionPathsCwd).toBe('/project')
+    expect(getResourceSnapshot).toHaveBeenLastCalledWith({ cwd: '/project', projectTrusted: true })
+    expect(store.resolvedExtensionPaths[0]).toEqual(
+      expect.objectContaining({
+        path: '/project/ext.ts',
+        enabled: false
+      })
+    )
   })
 
   it('保存显示与交互时不提交 TUI-only 字段', async () => {
@@ -136,6 +250,8 @@ function installCodingAgentApi(overrides: Record<string, unknown>): void {
       codingAgent: {
         getAgentSettings: vi.fn(),
         getResourceSnapshot: vi.fn(),
+        getProjectExtensionPaths: vi.fn(),
+        updateProjectExtensionPaths: vi.fn(),
         onEvent: vi.fn(() => vi.fn()),
         ...overrides
       }
@@ -151,6 +267,7 @@ function createAgentSettingsSnapshot(): AgentSettingsSnapshot {
       transport: 'auto'
     },
     runtime: {
+      workerMode: 'nodeSidecar',
       compactionEnabled: true,
       compactionReserveTokens: 4096,
       compactionKeepRecentTokens: 2048,

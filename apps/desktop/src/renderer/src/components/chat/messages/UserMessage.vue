@@ -12,6 +12,7 @@ import {
   getStandaloneMessageImages,
   getUserMessageDisplaySegments
 } from './support/message-format'
+import ImagePreviewDialog, { type ImagePreviewItem } from '../ImagePreviewDialog.vue'
 import BaseIconButton from '@/components/base/BaseIconButton.vue'
 import SkillIcon from '@/components/icons/SkillIcon.vue'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
@@ -36,18 +37,44 @@ const emit = defineEmits<{
 
 const fileAttachments = computed(() => getMessageFileAttachments(props.message))
 const standaloneImages = computed(() => getStandaloneMessageImages(props.message))
+const imagePreviewDialogOpen = ref(false)
+const imagePreviewInitialIndex = ref(0)
+const attachmentPreviewCount = computed(
+  () => fileAttachments.value.filter((attachment) => Boolean(attachment.imageSrc)).length
+)
 const displaySegments = computed(() => getUserMessageDisplaySegments(props.message))
 const displaySegmentsKey = computed(() => getDisplaySegmentsKey(displaySegments.value))
 const displayText = computed(() => getUserMessageDisplayText(props.message) ?? '')
+const hasMediaBubble = computed(
+  () => fileAttachments.value.length > 0 || standaloneImages.value.length > 0
+)
 const shouldMeasureBubble = computed(
   () =>
     displayText.value.length > 0 &&
     displayText.value.length <= TIGHT_WIDTH_MAX_TEXT_LENGTH &&
-    displaySegments.value.length <= TIGHT_WIDTH_MAX_SEGMENT_COUNT &&
-    fileAttachments.value.length === 0 &&
-    standaloneImages.value.length === 0
+    displaySegments.value.length <= TIGHT_WIDTH_MAX_SEGMENT_COUNT
 )
 const formattedTime = computed(() => formatMessageTime(props.message.createdAt))
+const imagePreviewItems = computed<ImagePreviewItem[]>(() => [
+  ...fileAttachments.value.flatMap((attachment): ImagePreviewItem[] =>
+    attachment.imageSrc
+      ? [
+          {
+            src: attachment.imageSrc,
+            alt: attachment.name,
+            title: attachment.name,
+            meta: attachment.note
+          }
+        ]
+      : []
+  ),
+  ...standaloneImages.value.map((image, index) => ({
+    src: getMessageImageSrc(image),
+    alt: `Image ${index + 1}`,
+    title: `Image ${index + 1}`,
+    meta: image.mimeType
+  }))
+])
 
 const isCopied = ref(false)
 let copyTimeout: ReturnType<typeof setTimeout> | null = null
@@ -81,6 +108,17 @@ function locateInTree(): void {
 function navigateTree(): void {
   if (!props.message.sessionEntryId) return
   emit('navigateTree', props.message.sessionEntryId)
+}
+
+function openImagePreview(index: number): void {
+  imagePreviewInitialIndex.value = index
+  imagePreviewDialogOpen.value = true
+}
+
+function getAttachmentPreviewIndex(attachmentIndex: number): number {
+  return fileAttachments.value
+    .slice(0, attachmentIndex)
+    .filter((attachment) => Boolean(attachment.imageSrc)).length
 }
 
 const isExpanded = ref(false)
@@ -407,72 +445,86 @@ function toggleExpand(): void {
 
 <template>
   <div class="message is-user-message">
-    <div
-      ref="contentRef"
-      class="user-message"
-      :class="{ 'user-message--collapsed': isOverflowing && !isExpanded }"
-      :style="{ '--user-message-tight-width': measuredBubbleWidth }"
-    >
-      <div class="user-message__body">
-        <div v-if="fileAttachments.length > 0" class="user-message__attachments">
-          <div
-            v-for="(attachment, index) in fileAttachments"
-            :key="`${attachment.name}-${index}`"
-            :class="[
-              'user-message__attachment',
-              { 'user-message__attachment--image': attachment.imageSrc }
-            ]"
-          >
-            <img
-              v-if="attachment.imageSrc"
-              class="user-message__attachment-image"
-              :src="attachment.imageSrc"
-              alt=""
-            />
-            <span v-if="!attachment.imageSrc" class="user-message__attachment-name">{{
-              attachment.name
-            }}</span>
-            <span v-if="attachment.note" class="user-message__attachment-note">
-              {{ attachment.note }}
-            </span>
+    <div class="user-message-stack">
+      <div v-if="hasMediaBubble" class="user-message user-message--media">
+        <div class="user-message__body">
+          <div v-if="fileAttachments.length > 0" class="user-message__attachments">
+            <div
+              v-for="(attachment, index) in fileAttachments"
+              :key="`${attachment.name}-${index}`"
+              class="user-message__attachment user-message__attachment--image"
+            >
+              <button
+                v-if="attachment.imageSrc"
+                class="user-message__image-preview"
+                type="button"
+                :aria-label="`预览 ${attachment.name}`"
+                @click="openImagePreview(getAttachmentPreviewIndex(index))"
+              >
+                <img class="user-message__attachment-image" :src="attachment.imageSrc" alt="" />
+              </button>
+            </div>
+          </div>
+          <div v-if="standaloneImages.length > 0" class="user-message__images">
+            <button
+              v-for="(image, index) in standaloneImages"
+              :key="`${image.mimeType}-${index}`"
+              class="user-message__image-preview"
+              type="button"
+              :aria-label="`预览图片 ${index + 1}`"
+              @click="openImagePreview(attachmentPreviewCount + index)"
+            >
+              <img :src="getMessageImageSrc(image)" alt="" />
+            </button>
           </div>
         </div>
-        <div v-if="standaloneImages.length > 0" class="user-message__images">
-          <img
-            v-for="(image, index) in standaloneImages"
-            :key="`${image.mimeType}-${index}`"
-            :src="getMessageImageSrc(image)"
-            alt=""
-          />
-        </div>
-        <div v-if="displaySegments.length > 0" class="user-message__text">
-          <template v-for="(segment, index) in displaySegments" :key="index">
-            <span v-if="segment.type === 'text'">{{ segment.text }}</span>
-            <span
-              v-else-if="segment.type === 'fileReference'"
-              class="file-reference-node"
-              :title="segment.fileArg"
-            >
-              <span class="file-reference-node__icon">@</span>
-              <span class="file-reference-node__label">{{ segment.label }}</span>
-            </span>
-            <span v-else class="file-reference-node skill-reference-node" :title="segment.location">
-              <span class="file-reference-node__icon">
-                <SkillIcon :size="14" />
-              </span>
-              <span class="file-reference-node__label">{{ segment.label }}</span>
-            </span>
-          </template>
-        </div>
       </div>
-      <button
-        v-if="isOverflowing"
-        type="button"
-        class="user-message__expand-btn"
-        @click="toggleExpand"
+      <ImagePreviewDialog
+        v-model:open="imagePreviewDialogOpen"
+        :images="imagePreviewItems"
+        :initial-index="imagePreviewInitialIndex"
+      />
+      <div
+        v-if="displaySegments.length > 0"
+        ref="contentRef"
+        class="user-message user-message--text"
+        :class="{ 'user-message--collapsed': isOverflowing && !isExpanded }"
+        :style="{ '--user-message-tight-width': measuredBubbleWidth }"
       >
-        {{ isExpanded ? '收起' : '展开全部' }}
-      </button>
+        <div class="user-message__body">
+          <div class="user-message__text">
+            <template v-for="(segment, index) in displaySegments" :key="index">
+              <span v-if="segment.type === 'text'">{{ segment.text }}</span>
+              <span
+                v-else-if="segment.type === 'fileReference'"
+                class="file-reference-node"
+                :title="segment.fileArg"
+              >
+                <span class="file-reference-node__icon">@</span>
+                <span class="file-reference-node__label">{{ segment.label }}</span>
+              </span>
+              <span
+                v-else
+                class="file-reference-node skill-reference-node"
+                :title="segment.location"
+              >
+                <span class="file-reference-node__icon">
+                  <SkillIcon :size="14" />
+                </span>
+                <span class="file-reference-node__label">{{ segment.label }}</span>
+              </span>
+            </template>
+          </div>
+        </div>
+        <button
+          v-if="isOverflowing"
+          type="button"
+          class="user-message__expand-btn"
+          @click="toggleExpand"
+        >
+          {{ isExpanded ? '收起' : '展开全部' }}
+        </button>
+      </div>
     </div>
     <div class="message__actions">
       <span class="message__time">{{ formattedTime }}</span>
@@ -557,6 +609,16 @@ function toggleExpand(): void {
   color: var(--color-text-muted);
 }
 
+.user-message-stack {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: var(--space-2);
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+}
+
 .user-message {
   display: flex;
   flex-direction: column;
@@ -576,6 +638,11 @@ function toggleExpand(): void {
   line-break: auto;
   word-break: normal;
   overflow-wrap: break-word;
+
+  &--media {
+    inline-size: max-content;
+    padding: var(--space-1);
+  }
 
   &--collapsed {
     .user-message__body {
@@ -642,7 +709,7 @@ function toggleExpand(): void {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(96px, 1fr));
   gap: var(--space-2);
-  width: min(320px, 100%);
+  width: min(320px, calc(100vw - 64px));
 
   &:not(:last-child) {
     margin-bottom: var(--space-2);
@@ -657,10 +724,26 @@ function toggleExpand(): void {
   }
 }
 
+.user-message__image-preview {
+  display: block;
+  width: 100%;
+  padding: 0;
+  background: transparent;
+  border: 0;
+  cursor: zoom-in;
+
+  &:focus-visible {
+    outline: 2px solid var(--color-primary-outline);
+    outline-offset: 2px;
+    border-radius: var(--radius-lg);
+  }
+}
+
 .user-message__attachments {
   display: grid;
   gap: var(--space-2);
-  width: 100%;
+  width: fit-content;
+  max-width: 100%;
 
   &:not(:last-child) {
     margin-bottom: var(--space-2);

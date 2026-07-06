@@ -17,6 +17,7 @@ import { DefaultPackageManager } from '../../../../../packages/coding-agent/src/
 import { buildResourcesSnapshot } from '../../../../../packages/coding-agent/src/core/resource-snapshot'
 import type { ProgressEvent as PackageProgressEvent } from '../../../../../packages/coding-agent/src/core/package-manager'
 import { getAgentDir } from '../../../../../packages/coding-agent/src/config'
+import { readDesktopRuntimeConfig, writeDesktopRuntimeConfig } from './desktop-runtime-config'
 import type {
   AgentDefaultProjectTrust,
   AgentDoubleEscapeAction,
@@ -28,14 +29,18 @@ import type {
   ResourcePackageInput,
   ResourcePackageProgressEvent,
   ResourcePackageSummary,
+  ProjectExtensionPathsInput,
+  ResourceSnapshotInput,
   ResourceSnapshot,
   UpdateResourcePackageInput,
+  UpdateProjectExtensionPathsInput,
   UpdateAgentSettingsInput
 } from '@shared/coding-agent/types'
 
 export interface AgentSettingsServiceOptions {
   agentDir?: string
   cwd?: string
+  desktopRuntimeConfigPath?: string
 }
 
 export type ResourcePackageEventHandler = (event: ResourcePackageProgressEvent) => void
@@ -45,6 +50,7 @@ export class AgentSettingsService {
   private readonly agentDir: string
   private readonly cwd: string
   private readonly settingsPath: string
+  private readonly desktopRuntimeConfigPath: string
   private readonly settingsManager: SettingsManager
   private readonly packageManager: DefaultPackageManager
   private packageOperationQueue: Promise<void> = Promise.resolve()
@@ -53,6 +59,8 @@ export class AgentSettingsService {
     this.agentDir = options.agentDir ?? getAgentDir()
     this.cwd = options.cwd ?? app.getPath('userData')
     this.settingsPath = join(this.agentDir, 'settings.json')
+    this.desktopRuntimeConfigPath =
+      options.desktopRuntimeConfigPath ?? join(this.cwd, 'desktop-runtime.json')
     this.settingsManager = SettingsManager.create(this.cwd, this.agentDir, {
       projectTrusted: false
     })
@@ -90,13 +98,45 @@ export class AgentSettingsService {
   }
 
   /** 获取 Pi-compatible resource / extension 发现快照。 */
-  async getResourceSnapshot(): Promise<ResourceSnapshot> {
+  async getResourceSnapshot(input: ResourceSnapshotInput = {}): Promise<ResourceSnapshot> {
+    if (input.cwd) {
+      const settingsManager = SettingsManager.create(input.cwd, this.agentDir, {
+        projectTrusted: input.projectTrusted ?? false
+      })
+      const packageManager = new DefaultPackageManager({
+        cwd: input.cwd,
+        agentDir: this.agentDir,
+        settingsManager
+      })
+      return buildResourcesSnapshot({
+        cwd: input.cwd,
+        agentDir: this.agentDir,
+        settingsManager,
+        packageManager
+      })
+    }
     return buildResourcesSnapshot({
       cwd: this.cwd,
       agentDir: this.agentDir,
       settingsManager: this.settingsManager,
       packageManager: this.packageManager
     })
+  }
+
+  /** 获取项目级 extension 路径配置。 */
+  async getProjectExtensionPaths(input: ProjectExtensionPathsInput): Promise<string[]> {
+    const settingsManager = this.createProjectSettingsManager(input.cwd)
+    await settingsManager.reload()
+    return settingsManager.getProjectSettings().extensions ?? []
+  }
+
+  /** 更新项目级 extension 路径配置。 */
+  async updateProjectExtensionPaths(input: UpdateProjectExtensionPathsInput): Promise<string[]> {
+    const settingsManager = this.createProjectSettingsManager(input.cwd)
+    await settingsManager.reload()
+    settingsManager.setProjectExtensionPaths(this.cleanStringList(input.extensions))
+    await settingsManager.flush()
+    return settingsManager.getProjectSettings().extensions ?? []
   }
 
   /** 新增并持久化 package source。 */
@@ -158,6 +198,7 @@ export class AgentSettingsService {
   }
 
   private createSnapshot(): AgentSettingsSnapshot {
+    const desktopRuntimeConfig = readDesktopRuntimeConfig(this.desktopRuntimeConfigPath)
     return {
       delivery: {
         steeringMode: this.settingsManager.getSteeringMode(),
@@ -165,6 +206,8 @@ export class AgentSettingsService {
         transport: this.settingsManager.getTransport()
       },
       runtime: {
+        workerMode: desktopRuntimeConfig.workerMode,
+        nodeSidecarExecPath: desktopRuntimeConfig.nodeSidecarExecPath,
         compactionEnabled: this.settingsManager.getCompactionEnabled(),
         compactionReserveTokens: this.settingsManager.getCompactionReserveTokens(),
         compactionKeepRecentTokens: this.settingsManager.getCompactionKeepRecentTokens(),
@@ -232,6 +275,12 @@ export class AgentSettingsService {
     }
   }
 
+  private createProjectSettingsManager(cwd: string): SettingsManager {
+    return SettingsManager.create(cwd, this.agentDir, {
+      projectTrusted: true
+    })
+  }
+
   private applyDelivery(input: UpdateAgentSettingsInput['delivery']): void {
     if (!input) return
     if (input.steeringMode !== undefined) {
@@ -247,6 +296,15 @@ export class AgentSettingsService {
 
   private applyRuntime(input: UpdateAgentSettingsInput['runtime']): void {
     if (!input) return
+    if (input.workerMode !== undefined || 'nodeSidecarExecPath' in input) {
+      writeDesktopRuntimeConfig(
+        {
+          workerMode: input.workerMode,
+          nodeSidecarExecPath: input.nodeSidecarExecPath
+        },
+        this.desktopRuntimeConfigPath
+      )
+    }
     if (input.compactionEnabled !== undefined) {
       this.settingsManager.setCompactionEnabled(input.compactionEnabled)
     }
@@ -503,6 +561,10 @@ export class AgentSettingsService {
 
   private emptyObjectToUndefined<T extends Record<string, unknown>>(value: T): T | undefined {
     return Object.values(value).some((item) => item !== undefined) ? value : undefined
+  }
+
+  private cleanStringList(values: string[]): string[] {
+    return values.map((value) => value.trim()).filter(Boolean)
   }
 
   private requireQueueMode(value: AgentQueueMode): AgentQueueMode {

@@ -17,8 +17,16 @@ const toastMock = vi.hoisted(() => ({
   warning: vi.fn()
 }))
 
+const routerMock = vi.hoisted(() => ({
+  push: vi.fn()
+}))
+
 vi.mock('@renderer/composables/useToast', () => ({
   useToast: () => toastMock
+}))
+
+vi.mock('@renderer/router', () => ({
+  default: routerMock
 }))
 
 const fixtureTimestamp = Date.parse('2026-07-01T00:00:00.000Z')
@@ -1181,6 +1189,15 @@ describe('workspace-session Project-first actions', () => {
     )
     capturedEventListener?.(
       createExtensionUiRequestedEvent('thread-a', {
+        type: 'setWidget',
+        id: 'ui-widget-below',
+        widgetKey: 'details',
+        widgetLines: ['three'],
+        widgetPlacement: 'belowEditor'
+      })
+    )
+    capturedEventListener?.(
+      createExtensionUiRequestedEvent('thread-a', {
         type: 'setEditorText',
         id: 'ui-editor-text',
         text: 'hello\nworld'
@@ -1241,7 +1258,8 @@ describe('workspace-session Project-first actions', () => {
     expect(Object.keys(store.activeExtensionUiRequests)).toEqual(['ui-input'])
     expect(store.activeExtensionStatuses).toEqual({ sync: 'Ready' })
     expect(store.activeExtensionWidgets).toEqual({
-      notes: { lines: ['one', 'two'], placement: undefined }
+      notes: { lines: ['one', 'two'], placement: 'aboveEditor' },
+      details: { lines: ['three'], placement: 'belowEditor' }
     })
     expect(store.activeExtensionWorkingMessage).toBe('Indexing')
     expect(store.activeExtensionWorkingVisible).toBe(false)
@@ -1258,6 +1276,67 @@ describe('workspace-session Project-first actions', () => {
       response: { id: 'ui-input', value: 'Meta Agent' }
     })
     expect(store.activeExtensionUiRequests).toEqual({})
+  })
+
+  it('长 extension notify 只在 toast 提示摘要并将完整内容放入右侧栏', async () => {
+    installCodingAgentApi({})
+    const store = useWorkspaceSessionStore()
+    store.sessions['thread-a'] = snapshotToWorkspaceSession(createSnapshot())
+    await store.setActiveSessionId('thread-a')
+    const longMessage = [
+      '同步完成，但有 3 个文件需要人工确认',
+      'src/alpha.ts: 这一行包含很长的扩展输出，不能直接撑开 toast 或遮挡主界面。',
+      'src/beta.ts: 保留完整内容给 Extensions 面板查看。'
+    ].join('\n')
+
+    capturedEventListener?.(
+      createExtensionUiRequestedEvent('thread-a', {
+        type: 'notify',
+        id: 'ui-notify-long',
+        message: longMessage,
+        notifyType: 'info'
+      })
+    )
+
+    expect(store.activeExtensionNotifications).toEqual([longMessage])
+    expect(store.activeExtensionWidgets.Notifications).toBeUndefined()
+    expect(toastMock.info).toHaveBeenCalledWith('Extension', '通知内容较长，已放入 Extensions 面板')
+    expect(store.activeSessionActionMessage).toBe('同步完成，但有 3 个文件需要人工确认')
+
+    store.clearExtensionNotifications()
+
+    expect(store.activeExtensionNotifications).toEqual([])
+  })
+
+  it('extension setWidget 空内容会清除对应 widget', async () => {
+    installCodingAgentApi({})
+    const store = useWorkspaceSessionStore()
+    store.sessions['thread-a'] = snapshotToWorkspaceSession(createSnapshot())
+    await store.setActiveSessionId('thread-a')
+
+    capturedEventListener?.(
+      createExtensionUiRequestedEvent('thread-a', {
+        type: 'setWidget',
+        id: 'ui-widget',
+        widgetKey: 'notes',
+        widgetLines: ['one']
+      })
+    )
+    expect(store.activeExtensionWidgets.notes).toEqual({
+      lines: ['one'],
+      placement: 'aboveEditor'
+    })
+
+    capturedEventListener?.(
+      createExtensionUiRequestedEvent('thread-a', {
+        type: 'setWidget',
+        id: 'ui-widget-clear',
+        widgetKey: 'notes',
+        widgetLines: []
+      })
+    )
+
+    expect(store.activeExtensionWidgets.notes).toBeUndefined()
   })
 
   it('加载并运行 command 时复用 preload API', async () => {
@@ -1284,9 +1363,228 @@ describe('workspace-session Project-first actions', () => {
     await store.runCommand('skill:test', 'with args')
 
     expect(getCommands).toHaveBeenCalledWith('thread-a')
-    expect(store.activeCommands.map((command) => command.name)).toEqual(['skill:test'])
+    expect(store.activeCommands.map((command) => command.name)).toEqual(
+      expect.arrayContaining(['reload', 'skill:test'])
+    )
     expect(runCommand).toHaveBeenCalledWith({
       threadId: 'thread-a',
+      command: 'skill:test',
+      args: 'with args'
+    })
+    expect(store.activeSessionActionMessage).toBe('已运行 skill:test with args')
+    expect(toastMock.success).toHaveBeenCalledWith('命令已完成', '已运行 skill:test with args')
+  })
+
+  it('运行 command 后使用 main 返回消息并按需刷新 snapshot', async () => {
+    const updatedSnapshot = {
+      ...createSnapshot(),
+      title: 'Updated'
+    }
+    const getSnapshot = vi.fn().mockResolvedValue(updatedSnapshot)
+    const runCommand = vi.fn().mockResolvedValue({
+      message: '已克隆当前会话',
+      refreshSnapshot: true
+    })
+    installCodingAgentApi({ getSnapshot, runCommand })
+    const store = useWorkspaceSessionStore()
+    store.sessions['thread-a'] = snapshotToWorkspaceSession(createSnapshot())
+    await store.setActiveSessionId('thread-a')
+
+    await store.runCommand('clone')
+
+    expect(runCommand).toHaveBeenCalledWith({
+      threadId: 'thread-a',
+      command: 'clone'
+    })
+    expect(getSnapshot).toHaveBeenCalledWith('thread-a')
+    expect(store.sessions['thread-a']?.title).toBe('Updated')
+    expect(store.activeSessionActionMessage).toBe('已克隆当前会话')
+  })
+
+  it('运行带详情的 command 后在当前 session 暴露详情并在后续命令清理', async () => {
+    const runCommand = vi
+      .fn()
+      .mockResolvedValueOnce({
+        message: '已打开 Hotkeys',
+        details: {
+          title: 'Hotkeys',
+          body: 'ctrl+c Clear editor'
+        }
+      })
+      .mockResolvedValueOnce({
+        message: '已重载扩展与资源'
+      })
+    installCodingAgentApi({ runCommand })
+    const store = useWorkspaceSessionStore()
+    store.sessions['thread-a'] = snapshotToWorkspaceSession(createSnapshot())
+    await store.setActiveSessionId('thread-a')
+
+    await store.runCommand('hotkeys')
+
+    expect(store.activeSessionActionMessage).toBe('已打开 Hotkeys')
+    expect(store.activeSessionActionDetails).toEqual({
+      title: 'Hotkeys',
+      body: 'ctrl+c Clear editor'
+    })
+
+    await store.runCommand('reload')
+
+    expect(store.activeSessionActionMessage).toBe('已重载扩展与资源')
+    expect(store.activeSessionActionDetails).toBeUndefined()
+  })
+
+  it('运行 Desktop UI 类 built-in command 时不进入 preload runCommand', async () => {
+    const runCommand = vi.fn().mockResolvedValue(undefined)
+    installCodingAgentApi({ runCommand })
+    const store = useWorkspaceSessionStore()
+    store.sessions['thread-a'] = snapshotToWorkspaceSession(createSnapshot())
+    await store.setActiveSessionId('thread-a')
+
+    await store.runCommand('/settings')
+
+    expect(routerMock.push).toHaveBeenCalledWith('/settings/agent')
+    expect(runCommand).not.toHaveBeenCalled()
+    expect(store.activeSessionActionMessage).toBe('已打开 Agent 设置')
+    expect(toastMock.info).toHaveBeenCalledWith('命令已完成', '已打开 Agent 设置')
+  })
+
+  it('运行 command 失败时使用 Toast，不写入 sidebar 错误状态', async () => {
+    const runCommand = vi
+      .fn()
+      .mockRejectedValue(new Error('/share 需要设置 GITHUB_TOKEN 或 GH_TOKEN 以创建 secret GitHub gist'))
+    installCodingAgentApi({ runCommand })
+    const store = useWorkspaceSessionStore()
+    store.sessions['thread-a'] = snapshotToWorkspaceSession(createSnapshot())
+    await store.setActiveSessionId('thread-a')
+
+    await store.runCommand('share')
+
+    expect(runCommand).toHaveBeenCalledWith({
+      threadId: 'thread-a',
+      command: 'share'
+    })
+    expect(toastMock.error).toHaveBeenCalledWith(
+      '命令执行失败',
+      '/share 需要设置 GITHUB_TOKEN 或 GH_TOKEN 以创建 secret GitHub gist'
+    )
+    expect(store.errorMessage).toBeUndefined()
+    expect(store.activeSessionActionMessage).toBeUndefined()
+  })
+
+  it('运行无参数 tree/fork command 时打开 SessionPanel 而不是发送 prompt', async () => {
+    const runCommand = vi.fn().mockResolvedValue(undefined)
+    installCodingAgentApi({ runCommand })
+    const store = useWorkspaceSessionStore()
+    store.sessions['thread-a'] = snapshotToWorkspaceSession({
+      ...createSnapshot(),
+      currentEntryId: 'entry-current'
+    })
+    await store.setActiveSessionId('thread-a')
+    store.setActiveSessionPanelOpen(false)
+
+    await store.runCommand('tree')
+
+    expect(runCommand).not.toHaveBeenCalled()
+    expect(store.activeSessionPanel.panelOpen).toBe(true)
+    expect(store.treeFocusRequest).toEqual({ entryId: 'entry-current', requestId: 1 })
+    expect(store.activeSessionActionMessage).toBe('已打开 Session Tree')
+  })
+
+  it('带参数 model command 继续交给 main runtime command', async () => {
+    const runCommand = vi.fn().mockResolvedValue({
+      message: '已切换模型到 openai/gpt-5',
+      refreshSnapshot: true
+    })
+    installCodingAgentApi({ runCommand })
+    const store = useWorkspaceSessionStore()
+    store.sessions['thread-a'] = snapshotToWorkspaceSession(createSnapshot())
+    await store.setActiveSessionId('thread-a')
+
+    await store.runCommand('model', 'openai/gpt-5')
+
+    expect(routerMock.push).not.toHaveBeenCalled()
+    expect(runCommand).toHaveBeenCalledWith({
+      threadId: 'thread-a',
+      command: 'model',
+      args: 'openai/gpt-5'
+    })
+    expect(store.activeSessionActionMessage).toBe('已切换模型到 openai/gpt-5')
+  })
+
+  it('新会话草稿态加载 command 只发现资源不创建 thread，运行 command 时才创建', async () => {
+    const snapshot = {
+      ...createSnapshot(),
+      threadId: 'thread-new'
+    }
+    const createThread = vi.fn().mockResolvedValue(snapshot)
+    const getCommands = vi.fn().mockResolvedValue([])
+    const getResourceSnapshot = vi.fn().mockResolvedValue({
+      resources: {
+        extensions: [],
+        skills: [],
+        prompts: [],
+        themes: []
+      },
+      extensions: [
+        {
+          path: '/tmp/extension.ts',
+          resolvedPath: '/tmp/extension.ts',
+          enabled: true,
+          sourceInfo: {
+            path: '/tmp/extension.ts',
+            source: 'test',
+            scope: 'temporary',
+            origin: 'top-level'
+          },
+          commands: [{ name: 'extension:test', description: 'Run extension command' }],
+          tools: [],
+          flags: []
+        }
+      ],
+      diagnostics: []
+    })
+    const runCommand = vi.fn().mockResolvedValue(undefined)
+    installCodingAgentApi({ createThread, getCommands, getResourceSnapshot, runCommand })
+    const projectStore = useWorkspaceProjectStore()
+    projectStore.projects['project-a'] = {
+      projectId: 'project-a',
+      name: 'Project A',
+      path: '/tmp/project-a',
+      status: 'available',
+      createdAt: '2026-07-01T00:00:00.000Z',
+      updatedAt: '2026-07-01T00:00:00.000Z',
+      trust: {
+        state: 'trusted',
+        requiresTrust: true,
+        savedPath: '/tmp/project-a'
+      }
+    }
+    const store = useWorkspaceSessionStore()
+    store.startNewSession('project-a')
+
+    await store.loadCommands()
+
+    expect(createThread).not.toHaveBeenCalled()
+    expect(getCommands).not.toHaveBeenCalled()
+    expect(getResourceSnapshot).toHaveBeenCalledWith({
+      cwd: '/tmp/project-a',
+      projectTrusted: true
+    })
+    expect(store.activeSessionId).toBeUndefined()
+    expect(store.activeCommands.map((command) => command.name)).toEqual(
+      expect.arrayContaining(['reload', 'extension:test'])
+    )
+    expect(store.activeCommands.find((command) => command.name === 'reload')?.source).toBe(
+      'builtin'
+    )
+    expect(store.activeCommandsLoaded).toBe(true)
+
+    await store.runCommand('skill:test', 'with args')
+
+    expect(createThread).toHaveBeenCalledWith({ projectId: 'project-a' })
+    expect(store.activeSessionId).toBe('thread-new')
+    expect(runCommand).toHaveBeenCalledWith({
+      threadId: 'thread-new',
       command: 'skill:test',
       args: 'with args'
     })
@@ -1332,6 +1630,36 @@ describe('workspace-session Project-first actions', () => {
     expect(store.errorMessage).toBeUndefined()
   })
 
+  it('重载当前会话资源后刷新 command 缓存', async () => {
+    const runCommand = vi.fn().mockResolvedValue(undefined)
+    const getCommands = vi.fn().mockResolvedValue([
+      {
+        name: 'extension:hello',
+        description: 'Hello',
+        source: 'extension',
+        sourceInfo: {
+          path: '/tmp/hello.ts',
+          source: 'test',
+          scope: 'temporary',
+          origin: 'top-level'
+        }
+      }
+    ])
+    installCodingAgentApi({ runCommand, getCommands })
+    const store = useWorkspaceSessionStore()
+    store.sessions['thread-a'] = snapshotToWorkspaceSession(createSnapshot())
+    await store.setActiveSessionId('thread-a')
+
+    await store.reloadSessionResources()
+
+    expect(runCommand).toHaveBeenCalledWith({ threadId: 'thread-a', command: 'reload' })
+    expect(getCommands).toHaveBeenCalledWith('thread-a')
+    expect(store.activeCommands.map((command) => command.name)).toEqual(
+      expect.arrayContaining(['reload', 'extension:hello'])
+    )
+    expect(store.activeSessionActionMessage).toBe('已重载扩展与资源')
+  })
+
   it('按需加载 command，进入会话本身不触发 commands API', async () => {
     const getCommands = vi.fn().mockResolvedValue([
       {
@@ -1360,7 +1688,9 @@ describe('workspace-session Project-first actions', () => {
     expect(getCommands).toHaveBeenCalledTimes(1)
     expect(getCommands).toHaveBeenCalledWith('thread-a')
     expect(store.activeCommandsLoaded).toBe(true)
-    expect(store.activeCommands.map((command) => command.name)).toEqual(['skill:test'])
+    expect(store.activeCommands.map((command) => command.name)).toEqual(
+      expect.arrayContaining(['reload', 'skill:test'])
+    )
 
     await store.ensureCommandsLoaded()
 

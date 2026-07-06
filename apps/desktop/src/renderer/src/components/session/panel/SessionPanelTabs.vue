@@ -55,8 +55,14 @@ const tabCounts = computed<SessionPanelTabCountMap>((previous) =>
         ? workspaceSession.activeCommands.length
         : undefined,
       extensionStatuses: workspaceSession.activeExtensionStatuses,
+      extensionNotifications: workspaceSession.activeExtensionNotifications.length,
+      extensionTitle: workspaceSession.activeExtensionTitle,
       extensionUiRequests: workspaceSession.activeExtensionUiRequests,
       extensionWidgets: workspaceSession.activeExtensionWidgets,
+      extensionWorking:
+        Boolean(workspaceSession.activeExtensionWorkingMessage) ||
+        workspaceSession.activeExtensionWorkingVisible === false ||
+        Boolean(workspaceSession.activeExtensionWorkingIndicator),
       tree: workspaceSession.activeSnapshot?.sessionTree?.length ?? 0
     },
     previous

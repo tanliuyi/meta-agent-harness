@@ -68,28 +68,36 @@ const emit = defineEmits<{
 
 <style lang="scss" scoped>
 .base-dropdown-menu {
-  min-width: 144px;
-  max-width: 224px;
-  padding: 6px;
-  border: 0;
+  min-width: 176px;
+  max-width: 248px;
+  padding: 7px;
+  border: 1px solid var(--color-border-muted);
   box-shadow: var(--shadow-md);
 }
 
 .base-dropdown-menu__gap {
-  height: 2px;
+  height: 9px;
+  margin: 7px -1px 0;
+  border-top: 1px solid var(--color-border-muted);
 }
 
 .base-dropdown-menu__label {
-  padding: 2px 6px;
+  display: flex;
+  align-items: center;
+  min-height: 20px;
+  padding: 0 7px;
+  margin: 0 0 3px;
   color: var(--color-text-muted);
-  font-size: var(--font-size-ui-xs);
+  font-size: max(12px, var(--font-size-ui-2xs));
+  font-weight: 750;
+  letter-spacing: 0;
 }
 
 .base-dropdown-menu__item {
-  min-height: 27px;
+  min-height: 29px;
   gap: 6px;
-  padding: 0 6px;
-  font-size: var(--font-size-ui-sm);
+  padding: 0 7px;
+  font-size: max(12px, var(--font-size-ui-xs));
   line-height: 1;
 
   svg {

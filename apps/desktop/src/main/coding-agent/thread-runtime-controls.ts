@@ -13,6 +13,7 @@ import type {
   ApprovalResponseInput,
   ToggleInput
 } from '@shared/coding-agent/types'
+import { getBuiltinCommandInfos } from '@shared/coding-agent/builtin-commands'
 import type { ThreadManagerCore } from './thread-manager-core'
 
 /**
@@ -74,7 +75,7 @@ export async function getCommands(
   const result = await core.sendData<{ commands: CommandInfo[] }>(threadId, {
     type: 'get_commands'
   })
-  return result.commands
+  return [...getBuiltinCommandInfos(), ...result.commands]
 }
 
 /**

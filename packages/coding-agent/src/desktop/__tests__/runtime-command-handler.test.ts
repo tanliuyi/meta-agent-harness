@@ -162,6 +162,23 @@ describe("handleRuntimeCommand", () => {
 		expect(response?.error?.message).toContain("Model not found");
 	});
 
+	/** 验证 reload 调用 session.reload，而不是走 prompt。 */
+	it("reload 重载当前 session 资源", async () => {
+		let reloaded = false;
+		const host = createHost(
+			createSession({
+				reload: async () => {
+					reloaded = true;
+				},
+			}),
+		);
+
+		const response = await handleRuntimeCommand(host, command("1", { type: "reload" }));
+
+		expect(response?.success).toBe(true);
+		expect(reloaded).toBe(true);
+	});
+
 	/** 验证 get_commands 汇总 extension、prompt template 和 skill 命令。 */
 	it("get_commands 汇总 extension、prompt template 和 skill 命令", async () => {
 		const host = createHost();

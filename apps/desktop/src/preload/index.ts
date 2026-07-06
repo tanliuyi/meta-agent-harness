@@ -138,7 +138,11 @@ const codingAgent: CodingAgentApi = {
   refreshModelRegistry: () => invokeCodingAgent(codingAgentChannels.refreshModelRegistry),
   getAgentSettings: () => invokeCodingAgent(codingAgentChannels.getAgentSettings),
   updateAgentSettings: (input) => invokeCodingAgent(codingAgentChannels.updateAgentSettings, input),
-  getResourceSnapshot: () => invokeCodingAgent(codingAgentChannels.getResourceSnapshot),
+  getResourceSnapshot: (input) => invokeCodingAgent(codingAgentChannels.getResourceSnapshot, input),
+  getProjectExtensionPaths: (input) =>
+    invokeCodingAgent(codingAgentChannels.getProjectExtensionPaths, input),
+  updateProjectExtensionPaths: (input) =>
+    invokeCodingAgent(codingAgentChannels.updateProjectExtensionPaths, input),
   listResourcePackages: () => invokeCodingAgent(codingAgentChannels.listResourcePackages),
   addResourcePackage: (input) => invokeCodingAgent(codingAgentChannels.addResourcePackage, input),
   installResourcePackage: (input) =>

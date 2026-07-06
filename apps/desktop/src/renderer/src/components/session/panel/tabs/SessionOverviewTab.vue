@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
-import { BaseButton, BaseDropdownMenu, BaseSegmentedControl } from '@renderer/components/base'
+import { computed, onBeforeUnmount, ref } from 'vue'
+import { BaseButton, BaseDropdownMenu, BaseIconButton, BaseSegmentedControl } from '@renderer/components/base'
 import BaseField from '@renderer/components/base/BaseField.vue'
 import {
   Dialog,
@@ -10,16 +10,16 @@ import {
   DialogHeader,
   DialogTitle
 } from '@renderer/components/ui/dialog'
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger
+} from '@renderer/components/ui/collapsible'
 import useWorkspaceProjectStore from '@renderer/stores/workspace-project'
 import useWorkspaceSessionStore from '@renderer/stores/workspace-session'
 import { getFileName } from '../shared/utils'
 import { onOffOptions, type OnOffValue } from '../model/types'
-import {
-  createSessionActionMenuSections,
-  formatRetryDelay,
-  getSessionLineageLabel,
-  getSessionModelLabel
-} from './display/sessionOverviewDisplay'
+import { createSessionActionMenuSections, formatRetryDelay } from './display/sessionOverviewDisplay'
 import type { BaseDropdownMenuSection } from '@renderer/components/base/BaseDropdownMenu.vue'
 
 const workspaceProject = useWorkspaceProjectStore()
@@ -28,6 +28,8 @@ const workspaceSession = useWorkspaceSessionStore()
 const sessionPathDraft = ref('')
 const isSessionPathDialogOpen = ref(false)
 const isNewSessionDialogOpen = ref(false)
+const isSessionPathCopied = ref(false)
+let sessionPathCopyTimeout: ReturnType<typeof setTimeout> | undefined
 
 const hasActiveThread = computed(() => Boolean(workspaceSession.activeSessionId))
 const currentEntryId = computed(() => workspaceSession.activeSnapshot?.currentEntryId)
@@ -41,20 +43,36 @@ const sessionTreeEntryCount = computed(
 const activeLineage = computed(
   () => workspaceSession.activeSnapshot?.lineage ?? workspaceSession.activeSession?.lineage
 )
-const activeLineageLabel = computed(() => getSessionLineageLabel(activeLineage.value))
-const activeModelLabel = computed(() =>
-  getSessionModelLabel(workspaceSession.activeSnapshot?.model)
+const activeStatus = computed(() => workspaceSession.activeSession?.status ?? 'new')
+const activeSessionFile = computed(() => workspaceSession.activeSnapshot?.sessionFile)
+const activeSessionFileName = computed(() =>
+  activeSessionFile.value ? getFileName(activeSessionFile.value) : '-'
 )
-const activeThinkingLabel = computed(() => workspaceSession.activeSnapshot?.thinkingLevel ?? '-')
 const autoCompactionValue = computed<OnOffValue>(() =>
   workspaceSession.activeSnapshot?.autoCompactionEnabled === false ? 'off' : 'on'
 )
 const autoRetryValue = computed<OnOffValue>(() =>
   workspaceSession.activeSnapshot?.autoRetryEnabled === false ? 'off' : 'on'
 )
-const sessionActionMenuSections = computed<BaseDropdownMenuSection[]>((previous) =>
-  createSessionActionMenuSections(hasActiveThread.value, Boolean(currentEntryId.value), previous)
+const sessionActionMenuSections = computed<BaseDropdownMenuSection[]>(() =>
+  createSessionActionMenuSections({
+    hasActiveThread: hasActiveThread.value,
+    hasCurrentEntry: Boolean(currentEntryId.value),
+    hasPreviousSession: Boolean(workspaceSession.activePreviousSessionFile),
+    hasPreviousLeaf: Boolean(workspaceSession.activePreviousLeafEntryId),
+    canOpenParentSession: Boolean(
+      activeLineage.value &&
+        !activeLineage.value.parentSessionMissing &&
+        !activeLineage.value.unavailable
+    )
+  })
 )
+
+onBeforeUnmount(() => {
+  if (sessionPathCopyTimeout) {
+    clearTimeout(sessionPathCopyTimeout)
+  }
+})
 
 async function switchSessionFromDraft(): Promise<void> {
   await workspaceSession.switchActiveSessionPath(sessionPathDraft.value)
@@ -102,6 +120,20 @@ function handleSessionPathDialogOpenChange(open: boolean): void {
   closeSessionPathDialog()
 }
 
+async function copyActiveSessionPath(): Promise<void> {
+  if (!activeSessionFile.value) {
+    return
+  }
+  await navigator.clipboard.writeText(activeSessionFile.value)
+  isSessionPathCopied.value = true
+  if (sessionPathCopyTimeout) {
+    clearTimeout(sessionPathCopyTimeout)
+  }
+  sessionPathCopyTimeout = setTimeout(() => {
+    isSessionPathCopied.value = false
+  }, 1200)
+}
+
 async function runSessionAction(actionId: string): Promise<void> {
   switch (actionId) {
     case 'export':
@@ -112,6 +144,21 @@ async function runSessionAction(actionId: string): Promise<void> {
       break
     case 'switch':
       openSessionPathDialog()
+      break
+    case 'reload':
+      await workspaceSession.reloadSessionResources()
+      break
+    case 'compact':
+      await workspaceSession.compactActive()
+      break
+    case 'previous-session':
+      await workspaceSession.switchActivePreviousSession()
+      break
+    case 'open-parent':
+      await workspaceSession.openParentSession()
+      break
+    case 'previous-leaf':
+      await workspaceSession.navigateBackToPreviousLeaf()
       break
     case 'clone':
       await workspaceSession.cloneActiveSession()
@@ -132,82 +179,99 @@ async function runSessionAction(actionId: string): Promise<void> {
   <section class="session-section" role="tabpanel">
     <header class="session-section__header">
       <h3>Session</h3>
-    </header>
-    <dl>
-      <div>
-        <dt>Status</dt>
-        <dd>{{ workspaceSession.activeSession?.status ?? 'new' }}</dd>
-      </div>
-      <div>
-        <dt>Project</dt>
-        <dd>{{ sessionProject?.name ?? '-' }}</dd>
-      </div>
-      <div>
-        <dt>Session</dt>
-        <dd>{{ workspaceSession.activeSnapshot?.sessionFile ?? '-' }}</dd>
-      </div>
-    </dl>
-    <div class="session-browser-summary">
-      <div>
-        <span>Entries</span>
-        <strong>{{ sessionTreeEntryCount }}</strong>
-      </div>
-      <div>
-        <span>Leaf</span>
-        <strong>{{ currentEntryId ?? '-' }}</strong>
-      </div>
-    </div>
-    <div v-if="workspaceSession.activePreviousSessionFile" class="session-previous">
-      <div>
-        <span>Previous session</span>
-        <strong>{{ getFileName(workspaceSession.activePreviousSessionFile) }}</strong>
-      </div>
-      <BaseButton size="sm" variant="ghost" @click="workspaceSession.switchActivePreviousSession()">
-        Switch back
-      </BaseButton>
-    </div>
-    <div v-if="activeLineageLabel" class="session-previous">
-      <div>
-        <span>Forked from</span>
-        <strong>{{ activeLineageLabel }}</strong>
-      </div>
-      <BaseButton
-        size="sm"
-        variant="ghost"
-        :disabled="activeLineage?.parentSessionMissing || activeLineage?.unavailable"
-        @click="workspaceSession.openParentSession()"
-      >
-        打开来源对话
-      </BaseButton>
-    </div>
-    <div v-if="workspaceSession.activePreviousLeafEntryId" class="session-previous">
-      <div>
-        <span>Previous leaf</span>
-        <strong>{{ workspaceSession.activePreviousLeafEntryId }}</strong>
-      </div>
-      <BaseButton size="sm" variant="ghost" @click="workspaceSession.navigateBackToPreviousLeaf()">
-        返回之前位置
-      </BaseButton>
-    </div>
-    <div class="session-action-strip">
-      <BaseButton
-        size="sm"
-        variant="secondary"
-        :disabled="!hasActiveThread"
-        @click="workspaceSession.compactActive()"
-      >
-        Compact
-      </BaseButton>
       <BaseDropdownMenu
         :sections="sessionActionMenuSections"
         @select="(item) => runSessionAction(item.id)"
       >
-        <BaseButton size="sm" variant="secondary" :disabled="!hasActiveThread">More</BaseButton>
+        <BaseIconButton
+          class="session-section__menu"
+          label="会话操作"
+          size="small"
+          :disabled="!hasActiveThread"
+        >
+          <svg
+            viewBox="0 0 20 20"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1.8"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            aria-hidden="true"
+          >
+            <path d="M4 6.5 7.5 10 4 13.5" />
+            <path d="M9 14h6" />
+          </svg>
+        </BaseIconButton>
       </BaseDropdownMenu>
+    </header>
+    <div class="session-overview">
+      <div class="session-overview__topline">
+        <div class="session-overview__project">
+          <span>Project</span>
+          <strong>{{ sessionProject?.name ?? '-' }}</strong>
+        </div>
+        <span class="session-overview__status" :class="`is-${activeStatus}`">
+          {{ activeStatus }}
+        </span>
+      </div>
+
+      <div class="session-overview__path">
+        <div>
+          <span>Session</span>
+          <strong :title="activeSessionFile ?? undefined">{{ activeSessionFileName }}</strong>
+        </div>
+        <BaseIconButton
+          class="session-overview__copy"
+          :class="{ 'is-copied': isSessionPathCopied }"
+          label="复制会话路径"
+          size="small"
+          :disabled="!activeSessionFile"
+          @click="copyActiveSessionPath"
+        >
+          <svg
+            v-if="isSessionPathCopied"
+            viewBox="0 0 20 20"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1.9"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            aria-hidden="true"
+          >
+            <path d="m4.5 10.5 3.3 3.2 7.7-8.2" />
+          </svg>
+          <svg
+            v-else
+            viewBox="0 0 20 20"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1.7"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            aria-hidden="true"
+          >
+            <rect x="7" y="4" width="8" height="10" rx="1.5" />
+            <path d="M5 7v7.5A1.5 1.5 0 0 0 6.5 16H12" />
+          </svg>
+        </BaseIconButton>
+      </div>
+
+      <div class="session-overview__metrics">
+        <div>
+          <span>Entries</span>
+          <strong>{{ sessionTreeEntryCount }}</strong>
+        </div>
+        <div>
+          <span>Leaf</span>
+          <strong>{{ currentEntryId ?? '-' }}</strong>
+        </div>
+      </div>
     </div>
-    <p v-if="workspaceSession.activeSessionActionMessage" class="session-action-message">
-      {{ workspaceSession.activeSessionActionMessage }}
-    </p>
+
+    <article v-if="workspaceSession.activeSessionActionDetails" class="session-command-details">
+      <strong>{{ workspaceSession.activeSessionActionDetails.title }}</strong>
+      <pre>{{ workspaceSession.activeSessionActionDetails.body }}</pre>
+    </article>
     <div v-if="workspaceSession.activeExportResult" class="export-result">
       <div>
         <span>HTML export</span>
@@ -224,64 +288,56 @@ async function runSessionAction(actionId: string): Promise<void> {
     </div>
   </section>
 
-  <section class="session-section" role="tabpanel">
-    <header class="session-section__header">
-      <h3>Runtime</h3>
-    </header>
+  <section class="session-section session-section--compact" role="tabpanel">
+    <Collapsible v-slot="{ open }" class="runtime-advanced">
+      <CollapsibleTrigger class="runtime-advanced__trigger">
+        <span>高级</span>
+        <svg
+          class="runtime-advanced__chevron"
+          :class="{ 'is-open': open }"
+          viewBox="0 0 20 20"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="1.8"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          aria-hidden="true"
+        >
+          <path d="m7.5 5 5 5-5 5" />
+        </svg>
+      </CollapsibleTrigger>
 
-    <div class="runtime-summary">
-      <div>
-        <span>Model</span>
-        <strong>{{ activeModelLabel }}</strong>
-      </div>
-      <div>
-        <span>Thinking</span>
-        <strong>{{ activeThinkingLabel }}</strong>
-      </div>
-    </div>
-
-    <div class="runtime-control-list">
-      <BaseButton
-        size="sm"
-        variant="secondary"
-        :disabled="!hasActiveThread"
-        @click="workspaceSession.cycleActiveModel()"
-      >
-        Cycle model
-      </BaseButton>
-      <BaseButton
-        size="sm"
-        variant="secondary"
-        :disabled="!hasActiveThread"
-        @click="workspaceSession.cycleActiveThinkingLevel()"
-      >
-        Cycle thinking
-      </BaseButton>
-      <div class="runtime-toggle-row" :class="{ 'is-disabled': !hasActiveThread }">
-        <div>
-          <span>Auto compact</span>
-          <small>上下文接近上限时自动压缩</small>
+      <CollapsibleContent class="runtime-advanced__content">
+        <div class="runtime-control-list">
+          <div class="runtime-toggle-row" :class="{ 'is-disabled': !hasActiveThread }">
+            <div>
+              <span>Auto compact</span>
+              <small>上下文接近上限时自动压缩</small>
+            </div>
+            <BaseSegmentedControl
+              label="Auto compact"
+              size="small"
+              :model-value="autoCompactionValue"
+              :options="onOffOptions"
+              @update:model-value="setAutoCompactionValue"
+            />
+          </div>
+          <div class="runtime-toggle-row" :class="{ 'is-disabled': !hasActiveThread }">
+            <div>
+              <span>Auto retry</span>
+              <small>Provider 短暂失败时自动重试</small>
+            </div>
+            <BaseSegmentedControl
+              label="Auto retry"
+              size="small"
+              :model-value="autoRetryValue"
+              :options="onOffOptions"
+              @update:model-value="setAutoRetryValue"
+            />
+          </div>
         </div>
-        <BaseSegmentedControl
-          label="Auto compact"
-          :model-value="autoCompactionValue"
-          :options="onOffOptions"
-          @update:model-value="setAutoCompactionValue"
-        />
-      </div>
-      <div class="runtime-toggle-row" :class="{ 'is-disabled': !hasActiveThread }">
-        <div>
-          <span>Auto retry</span>
-          <small>Provider 短暂失败时自动重试</small>
-        </div>
-        <BaseSegmentedControl
-          label="Auto retry"
-          :model-value="autoRetryValue"
-          :options="onOffOptions"
-          @update:model-value="setAutoRetryValue"
-        />
-      </div>
-    </div>
+      </CollapsibleContent>
+    </Collapsible>
 
     <article v-if="workspaceSession.activeRetryState" class="retry-card">
       <div>

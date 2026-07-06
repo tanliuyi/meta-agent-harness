@@ -2,7 +2,7 @@
  * 本文件测试 Desktop 全局 Pi agent 设置服务。
  */
 
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -169,6 +169,36 @@ describe('AgentSettingsService', () => {
     })
   })
 
+  it('将 Desktop worker 模式保存到 desktop-local runtime config', async () => {
+    const dir = createTempDir()
+    const agentDir = join(dir, 'agent')
+    const desktopRuntimeConfigPath = join(dir, 'desktop-runtime.json')
+    const service = new AgentSettingsService({
+      agentDir,
+      cwd: dir,
+      desktopRuntimeConfigPath
+    })
+
+    const snapshot = await service.updateAgentSettings({
+      runtime: {
+        workerMode: 'nodeSidecar',
+        nodeSidecarExecPath: '/opt/node/bin/node'
+      }
+    })
+
+    expect(snapshot.runtime.workerMode).toBe('nodeSidecar')
+    expect(snapshot.runtime.nodeSidecarExecPath).toBe('/opt/node/bin/node')
+    expect(JSON.parse(readFileSync(desktopRuntimeConfigPath, 'utf-8'))).toEqual({
+      workerMode: 'nodeSidecar',
+      nodeSidecarExecPath: '/opt/node/bin/node'
+    })
+    if (existsSync(join(agentDir, 'settings.json'))) {
+      const settings = JSON.parse(readFileSync(join(agentDir, 'settings.json'), 'utf-8'))
+      expect(settings.workerMode).toBeUndefined()
+      expect(settings.nodeSidecarExecPath).toBeUndefined()
+    }
+  })
+
   it('支持按配置域局部保存，不覆盖其它配置域', async () => {
     const dir = createTempDir()
     const agentDir = join(dir, 'agent')
@@ -278,6 +308,98 @@ export default function(pi) {
         commands: [expect.objectContaining({ name: 'hello', description: 'Say hello' })]
       })
     ])
+  })
+
+  it('按传入 cwd 和 project trust 构建项目视角 resource snapshot', async () => {
+    const dir = createTempDir()
+    const agentDir = join(dir, 'agent')
+    const globalCwd = join(dir, 'global-cwd')
+    const projectCwd = join(dir, 'project')
+    const projectConfigDir = join(projectCwd, '.pi')
+    const extensionPath = join(projectCwd, 'project-extension.ts')
+    mkdirSync(globalCwd, { recursive: true })
+    mkdirSync(projectConfigDir, { recursive: true })
+    writeFileSync(
+      extensionPath,
+      `
+export default function(pi) {
+  pi.registerCommand("project-only", { description: "Project command", handler() {} });
+}
+`
+    )
+    writeFileSync(
+      join(projectConfigDir, 'settings.json'),
+      `${JSON.stringify({ extensions: [extensionPath] }, null, 2)}\n`
+    )
+    const service = new AgentSettingsService({
+      agentDir,
+      cwd: globalCwd
+    })
+
+    const untrusted = await service.getResourceSnapshot({
+      cwd: projectCwd,
+      projectTrusted: false
+    })
+    const trusted = await service.getResourceSnapshot({
+      cwd: projectCwd,
+      projectTrusted: true
+    })
+
+    expect(untrusted.extensions).toEqual([])
+    expect(trusted.extensions).toEqual([
+      expect.objectContaining({
+        path: extensionPath,
+        commands: [expect.objectContaining({ name: 'project-only' })]
+      })
+    ])
+  })
+
+  it('更新项目级 extension 路径时只写入项目 .pi/settings.json', async () => {
+    const dir = createTempDir()
+    const agentDir = join(dir, 'agent')
+    const globalCwd = join(dir, 'global-cwd')
+    const projectCwd = join(dir, 'project')
+    const extensionPath = join(projectCwd, 'project-extension.ts')
+    mkdirSync(globalCwd, { recursive: true })
+    mkdirSync(projectCwd, { recursive: true })
+    writeFileSync(
+      extensionPath,
+      `
+export default function(pi) {
+  pi.registerCommand("project-disabled", { handler() {} });
+}
+`
+    )
+    const service = new AgentSettingsService({
+      agentDir,
+      cwd: globalCwd
+    })
+
+    const saved = await service.updateProjectExtensionPaths({
+      cwd: projectCwd,
+      extensions: [extensionPath, `-${extensionPath}`]
+    })
+    const snapshot = await service.getResourceSnapshot({
+      cwd: projectCwd,
+      projectTrusted: true
+    })
+
+    expect(saved).toEqual([extensionPath, `-${extensionPath}`])
+    expect(JSON.parse(readFileSync(join(projectCwd, '.pi', 'settings.json'), 'utf-8'))).toEqual({
+      extensions: [extensionPath, `-${extensionPath}`]
+    })
+    expect(existsSync(join(agentDir, 'settings.json'))).toBe(false)
+    expect(snapshot.resources.extensions).toEqual([
+      expect.objectContaining({
+        path: extensionPath,
+        enabled: false,
+        sourceInfo: expect.objectContaining({
+          scope: 'project',
+          origin: 'top-level'
+        })
+      })
+    ])
+    expect(snapshot.extensions).toEqual([])
   })
 
   it('安装 package source 时转发 package manager 进度', async () => {

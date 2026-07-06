@@ -4,6 +4,7 @@
 
 import { defineStore } from 'pinia'
 import { computed, reactive, ref, shallowReactive } from 'vue'
+import router from '@renderer/router'
 import useWorkspaceProjectStore from './workspace-project'
 import {
   createComposerContentFromText,
@@ -14,6 +15,7 @@ import {
   type ComposerImageAttachment
 } from './workspace-session-composer'
 import { useToast } from '@renderer/composables/useToast'
+import { getBuiltinCommandInfos } from '@shared/coding-agent/builtin-commands'
 import { formatFileArgForInsertion } from '@shared/coding-agent/file-reference-format'
 import { toDesktopMessageContent } from '@shared/coding-agent/types'
 import type { JSONContent } from '@tiptap/vue-3'
@@ -30,6 +32,7 @@ import type {
   LoadSessionTreeBranchesInput,
   LoadSessionTreeBranchesResult,
   ModelInfo,
+  RunCommandResult,
   ThinkingLevel,
   ThreadSnapshot,
   ThreadMessage,
@@ -37,6 +40,7 @@ import type {
 } from '@shared/coding-agent/types'
 
 const PROMPT_TITLE_MAX_CHARS = 30
+const EXTENSION_INLINE_NOTIFY_MAX_CHARS = 180
 
 /** 会话面板 UI 状态。 */
 export type SessionUiState = {
@@ -98,6 +102,12 @@ export type WorkspaceSessionContext = {
   panel: SessionUiState
   /** 当前上下文内每个 thread 独立的面板 UI 状态。 */
   sessionPanels: Record<string, SessionUiState>
+  /** 未绑定 thread 时按 Project 发现到的命令列表。 */
+  orphanCommands: CommandInfo[]
+  /** 未绑定 thread 时命令列表是否正在加载。 */
+  orphanCommandsLoading: boolean
+  /** 未绑定 thread 时命令列表是否已加载。 */
+  orphanCommandsLoaded: boolean
 }
 
 /** 单个 thread 的运行态。 */
@@ -109,7 +119,9 @@ export type WorkspaceSessionRuntime = {
   /** extension 设置的状态文本。 */
   extensionStatuses: Record<string, string | undefined>
   /** extension 设置的小组件文本。 */
-  extensionWidgets: Record<string, { lines: string[]; placement?: 'aboveEditor' | 'belowEditor' }>
+  extensionWidgets: Record<string, { lines: string[]; placement: 'aboveEditor' | 'belowEditor' }>
+  /** extension notify 的完整消息列表。 */
+  extensionNotifications: string[]
   /** extension 设置的会话标题提示。 */
   extensionTitle?: string
   /** extension 设置的工作中文案。 */
@@ -304,6 +316,9 @@ export default defineStore('workspace-session', () => {
 
   /** 每个 thread 的最近一次 session 操作结果。 */
   const sessionActionMessageByThreadId = shallowReactive<Record<string, string | undefined>>({})
+  const sessionActionDetailsByThreadId = shallowReactive<
+    Record<string, RunCommandResult['details'] | undefined>
+  >({})
 
   const workspaceProject = useWorkspaceProjectStore()
 
@@ -338,7 +353,10 @@ export default defineStore('workspace-session', () => {
       orphanImageAttachments: [],
       composerImageAttachments: {},
       panel: createUiState(),
-      sessionPanels: {}
+      sessionPanels: {},
+      orphanCommands: [],
+      orphanCommandsLoading: false,
+      orphanCommandsLoaded: false
     }) as WorkspaceSessionContext
     return contexts[contextId]
   }
@@ -395,6 +413,7 @@ export default defineStore('workspace-session', () => {
       extensionUiRequests: {},
       extensionStatuses: {},
       extensionWidgets: {},
+      extensionNotifications: [],
       events: [],
       renderState: {},
       loadingSnapshot: false
@@ -611,6 +630,10 @@ export default defineStore('workspace-session', () => {
     const context = ensureSessionContext(contextId)
     context.activeThreadId = undefined
     writeSessionActiveThreadId(undefined, contextId)
+    if (context.selectedProjectId !== projectId) {
+      context.orphanCommands = []
+      context.orphanCommandsLoaded = false
+    }
     context.selectedProjectId = projectId
     workspaceProject.setActiveProjectId(projectId)
     globalErrorMessage.value = undefined
@@ -915,6 +938,11 @@ export default defineStore('workspace-session', () => {
   /** 当前活跃会话的 extension 小组件。 */
   const activeExtensionWidgets = computed(() => activeRuntime.value?.extensionWidgets ?? {})
 
+  /** 当前活跃会话的 extension notify 完整内容。 */
+  const activeExtensionNotifications = computed(
+    () => activeRuntime.value?.extensionNotifications ?? []
+  )
+
   /** 当前活跃会话的 extension 标题。 */
   const activeExtensionTitle = computed(() => activeRuntime.value?.extensionTitle)
 
@@ -983,22 +1011,31 @@ export default defineStore('workspace-session', () => {
 
   /** 当前活跃会话的可用命令。 */
   const activeCommands = computed<CommandInfo[]>(() =>
-    activeSessionId.value ? (commandsByThreadId[activeSessionId.value] ?? []) : []
+    activeSessionId.value
+      ? (commandsByThreadId[activeSessionId.value] ?? [])
+      : mainContext.value.orphanCommands
   )
 
   /** 当前活跃会话命令列表是否加载中。 */
   const activeCommandsLoading = computed(() =>
-    activeSessionId.value ? Boolean(commandsLoadingByThreadId[activeSessionId.value]) : false
+    activeSessionId.value
+      ? Boolean(commandsLoadingByThreadId[activeSessionId.value])
+      : mainContext.value.orphanCommandsLoading
   )
 
   /** 当前活跃会话命令列表是否已按需加载。 */
   const activeCommandsLoaded = computed(() =>
-    activeSessionId.value ? Boolean(commandsLoadedByThreadId[activeSessionId.value]) : false
+    activeSessionId.value
+      ? Boolean(commandsLoadedByThreadId[activeSessionId.value])
+      : mainContext.value.orphanCommandsLoaded
   )
 
   /** 当前活跃会话最近一次 session 操作结果。 */
   const activeSessionActionMessage = computed(() =>
     activeSessionId.value ? sessionActionMessageByThreadId[activeSessionId.value] : undefined
+  )
+  const activeSessionActionDetails = computed(() =>
+    activeSessionId.value ? sessionActionDetailsByThreadId[activeSessionId.value] : undefined
   )
 
   /** 新会话草稿模型。 */
@@ -1207,6 +1244,42 @@ export default defineStore('workspace-session', () => {
   }
 
   /**
+   * 在新会话草稿态按 Project 发现可展示的 extension commands。
+   * 该路径只读取 resource snapshot，不创建 thread / session。
+   */
+  const loadOrphanCommands = async (): Promise<void> => {
+    const context = mainContext.value
+    const projectId = context.selectedProjectId
+    const project = projectId ? workspaceProject.projects[projectId] : undefined
+    if (!project) {
+      globalErrorMessage.value = '请先选择 Project'
+      return
+    }
+    context.orphanCommandsLoading = true
+    globalErrorMessage.value = undefined
+    try {
+      const snapshot = await window.api.codingAgent.getResourceSnapshot({
+        cwd: project.path,
+        projectTrusted: project.trust?.state === 'trusted' || project.trust?.state === 'notRequired'
+      })
+      const extensionCommands = snapshot.extensions.flatMap((extension) =>
+        extension.commands.map((command) => ({
+          name: command.name,
+          description: command.description,
+          source: 'extension' as const,
+          sourceInfo: extension.sourceInfo
+        }))
+      )
+      context.orphanCommands = mergeCommandInfos(getBuiltinCommandInfos(), extensionCommands)
+      context.orphanCommandsLoaded = true
+    } catch (error) {
+      globalErrorMessage.value = error instanceof Error ? error.message : String(error)
+    } finally {
+      context.orphanCommandsLoading = false
+    }
+  }
+
+  /**
    * 设置当前活跃会话模型。
    * @param provider - provider。
    * @param modelId - 模型 ID。
@@ -1295,6 +1368,49 @@ export default defineStore('workspace-session', () => {
   }
 
   /**
+   * 确保指定上下文存在可运行命令或消息的 thread。
+   * 新会话草稿态会按当前 Project、模型和 thinking 设置创建 thread，并迁移草稿。
+   */
+  const ensureThreadForContext = async (
+    contextId = defaultSessionContextId
+  ): Promise<{ threadId?: string; runtime?: WorkspaceSessionRuntime }> => {
+    const context = ensureSessionContext(contextId)
+    if (context.activeThreadId) {
+      const runtime = ensureRuntime(context.activeThreadId)
+      runtime.errorMessage = undefined
+      return { threadId: context.activeThreadId, runtime }
+    }
+    if (!context.selectedProjectId) {
+      globalErrorMessage.value = '请先选择 Project'
+      return {}
+    }
+    loadingThreads.value = true
+    const orphanDraft = context.orphanDraftMessage
+    const orphanImages = [...context.orphanImageAttachments]
+    const orphanModel = context.orphanModel
+    const orphanThinkingLevel = context.orphanThinkingLevel
+    const snapshot = await window.api.codingAgent.createThread({
+      projectId: context.selectedProjectId,
+      ...(orphanModel
+        ? { initialModel: { provider: orphanModel.provider, modelId: orphanModel.modelId } }
+        : {}),
+      ...(orphanThinkingLevel ? { thinkingLevel: orphanThinkingLevel } : {})
+    })
+    mergeSnapshot(sessions, snapshot)
+    syncToolCallsByIdFromSnapshot(snapshot)
+    syncRenderStateFromSnapshot(snapshot)
+    const threadId = snapshot.threadId
+    setContextActiveThreadId(threadId, contextId)
+    context.selectedProjectId = snapshot.projectId
+    workspaceProject.setActiveProjectId(snapshot.projectId)
+    context.composerDrafts[threadId] = orphanDraft
+    context.composerImageAttachments[threadId] = orphanImages
+    const runtime = ensureRuntime(threadId)
+    runtime.errorMessage = undefined
+    return { threadId, runtime }
+  }
+
+  /**
    * 向当前活跃会话发送 prompt。
    */
   const sendPrompt = async (
@@ -1311,43 +1427,12 @@ export default defineStore('workspace-session', () => {
     if (!message) {
       return
     }
-    if (!threadId && !context.selectedProjectId) {
-      globalErrorMessage.value = '请先选择 Project'
-      return
-    }
     let runtime: WorkspaceSessionRuntime | undefined
-    if (threadId) {
-      runtime = ensureRuntime(threadId)
-      runtime.errorMessage = undefined
-    }
     globalErrorMessage.value = undefined
     try {
-      if (!threadId) {
-        loadingThreads.value = true
-        const orphanDraft = context.orphanDraftMessage
-        const orphanImages = [...context.orphanImageAttachments]
-        const orphanModel = context.orphanModel
-        const orphanThinkingLevel = context.orphanThinkingLevel
-        const snapshot = await window.api.codingAgent.createThread({
-          projectId: context.selectedProjectId!,
-          ...(orphanModel
-            ? { initialModel: { provider: orphanModel.provider, modelId: orphanModel.modelId } }
-            : {}),
-          ...(orphanThinkingLevel ? { thinkingLevel: orphanThinkingLevel } : {})
-        })
-        mergeSnapshot(sessions, snapshot)
-        syncToolCallsByIdFromSnapshot(snapshot)
-        syncRenderStateFromSnapshot(snapshot)
-        const createdThreadId = snapshot.threadId
-        threadId = createdThreadId
-        context.activeThreadId = createdThreadId
-        context.selectedProjectId = snapshot.projectId
-        workspaceProject.setActiveProjectId(snapshot.projectId)
-        context.composerDrafts[createdThreadId] = orphanDraft
-        context.composerImageAttachments[createdThreadId] = orphanImages
-        runtime = ensureRuntime(createdThreadId)
-        runtime.errorMessage = undefined
-      }
+      const ensured = await ensureThreadForContext(contextId)
+      threadId = ensured.threadId
+      runtime = ensured.runtime
       if (!threadId) {
         return
       }
@@ -1457,18 +1542,51 @@ export default defineStore('workspace-session', () => {
   }
 
   /**
+   * 清理 renderer 侧 extension widget 投影。
+   * @param widgetKey - widget key。
+   * @param threadId - 所属 thread ID，默认当前活跃会话。
+   */
+  const clearExtensionWidget = (
+    widgetKey: string,
+    threadId = activeSessionId.value
+  ): void => {
+    if (!threadId) {
+      return
+    }
+    delete ensureRuntime(threadId).extensionWidgets[widgetKey]
+  }
+
+  /**
+   * 清理 renderer 侧 extension notify 投影。
+   * @param threadId - 所属 thread ID，默认当前活跃会话。
+   */
+  const clearExtensionNotifications = (threadId = activeSessionId.value): void => {
+    if (!threadId) {
+      return
+    }
+    ensureRuntime(threadId).extensionNotifications = []
+  }
+
+  /**
    * 加载当前活跃会话可运行的 slash/custom commands。
    */
   const loadCommands = async (threadId = activeSessionId.value): Promise<void> => {
     if (!threadId) {
+      await loadOrphanCommands()
       return
     }
+    const builtinCommands = getBuiltinCommandInfos()
+    commandsByThreadId[threadId] = builtinCommands
     commandsLoadingByThreadId[threadId] = true
     try {
-      commandsByThreadId[threadId] = await window.api.codingAgent.getCommands(threadId)
+      commandsByThreadId[threadId] = mergeCommandInfos(
+        builtinCommands,
+        await window.api.codingAgent.getCommands(threadId)
+      )
       commandsLoadedByThreadId[threadId] = true
     } catch (error) {
       ensureRuntime(threadId).errorMessage = error instanceof Error ? error.message : String(error)
+      commandsLoadedByThreadId[threadId] = true
     } finally {
       commandsLoadingByThreadId[threadId] = false
     }
@@ -1479,7 +1597,14 @@ export default defineStore('workspace-session', () => {
    * 已加载或加载中的 thread 会复用现有状态，避免 tab 重复打开时反复请求。
    */
   const ensureCommandsLoaded = async (threadId = activeSessionId.value): Promise<void> => {
-    if (!threadId || commandsLoadedByThreadId[threadId] || commandsLoadingByThreadId[threadId]) {
+    if (!threadId) {
+      if (mainContext.value.orphanCommandsLoaded || mainContext.value.orphanCommandsLoading) {
+        return
+      }
+      await loadOrphanCommands()
+      return
+    }
+    if (commandsLoadedByThreadId[threadId] || commandsLoadingByThreadId[threadId]) {
       return
     }
     await loadCommands(threadId)
@@ -1544,14 +1669,121 @@ export default defineStore('workspace-session', () => {
     args?: string,
     threadId = activeSessionId.value
   ): Promise<void> => {
-    if (!threadId) {
+    const desktopCommandResult = await runDesktopBuiltinCommand(command, args)
+    if (desktopCommandResult.handled) {
+      if (desktopCommandResult.message) {
+        const targetThreadId = threadId ?? activeSessionId.value
+        if (targetThreadId) {
+          sessionActionMessageByThreadId[targetThreadId] = desktopCommandResult.message
+          delete sessionActionDetailsByThreadId[targetThreadId]
+        }
+        toast.info('命令已完成', desktopCommandResult.message)
+      }
       return
     }
+    let targetThreadId = threadId
     try {
-      await window.api.codingAgent.runCommand({ threadId, command, ...(args ? { args } : {}) })
-      sessionActionMessageByThreadId[threadId] = `已运行 ${args ? `${command} ${args}` : command}`
+      if (!targetThreadId) {
+        const ensured = await ensureThreadForContext()
+        targetThreadId = ensured.threadId
+      } else {
+        ensureRuntime(targetThreadId)
+      }
+      if (!targetThreadId) {
+        return
+      }
+      const result = await window.api.codingAgent.runCommand({
+        threadId: targetThreadId,
+        command,
+        ...(args ? { args } : {})
+      })
+      if (result?.refreshSnapshot) {
+        await refreshSnapshot(targetThreadId)
+      }
+      sessionActionMessageByThreadId[targetThreadId] =
+        result?.message ?? `已运行 ${args ? `${command} ${args}` : command}`
+      if (result?.details) {
+        sessionActionDetailsByThreadId[targetThreadId] = result.details
+      } else {
+        delete sessionActionDetailsByThreadId[targetThreadId]
+      }
+      toast.success(
+        '命令已完成',
+        result?.message ?? `已运行 ${args ? `${command} ${args}` : command}`
+      )
     } catch (error) {
-      ensureRuntime(threadId).errorMessage = error instanceof Error ? error.message : String(error)
+      const message = error instanceof Error ? error.message : String(error)
+      toast.error('命令执行失败', message)
+    } finally {
+      loadingThreads.value = false
+    }
+  }
+
+  /**
+   * 处理不需要进入 Pi worker 的 desktop UI 类 built-in slash command。
+   * @param command - command 名称。
+   * @param args - command 参数。
+   * @param threadId - 当前 thread ID。
+   * @returns 是否已处理及用户可见消息。
+   */
+  const runDesktopBuiltinCommand = async (
+    command: string,
+    args?: string
+  ): Promise<{ handled: boolean; message?: string }> => {
+    const commandName = normalizeCommandName(command)
+    const trimmedArgs = args?.trim()
+    switch (commandName) {
+      case 'settings':
+        await router.push('/settings/agent')
+        return { handled: true, message: '已打开 Agent 设置' }
+      case 'model':
+        if (trimmedArgs) {
+          return { handled: false }
+        }
+        await router.push('/settings/models/default')
+        return { handled: true, message: '已打开模型设置' }
+      case 'scoped-models':
+        await router.push('/settings/models/tasks')
+        return { handled: true, message: '已打开任务模型设置' }
+      case 'trust':
+        await router.push('/settings/agent/safety')
+        return { handled: true, message: '已打开安全与信任设置' }
+      case 'login':
+      case 'logout':
+        await router.push('/settings/models/api-keys')
+        return { handled: true, message: '已打开模型认证设置' }
+      case 'tree': {
+        if (trimmedArgs) {
+          return { handled: false }
+        }
+        setActiveSessionPanelOpen(true)
+        const currentEntryId = activeSnapshot.value?.currentEntryId
+        if (currentEntryId) {
+          focusActiveSessionTreeEntry(currentEntryId)
+        }
+        return { handled: true, message: '已打开 Session Tree' }
+      }
+      case 'fork':
+        if (trimmedArgs) {
+          return { handled: false }
+        }
+        setActiveSessionPanelOpen(true)
+        const currentEntryId = activeSnapshot.value?.currentEntryId
+        if (currentEntryId) {
+          focusActiveSessionTreeEntry(currentEntryId)
+        }
+        return { handled: true, message: '请在 Session Tree 中选择分叉位置' }
+      case 'resume':
+        if (trimmedArgs) {
+          return { handled: false }
+        }
+        await router.push('/settings/archive')
+        return { handled: true, message: '已打开会话归档' }
+      case 'quit':
+        await window.api.windowControl.close()
+        return { handled: true }
+      default:
+        return { handled: false }
     }
   }
 
@@ -1592,6 +1824,28 @@ export default defineStore('workspace-session', () => {
     } catch (error) {
       ensureRuntime(threadId).errorMessage = error instanceof Error ? error.message : String(error)
       return false
+    }
+  }
+
+  /**
+   * 重载当前 thread 的 settings/resources/extensions，并刷新命令列表。
+   * @param threadId - thread ID。
+   */
+  const reloadSessionResources = async (threadId = activeSessionId.value): Promise<void> => {
+    if (!threadId) {
+      return
+    }
+    try {
+      await window.api.codingAgent.runCommand({ threadId, command: 'reload' })
+      commandsLoadedByThreadId[threadId] = false
+      commandsByThreadId[threadId] = []
+      await loadCommands(threadId)
+      sessionActionMessageByThreadId[threadId] = '已重载扩展与资源'
+      toast.success('扩展与资源已应用到当前会话')
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      ensureRuntime(threadId).errorMessage = message
+      toast.error('扩展与资源重载失败', message)
     }
   }
 
@@ -2266,7 +2520,10 @@ export default defineStore('workspace-session', () => {
         runtime.extensionUiRequests[request.id] = request
         return
       case 'notify':
-        sessionActionMessageByThreadId[threadId] = request.message
+        sessionActionMessageByThreadId[threadId] = getExtensionNotifySummary(request.message)
+        if (shouldShowExtensionNotifyInPanel(request.message)) {
+          runtime.extensionNotifications = [request.message]
+        }
         showExtensionToast(request)
         return
       case 'setStatus':
@@ -2276,7 +2533,7 @@ export default defineStore('workspace-session', () => {
         if (request.widgetLines && request.widgetLines.length > 0) {
           runtime.extensionWidgets[request.widgetKey] = {
             lines: [...request.widgetLines],
-            placement: request.widgetPlacement
+            placement: request.widgetPlacement ?? 'aboveEditor'
           }
           return
         }
@@ -2316,16 +2573,19 @@ export default defineStore('workspace-session', () => {
      * @param request - extension notify 请求。
      */
     function showExtensionToast(request: Extract<ExtensionUiRequest, { type: 'notify' }>): void {
+      const message = shouldShowExtensionNotifyInPanel(request.message)
+        ? '通知内容较长，已放入 Extensions 面板'
+        : request.message
       switch (request.notifyType) {
         case 'error':
-          toast.error('Extension', request.message)
+          toast.error('Extension', message)
           return
         case 'warning':
-          toast.warning('Extension', request.message)
+          toast.warning('Extension', message)
           return
         case 'info':
         default:
-          toast.info('Extension', request.message)
+          toast.info('Extension', message)
       }
     }
   }
@@ -2451,15 +2711,16 @@ export default defineStore('workspace-session', () => {
     activeCompactionState,
     activeEvents,
     activeExportResult,
-      activeExtensionStatuses,
-      activeExtensionHiddenThinkingLabel,
-      activeExtensionTitle,
-      activeExtensionToolsExpanded,
-      activeExtensionUiRequests,
-      activeExtensionWidgets,
-      activeExtensionWorkingIndicator,
-      activeExtensionWorkingMessage,
-      activeExtensionWorkingVisible,
+    activeExtensionStatuses,
+    activeExtensionHiddenThinkingLabel,
+    activeExtensionNotifications,
+    activeExtensionTitle,
+    activeExtensionToolsExpanded,
+    activeExtensionUiRequests,
+    activeExtensionWidgets,
+    activeExtensionWorkingIndicator,
+    activeExtensionWorkingMessage,
+    activeExtensionWorkingVisible,
     activeModelOptions,
     activeModelOptionsLoading,
     activePendingApprovals,
@@ -2470,6 +2731,7 @@ export default defineStore('workspace-session', () => {
     activeRuntime,
     activeSession,
     activeSessionActionMessage,
+    activeSessionActionDetails,
     activeSessionId,
     activeSessionPanel,
     activeSnapshot,
@@ -2479,6 +2741,8 @@ export default defineStore('workspace-session', () => {
     activeSessionTreeBranchesState,
     activeToolCallsById,
     activeToolCallStructures,
+    clearExtensionWidget,
+    clearExtensionNotifications,
     contexts,
     createThread,
     clearComposerDraft,
@@ -2521,14 +2785,15 @@ export default defineStore('workspace-session', () => {
     revealActiveExport,
     respondApproval,
     respondExtensionUi,
+    reloadSessionResources,
     runtimeByThreadId,
-      runCommand,
-      sendPrompt,
+    runCommand,
+    sendPrompt,
     sessionList,
     sessionsByProject,
     sessions,
-      setActiveComposerDraft,
-      syncActiveEditorText,
+    setActiveComposerDraft,
+    syncActiveEditorText,
     exportActiveSession,
     importActiveSessionFromPicker,
     forkActiveSession,
@@ -2912,6 +3177,32 @@ function parseMessageRenderStateKey(key: string): { threadId: string; messageId:
     threadId: key.slice(0, separatorIndex),
     messageId: key.slice(separatorIndex + 1)
   }
+}
+
+/**
+ * 判断 extension notify 是否应进入右侧栏，而不是完整展示在 toast 内。
+ * @param message - notify 文案。
+ * @returns 是否需要收纳到面板。
+ */
+function shouldShowExtensionNotifyInPanel(message: string): boolean {
+  return message.length > EXTENSION_INLINE_NOTIFY_MAX_CHARS || message.includes('\n')
+}
+
+/**
+ * 获取 extension notify 在状态区展示的短摘要。
+ * @param message - notify 文案。
+ * @returns 状态区摘要。
+ */
+function getExtensionNotifySummary(message: string): string {
+  if (!shouldShowExtensionNotifyInPanel(message)) {
+    return message
+  }
+  const firstLine = message.split(/\r?\n/, 1)[0]?.trim() ?? ''
+  const summary = firstLine || message.trim()
+  if (summary.length <= EXTENSION_INLINE_NOTIFY_MAX_CHARS) {
+    return summary
+  }
+  return `${summary.slice(0, EXTENSION_INLINE_NOTIFY_MAX_CHARS - 1)}…`
 }
 
 /**
@@ -3450,6 +3741,34 @@ function getObjectValue(value: object, key: string): unknown {
  */
 function getString(value: unknown): string | undefined {
   return typeof value === 'string' ? value : undefined
+}
+
+/**
+ * 合并命令列表并按来源与名称去重。
+ * @param groups - 命令列表。
+ * @returns 合并后的命令列表。
+ */
+function mergeCommandInfos(...groups: CommandInfo[][]): CommandInfo[] {
+  const merged: CommandInfo[] = []
+  const seen = new Set<string>()
+  for (const command of groups.flat()) {
+    const key = `${command.source}:${command.name}`
+    if (seen.has(key)) {
+      continue
+    }
+    seen.add(key)
+    merged.push(command)
+  }
+  return merged
+}
+
+/**
+ * 规范化 slash command 名称。
+ * @param command - command 名称，可带斜杠。
+ * @returns 不带斜杠的 command 名称。
+ */
+function normalizeCommandName(command: string): string {
+  return command.trim().replace(/^\/+/, '')
 }
 
 /**

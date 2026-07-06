@@ -30,6 +30,11 @@ export interface FileReferenceCandidate {
 	label: string;
 }
 
+interface ScoredFileReferenceCandidate {
+	candidate: FileReferenceCandidate;
+	score: number;
+}
+
 export interface CompleteFileReferenceOptions {
 	cwd: string;
 	query: string;
@@ -121,9 +126,12 @@ export async function completeFileReference({
 }: CompleteFileReferenceOptions): Promise<FileReferenceCandidate[]> {
 	const root = resolvePath(cwd);
 	const normalizedQuery = query.split("\\").join("/").replace(/^@/, "");
-	const candidates: FileReferenceCandidate[] = [];
-	await collectCandidates(root, root, normalizedQuery.toLowerCase(), candidates, Math.max(1, limit));
-	return candidates;
+	const candidates: ScoredFileReferenceCandidate[] = [];
+	await collectCandidates(root, root, normalizedQuery.toLowerCase(), candidates);
+	return candidates
+		.sort(compareScoredCandidates)
+		.slice(0, Math.max(1, limit))
+		.map(({ candidate }) => candidate);
 }
 
 function findQuotedAtStart(text: string): number {
@@ -188,12 +196,8 @@ async function collectCandidates(
 	root: string,
 	dir: string,
 	query: string,
-	candidates: FileReferenceCandidate[],
-	limit: number,
+	candidates: ScoredFileReferenceCandidate[],
 ): Promise<void> {
-	if (candidates.length >= limit) {
-		return;
-	}
 	let entries;
 	try {
 		entries = await readdir(dir, { withFileTypes: true });
@@ -202,46 +206,95 @@ async function collectCandidates(
 	}
 	entries.sort((a, b) => Number(b.isDirectory()) - Number(a.isDirectory()) || a.name.localeCompare(b.name));
 	for (const entry of entries) {
-		if (candidates.length >= limit) {
-			return;
-		}
 		if (entry.isDirectory() && IGNORED_DIRS.has(entry.name)) {
 			continue;
 		}
 		const absolutePath = resolvePath(entry.name, dir);
 		const relativePath = relative(root, absolutePath).split(sep).join("/");
-		if (entry.isFile() && matchesQuery(relativePath, query)) {
+		const score = entry.isFile() ? getMatchScore(relativePath, query) : undefined;
+		if (score !== undefined) {
 			candidates.push({
-				fileArg: relativePath,
-				relativePath,
-				absolutePath,
-				label: relativePath,
+				candidate: {
+					fileArg: relativePath,
+					relativePath,
+					absolutePath,
+					label: relativePath,
+				},
+				score,
 			});
 		}
 		if (entry.isDirectory()) {
-			await collectCandidates(root, absolutePath, query, candidates, limit);
+			await collectCandidates(root, absolutePath, query, candidates);
 		}
 	}
 }
 
-function matchesQuery(relativePath: string, query: string): boolean {
+function getMatchScore(relativePath: string, query: string): number | undefined {
 	if (!query) {
-		return true;
+		return 0;
 	}
 	const normalized = relativePath.toLowerCase();
-	if (normalized.includes(query)) {
-		return true;
+	const fileName = normalized.slice(normalized.lastIndexOf("/") + 1);
+	const pathIndex = normalized.indexOf(query);
+	if (fileName === query) {
+		return 0;
 	}
+	if (fileName.startsWith(query)) {
+		return 100 + fileName.length - query.length;
+	}
+	if (isSegmentPrefixMatch(normalized, query)) {
+		return 200 + normalized.indexOf(query);
+	}
+	const fileNameIndex = fileName.indexOf(query);
+	if (fileNameIndex !== -1) {
+		return 300 + fileNameIndex + fileName.length - query.length;
+	}
+	if (pathIndex !== -1) {
+		return 400 + pathIndex + normalized.length - query.length;
+	}
+	return getFuzzyMatchScore(normalized, query);
+}
+
+function isSegmentPrefixMatch(relativePath: string, query: string): boolean {
+	return relativePath === query || relativePath.startsWith(query) || relativePath.includes(`/${query}`);
+}
+
+function getFuzzyMatchScore(relativePath: string, query: string): number | undefined {
 	let queryIndex = 0;
-	for (const char of normalized) {
+	let firstMatchIndex = -1;
+	let lastMatchIndex = -1;
+	let gapCount = 0;
+	for (let index = 0; index < relativePath.length; index++) {
+		const char = relativePath[index];
 		if (char === query[queryIndex]) {
+			if (firstMatchIndex === -1) {
+				firstMatchIndex = index;
+			}
+			if (lastMatchIndex !== -1 && index > lastMatchIndex + 1) {
+				gapCount++;
+			}
+			lastMatchIndex = index;
 			queryIndex++;
 			if (queryIndex === query.length) {
-				return true;
+				const span = lastMatchIndex - firstMatchIndex + 1;
+				const boundaryPenalty = isPathBoundary(relativePath[firstMatchIndex - 1]) ? 0 : 50;
+				return 1000 + span * 10 + gapCount * 20 + firstMatchIndex + boundaryPenalty;
 			}
 		}
 	}
-	return false;
+	return undefined;
+}
+
+function isPathBoundary(char: string | undefined): boolean {
+	return char === undefined || char === "/" || char === "-" || char === "_" || char === ".";
+}
+
+function compareScoredCandidates(a: ScoredFileReferenceCandidate, b: ScoredFileReferenceCandidate): number {
+	return (
+		a.score - b.score ||
+		a.candidate.relativePath.length - b.candidate.relativePath.length ||
+		a.candidate.relativePath.localeCompare(b.candidate.relativePath)
+	);
 }
 
 export function toDisplayFileArg(filePath: string, cwd: string): string {

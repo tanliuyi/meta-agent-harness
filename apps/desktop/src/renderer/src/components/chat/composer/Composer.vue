@@ -15,9 +15,19 @@ import {
 import { useVirtualizer } from '@tanstack/vue-virtual'
 import { onClickOutside } from '@vueuse/core'
 import { BaseButton, BaseIconButton } from '@renderer/components/base'
+import BaseField from '@renderer/components/base/BaseField.vue'
+import ExtensionWidget from '@renderer/components/extension/ExtensionWidget.vue'
 import SendIcon from '@renderer/components/icons/SendIcon.vue'
 import { Command } from '@renderer/components/ui/command'
 import ScrollArea from '@renderer/components/ui/scroll-area/ScrollArea.vue'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle
+} from '@renderer/components/ui/dialog'
 import {
   Tooltip,
   TooltipContent,
@@ -35,6 +45,7 @@ import {
 import { useSelectContentWidth } from '@renderer/components/ui/select/useSelectContentWidth'
 import StopIcon from '@renderer/components/icons/StopIcon.vue'
 import { Command as CommandIcon, X } from 'lucide-vue-next'
+import ImagePreviewDialog, { type ImagePreviewItem } from '../ImagePreviewDialog.vue'
 import Usage from './Usage.vue'
 import type { TokenUsage } from './Usage.vue'
 import type { ComposerImageAttachment } from '@renderer/stores/workspace-session'
@@ -67,7 +78,7 @@ type ComposerImagePreview = ComposerImageAttachment & {
 
 type ComposerExtensionWidget = {
   lines: string[]
-  placement?: 'aboveEditor' | 'belowEditor'
+  placement: 'aboveEditor' | 'belowEditor'
 }
 
 type SessionModel = NonNullable<ThreadSnapshot['model']>
@@ -201,13 +212,18 @@ const editorRef = ref<{
 const fileCompletionScrollRef = ref<{
   getViewport(): HTMLElement | undefined
 }>()
+const commandPaletteScrollRef = ref<ScrollAreaInstance | null>(null)
 const composerShellRef = ref<HTMLElement>()
 const commandSearchInputRef = ref<HTMLInputElement>()
 const commandPaletteRef = ref<HTMLElement>()
 const isEditorFocused = ref(false)
 const commandPaletteOpen = ref(false)
+const commandPaletteMode = ref<'button' | 'slash'>('button')
 const commandSearch = ref('')
+const draftText = ref('')
 const selectedCommandIndex = ref(0)
+const nameCommandDialogOpen = ref(false)
+const nameCommandDraft = ref('')
 const extensionDrafts = ref<Record<string, string>>({})
 const fileReferenceCompletion = ref<FileReferenceCompletionState>({
   candidates: [],
@@ -218,6 +234,16 @@ const imagePreviews = computed<ComposerImagePreview[]>(() =>
   props.images.map((image) => ({
     ...image,
     previewSrc: `data:${image.mimeType};base64,${image.data}`
+  }))
+)
+const imagePreviewDialogOpen = ref(false)
+const imagePreviewInitialIndex = ref(0)
+const imagePreviewItems = computed<ImagePreviewItem[]>(() =>
+  imagePreviews.value.map((image) => ({
+    src: image.previewSrc,
+    alt: image.name,
+    title: image.name,
+    meta: `${formatFileSize(image.size)} · ${getImageHintLabel(image)}`
   }))
 )
 
@@ -239,10 +265,10 @@ const imageAttachmentSummary = computed(() => {
 
 const extensionWidgetEntries = computed(() => Object.entries(props.extensionWidgets))
 const widgetsAboveEditor = computed(() =>
-  extensionWidgetEntries.value.filter(([, widget]) => widget.placement === 'aboveEditor')
+  extensionWidgetEntries.value.filter(([, widget]) => widget.placement !== 'belowEditor')
 )
 const widgetsBelowEditor = computed(() =>
-  extensionWidgetEntries.value.filter(([, widget]) => widget.placement !== 'aboveEditor')
+  extensionWidgetEntries.value.filter(([, widget]) => widget.placement === 'belowEditor')
 )
 const extensionRequestEntries = computed(() => Object.values(props.extensionRequests))
 
@@ -327,11 +353,11 @@ const currentThinkingLabel = computed(
 )
 
 /** command palette 是否可用。 */
-const canOpenCommandPalette = computed(() => Boolean(props.threadId))
+const canOpenCommandPalette = computed(() => Boolean(props.threadId || props.projectId))
 
 /** command palette 过滤结果。 */
 const filteredCommands = computed(() => {
-  const query = getCommandQueryName(commandSearch.value).toLowerCase()
+  const query = getCommandQueryName(activeCommandQuery.value).toLowerCase()
   if (!query) {
     return props.commands
   }
@@ -343,6 +369,10 @@ const filteredCommands = computed(() => {
       .includes(query)
   )
 })
+
+const activeCommandQuery = computed(() =>
+  commandPaletteMode.value === 'slash' ? draftText.value : commandSearch.value
+)
 
 watch(
   () => [
@@ -357,17 +387,46 @@ watch(
 watch(commandPaletteOpen, (isOpen) => {
   if (!isOpen) {
     commandSearch.value = ''
+    commandPaletteMode.value = 'button'
     selectedCommandIndex.value = 0
     return
   }
   selectedCommandIndex.value = 0
-  void nextTick(() => {
-    commandSearchInputRef.value?.focus()
-  })
+  if (commandPaletteMode.value === 'button') {
+    void nextTick(() => {
+      commandSearchInputRef.value?.focus()
+    })
+  }
 })
 
 watch(commandSearch, () => {
   selectedCommandIndex.value = 0
+})
+
+watch(
+  () => [selectedCommandIndex.value, filteredCommands.value.length, commandPaletteOpen.value],
+  () => {
+    void nextTick(scrollSelectedCommandIntoView)
+  }
+)
+
+watch(draftText, (value) => {
+  if (!isSlashCommandDraft(value)) {
+    if (commandPaletteMode.value === 'slash') {
+      closeCommandPalette()
+    }
+    return
+  }
+  if (!canOpenCommandPalette.value) {
+    return
+  }
+  const wasSlashPaletteOpen = commandPaletteOpen.value && commandPaletteMode.value === 'slash'
+  commandPaletteMode.value = 'slash'
+  commandPaletteOpen.value = true
+  selectedCommandIndex.value = 0
+  if (!wasSlashPaletteOpen) {
+    emit('load-commands')
+  }
 })
 
 watch(
@@ -389,6 +448,17 @@ function handleSubmit(): void {
 }
 
 /**
+ * 创建空 Composer 内容。
+ * @returns 空 Tiptap JSON。
+ */
+function createEmptyComposerValue(): JSONContent {
+  return {
+    type: 'doc',
+    content: [{ type: 'paragraph' }]
+  }
+}
+
+/**
  * 同步编辑器文件补全候选。
  * @param state - 补全展示状态。
  */
@@ -400,6 +470,15 @@ function handleFileReferenceCompletion(state: FileReferenceCompletionState): voi
       editorRef.value?.focusEditor()
     })
   }
+}
+
+/**
+ * 同步编辑器文本，并在输入 slash command 时打开命令面板。
+ * @param value - 编辑器纯文本。
+ */
+function handleEditorTextChange(value: string): void {
+  draftText.value = value
+  emit('text-change', value)
 }
 
 /**
@@ -498,6 +577,26 @@ function scrollSelectedFileReferenceIntoView(): void {
 }
 
 /**
+ * 保证键盘高亮的命令项处于可视区域。
+ */
+function scrollSelectedCommandIntoView(): void {
+  const viewport = commandPaletteScrollRef.value?.getViewport()
+  const selectedItem = commandPaletteRef.value?.querySelector('.composer__command-item.is-selected')
+  if (!viewport || !(selectedItem instanceof HTMLElement)) {
+    return
+  }
+  const viewportRect = viewport.getBoundingClientRect()
+  const itemRect = selectedItem.getBoundingClientRect()
+  if (itemRect.top < viewportRect.top) {
+    viewport.scrollTop -= viewportRect.top - itemRect.top
+    return
+  }
+  if (itemRect.bottom > viewportRect.bottom) {
+    viewport.scrollTop += itemRect.bottom - viewportRect.bottom
+  }
+}
+
+/**
  * 处理发送/停止图标按钮点击。
  */
 function handleActionClick(): void {
@@ -515,6 +614,7 @@ function toggleCommandPalette(): void {
   if (!canOpenCommandPalette.value) {
     return
   }
+  commandPaletteMode.value = 'button'
   commandPaletteOpen.value = !commandPaletteOpen.value
   if (commandPaletteOpen.value) {
     emit('load-commands')
@@ -545,7 +645,20 @@ function highlightPaletteCommand(index: number): void {
  * @param command - command 名称。
  */
 function runPaletteCommand(command: string): void {
-  emit('run-command', command, getCommandQueryArgs(commandSearch.value, command))
+  const shouldClearSlashDraft = commandPaletteMode.value === 'slash'
+  const commandArgs = getCommandQueryArgs(activeCommandQuery.value, command)
+  if (command.trim().replace(/^\/+/, '') === 'name') {
+    openNameCommandDialog(commandArgs)
+    if (shouldClearSlashDraft) {
+      clearComposerSlashDraft()
+    }
+    closeCommandPalette()
+    return
+  }
+  emit('run-command', command, commandArgs)
+  if (shouldClearSlashDraft) {
+    clearComposerSlashDraft()
+  }
   closeCommandPalette()
 }
 
@@ -554,10 +667,47 @@ function runPaletteCommand(command: string): void {
  */
 function runSelectedPaletteCommand(): void {
   const command = filteredCommands.value[selectedCommandIndex.value]
-  if (!command) {
+  if (command) {
+    runPaletteCommand(command.name)
+  }
+}
+
+/**
+ * 清空 slash command 草稿。
+ */
+function clearComposerSlashDraft(): void {
+  draftText.value = ''
+  emit('update:modelValue', createEmptyComposerValue())
+  emit('text-change', '')
+}
+
+/**
+ * 打开 /name 命令命名弹层。
+ * @param initialValue - 初始会话名称。
+ */
+function openNameCommandDialog(initialValue?: string): void {
+  nameCommandDraft.value = initialValue?.trim() ?? ''
+  nameCommandDialogOpen.value = true
+}
+
+/**
+ * 同步 /name 命令弹层打开状态。
+ * @param open - 是否打开。
+ */
+function handleNameCommandDialogOpenChange(open: boolean): void {
+  nameCommandDialogOpen.value = open
+}
+
+/**
+ * 提交 /name 命令命名弹层。
+ */
+function submitNameCommandDialog(): void {
+  const nextName = nameCommandDraft.value.trim()
+  if (!nextName) {
     return
   }
-  runPaletteCommand(command.name)
+  emit('run-command', 'name', nextName)
+  nameCommandDialogOpen.value = false
 }
 
 /**
@@ -574,6 +724,11 @@ function handleCommandPaletteKeyDown(event: KeyboardEvent): void {
     closeCommandPalette()
     return
   }
+  if (event.key === 'Enter') {
+    event.preventDefault()
+    runSelectedPaletteCommand()
+    return
+  }
   if (filteredCommands.value.length === 0) {
     return
   }
@@ -587,12 +742,39 @@ function handleCommandPaletteKeyDown(event: KeyboardEvent): void {
     selectedCommandIndex.value =
       (selectedCommandIndex.value - 1 + filteredCommands.value.length) %
       filteredCommands.value.length
+  }
+}
+
+/**
+ * 在编辑器焦点内处理 slash command 面板快捷键。
+ * @param event - 键盘事件。
+ */
+function handleSlashCommandPaletteKeyDown(event: KeyboardEvent): void {
+  if (!commandPaletteOpen.value || commandPaletteMode.value !== 'slash') {
     return
   }
-  if (event.key === 'Enter') {
-    event.preventDefault()
-    runSelectedPaletteCommand()
+  if (
+    event.key !== 'Escape' &&
+    event.key !== 'Enter' &&
+    event.key !== 'ArrowDown' &&
+    event.key !== 'ArrowUp'
+  ) {
+    return
   }
+  handleCommandPaletteKeyDown(event)
+  if (event.defaultPrevented) {
+    event.stopPropagation()
+  }
+}
+
+/**
+ * 判断当前草稿是否正在输入 slash command。
+ * @param value - 编辑器纯文本。
+ * @returns 是否应显示 slash command 面板。
+ */
+function isSlashCommandDraft(value: string): boolean {
+  const normalized = value.trimStart()
+  return normalized.startsWith('/') && !normalized.includes('\n')
 }
 
 /**
@@ -602,6 +784,10 @@ function handleCommandPaletteKeyDown(event: KeyboardEvent): void {
 function handleComposerKeyDown(event: KeyboardEvent): void {
   handleFileReferenceKeyDown(event)
   if (event.defaultPrevented || event.isComposing) {
+    return
+  }
+  handleSlashCommandPaletteKeyDown(event)
+  if (event.defaultPrevented) {
     return
   }
   if (event.key === 'Escape' && props.isRunning && isEditorFocused.value) {
@@ -668,6 +854,11 @@ function handleThinkingLevelChange(value: unknown): void {
  */
 function openImagePicker(): void {
   emit('select-images', props.threadId)
+}
+
+function openImagePreview(index: number): void {
+  imagePreviewInitialIndex.value = index
+  imagePreviewDialogOpen.value = true
 }
 
 /**
@@ -811,14 +1002,18 @@ function clearExtensionDraft(id: string): void {
       <header class="composer__command-palette-header">
         <CommandIcon :size="14" />
         <input
+          v-if="commandPaletteMode === 'button'"
           ref="commandSearchInputRef"
           v-model="commandSearch"
           type="search"
           placeholder="Search commands"
           @keydown="handleCommandPaletteKeyDown"
         />
+        <div v-else class="composer__command-query">
+          {{ activeCommandQuery || '/' }}
+        </div>
       </header>
-      <ScrollArea class="composer__command-palette-scroll">
+      <ScrollArea ref="commandPaletteScrollRef" class="composer__command-palette-scroll">
         <div v-if="loadingCommands" class="composer__command-empty">Loading commands...</div>
         <div v-else-if="filteredCommands.length === 0" class="composer__command-empty">
           No commands
@@ -839,76 +1034,109 @@ function clearExtensionDraft(id: string): void {
         </div>
       </ScrollArea>
     </div>
-    <form class="composer" @submit.prevent="handleSubmit">
-      <div v-if="extensionRequestEntries.length > 0" class="composer__extension-requests">
-        <article
-          v-for="request in extensionRequestEntries"
-          :key="request.id"
-          class="composer__extension-request"
-        >
-          <header class="composer__extension-request-header">
-            <div>
-              <strong>{{ getExtensionRequestTitle(request) }}</strong>
-              <span>{{ request.type }}</span>
-            </div>
-            <BaseButton size="sm" variant="ghost" @click="cancelExtensionRequest(request)">
-              取消
-            </BaseButton>
-          </header>
-
-          <p v-if="request.type === 'confirm'" class="composer__extension-request-message">
-            {{ request.message }}
-          </p>
-
-          <div v-if="request.type === 'select'" class="composer__extension-request-options">
-            <BaseButton
-              v-for="option in request.options"
-              :key="option"
-              size="sm"
-              variant="secondary"
-              @click="submitExtensionRequest(request, option)"
-            >
-              {{ option }}
-            </BaseButton>
+    <div v-if="extensionRequestEntries.length > 0" class="composer__extension-requests">
+      <article
+        v-for="request in extensionRequestEntries"
+        :key="request.id"
+        class="composer__extension-request"
+      >
+        <header class="composer__extension-request-header">
+          <div>
+            <strong>{{ getExtensionRequestTitle(request) }}</strong>
+            <span>{{ request.type }}</span>
           </div>
-
-          <input
-            v-if="request.type === 'input'"
-            class="composer__extension-request-input"
-            :value="getExtensionDraft(request)"
-            :placeholder="request.placeholder"
-            @input="setExtensionDraft(request.id, ($event.target as HTMLInputElement).value)"
-            @keydown.enter.prevent="submitExtensionRequest(request)"
-          />
-
-          <textarea
-            v-if="request.type === 'editor'"
-            class="composer__extension-request-editor"
-            :value="getExtensionDraft(request)"
-            @input="setExtensionDraft(request.id, ($event.target as HTMLTextAreaElement).value)"
-          />
-
-          <div
-            v-if="
-              request.type === 'confirm' || request.type === 'input' || request.type === 'editor'
-            "
-            class="composer__extension-request-actions"
+          <BaseButton
+            type="button"
+            size="sm"
+            variant="ghost"
+            @click="cancelExtensionRequest(request)"
           >
-            <BaseButton
-              v-if="request.type === 'confirm'"
-              size="sm"
-              variant="primary"
-              @click="submitExtensionRequest(request, true)"
-            >
-              确认
-            </BaseButton>
-            <BaseButton v-else size="sm" variant="primary" @click="submitExtensionRequest(request)">
-              提交
-            </BaseButton>
-          </div>
-        </article>
-      </div>
+            取消
+          </BaseButton>
+        </header>
 
+        <p v-if="request.type === 'confirm'" class="composer__extension-request-message">
+          {{ request.message }}
+        </p>
+
+        <div v-if="request.type === 'select'" class="composer__extension-request-options">
+          <BaseButton
+            v-for="option in request.options"
+            :key="option"
+            type="button"
+            size="sm"
+            variant="secondary"
+            @click="submitExtensionRequest(request, option)"
+          >
+            {{ option }}
+          </BaseButton>
+        </div>
+
+        <input
+          v-if="request.type === 'input'"
+          class="composer__extension-request-input"
+          :value="getExtensionDraft(request)"
+          :placeholder="request.placeholder"
+          :aria-label="getExtensionRequestTitle(request)"
+          @input="setExtensionDraft(request.id, ($event.target as HTMLInputElement).value)"
+          @keydown.enter.prevent="submitExtensionRequest(request)"
+        />
+
+        <textarea
+          v-if="request.type === 'editor'"
+          class="composer__extension-request-editor"
+          :value="getExtensionDraft(request)"
+          :aria-label="getExtensionRequestTitle(request)"
+          @input="setExtensionDraft(request.id, ($event.target as HTMLTextAreaElement).value)"
+        />
+
+        <div
+          v-if="request.type === 'confirm' || request.type === 'input' || request.type === 'editor'"
+          class="composer__extension-request-actions"
+        >
+          <BaseButton
+            v-if="request.type === 'confirm'"
+            type="button"
+            size="sm"
+            variant="primary"
+            @click="submitExtensionRequest(request, true)"
+          >
+            确认
+          </BaseButton>
+          <BaseButton
+            v-else
+            type="button"
+            size="sm"
+            variant="primary"
+            @click="submitExtensionRequest(request)"
+          >
+            提交
+          </BaseButton>
+        </div>
+      </article>
+    </div>
+
+    <div v-if="widgetsAboveEditor.length > 0" class="composer__extension-widgets is-above">
+      <ExtensionWidget
+        v-for="[key, widget] in widgetsAboveEditor"
+        :key="key"
+        :title="key"
+        :lines="widget.lines"
+        variant="compact"
+      />
+    </div>
+
+    <div v-if="widgetsBelowEditor.length > 0" class="composer__extension-widgets is-below">
+      <ExtensionWidget
+        v-for="[key, widget] in widgetsBelowEditor"
+        :key="key"
+        :title="key"
+        :lines="widget.lines"
+        variant="compact"
+      />
+    </div>
+
+    <form class="composer" @submit.prevent="handleSubmit">
       <div v-if="imagePreviews.length > 0 || selectingImages" class="composer__attachments">
         <div class="composer__attachments-header">
           <span>{{ imageAttachmentSummary }}</span>
@@ -917,8 +1145,15 @@ function clearExtensionDraft(id: string): void {
           </button>
         </div>
         <div v-if="imagePreviews.length > 0" class="composer__images">
-          <div v-for="image in imagePreviews" :key="image.id" class="composer__image">
-            <img :src="image.previewSrc" :alt="image.name" />
+          <div v-for="(image, index) in imagePreviews" :key="image.id" class="composer__image">
+            <button
+              class="composer__image-preview"
+              type="button"
+              :aria-label="`预览 ${image.name}`"
+              @click="openImagePreview(index)"
+            >
+              <img :src="image.previewSrc" :alt="image.name" />
+            </button>
             <div class="composer__image-meta">
               <strong>{{ image.name }}</strong>
               <span>{{ formatFileSize(image.size) }} · {{ getImageHintLabel(image) }}</span>
@@ -934,16 +1169,6 @@ function clearExtensionDraft(id: string): void {
           </div>
         </div>
       </div>
-      <div v-if="widgetsAboveEditor.length > 0" class="composer__extension-widgets is-above">
-        <article
-          v-for="[key, widget] in widgetsAboveEditor"
-          :key="key"
-          class="composer__extension-widget"
-        >
-          <strong>{{ key }}</strong>
-          <span>{{ widget.lines.join(' · ') }}</span>
-        </article>
-      </div>
       <PlainTextEditor
         ref="editorRef"
         :model-value="modelValue"
@@ -951,22 +1176,12 @@ function clearExtensionDraft(id: string): void {
         :thread-id="threadId"
         :project-id="projectId"
         @update:model-value="emit('update:modelValue', $event)"
-        @text-change="emit('text-change', $event)"
+        @text-change="handleEditorTextChange"
         @paste-images="emit('paste-images', $event, threadId)"
         @file-reference-completion="handleFileReferenceCompletion"
         @focus-change="handleEditorFocusChange"
         @submit="handleSubmit"
       />
-      <div v-if="widgetsBelowEditor.length > 0" class="composer__extension-widgets is-below">
-        <article
-          v-for="[key, widget] in widgetsBelowEditor"
-          :key="key"
-          class="composer__extension-widget"
-        >
-          <strong>{{ key }}</strong>
-          <span>{{ widget.lines.join(' · ') }}</span>
-        </article>
-      </div>
       <div class="composer__actions">
         <div v-if="imageError" class="composer__image-error" role="alert">
           <span>{{ imageError }}</span>
@@ -1105,7 +1320,9 @@ function clearExtensionDraft(id: string): void {
         >
           <SelectTrigger
             class="composer__delivery-select"
+            variant="borderless"
             size="sm"
+            :hide-icon="true"
             aria-label="运行中消息交付方式"
           >
             <SelectValue />
@@ -1119,6 +1336,12 @@ function clearExtensionDraft(id: string): void {
         </Select>
 
         <Usage v-if="usage" :usage="usage" />
+
+        <ImagePreviewDialog
+          v-model:open="imagePreviewDialogOpen"
+          :images="imagePreviewItems"
+          :initial-index="imagePreviewInitialIndex"
+        />
 
         <BaseIconButton
           type="button"
@@ -1182,10 +1405,50 @@ function clearExtensionDraft(id: string): void {
         </SelectContent>
       </Select>
     </div>
+
+    <Dialog :open="nameCommandDialogOpen" @update:open="handleNameCommandDialogOpenChange">
+      <DialogContent class="composer-command-dialog">
+        <form class="composer-command-dialog__form" @submit.prevent="submitNameCommandDialog">
+          <DialogHeader>
+            <DialogTitle>设置会话名称</DialogTitle>
+            <DialogDescription>为当前 Pi session 设置一个显示名称。</DialogDescription>
+          </DialogHeader>
+
+          <BaseField
+            id="composer-command-name"
+            v-model="nameCommandDraft"
+            label="会话名称"
+            placeholder="例如：资源接入排查"
+            hint="/name 需要提供会话名称"
+          />
+
+          <DialogFooter>
+            <BaseButton type="button" size="sm" variant="ghost" @click="nameCommandDialogOpen = false">
+              取消
+            </BaseButton>
+            <BaseButton
+              type="submit"
+              size="sm"
+              variant="primary"
+              :disabled="!nameCommandDraft.trim()"
+            >
+              保存
+            </BaseButton>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
   </div>
 </template>
 
 <style lang="scss" scoped>
+.composer-shell,
+.composer-command-dialog__form {
+  display: grid;
+  gap: var(--space-3);
+  min-width: 0;
+}
+
 .composer-shell {
   position: relative;
   margin-top: auto;
@@ -1314,6 +1577,16 @@ function clearExtensionDraft(id: string): void {
   box-shadow: none;
 }
 
+.composer__command-query {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--color-text);
+  font-size: var(--font-size-ui-sm);
+  font-weight: 650;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .composer__command-palette-scroll {
   min-width: 0;
   min-height: 0;
@@ -1321,13 +1594,14 @@ function clearExtensionDraft(id: string): void {
 
 .composer__command-palette-scroll :deep([data-slot='scroll-area-viewport']) {
   height: 100%;
-  padding: 6px;
+  padding-right: 12px;
 }
 
 .composer__command-list {
   display: grid;
   gap: 2px;
   min-width: 0;
+  padding: 6px;
 }
 
 .composer__command-item {
@@ -1392,21 +1666,28 @@ function clearExtensionDraft(id: string): void {
 }
 
 .composer__delivery-select {
-  width: 128px;
+  width: 84px;
   min-width: 0;
-  flex: 0 1 128px;
+  flex: 0 0 84px;
 }
 
-.composer__model-select {
+.composer__model-select,
+.composer__thinking-select,
+.composer__delivery-select {
   display: inline-flex;
   align-items: center;
-  flex: 0 1 auto;
   height: var(--composer-action-control-height);
   padding: 0 8px;
   line-height: 1;
 }
 
-.composer__model-select:hover {
+.composer__model-select {
+  flex: 0 1 auto;
+}
+
+.composer__model-select:hover,
+.composer__thinking-select:hover,
+.composer__delivery-select:hover {
   background: var(--color-surface-hover) !important;
 }
 
@@ -1446,30 +1727,10 @@ function clearExtensionDraft(id: string): void {
 }
 
 .composer__thinking-select {
-  display: inline-flex;
-  align-items: center;
   flex: 0 0 auto;
-  height: var(--composer-action-control-height);
-  padding: 0 8px;
-  line-height: 1;
 }
 
-.composer__thinking-select:hover {
-  background: var(--color-surface-hover) !important;
-}
-
-.composer__model-label {
-  display: inline-flex;
-  align-items: center;
-  height: 100%;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-size: var(--font-size-ui-sm);
-  line-height: 1;
-}
-
+.composer__model-label,
 .composer__thinking-label {
   display: inline-flex;
   align-items: center;
@@ -1483,10 +1744,16 @@ function clearExtensionDraft(id: string): void {
 }
 
 .composer__model-select :deep([data-slot='select-value']),
-.composer__thinking-select :deep([data-slot='select-value']) {
+.composer__thinking-select :deep([data-slot='select-value']),
+.composer__delivery-select :deep([data-slot='select-value']) {
   display: inline-flex;
   align-items: center;
   height: 100%;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--font-size-ui-sm);
   line-height: 1;
 }
 
@@ -1603,12 +1870,29 @@ function clearExtensionDraft(id: string): void {
   border: 1px solid var(--color-border);
   border-radius: var(--radius-md);
 
+}
+
+.composer__image-preview {
+  display: block;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  overflow: hidden;
+  background: transparent;
+  border: 0;
+  border-radius: calc(var(--radius-md) - 2px);
+  cursor: zoom-in;
+
   img {
     display: block;
-    width: 44px;
-    height: 44px;
+    width: 100%;
+    height: 100%;
     object-fit: cover;
-    border-radius: calc(var(--radius-md) - 2px);
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--color-primary-outline);
+    outline-offset: 2px;
   }
 }
 
@@ -1668,18 +1952,18 @@ function clearExtensionDraft(id: string): void {
   display: grid;
   gap: var(--space-2);
   min-width: 0;
-  margin-bottom: var(--space-2);
 }
 
 .composer__extension-request {
   display: grid;
   gap: var(--space-2);
   min-width: 0;
-  padding: var(--space-2);
+  padding: var(--space-3);
   color: var(--color-text);
-  background: var(--color-surface);
+  background: var(--color-surface-raised);
   border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
 }
 
 .composer__extension-request-header {
@@ -1721,6 +2005,8 @@ function clearExtensionDraft(id: string): void {
   color: var(--color-text-muted);
   font-size: var(--font-size-ui-sm);
   line-height: 1.35;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
 }
 
 .composer__extension-request-options,
@@ -1765,38 +2051,6 @@ function clearExtensionDraft(id: string): void {
   display: grid;
   gap: var(--space-1);
   min-width: 0;
-}
-
-.composer__extension-widget {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  min-width: 0;
-  min-height: 26px;
-  padding: 0 var(--space-2);
-  color: var(--color-text-muted);
-  background: var(--color-surface);
-  border: 1px solid var(--color-border-muted);
-  border-radius: var(--radius-md);
-
-  strong,
-  span {
-    min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    font-size: var(--font-size-ui-xs);
-  }
-
-  strong {
-    flex: 0 0 auto;
-    color: var(--color-text);
-    font-weight: 700;
-  }
-
-  span {
-    flex: 1 1 auto;
-  }
 }
 
 .composer__action {

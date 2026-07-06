@@ -17,7 +17,7 @@ import { ProjectStore } from './project-store'
 import { ProjectTrustService } from './project-trust-service'
 import { ModelSettingsService } from './model-settings-service'
 import { AgentSettingsService } from './agent-settings-service'
-import { createUtilityProcessWorkerClient } from './utility-process-worker-client-factory'
+import { createConfiguredWorkerClient } from './worker-client-factory'
 import { ThreadWorkerRegistry } from './thread-worker-registry'
 import { cacheWorkerProjectionEvent } from './projection-cache'
 import type { WorkerClient, WorkerEnvelope } from './worker-types'
@@ -49,9 +49,11 @@ import type {
   PromptImageAttachment,
   PromptInput,
   ApprovalResponseInput,
+  ProjectExtensionPathsInput,
   RenameProjectInput,
   RenameThreadInput,
   ResourcePackageInput,
+  ResourceSnapshotInput,
   RunCommandInput,
   RevealResourcePathInput,
   SelectResourcePathInput,
@@ -67,6 +69,7 @@ import type {
   ToggleInput,
   UpdateAgentSettingsInput,
   UpdateModelSettingsInput,
+  UpdateProjectExtensionPathsInput,
   UpdateResourcePackageInput,
   UpsertCustomProviderInput
 } from '@shared/coding-agent/types'
@@ -105,7 +108,7 @@ export function registerCodingAgentIpc(options: CodingAgentIpcOptions = {}): Cod
     options.manager ??
     new CodingThreadManager(
       new ThreadWorkerRegistry({
-        createWorker: options.createWorker ?? createUtilityProcessWorkerClient,
+        createWorker: options.createWorker ?? createConfiguredWorkerClient,
         onEvent: (event) => {
           cacheWorkerProjectionEvent(store, event)
           if (isThreadActivityEvent(event)) {
@@ -354,7 +357,19 @@ export function registerCodingAgentIpc(options: CodingAgentIpcOptions = {}): Cod
   handle(manager, codingAgentChannels.updateAgentSettings, (input: UpdateAgentSettingsInput) =>
     manager.updateAgentSettings(input)
   )
-  handle(manager, codingAgentChannels.getResourceSnapshot, () => manager.getResourceSnapshot())
+  handle(manager, codingAgentChannels.getResourceSnapshot, (input?: ResourceSnapshotInput) =>
+    manager.getResourceSnapshot(input)
+  )
+  handle(
+    manager,
+    codingAgentChannels.getProjectExtensionPaths,
+    (input: ProjectExtensionPathsInput) => manager.getProjectExtensionPaths(input)
+  )
+  handle(
+    manager,
+    codingAgentChannels.updateProjectExtensionPaths,
+    (input: UpdateProjectExtensionPathsInput) => manager.updateProjectExtensionPaths(input)
+  )
   handle(manager, codingAgentChannels.listResourcePackages, () => manager.listResourcePackages())
   handle(manager, codingAgentChannels.addResourcePackage, (input: ResourcePackageInput) =>
     manager.addResourcePackage(input)

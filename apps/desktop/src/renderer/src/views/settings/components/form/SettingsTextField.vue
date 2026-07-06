@@ -11,6 +11,7 @@ const props = withDefaults(
     description?: string
     error?: string
     type?: 'text' | 'number'
+    disabled?: boolean
     placeholder?: string
     min?: number
     max?: number
@@ -58,6 +59,7 @@ function updateValue(value: string | number): void {
       v-if="multiline"
       :model-value="modelValue"
       :rows="rows"
+      :disabled="disabled"
       :placeholder="placeholder"
       :aria-invalid="Boolean(error)"
       @update:model-value="updateValue"
@@ -70,6 +72,7 @@ function updateValue(value: string | number): void {
       :min="min"
       :max="max"
       :step="step"
+      :disabled="disabled"
       :placeholder="placeholder"
       :aria-invalid="Boolean(validationError)"
       @update:model-value="updateValue"

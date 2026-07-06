@@ -141,6 +141,10 @@ export const codingAgentChannels = {
   updateAgentSettings: 'coding-agent:update-agent-settings',
   /** 获取 Pi-compatible resource / extension 发现快照。 */
   getResourceSnapshot: 'coding-agent:get-resource-snapshot',
+  /** 获取项目级 extension 路径配置。 */
+  getProjectExtensionPaths: 'coding-agent:get-project-extension-paths',
+  /** 更新项目级 extension 路径配置。 */
+  updateProjectExtensionPaths: 'coding-agent:update-project-extension-paths',
   /** 列出 Pi package manager 配置包。 */
   listResourcePackages: 'coding-agent:list-resource-packages',
   /** 新增并持久化 package source。 */

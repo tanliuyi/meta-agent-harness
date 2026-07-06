@@ -10,6 +10,7 @@ import type {
   ResourcePackageInput,
   ResourcePackageProgressEvent,
   ResourcePackageSummary,
+  ResourceSnapshotInput,
   ResourceSnapshot,
   UpdateAgentSettingsInput,
   UpdateResourcePackageInput
@@ -36,7 +37,10 @@ const useAgentSettingsStore = defineStore('agent-settings', () => {
   const snapshot = ref<AgentSettingsSnapshot | null>(null)
   const draft = ref<AgentSettingsDraft | null>(null)
   const resourceSnapshot = ref<ResourceSnapshot | null>(null)
+  const resourceSnapshotInput = ref<ResourceSnapshotInput>({})
   const resourcePackages = ref<ResourcePackageSummary[]>([])
+  const projectExtensionPaths = ref<string[]>([])
+  const projectExtensionPathsCwd = ref<string | null>(null)
   const resourcePackagesLoading = ref(false)
   const resourcePackageProgress = ref<Record<string, ResourcePackageProgressState>>({})
 
@@ -135,12 +139,14 @@ const useAgentSettingsStore = defineStore('agent-settings', () => {
       },
       '资源路径保存失败'
     )
-    await loadResourceSnapshot()
+    await loadResourceSnapshot(resourceSnapshotInput.value)
   }
 
-  async function loadResourceSnapshot(): Promise<void> {
+  async function loadResourceSnapshot(input: ResourceSnapshotInput = {}): Promise<void> {
+    const normalizedInput = normalizeResourceSnapshotInput(input)
+    resourceSnapshotInput.value = normalizedInput
     try {
-      resourceSnapshot.value = await window.api.codingAgent.getResourceSnapshot()
+      resourceSnapshot.value = await window.api.codingAgent.getResourceSnapshot(normalizedInput)
     } catch (cause) {
       error.value = cause instanceof Error ? cause.message : '资源发现快照加载失败'
     }
@@ -156,6 +162,35 @@ const useAgentSettingsStore = defineStore('agent-settings', () => {
     next.push(enabled ? enableEntry : disableEntry)
     draft.value.resources.extensions = next
     await saveResources()
+  }
+
+  async function loadProjectExtensionPaths(cwd: string): Promise<void> {
+    error.value = null
+    try {
+      projectExtensionPaths.value = await window.api.codingAgent.getProjectExtensionPaths({ cwd })
+      projectExtensionPathsCwd.value = cwd
+    } catch (cause) {
+      error.value = cause instanceof Error ? cause.message : '项目扩展路径加载失败'
+    }
+  }
+
+  async function saveProjectExtensionPaths(cwd: string, extensions: string[]): Promise<void> {
+    saving.value = true
+    error.value = null
+    try {
+      projectExtensionPaths.value = await window.api.codingAgent.updateProjectExtensionPaths({
+        cwd,
+        extensions: cleanStringList(extensions)
+      })
+      projectExtensionPathsCwd.value = cwd
+      await loadResourceSnapshot(resourceSnapshotInput.value)
+      toast.success('项目扩展路径已保存')
+    } catch (cause) {
+      error.value = cause instanceof Error ? cause.message : '项目扩展路径保存失败'
+      toast.error('项目扩展路径保存失败', error.value)
+    } finally {
+      saving.value = false
+    }
   }
 
   async function loadResourcePackages(): Promise<void> {
@@ -176,7 +211,7 @@ const useAgentSettingsStore = defineStore('agent-settings', () => {
     try {
       resourcePackages.value = await window.api.codingAgent.addResourcePackage(input)
       applySnapshot(await window.api.codingAgent.getAgentSettings())
-      await loadResourceSnapshot()
+      await loadResourceSnapshot(resourceSnapshotInput.value)
       toast.success('Package source 已添加')
     } catch (cause) {
       error.value = cause instanceof Error ? cause.message : 'Package source 添加失败'
@@ -198,7 +233,7 @@ const useAgentSettingsStore = defineStore('agent-settings', () => {
     try {
       resourcePackages.value = await window.api.codingAgent.installResourcePackage(input)
       applySnapshot(await window.api.codingAgent.getAgentSettings())
-      await loadResourceSnapshot()
+      await loadResourceSnapshot(resourceSnapshotInput.value)
       toast.success('Package 已安装')
     } catch (cause) {
       error.value = cause instanceof Error ? cause.message : 'Package 安装失败'
@@ -220,7 +255,7 @@ const useAgentSettingsStore = defineStore('agent-settings', () => {
     try {
       resourcePackages.value = await window.api.codingAgent.removeResourcePackage(input)
       applySnapshot(await window.api.codingAgent.getAgentSettings())
-      await loadResourceSnapshot()
+      await loadResourceSnapshot(resourceSnapshotInput.value)
       toast.success('Package source 已移除')
     } catch (cause) {
       error.value = cause instanceof Error ? cause.message : 'Package source 移除失败'
@@ -243,7 +278,7 @@ const useAgentSettingsStore = defineStore('agent-settings', () => {
     }
     try {
       resourcePackages.value = await window.api.codingAgent.updateResourcePackage(input)
-      await loadResourceSnapshot()
+      await loadResourceSnapshot(resourceSnapshotInput.value)
       toast.success(input.source ? 'Package 已更新' : 'Packages 已更新')
     } catch (cause) {
       error.value = cause instanceof Error ? cause.message : 'Package 更新失败'
@@ -365,6 +400,8 @@ const useAgentSettingsStore = defineStore('agent-settings', () => {
     snapshot,
     draft,
     resourcePackages,
+    projectExtensionPaths,
+    projectExtensionPathsCwd,
     resourceSnapshot,
     resourcePackagesLoading,
     resourcePackageProgress,
@@ -385,6 +422,8 @@ const useAgentSettingsStore = defineStore('agent-settings', () => {
     saveResources,
     loadResourceSnapshot,
     setExtensionPathEnabled,
+    loadProjectExtensionPaths,
+    saveProjectExtensionPaths,
     loadResourcePackages,
     addResourcePackage,
     installResourcePackage,
@@ -434,6 +473,14 @@ function toUpdateInput(draft: AgentSettingsDraft): UpdateAgentSettingsInput {
 
 function cleanStringList(values: string[]): string[] {
   return values.map((value) => value.trim()).filter(Boolean)
+}
+
+function normalizeResourceSnapshotInput(input: ResourceSnapshotInput): ResourceSnapshotInput {
+  return {
+    ...(input.threadId ? { threadId: input.threadId } : {}),
+    ...(input.cwd ? { cwd: input.cwd } : {}),
+    ...(input.projectTrusted !== undefined ? { projectTrusted: input.projectTrusted } : {})
+  }
 }
 
 export default useAgentSettingsStore

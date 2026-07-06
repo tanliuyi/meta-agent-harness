@@ -1,11 +1,20 @@
 <script setup lang="ts">
 import { BaseBadge, BaseButton, BasePanel } from '@renderer/components/base'
-import { SettingsSwitchField, SettingsTextField } from '@renderer/views/settings/components/form'
+import {
+  SettingsSelectField,
+  SettingsSwitchField,
+  SettingsTextField
+} from '@renderer/views/settings/components/form'
 import useAgentSettingsStore from '@renderer/stores/agent-settings'
 import { Save } from 'lucide-vue-next'
 import { computed } from 'vue'
 
 const agentSettings = useAgentSettingsStore()
+
+const workerModeOptions = [
+  { label: 'Electron utility process', value: 'utilityProcess' },
+  { label: 'Node sidecar', value: 'nodeSidecar' }
+]
 
 const runtimeSummary = computed(() => {
   const runtime = agentSettings.draft?.runtime
@@ -40,6 +49,13 @@ const runtimeSummary = computed(() => {
       detail: `${formatDuration(runtime.websocketConnectTimeoutMs)} websocket`,
       tone: 'neutral',
       badgeLabel: 'Timeout'
+    },
+    {
+      label: 'Worker',
+      value: runtime.workerMode === 'nodeSidecar' ? 'Node sidecar' : 'Utility process',
+      detail: runtime.nodeSidecarExecPath?.trim() || 'system node',
+      tone: runtime.workerMode === 'nodeSidecar' ? 'info' : 'neutral',
+      badgeLabel: runtime.workerMode === 'nodeSidecar' ? 'Native' : 'Default'
     }
   ] as Array<{
     label: string
@@ -128,6 +144,28 @@ function formatTokenCount(value: number): string {
       </div>
 
       <div class="runtime-field-groups">
+        <section>
+          <header>
+            <strong>Worker</strong>
+            <span>Desktop 承载 Pi runtime 的进程模式</span>
+          </header>
+          <div class="form-grid compact-grid">
+            <SettingsSelectField
+              v-model="agentSettings.draft.runtime.workerMode"
+              label="Worker 模式 Worker mode"
+              description="Native extension 建议使用 Node sidecar；切换后重启当前会话生效。"
+              :options="workerModeOptions"
+              :virtual="false"
+            />
+            <SettingsTextField
+              v-model="agentSettings.draft.runtime.nodeSidecarExecPath"
+              label="Node sidecar 路径 Node executable"
+              description="留空时使用 PATH 中的 node。"
+              :disabled="agentSettings.draft.runtime.workerMode !== 'nodeSidecar'"
+            />
+          </div>
+        </section>
+
         <section>
           <header>
             <strong>Context</strong>

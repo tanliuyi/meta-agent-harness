@@ -336,9 +336,9 @@ function getProjectTrustIcon(project: ProjectSummary): Component | undefined {
         </BaseIconButton>
       </div>
 
-      <template v-if="workspaceProject.errorMessage || workspaceSession.errorMessage">
+      <template v-if="workspaceProject.errorMessage">
         <p class="sidebar-error">
-          {{ workspaceProject.errorMessage || workspaceSession.errorMessage }}
+          {{ workspaceProject.errorMessage }}
         </p>
       </template>
 

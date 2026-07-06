@@ -22,6 +22,9 @@ export default defineConfig({
           index: resolve('src/main/index.ts'),
           'coding-agent-utility-worker': resolve(
             '../../packages/coding-agent/src/desktop/worker/worker-main.ts'
+          ),
+          'coding-agent-node-sidecar-worker': resolve(
+            'src/main/coding-agent/node-sidecar-worker-main.ts'
           )
         }
       }

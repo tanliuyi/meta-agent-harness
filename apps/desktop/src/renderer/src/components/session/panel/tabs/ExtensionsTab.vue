@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import { BaseButton } from '@renderer/components/base'
+import ExtensionWidget from '@renderer/components/extension/ExtensionWidget.vue'
 import {
   Dialog,
   DialogContent,
@@ -17,6 +18,7 @@ import {
   getExtensionRequestTitle
 } from './display/extensionDisplay'
 
+const NOTIFICATIONS_WIDGET_KEY = 'Notifications'
 const workspaceSession = useWorkspaceSessionStore()
 const extensionDrafts = ref<Record<string, string>>({})
 const activeExtensionRequestId = ref<string>()
@@ -33,6 +35,45 @@ const extensionStatuses = computed(() =>
   Object.entries(workspaceSession.activeExtensionStatuses).filter(([, value]) => value)
 )
 const extensionWidgets = computed(() => Object.entries(workspaceSession.activeExtensionWidgets))
+const notificationLines = computed(() =>
+  workspaceSession.activeExtensionNotifications.length > 0
+    ? workspaceSession.activeExtensionNotifications
+    : undefined
+)
+const hasExtensionWorkingState = computed(
+  () =>
+    Boolean(workspaceSession.activeExtensionWorkingMessage) ||
+    workspaceSession.activeExtensionWorkingVisible === false ||
+    Boolean(workspaceSession.activeExtensionWorkingIndicator)
+)
+const hasExtensionActivity = computed(
+  () =>
+    hasExtensionUiRequests.value ||
+    extensionStatuses.value.length > 0 ||
+    extensionWidgets.value.length > 0 ||
+    workspaceSession.activeExtensionNotifications.length > 0 ||
+    Boolean(workspaceSession.activeExtensionTitle) ||
+    hasExtensionWorkingState.value
+)
+const workingStateText = computed(() => {
+  if (workspaceSession.activeExtensionWorkingVisible === false) {
+    return 'Working row hidden'
+  }
+  return workspaceSession.activeExtensionWorkingMessage || 'Using default working row'
+})
+const workingIndicatorText = computed(() => {
+  const indicator = workspaceSession.activeExtensionWorkingIndicator
+  if (!indicator) {
+    return undefined
+  }
+  if (indicator.frames && indicator.frames.length === 0) {
+    return 'Indicator hidden'
+  }
+  if (indicator.frames?.length) {
+    return `${indicator.frames.length} custom frames`
+  }
+  return 'Default indicator'
+})
 
 function getExtensionDraft(request: ExtensionUiRequest): string {
   return extensionDrafts.value[request.id] ?? getExtensionInitialDraft(request)
@@ -105,6 +146,10 @@ async function cancelExtensionRequest(request: ExtensionUiRequest): Promise<void
   await workspaceSession.respondExtensionUi(threadId, { id: request.id, cancelled: true })
   closeExtensionRequestDialog()
 }
+
+function clearNotifications(): void {
+  workspaceSession.clearExtensionNotifications()
+}
 </script>
 
 <template>
@@ -118,44 +163,89 @@ async function cancelExtensionRequest(request: ExtensionUiRequest): Promise<void
       </div>
     </header>
 
-    <div
-      v-if="
-        !hasExtensionUiRequests &&
-        !extensionStatuses.length &&
-        !extensionWidgets.length &&
-        !workspaceSession.activeExtensionTitle
-      "
-      class="session-empty"
-    >
+    <div v-if="!hasExtensionActivity" class="session-empty">
       No extension activity
     </div>
 
-    <p v-if="workspaceSession.activeExtensionTitle" class="extension-title">
-      {{ workspaceSession.activeExtensionTitle }}
-    </p>
+    <div v-if="hasExtensionActivity" class="extension-panel-stack">
+      <section
+        v-if="workspaceSession.activeExtensionTitle || hasExtensionWorkingState"
+        class="extension-panel-group"
+      >
+        <header class="extension-panel-group__header">
+          <span>Active</span>
+        </header>
+        <p v-if="workspaceSession.activeExtensionTitle" class="extension-title">
+          {{ workspaceSession.activeExtensionTitle }}
+        </p>
+        <div v-if="hasExtensionWorkingState" class="extension-kv-list">
+          <div>
+            <span>working</span>
+            <strong>{{ workingStateText }}</strong>
+          </div>
+          <div v-if="workingIndicatorText">
+            <span>indicator</span>
+            <strong>{{ workingIndicatorText }}</strong>
+          </div>
+        </div>
+      </section>
 
-    <div v-if="extensionStatuses.length" class="extension-kv-list">
-      <div v-for="[key, value] in extensionStatuses" :key="key">
-        <span>{{ key }}</span>
-        <strong>{{ value }}</strong>
-      </div>
+      <section v-if="hasExtensionUiRequests" class="extension-panel-group">
+        <header class="extension-panel-group__header">
+          <span>Requests</span>
+          <strong>{{ extensionUiRequests.length }}</strong>
+        </header>
+        <article
+          v-for="request in extensionUiRequests"
+          :key="request.id"
+          class="extension-request-row"
+        >
+          <div>
+            <strong>{{ getExtensionRequestTitle(request) }}</strong>
+            <span>{{ getExtensionRequestDescription(request) }}</span>
+          </div>
+          <span class="extension-request-row__type">{{ request.type }}</span>
+          <BaseButton size="sm" variant="secondary" @click="openExtensionRequestDialog(request)">
+            Respond
+          </BaseButton>
+        </article>
+      </section>
+
+      <section
+        v-if="extensionStatuses.length || notificationLines || extensionWidgets.length"
+        class="extension-panel-group"
+      >
+        <header class="extension-panel-group__header">
+          <span>Activity</span>
+        </header>
+
+        <div v-if="extensionStatuses.length" class="extension-kv-list">
+          <div v-for="[key, value] in extensionStatuses" :key="key">
+            <span>{{ key }}</span>
+            <strong>{{ value }}</strong>
+          </div>
+        </div>
+
+        <ExtensionWidget
+          v-if="notificationLines"
+          :title="NOTIFICATIONS_WIDGET_KEY"
+          :lines="notificationLines"
+          variant="detail"
+        >
+          <template #actions>
+            <BaseButton size="sm" variant="ghost" @click="clearNotifications">Clear</BaseButton>
+          </template>
+        </ExtensionWidget>
+
+        <ExtensionWidget
+          v-for="[key, widget] in extensionWidgets"
+          :key="key"
+          :title="key"
+          :lines="widget.lines"
+          variant="detail"
+        />
+      </section>
     </div>
-
-    <article v-for="[key, widget] in extensionWidgets" :key="key" class="extension-widget">
-      <strong>{{ key }}</strong>
-      <p v-for="line in widget.lines" :key="line">{{ line }}</p>
-    </article>
-
-    <article v-for="request in extensionUiRequests" :key="request.id" class="extension-request-row">
-      <div>
-        <strong>{{ getExtensionRequestTitle(request) }}</strong>
-        <span>{{ getExtensionRequestDescription(request) }}</span>
-      </div>
-      <span class="extension-request-row__type">{{ request.type }}</span>
-      <BaseButton size="sm" variant="secondary" @click="openExtensionRequestDialog(request)">
-        Respond
-      </BaseButton>
-    </article>
 
     <Dialog
       :open="isExtensionRequestDialogOpen"
@@ -196,6 +286,7 @@ async function cancelExtensionRequest(request: ExtensionUiRequest): Promise<void
             v-if="activeExtensionRequest.type === 'input'"
             :value="getExtensionDraft(activeExtensionRequest)"
             :placeholder="activeExtensionRequest.placeholder"
+            :aria-label="getExtensionRequestTitle(activeExtensionRequest)"
             class="extension-request-dialog__input"
             @input="setActiveExtensionDraft(($event.target as HTMLInputElement).value)"
           />
@@ -203,6 +294,7 @@ async function cancelExtensionRequest(request: ExtensionUiRequest): Promise<void
           <textarea
             v-if="activeExtensionRequest.type === 'editor'"
             :value="getExtensionDraft(activeExtensionRequest)"
+            :aria-label="getExtensionRequestTitle(activeExtensionRequest)"
             class="extension-request-dialog__textarea"
             @input="setActiveExtensionDraft(($event.target as HTMLTextAreaElement).value)"
           />

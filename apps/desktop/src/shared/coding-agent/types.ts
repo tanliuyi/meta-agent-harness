@@ -25,6 +25,7 @@ import type {
   ThreadSummary as PackageThreadSummary
 } from '../../../../../packages/coding-agent/src/desktop/protocol/thread'
 import type { RpcResponse } from '../../../../../packages/coding-agent/src/modes/rpc/rpc-types'
+import type { SourceInfo } from '../../../../../packages/coding-agent/src/core/source-info'
 import type { ImageContent } from '@earendil-works/pi-ai'
 import type { ResourcesSnapshot as PackageResourcesSnapshot } from '../../../../../packages/coding-agent/src/core/resource-snapshot'
 
@@ -529,11 +530,26 @@ export interface ToggleInput extends ThreadIdInput {
   enabled: boolean
 }
 
-/** 命令信息。 */
-export type CommandInfo = Extract<
+/** Agent 资源命令信息。 */
+export type AgentResourceCommandInfo = Extract<
   RpcResponse,
   { command: 'get_commands'; success: true }
 >['data']['commands'][number]
+
+/** Agent 内建 slash command 信息。 */
+export interface BuiltinCommandInfo {
+  /** 命令名，不含 slash。 */
+  name: string
+  /** 命令说明。 */
+  description?: string
+  /** 命令来源。 */
+  source: 'builtin'
+  /** 合成来源信息。 */
+  sourceInfo: SourceInfo
+}
+
+/** 命令信息。 */
+export type CommandInfo = AgentResourceCommandInfo | BuiltinCommandInfo
 
 /** 模型信息。 */
 export type ModelInfo = Extract<
@@ -859,6 +875,9 @@ export type AgentQueueMode = 'all' | 'one-at-a-time'
 /** Pi provider transport 偏好。 */
 export type AgentTransportMode = 'auto' | 'sse' | 'websocket' | 'websocket-cached'
 
+/** Desktop 承载 Pi runtime 的 worker 模式。 */
+export type AgentWorkerMode = 'utilityProcess' | 'nodeSidecar'
+
 /** 默认项目 trust 策略。 */
 export type AgentDefaultProjectTrust = 'ask' | 'always' | 'never'
 
@@ -929,6 +948,10 @@ export interface AgentSettingsSnapshot {
   }
   /** 运行时可靠性设置。 */
   runtime: {
+    /** Desktop worker 承载模式；Desktop-local，不写入 Pi settings.json。 */
+    workerMode: AgentWorkerMode
+    /** Node sidecar 可执行文件路径；Desktop-local，不写入 Pi settings.json。 */
+    nodeSidecarExecPath?: string
     /** 自动上下文压缩。 */
     compactionEnabled: boolean
     /** 压缩预留 token。 */
@@ -1057,6 +1080,28 @@ export interface AgentSettingsSnapshot {
 /** Pi-compatible resource / extension 发现快照。 */
 export type ResourceSnapshot = PackageResourcesSnapshot
 
+/** 获取 Pi-compatible resource / extension 发现快照的输入。 */
+export interface ResourceSnapshotInput {
+  /** 可选 thread ID；提供时 main 会使用该 thread 的 runtime cwd 与 Project trust 状态。 */
+  threadId?: string
+  /** 可选项目 cwd；没有 thread 时用于按指定 Project 视角发现资源。 */
+  cwd?: string
+  /** 指定 cwd 是否按 trusted project 处理；未提供时默认不加载 project-local 资源。 */
+  projectTrusted?: boolean
+}
+
+/** 获取项目级 extension 路径配置的输入。 */
+export interface ProjectExtensionPathsInput {
+  /** 项目 cwd。 */
+  cwd: string
+}
+
+/** 更新项目级 extension 路径配置的输入。 */
+export interface UpdateProjectExtensionPathsInput extends ProjectExtensionPathsInput {
+  /** 写入项目 .pi/settings.json 的 extensions 配置。 */
+  extensions: string[]
+}
+
 /** 更新 Pi-compatible agent 设置。 */
 export interface UpdateAgentSettingsInput {
   delivery?: Partial<AgentSettingsSnapshot['delivery']>
@@ -1083,6 +1128,21 @@ export interface RunCommandInput extends ThreadIdInput {
   command: string
   /** 传递给 Pi extension command handler 的参数。 */
   args?: string
+}
+
+/** 运行命令结果。 */
+export interface RunCommandResult {
+  /** 用户可见的执行结果消息。 */
+  message?: string
+  /** 用户可见的结构化详情，适合展示长内容。 */
+  details?: {
+    /** 详情标题。 */
+    title: string
+    /** 详情正文。 */
+    body: string
+  }
+  /** 是否需要刷新当前 thread snapshot。 */
+  refreshSnapshot?: boolean
 }
 
 /** 扩展编辑器文本同步输入。 */
@@ -1323,7 +1383,7 @@ export interface CodingAgentApi {
   /** 获取可用命令列表。 */
   getCommands(threadId: string): Promise<CommandInfo[]>
   /** 运行指定命令。 */
-  runCommand(input: RunCommandInput): Promise<void>
+  runCommand(input: RunCommandInput): Promise<RunCommandResult | undefined>
   /** 同步编辑器文本给扩展运行时。 */
   syncExtensionEditorText(input: ExtensionEditorTextInput): Promise<void>
   /** 触发扩展快捷键。 */
@@ -1363,7 +1423,11 @@ export interface CodingAgentApi {
   /** 更新 Pi-compatible agent 设置。 */
   updateAgentSettings(input: UpdateAgentSettingsInput): Promise<AgentSettingsSnapshot>
   /** 获取 Pi-compatible resource / extension 发现快照。 */
-  getResourceSnapshot(): Promise<ResourceSnapshot>
+  getResourceSnapshot(input?: ResourceSnapshotInput): Promise<ResourceSnapshot>
+  /** 获取项目级 extension 路径配置。 */
+  getProjectExtensionPaths(input: ProjectExtensionPathsInput): Promise<string[]>
+  /** 更新项目级 extension 路径配置。 */
+  updateProjectExtensionPaths(input: UpdateProjectExtensionPathsInput): Promise<string[]>
   /** 列出 Pi package manager 配置包。 */
   listResourcePackages(): Promise<ResourcePackageSummary[]>
   /** 新增并持久化 package source。 */

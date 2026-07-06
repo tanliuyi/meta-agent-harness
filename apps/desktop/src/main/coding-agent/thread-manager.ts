@@ -43,8 +43,10 @@ import type {
   ResourcePackageInput,
   ResourcePackageProgressEvent,
   ResourcePackageSummary,
+  ResourceSnapshotInput,
   ResourceSnapshot,
   RunCommandInput,
+  RunCommandResult,
   SetSessionEntryLabelInput,
   SetThreadTitleInput,
   SetProjectTrustInput,
@@ -463,7 +465,7 @@ export class CodingThreadManager extends ThreadManagerCore {
    * 运行指定命令。
    * @param input - 命令输入。
    */
-  runCommand(input: RunCommandInput): Promise<void> {
+  runCommand(input: RunCommandInput): Promise<RunCommandResult | undefined> {
     return runCommand(this, input)
   }
 
@@ -636,8 +638,16 @@ export class CodingThreadManager extends ThreadManagerCore {
   }
 
   /** 获取 Pi-compatible resource / extension 发现快照。 */
-  getResourceSnapshot(): Promise<ResourceSnapshot> {
-    return this.getAgentSettingsService().getResourceSnapshot()
+  getResourceSnapshot(input: ResourceSnapshotInput = {}): Promise<ResourceSnapshot> {
+    if (input.threadId) {
+      const thread = this.requireThread(input.threadId)
+      const cwd = this.getThreadCwd(thread)
+      return this.getAgentSettingsService().getResourceSnapshot({
+        cwd,
+        projectTrusted: this.getProjectTrustOverride(cwd)
+      })
+    }
+    return this.getAgentSettingsService().getResourceSnapshot(input)
   }
 
   /** 新增并持久化 package source。 */

@@ -138,7 +138,20 @@ const router = createRouter({
         {
           path: 'extensions',
           name: 'SettingsExtensions',
-          component: () => import('../views/settings/extensions/ExtensionsView.vue')
+          component: () => import('../views/settings/extensions/ExtensionsSettingsView.vue'),
+          redirect: '/settings/extensions/discovery',
+          children: [
+            {
+              path: 'discovery',
+              name: 'SettingsExtensionsDiscovery',
+              component: () => import('../views/settings/extensions/DiscoveryView.vue')
+            },
+            {
+              path: 'packages',
+              name: 'SettingsExtensionsPackages',
+              component: () => import('../views/settings/extensions/PackagesView.vue')
+            }
+          ]
         },
         {
           path: 'archive',

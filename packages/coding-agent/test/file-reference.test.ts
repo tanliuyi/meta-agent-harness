@@ -113,4 +113,19 @@ describe("file-reference", () => {
 		expect(candidates.map((candidate) => candidate.relativePath)).toEqual(["src/app.ts"]);
 		expect(candidates[0]?.fileArg).toBe("src/app.ts");
 	});
+
+	it("sorts file completions by match quality before applying the limit", async () => {
+		await mkdir(join(testDir, "aaa"), { recursive: true });
+		await mkdir(join(testDir, "zzz"), { recursive: true });
+		await writeFile(join(testDir, "aaa", "composer-helpers.ts"), "source");
+		await writeFile(join(testDir, "aaa", "project-composer-utils.ts"), "source");
+		await writeFile(join(testDir, "zzz", "composer.ts"), "source");
+
+		const candidates = await completeFileReference({ cwd: testDir, query: "composer", limit: 2 });
+
+		expect(candidates.map((candidate) => candidate.relativePath)).toEqual([
+			"zzz/composer.ts",
+			"aaa/composer-helpers.ts",
+		]);
+	});
 });

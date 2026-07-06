@@ -61,6 +61,9 @@ export async function handleRuntimeControlCommand(
 		case "abort_retry":
 			session.abortRetry();
 			return createWorkerResponse(envelope.id, command.type, undefined);
+		case "reload":
+			await session.reload();
+			return createWorkerResponse(envelope.id, command.type, undefined);
 		case "bash":
 			return createWorkerResponse(
 				envelope.id,

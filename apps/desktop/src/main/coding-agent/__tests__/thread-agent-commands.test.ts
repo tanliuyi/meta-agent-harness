@@ -2,10 +2,26 @@
  * 本文件测试 desktop command invocation 与 Pi slash command 参数语义一致。
  */
 
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { mkdtempSync, rmSync, writeFileSync } from 'fs'
+import { tmpdir } from 'os'
+import { join } from 'path'
+import { clipboard } from 'electron'
 import { runCommand, toSlashCommand } from '../thread-agent-commands'
 import type { ThreadManagerCore } from '../thread-manager-core'
 import type { WorkerCommand } from '../worker-types'
+
+vi.mock('electron', () => ({
+  clipboard: {
+    writeText: vi.fn()
+  }
+}))
+
+afterEach(() => {
+  vi.unstubAllEnvs()
+  vi.unstubAllGlobals()
+  vi.clearAllMocks()
+})
 
 describe('thread-agent-commands', () => {
   it('将 command 与 args 还原为 Pi slash command 文本', () => {
@@ -40,5 +56,190 @@ describe('thread-agent-commands', () => {
         streamingBehavior: undefined
       }
     ])
+  })
+
+  it('runCommand 对内建 reload 走 runtime control，不写入 user prompt', async () => {
+    const commands: WorkerCommand[] = []
+    const core = {
+      sendOk: vi.fn(async (_threadId: string, command: WorkerCommand) => {
+        commands.push(command)
+      })
+    } as unknown as ThreadManagerCore
+
+    const result = await runCommand(core, {
+      threadId: 'thread-a',
+      command: '/reload'
+    })
+
+    expect(core.sendOk).toHaveBeenCalledWith('thread-a', { type: 'reload' })
+    expect(commands).toEqual([{ type: 'reload' }])
+    expect(result).toEqual({ message: '已重载扩展与资源', refreshSnapshot: true })
+  })
+
+  it('runCommand 对 name/session/copy/export 映射到 Pi canonical commands', async () => {
+    const commands: WorkerCommand[] = []
+    const core = {
+      updateThread: vi.fn(),
+      sendOk: vi.fn(async (_threadId: string, command: WorkerCommand) => {
+        commands.push(command)
+      }),
+      sendData: vi.fn(async (_threadId: string, command: WorkerCommand) => {
+        commands.push(command)
+        if (command.type === 'get_session_stats') {
+          return {
+            userMessages: 2,
+            assistantMessages: 3,
+            toolCalls: 4,
+            tokens: { total: 99 }
+          }
+        }
+        if (command.type === 'get_last_assistant_text') {
+          return { text: 'last answer' }
+        }
+        if (command.type === 'export_html') {
+          return { path: '/tmp/session.html' }
+        }
+        return undefined
+      })
+    } as unknown as ThreadManagerCore
+
+    await runCommand(core, { threadId: 'thread-a', command: 'name', args: 'Demo' })
+    const sessionResult = await runCommand(core, { threadId: 'thread-a', command: 'session' })
+    const copyResult = await runCommand(core, { threadId: 'thread-a', command: 'copy' })
+    const exportResult = await runCommand(core, {
+      threadId: 'thread-a',
+      command: 'export',
+      args: '/tmp/session.html'
+    })
+
+    expect(commands).toEqual([
+      { type: 'set_session_name', name: 'Demo' },
+      { type: 'get_session_stats' },
+      { type: 'get_last_assistant_text' },
+      { type: 'export_html', outputPath: '/tmp/session.html' }
+    ])
+    expect(core.updateThread).toHaveBeenCalledWith('thread-a', { title: 'Demo' })
+    expect(sessionResult?.message).toBe('会话统计：用户 2，助手 3，工具 4，tokens 99')
+    expect(copyResult?.message).toBe('已复制最后一条助手消息')
+    expect(exportResult?.message).toBe('已导出到 /tmp/session.html')
+  })
+
+  it('runCommand 对带参数的 fork/tree/resume/model 映射到 Pi canonical commands', async () => {
+    const commands: WorkerCommand[] = []
+    const core = {
+      updateThread: vi.fn(),
+      getSnapshot: vi.fn().mockResolvedValue({
+        sessionFile: '/tmp/session.jsonl',
+        title: 'Updated'
+      }),
+      sendOk: vi.fn(async (_threadId: string, command: WorkerCommand) => {
+        commands.push(command)
+      })
+    } as unknown as ThreadManagerCore
+
+    await runCommand(core, { threadId: 'thread-a', command: 'fork', args: 'entry-1' })
+    await runCommand(core, { threadId: 'thread-a', command: 'tree', args: 'entry-2' })
+    await runCommand(core, { threadId: 'thread-a', command: 'resume', args: '/tmp/session.jsonl' })
+    const modelResult = await runCommand(core, {
+      threadId: 'thread-a',
+      command: 'model',
+      args: 'openai/gpt-5'
+    })
+
+    expect(commands).toEqual([
+      { type: 'fork', entryId: 'entry-1' },
+      { type: 'navigate_tree', entryId: 'entry-2' },
+      { type: 'switch_session', sessionPath: '/tmp/session.jsonl' },
+      { type: 'set_model', provider: 'openai', modelId: 'gpt-5' }
+    ])
+    expect(core.getSnapshot).toHaveBeenCalledTimes(3)
+    expect(core.updateThread).toHaveBeenCalledWith('thread-a', {
+      sessionFile: '/tmp/session.jsonl',
+      title: 'Updated'
+    })
+    expect(modelResult).toEqual({
+      message: '已切换模型到 openai/gpt-5',
+      refreshSnapshot: true
+    })
+  })
+
+  it('runCommand 对 hotkeys/changelog 返回 Pi 数据详情，不写入 prompt', async () => {
+    const core = {
+      sendOk: vi.fn()
+    } as unknown as ThreadManagerCore
+
+    const hotkeysResult = await runCommand(core, { threadId: 'thread-a', command: 'hotkeys' })
+    const changelogResult = await runCommand(core, { threadId: 'thread-a', command: 'changelog' })
+
+    expect(core.sendOk).not.toHaveBeenCalled()
+    expect(hotkeysResult?.message).toBe('已打开 Hotkeys')
+    expect(hotkeysResult?.details?.title).toBe('Hotkeys')
+    expect(hotkeysResult?.details?.body).toContain('Move cursor up')
+    expect(changelogResult?.message).toMatch(/^已打开 Changelog|没有可显示的 changelog$/)
+    if (changelogResult?.details) {
+      expect(changelogResult.details.title).toContain('Changelog')
+    }
+  })
+
+  it('runCommand 对 share 创建 secret gist 并返回 Pi viewer URL，不写入 prompt', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'desktop-share-'))
+    const sessionFile = join(root, 'session.jsonl')
+    writeFileSync(sessionFile, `${JSON.stringify({ type: 'session_start', cwd: root })}\n`)
+    vi.stubEnv('GITHUB_TOKEN', 'token-a')
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ id: 'gist-123' })
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    const core = {
+      getSnapshot: vi.fn().mockResolvedValue({ sessionFile }),
+      sendOk: vi.fn()
+    } as unknown as ThreadManagerCore
+
+    try {
+      const result = await runCommand(core, { threadId: 'thread-a', command: 'share' })
+
+      expect(core.sendOk).not.toHaveBeenCalled()
+      expect(fetchMock).toHaveBeenCalledWith(
+        'https://api.github.com/gists',
+        expect.objectContaining({
+          method: 'POST',
+          headers: expect.objectContaining({
+            authorization: 'Bearer token-a'
+          })
+        })
+      )
+      expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toMatchObject({
+        public: false,
+        files: {
+          'session.jsonl': {
+            content: `${JSON.stringify({ type: 'session_start', cwd: root })}\n`
+          }
+        }
+      })
+      expect(result?.message).toBe('已创建分享链接：https://pi.dev/session/#gist-123')
+      expect(result?.details).toEqual({
+        title: 'Share',
+        body: 'https://pi.dev/session/#gist-123'
+      })
+      expect(clipboard.writeText).toHaveBeenCalledWith('https://pi.dev/session/#gist-123')
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it('runCommand 对需要 Desktop UI 的内建命令返回明确错误，不写入 prompt', async () => {
+    const core = {
+      sendOk: vi.fn()
+    } as unknown as ThreadManagerCore
+
+    await expect(
+      runCommand(core, {
+        threadId: 'thread-a',
+        command: 'settings'
+      })
+    ).rejects.toThrow('/settings 需要通过 Desktop 对应 UI 入口执行')
+
+    expect(core.sendOk).not.toHaveBeenCalled()
   })
 })

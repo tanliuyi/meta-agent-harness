@@ -14,6 +14,10 @@ type BaseCanonicalAgentCommand = DistributiveOmit<RpcCommand, "id">;
 export type CanonicalAgentCommand =
 	| Exclude<BaseCanonicalAgentCommand, { type: "switch_session" } | { type: "fork" }>
 	| {
+			/** 命令类型：重载 settings、resources、extensions、skills、prompts 和 themes。 */
+			type: "reload";
+	  }
+	| {
 			/** 命令类型：切换会话。 */
 			type: "switch_session";
 			/** 目标会话路径。 */
@@ -106,6 +110,7 @@ const canonicalCommandTypes = new Set<string>([
 	"set_auto_compaction",
 	"set_auto_retry",
 	"abort_retry",
+	"reload",
 	"bash",
 	"abort_bash",
 	"get_session_stats",
