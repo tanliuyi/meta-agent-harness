@@ -48,6 +48,8 @@ export async function createThread(
       sessionFile: input.sessionFile,
       cwdOverride: input.cwdOverride,
       title: input.title,
+      initialModel: input.initialModel,
+      thinkingLevel: input.thinkingLevel,
       agentDir: input.agentDir,
       projectTrustOverride: core.getProjectTrustOverride(cwd)
     })

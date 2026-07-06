@@ -63,7 +63,9 @@ describe('CodingThreadManager lifecycle', () => {
     const snapshot = await manager.createThread({
       threadId: 'thread-a',
       projectId: project.projectId,
-      title: 'Thread A'
+      title: 'Thread A',
+      initialModel: { provider: 'kimi-coding', modelId: 'kimi-for-coding' },
+      thinkingLevel: 'medium'
     })
 
     expect(snapshot.cwd).toBe(projectPath)
@@ -71,7 +73,9 @@ describe('CodingThreadManager lifecycle', () => {
       {
         threadId: 'thread-a',
         cwd: projectPath,
-        title: 'Thread A'
+        title: 'Thread A',
+        initialModel: { provider: 'kimi-coding', modelId: 'kimi-for-coding' },
+        thinkingLevel: 'medium'
       }
     ])
 

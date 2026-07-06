@@ -88,6 +88,10 @@ export async function createRuntimeForThread(
 				services,
 				sessionManager: runtimeOptions.sessionManager,
 				sessionStartEvent: runtimeOptions.sessionStartEvent,
+				model: input.initialModel
+					? await resolveInitialModel(services.modelRegistry, input.initialModel)
+					: undefined,
+				thinkingLevel: input.thinkingLevel,
 			});
 			return {
 				...result,
@@ -114,6 +118,20 @@ function requireApprovalBridge(approvalBridge: ApprovalBridge | undefined): Appr
 		throw new Error("desktop project trust requires approval bridge");
 	}
 	return approvalBridge;
+}
+
+async function resolveInitialModel(
+	modelRegistry: Awaited<ReturnType<typeof createAgentSessionServices>>["modelRegistry"],
+	initialModel: NonNullable<StartThreadInput["initialModel"]>,
+) {
+	const models = await modelRegistry.getAvailable();
+	const model = models.find(
+		(item) => item.provider === initialModel.provider && item.id === initialModel.modelId,
+	);
+	if (!model) {
+		throw new Error(`Model not found: ${initialModel.provider}/${initialModel.modelId}`);
+	}
+	return model;
 }
 
 /**

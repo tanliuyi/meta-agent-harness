@@ -3,7 +3,7 @@
  */
 
 import type { CwdPath, IsoTime, SessionFile, ThreadId } from "./identity.ts";
-import type { AgentMessage } from "@earendil-works/pi-agent-core";
+import type { AgentMessage, ThinkingLevel } from "@earendil-works/pi-agent-core";
 import type { RpcResponse, RpcSessionState } from "../../modes/rpc/rpc-types.ts";
 import type { DesktopSessionTreeNode } from "./snapshot.ts";
 
@@ -22,6 +22,10 @@ export interface StartThreadInput {
 	cwdOverride?: CwdPath;
 	/** 线程标题。 */
 	title?: string;
+	/** 新线程的初始模型；恢复已有 session 时通常不传。 */
+	initialModel?: { provider: string; modelId: string };
+	/** 新线程的初始 thinking level；恢复已有 session 时通常不传。 */
+	thinkingLevel?: ThinkingLevel;
 	/** Agent 目录路径（可选）。 */
 	agentDir?: string;
 	/** Project trust 覆盖；desktop host 已在 Project 层解析时传入。 */
