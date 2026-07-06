@@ -90,7 +90,7 @@
 .extensions-shell,
 .models-shell {
   display: grid;
-  grid-template-columns: 220px minmax(0, 1fr);
+  grid-template-columns: 280px minmax(0, 1fr);
   height: 100%;
   min-width: 0;
   min-height: 0;
@@ -180,8 +180,9 @@
 .models-shell__link {
   display: flex;
   align-items: center;
-  min-height: 28px;
+  min-height: 2.4em;
   min-width: 0;
+  margin-bottom: var(--space-1);
   padding: 0 var(--space-2);
   border: 1px solid transparent;
   border-radius: var(--radius-lg);

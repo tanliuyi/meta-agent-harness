@@ -51,24 +51,6 @@ onMounted(() => {
         <h1>模型</h1>
         <p>每个配置项独立保存，切换页面会保留当前编辑状态。</p>
       </div>
-      <section class="models-shell__summary" aria-label="模型配置概览">
-        <div>
-          <span>Default</span>
-          <strong>{{ defaultModelLabel }}</strong>
-        </div>
-        <div>
-          <span>Available</span>
-          <strong>{{ availableModelCount }}</strong>
-        </div>
-        <div :class="{ 'has-warning': credentialIssueCount > 0 }">
-          <span>Credentials</span>
-          <strong>{{ credentialIssueCount }}</strong>
-        </div>
-        <div :class="{ 'has-warning': modelIssueCount > 0 }">
-          <span>Diagnostics</span>
-          <strong>{{ modelIssueCount }}</strong>
-        </div>
-      </section>
       <RouterLink v-for="link in links" :key="link.to" class="models-shell__link" :to="link.to">
         {{ link.label }}
       </RouterLink>

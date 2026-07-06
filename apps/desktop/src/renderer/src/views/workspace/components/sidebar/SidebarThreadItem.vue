@@ -115,7 +115,7 @@ function emitMenuAction(actionId: string): void {
   align-items: center;
   gap: var(--space-2);
   min-width: 0;
-  min-height: 28px;
+  min-height: 2.4em;
   margin: 0 var(--space-2);
   padding: var(--space-1) var(--space-3) var(--space-1)
     calc(var(--space-8) + var(--thread-indent, 0px));

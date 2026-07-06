@@ -52,7 +52,7 @@ defineEmits<{
 <style lang="scss" scoped>
 .base-field {
   display: grid;
-  gap: var(--space-1);
+  gap: var(--space-2);
   min-width: 0;
 }
 

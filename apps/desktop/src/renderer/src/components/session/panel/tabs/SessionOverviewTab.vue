@@ -1,6 +1,11 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, ref } from 'vue'
-import { BaseButton, BaseDropdownMenu, BaseIconButton, BaseSegmentedControl } from '@renderer/components/base'
+import {
+  BaseButton,
+  BaseDropdownMenu,
+  BaseIconButton,
+  BaseSegmentedControl
+} from '@renderer/components/base'
 import BaseField from '@renderer/components/base/BaseField.vue'
 import {
   Dialog,
@@ -43,7 +48,6 @@ const sessionTreeEntryCount = computed(
 const activeLineage = computed(
   () => workspaceSession.activeSnapshot?.lineage ?? workspaceSession.activeSession?.lineage
 )
-const activeStatus = computed(() => workspaceSession.activeSession?.status ?? 'new')
 const activeSessionFile = computed(() => workspaceSession.activeSnapshot?.sessionFile)
 const activeSessionFileName = computed(() =>
   activeSessionFile.value ? getFileName(activeSessionFile.value) : '-'
@@ -62,8 +66,8 @@ const sessionActionMenuSections = computed<BaseDropdownMenuSection[]>(() =>
     hasPreviousLeaf: Boolean(workspaceSession.activePreviousLeafEntryId),
     canOpenParentSession: Boolean(
       activeLineage.value &&
-        !activeLineage.value.parentSessionMissing &&
-        !activeLineage.value.unavailable
+      !activeLineage.value.parentSessionMissing &&
+      !activeLineage.value.unavailable
     )
   })
 )
@@ -210,9 +214,6 @@ async function runSessionAction(actionId: string): Promise<void> {
           <span>Project</span>
           <strong>{{ sessionProject?.name ?? '-' }}</strong>
         </div>
-        <span class="session-overview__status" :class="`is-${activeStatus}`">
-          {{ activeStatus }}
-        </span>
       </div>
 
       <div class="session-overview__path">

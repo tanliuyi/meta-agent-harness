@@ -103,7 +103,7 @@ const goBack = (): void => {
   display: flex;
   align-items: center;
   min-width: 0;
-  height: 28px;
+  height: 2.4em;
   margin: var(--space-1) var(--space-2) 0;
   padding: 0 var(--space-3);
   border: 1px solid transparent;

@@ -23,7 +23,7 @@ import { useRouter } from 'vue-router'
 
 type ExtensionPathRow = ResourceSnapshot['resources']['extensions'][number]
 type ExtensionCapabilityRow = ResourceSnapshot['extensions'][number]
-type ExtensionGroupKey = 'project' | 'user' | 'package'
+type ExtensionGroupKey = string
 type ExtensionScope = 'project' | 'user'
 
 interface ExtensionListRow {
@@ -98,40 +98,53 @@ const capabilityByPath = computed(() => {
   return rows
 })
 const extensionGroups = computed<ExtensionGroup[]>(() => {
-  const groups: Record<ExtensionGroupKey, ExtensionListRow[]> = {
-    project: [],
-    user: [],
-    package: []
-  }
+  const projectRows: ExtensionListRow[] = []
+  const userRows: ExtensionListRow[] = []
+  const packageGroups = new Map<string, ExtensionListRow[]>()
 
   for (const path of extensionPathRows.value) {
-    const key = getExtensionGroupKey(path)
-    groups[key].push({
+    const row: ExtensionListRow = {
       path,
       extension: capabilityByPath.value.get(path.path)
-    })
+    }
+    if (path.sourceInfo.origin === 'package') {
+      const source = path.sourceInfo.source
+      if (!packageGroups.has(source)) {
+        packageGroups.set(source, [])
+      }
+      packageGroups.get(source)!.push(row)
+    } else if (path.sourceInfo.scope === 'project') {
+      projectRows.push(row)
+    } else {
+      userRows.push(row)
+    }
   }
 
-  return [
+  const groups: ExtensionGroup[] = [
     {
       key: 'project',
       title: 'Project',
       description: '当前项目 .pi/settings.json 或项目自动发现的扩展。',
-      rows: groups.project
+      rows: projectRows
     },
     {
       key: 'user',
       title: '用户',
       description: '全局用户 settings 与用户级自动发现扩展。',
-      rows: groups.user
-    },
-    {
-      key: 'package',
-      title: '包来源',
-      description: '来自 package source 的扩展；如需管理来源，请进入包来源页。',
-      rows: groups.package
+      rows: userRows
     }
   ]
+
+  for (const [source, rows] of packageGroups) {
+    groups.push({
+      key: `package:${source}`,
+      title: source,
+      description: '来自 package source 的扩展；如需管理来源，请进入包来源页。',
+      rows
+    })
+  }
+
+  return groups
 })
 const addScopeOptions = computed(() => [
   { label: '用户', value: 'user' as const },
@@ -296,12 +309,6 @@ function getSettingsForPathScope(scope: string): string[] {
   if (scope === 'project') return agentSettings.projectExtensionPaths
   if (scope === 'user') return agentSettings.draft?.resources.extensions ?? []
   return []
-}
-
-function getExtensionGroupKey(path: ExtensionPathRow): ExtensionGroupKey {
-  if (path.sourceInfo.origin === 'package') return 'package'
-  if (path.sourceInfo.scope === 'project') return 'project'
-  return 'user'
 }
 
 function getExtensionPathStateLabel(path: ExtensionPathRow): string {
@@ -521,7 +528,7 @@ function getDiagnosticTypeLabel(type: string): string {
                   设置
                 </BaseButton>
                 <BaseButton
-                  v-else-if="group.key === 'package'"
+                  v-else-if="group.key.startsWith('package')"
                   size="sm"
                   variant="ghost"
                   @click="router.push('/settings/extensions/packages')"

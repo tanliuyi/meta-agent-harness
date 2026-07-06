@@ -463,34 +463,6 @@
   white-space: nowrap;
 }
 
-.session-overview__status {
-  justify-self: end;
-  max-width: 112px;
-  padding: 1px 7px;
-  color: var(--color-text-muted) !important;
-  font-size: max(12px, var(--font-size-ui-2xs)) !important;
-  font-weight: 700;
-  line-height: 18px;
-  text-transform: capitalize;
-  background: var(--color-control-track);
-  border: 1px solid var(--color-border-muted);
-  border-radius: 999px;
-}
-
-.session-overview__status.is-running,
-.session-overview__status.is-busy {
-  color: var(--color-primary-strong) !important;
-  background: color-mix(in srgb, var(--color-primary-soft) 52%, transparent);
-  border-color: color-mix(in srgb, var(--color-primary-outline) 55%, var(--color-border));
-}
-
-.session-overview__status.is-error,
-.session-overview__status.is-failed {
-  color: var(--color-danger) !important;
-  background: color-mix(in srgb, var(--color-danger) 10%, transparent);
-  border-color: color-mix(in srgb, var(--color-danger) 28%, var(--color-border));
-}
-
 .session-overview__copy {
   align-self: end;
   width: 24px;

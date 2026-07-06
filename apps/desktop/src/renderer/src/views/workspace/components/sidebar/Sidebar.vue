@@ -323,19 +323,18 @@ function getProjectTrustIcon(project: ProjectSummary): Component | undefined {
 
 <template>
   <aside class="workspace__sidebar">
+    <div class="sidebar-section__header">
+      <span>项目</span>
+      <BaseIconButton
+        label="打开 Project"
+        size="small"
+        class="project-tree__add-btn"
+        @click="createProject"
+      >
+        <PlusIcon :size="14" />
+      </BaseIconButton>
+    </div>
     <ScrollArea class="sidebar-section">
-      <div class="sidebar-section__header">
-        <span>项目</span>
-        <BaseIconButton
-          label="打开 Project"
-          size="small"
-          class="project-tree__add-btn"
-          @click="createProject"
-        >
-          <PlusIcon :size="14" />
-        </BaseIconButton>
-      </div>
-
       <template v-if="workspaceProject.errorMessage">
         <p class="sidebar-error">
           {{ workspaceProject.errorMessage }}
@@ -432,11 +431,14 @@ function getProjectTrustIcon(project: ProjectSummary): Component | undefined {
 
 <style lang="scss" scoped>
 .workspace__sidebar {
+  flex-shrink: 0;
   position: relative;
   display: flex;
   flex-direction: column;
+  gap: var(--space-3);
   min-width: 0;
   min-height: 0;
+  padding: var(--space-4) 0 0;
   overflow: hidden;
   color: var(--color-text);
   background: var(--color-canvas);
@@ -459,6 +461,7 @@ function getProjectTrustIcon(project: ProjectSummary): Component | undefined {
 }
 
 .sidebar-section__header {
+  flex-shrink: 0;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -519,7 +522,7 @@ function getProjectTrustIcon(project: ProjectSummary): Component | undefined {
   align-items: center;
   gap: var(--space-2);
   min-width: 0;
-  height: 28px;
+  height: 2.4em;
   padding: 0 var(--space-3);
   color: var(--color-text-muted);
 
@@ -811,7 +814,7 @@ function getProjectTrustIcon(project: ProjectSummary): Component | undefined {
   flex-direction: row;
   align-items: center;
   gap: var(--space-2);
-  height: 28px;
+  height: 2.4em;
   margin: 0 var(--space-2) var(--space-2);
   padding: 0 var(--space-3);
   border: 1px solid transparent;
