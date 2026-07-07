@@ -9,7 +9,7 @@ import {
 	type SessionInfoEntry,
 	type SessionTreeNode,
 	type ThinkingLevelChangeEntry,
-} from "../../core/session-manager.ts";
+} from "@earendil-works/pi-coding-agent";
 import type { DesktopSessionTreeNode, ThreadSnapshot } from "../protocol/snapshot.ts";
 import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
 import type { ThreadSummary } from "../protocol/thread.ts";

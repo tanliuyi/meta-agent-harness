@@ -4,12 +4,16 @@
 
 // Core session management
 
-export { type Args, parseArgs } from "./cli/args.ts";
-export * from "./desktop/index.ts";
+export { type Args, type Mode, parseArgs, printHelp } from "./cli/args.ts";
+export { processFileArguments } from "./cli/file-processor.ts";
+export { buildInitialMessage } from "./cli/initial-message.ts";
+export { listModels } from "./cli/list-models.ts";
 
 // Config paths
 export {
 	CONFIG_DIR_NAME,
+	ENV_SESSION_DIR,
+	expandTildePath,
 	getAgentDir,
 	getDocsPath,
 	getExamplesPath,
@@ -22,6 +26,7 @@ export {
 	type AgentSessionConfig,
 	type AgentSessionEvent,
 	type AgentSessionEventListener,
+	type ExtensionBindings,
 	type ModelCycleResult,
 	type ParsedSkillBlock,
 	type PromptOptions,
@@ -105,7 +110,6 @@ export type {
 	InputEvent,
 	InputEventResult,
 	InputSource,
-	KeybindingsManager,
 	LoadExtensionsResult,
 	LsToolCallEvent,
 	ProjectTrustContext,
@@ -162,7 +166,7 @@ export {
 } from "./core/extensions/index.ts";
 // Footer data provider (git branch + extension statuses - data not otherwise available to extensions)
 export type { ReadonlyFooterDataProvider } from "./core/footer-data-provider.ts";
-export { convertToLlm } from "./core/messages.ts";
+export { convertToLlm, type CustomMessage } from "./core/messages.ts";
 export { ModelRegistry } from "./core/model-registry.ts";
 export type {
 	PackageManager,
@@ -186,20 +190,10 @@ export {
 } from "./core/resource-snapshot.ts";
 // SDK for programmatic usage
 export {
-	AgentSessionRuntime,
-	type AgentSessionRuntimeDiagnostic,
-	type AgentSessionServices,
-	type CreateAgentSessionFromServicesOptions,
 	type CreateAgentSessionOptions,
 	type CreateAgentSessionResult,
-	type CreateAgentSessionRuntimeFactory,
-	type CreateAgentSessionRuntimeResult,
-	type CreateAgentSessionServicesOptions,
 	// Factory
 	createAgentSession,
-	createAgentSessionFromServices,
-	createAgentSessionRuntime,
-	createAgentSessionServices,
 	createBashTool,
 	// Tool factories (for custom cwd)
 	createCodingTools,
@@ -212,6 +206,18 @@ export {
 	createWriteTool,
 	type PromptTemplate,
 } from "./core/sdk.ts";
+export {
+	AgentSessionRuntime,
+	type AgentSessionRuntimeDiagnostic,
+	type AgentSessionServices,
+	type CreateAgentSessionFromServicesOptions,
+	type CreateAgentSessionRuntimeFactory,
+	type CreateAgentSessionRuntimeResult,
+	type CreateAgentSessionServicesOptions,
+	createAgentSessionFromServices,
+	createAgentSessionRuntime,
+	createAgentSessionServices,
+} from "./core/agent-session-runtime.ts";
 export {
 	type BranchSummaryEntry,
 	buildSessionContext,
@@ -233,7 +239,10 @@ export {
 	type SessionInfoEntry,
 	SessionManager,
 	type SessionMessageEntry,
+	type SessionTreeNode,
 	type ThinkingLevelChangeEntry,
+	assertValidSessionId,
+	resolveSessionCwd,
 } from "./core/session-manager.ts";
 export {
 	type CompactionSettings,
@@ -254,7 +263,20 @@ export {
 	type Skill,
 	type SkillFrontmatter,
 } from "./core/skills.ts";
+export { formatNoModelsAvailableMessage } from "./core/auth-guidance.ts";
+export { exportFromFile } from "./core/export-html/index.ts";
+export { applyHttpProxySettings, configureHttpDispatcher } from "./core/http-dispatcher.ts";
+export { KeybindingsManager, type KeyId } from "./core/keybindings.ts";
+export { type ScopedModel, resolveCliModel, resolveModelScope } from "./core/model-resolver.ts";
+export { restoreStdout, takeOverStdout } from "./core/output-guard.ts";
+export { type AppMode, resolveProjectTrusted } from "./core/project-trust.ts";
+export {
+	MissingSessionCwdError,
+	formatMissingSessionCwdPrompt,
+	getMissingSessionCwdIssue,
+} from "./core/session-cwd.ts";
 export { createSyntheticSourceInfo } from "./core/source-info.ts";
+export { printTimings, resetTimings, time } from "./core/timings.ts";
 export { type EditDiffResult, generateDiffString, generateUnifiedPatch } from "./core/tools/edit-diff.ts";
 // Tools
 export {
@@ -327,9 +349,12 @@ export {
 	type RpcExtensionUIResponse,
 	type RpcResponse,
 	type RpcSessionState,
+	type RpcSlashCommand,
 	runPrintMode,
 	runRpcMode,
 } from "./modes/index.ts";
+export { runMigrations } from "./migrations.ts";
+export { handleConfigCommand, handlePackageCommand } from "./package-manager-cli.ts";
 // Clipboard utilities
 export { formatTokens } from "./utils/format.ts";
 export { copyToClipboard } from "./utils/clipboard.ts";
@@ -337,4 +362,6 @@ export { parseFrontmatter, stripFrontmatter } from "./utils/frontmatter.ts";
 export { convertToPng } from "./utils/image-convert.ts";
 export { formatDimensionNote, type ResizedImage, resizeImage } from "./utils/image-resize.ts";
 // Shell utilities
+export { isLocalPath, normalizePath, resolvePath } from "./utils/paths.ts";
 export { getShellConfig } from "./utils/shell.ts";
+export { cleanupWindowsSelfUpdateQuarantine } from "./utils/windows-self-update.ts";

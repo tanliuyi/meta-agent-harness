@@ -25,7 +25,7 @@ import useModelSettingsStore from '@renderer/stores/model-settings'
 import useWorkspaceSessionStore from '@renderer/stores/workspace-session'
 import useWorkspaceProjectStore from '@renderer/stores/workspace-project'
 import { useSessionContext } from '@renderer/composables/useSessionContext'
-import type { DesktopToolCall } from '@coding-agent-src/desktop/protocol/tool.ts'
+import type { DesktopToolCall } from '@coding-agent-desktop-src/protocol/tool'
 import ScrollArea from '../ui/scroll-area/ScrollArea.vue'
 import type {
   ComposerFileAttachment,

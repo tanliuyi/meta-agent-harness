@@ -3,12 +3,12 @@
  */
 
 import { describe, expect, it } from "vitest";
-import type { AgentSessionRuntime } from "../../core/agent-session-runtime.ts";
-import type { AgentSessionEvent } from "../../core/agent-session.ts";
+import type { AgentSessionRuntime } from "@earendil-works/pi-coding-agent";
+import type { AgentSessionEvent } from "@earendil-works/pi-coding-agent";
 import { RuntimeDesktopWorkerService } from "../worker/runtime-service.ts";
 import type { StartThreadInput } from "../protocol/thread.ts";
 import type { WorkerEventEnvelope } from "../protocol/envelope.ts";
-import type { ExtensionBindings } from "../../core/agent-session.ts";
+import type { ExtensionBindings } from "@earendil-works/pi-coding-agent";
 
 /** RuntimeDesktopWorkerService 测试套件。 */
 describe("RuntimeDesktopWorkerService", () => {

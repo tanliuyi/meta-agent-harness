@@ -2,7 +2,7 @@
  * 定义 extension UI request 在 desktop transport 中的结构。
  */
 
-import type { WorkingIndicatorOptions } from "../../core/extensions/types.ts";
+import type { WorkingIndicatorOptions } from "@earendil-works/pi-coding-agent";
 
 /** Extension UI 请求联合类型。 */
 export type ExtensionUiRequest =

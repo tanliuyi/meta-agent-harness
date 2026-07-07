@@ -2,8 +2,8 @@
  * 从 Pi session 资源汇总可调用 slash command。
  */
 
-import type { AgentSession } from "../../core/agent-session.ts";
-import type { RpcSlashCommand } from "../../modes/rpc/rpc-types.ts";
+import type { AgentSession } from "@earendil-works/pi-coding-agent";
+import type { RpcSlashCommand } from "@earendil-works/pi-coding-agent";
 
 /**
  * 获取当前 session 中可用的 slash command 列表。

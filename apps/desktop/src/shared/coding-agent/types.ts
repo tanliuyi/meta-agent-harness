@@ -5,25 +5,25 @@
 import type {
   ApprovalRequest as PackageApprovalRequest,
   ApprovalResponse as PackageApprovalResponse
-} from '@coding-agent-src/desktop/protocol/approval'
+} from '@coding-agent-desktop-src/protocol/approval'
 import type { AgentSessionEvent as PackageAgentSessionEvent } from '@coding-agent-src/core/agent-session'
-import type { DesktopProjectionEvent as PackageDesktopProjectionEvent } from '@coding-agent-src/desktop/protocol/events/projection'
-import type { WorkerLifecycleEvent as PackageWorkerLifecycleEvent } from '@coding-agent-src/desktop/protocol/events/worker'
+import type { DesktopProjectionEvent as PackageDesktopProjectionEvent } from '@coding-agent-desktop-src/protocol/events/projection'
+import type { WorkerLifecycleEvent as PackageWorkerLifecycleEvent } from '@coding-agent-desktop-src/protocol/events/worker'
 import type {
   ExtensionUiRequest as PackageExtensionUiRequest,
   ExtensionUiResponse as PackageExtensionUiResponse
-} from '@coding-agent-src/desktop/protocol/extension-ui'
+} from '@coding-agent-desktop-src/protocol/extension-ui'
 import type { AgentMessage, ThinkingLevel as PiThinkingLevel } from '@earendil-works/pi-agent-core'
-import { toDesktopMessageContent as toPackageDesktopMessageContent } from '@coding-agent-src/desktop/protocol/message'
+import { toDesktopMessageContent as toPackageDesktopMessageContent } from '@coding-agent-desktop-src/protocol/message'
 import type {
   DesktopMessage,
   ThreadSnapshot as PackageThreadSnapshot
-} from '@coding-agent-src/desktop/protocol/snapshot'
+} from '@coding-agent-desktop-src/protocol/snapshot'
 import type {
   StartThreadInput as PackageStartThreadInput,
   ThreadRuntimeState,
   ThreadSummary as PackageThreadSummary
-} from '@coding-agent-src/desktop/protocol/thread'
+} from '@coding-agent-desktop-src/protocol/thread'
 import type { RpcResponse } from '@coding-agent-src/modes/rpc/rpc-types'
 import type { SourceInfo } from '@coding-agent-src/core/source-info'
 import type { ImageContent } from '@earendil-works/pi-ai'

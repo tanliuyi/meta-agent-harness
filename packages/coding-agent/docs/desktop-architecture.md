@@ -843,7 +843,7 @@ Phase 1：后端能力、IPC 与 renderer 数据层联调
 - 增加 desktop architecture docs 和 protocol drafts
 - 避免把新的 desktop 能力继续加到旧 CLI/TUI surface 上
 - 增加 `src/worker/protocol.ts`
-- 增加 Electron utility worker 入口 `src/desktop/worker/worker-main.ts`
+- 增加 Electron utility worker 入口 `packages/coding-agent-desktop/src/worker/worker-main.ts`
 - 增加 utility process worker client/transport
 - 增加 thread worker registry，支持 lease、idle 回收和 crash cleanup，不设置 agent 并行上限
 - 支持多 thread 的 prompt、abort、snapshot 和 streaming events

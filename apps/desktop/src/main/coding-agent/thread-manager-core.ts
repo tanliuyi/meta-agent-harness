@@ -7,7 +7,7 @@ import type { WorkerCommand, WorkerResponseEnvelope } from './worker-types'
 import type {
   ThreadLiveState,
   ThreadMessagesResponse
-} from '@coding-agent-src/desktop/protocol/thread'
+} from '@coding-agent-desktop-src/protocol/thread'
 import type { ContextUsage } from '@coding-agent-src/core/extensions/types'
 import type { ThreadWorkerRegistry } from './thread-worker-registry'
 import type { CodingThreadStore } from './thread-store'

@@ -1,0 +1,82 @@
+{
+  "name": "@earendil-works/pi-coding-agent-desktop",
+  "version": "0.80.2",
+  "description": "Desktop protocol, worker runtime, and IPC bridge for pi coding agent",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./ipc/*": {
+      "types": "./dist/ipc/*.d.ts",
+      "import": "./dist/ipc/*.js"
+    },
+    "./protocol/*": {
+      "types": "./dist/protocol/*.d.ts",
+      "import": "./dist/protocol/*.js"
+    },
+    "./protocol/commands/*": {
+      "types": "./dist/protocol/commands/*.d.ts",
+      "import": "./dist/protocol/commands/*.js"
+    },
+    "./protocol/events/*": {
+      "types": "./dist/protocol/events/*.d.ts",
+      "import": "./dist/protocol/events/*.js"
+    },
+    "./storage/*": {
+      "types": "./dist/storage/*.d.ts",
+      "import": "./dist/storage/*.js"
+    },
+    "./transport/*": {
+      "types": "./dist/transport/*.d.ts",
+      "import": "./dist/transport/*.js"
+    },
+    "./worker/*": {
+      "types": "./dist/worker/*.d.ts",
+      "import": "./dist/worker/*.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "clean": "shx rm -rf dist",
+    "build": "tsgo -p tsconfig.build.json",
+    "test": "vitest --run",
+    "prepublishOnly": "npm run clean && npm run build"
+  },
+  "dependencies": {
+    "@earendil-works/pi-agent-core": "workspace:^",
+    "@earendil-works/pi-ai": "workspace:^",
+    "@earendil-works/pi-coding-agent": "workspace:^",
+    "chalk": "5.6.2"
+  },
+  "devDependencies": {
+    "@types/node": "24.12.4",
+    "@typescript/native-preview": "7.0.0-dev.20260421.2",
+    "shx": "0.4.0",
+    "typescript": "5.9.3",
+    "vitest": "4.1.9"
+  },
+  "keywords": [
+    "coding-agent",
+    "desktop",
+    "electron",
+    "agent"
+  ],
+  "author": "Mario Zechner",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/earendil-works/pi.git",
+    "directory": "packages/coding-agent-desktop"
+  },
+  "engines": {
+    "node": ">=22.19.0"
+  }
+}

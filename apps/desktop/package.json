@@ -25,6 +25,7 @@
   },
   "dependencies": {
     "@chenglou/pretext": "0.0.8",
+    "@earendil-works/pi-coding-agent-desktop": "workspace:*",
     "@electron-toolkit/preload": "^3.0.2",
     "@electron-toolkit/utils": "^4.0.0",
     "@floating-ui/vue": "^2.0.0",

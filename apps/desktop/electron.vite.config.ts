@@ -9,22 +9,37 @@ import vue from '@vitejs/plugin-vue'
 const sharedAlias = resolve('src/shared')
 const rendererAlias = resolve('src/renderer/src')
 const codingAgentSrcAlias = resolve('../../packages/coding-agent/src')
+const codingAgentIndexAlias = resolve(codingAgentSrcAlias, 'index.ts')
+const codingAgentDesktopSrcAlias = resolve('../../packages/coding-agent-desktop/src')
+const codingAgentDesktopIndexAlias = resolve(codingAgentDesktopSrcAlias, 'index.ts')
+
+const commonAliases = [
+  { find: '@coding-agent-src', replacement: codingAgentSrcAlias },
+  { find: '@coding-agent-desktop-src', replacement: codingAgentDesktopSrcAlias },
+  { find: '@earendil-works/pi-coding-agent', replacement: codingAgentIndexAlias },
+  {
+    find: /^@earendil-works\/pi-coding-agent-desktop\/(.*)$/,
+    replacement: `${codingAgentDesktopSrcAlias}/$1`
+  },
+  {
+    find: '@earendil-works/pi-coding-agent-desktop',
+    replacement: codingAgentDesktopIndexAlias
+  },
+  { find: '@shared', replacement: sharedAlias }
+]
 
 export default defineConfig({
   main: {
     resolve: {
-      alias: {
-        '@coding-agent-src': codingAgentSrcAlias,
-        '@shared': sharedAlias
-      }
+      alias: commonAliases
     },
     build: {
       rollupOptions: {
         input: {
           index: resolve('src/main/index.ts'),
           'coding-agent-utility-worker': resolve(
-            codingAgentSrcAlias,
-            'desktop/worker/worker-main.ts'
+            codingAgentDesktopSrcAlias,
+            'worker/worker-main.ts'
           ),
           'coding-agent-node-sidecar-worker': resolve(
             'src/main/coding-agent/node-sidecar-worker-main.ts'
@@ -35,21 +50,17 @@ export default defineConfig({
   },
   preload: {
     resolve: {
-      alias: {
-        '@coding-agent-src': codingAgentSrcAlias,
-        '@shared': sharedAlias
-      }
+      alias: commonAliases
     }
   },
   renderer: {
     publicDir: 'resources',
     resolve: {
-      alias: {
-        '@': rendererAlias,
-        '@coding-agent-src': codingAgentSrcAlias,
-        '@shared': sharedAlias,
-        '@renderer': rendererAlias
-      }
+      alias: [
+        { find: /^@\/(.*)$/, replacement: `${rendererAlias}/$1` },
+        ...commonAliases,
+        { find: '@renderer', replacement: rendererAlias }
+      ]
     },
     plugins: [vue()]
   }

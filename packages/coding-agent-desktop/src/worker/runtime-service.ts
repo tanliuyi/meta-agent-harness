@@ -2,10 +2,10 @@
  * 本文件实现接入 Pi AgentSessionRuntime 的 desktop worker service。
  */
 
-import type { AgentSessionRuntime } from "../../core/agent-session-runtime.ts";
-import type { AgentSessionEvent } from "../../core/agent-session.ts";
-import type { ExtensionCommandContextActions } from "../../core/extensions/index.ts";
-import { KeybindingsManager } from "../../core/keybindings.ts";
+import type { AgentSessionRuntime } from "@earendil-works/pi-coding-agent";
+import type { AgentSessionEvent } from "@earendil-works/pi-coding-agent";
+import type { ExtensionCommandContextActions } from "@earendil-works/pi-coding-agent";
+import { KeybindingsManager } from "@earendil-works/pi-coding-agent";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import { createDesktopError } from "../protocol/error.ts";
 import { createWorkerErrorResponse, createWorkerResponse, type WorkerCommandEnvelope, type WorkerEventEnvelope, type WorkerResponseEnvelope } from "../protocol/envelope.ts";

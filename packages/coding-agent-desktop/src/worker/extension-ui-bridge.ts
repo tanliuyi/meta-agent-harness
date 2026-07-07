@@ -2,7 +2,7 @@
  * 实现 Pi extension UI context 与 desktop transport event 的桥接。
  */
 
-import type { ExtensionUIContext, ExtensionUIDialogOptions } from "../../core/extensions/index.ts";
+import type { ExtensionUIContext, ExtensionUIDialogOptions } from "@earendil-works/pi-coding-agent";
 import type { ExtensionUiRequest, ExtensionUiResponse } from "../protocol/extension-ui.ts";
 import type { ThreadId } from "../protocol/identity.ts";
 import type { WorkerEventEnvelope } from "../protocol/envelope.ts";

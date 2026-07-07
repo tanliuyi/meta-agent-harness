@@ -2,8 +2,8 @@
  * 定义 runtime command handler 共享的 host 契约。
  */
 
-import type { AgentSessionRuntime } from "../../core/agent-session-runtime.ts";
-import type { ProjectTrustContext } from "../../core/extensions/index.ts";
+import type { AgentSessionRuntime } from "@earendil-works/pi-coding-agent";
+import type { ProjectTrustContext } from "@earendil-works/pi-coding-agent";
 
 /** Runtime 命令 handler 共享的 host。 */
 export interface RuntimeCommandHandlerHost {

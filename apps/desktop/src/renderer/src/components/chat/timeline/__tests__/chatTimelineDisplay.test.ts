@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import type { DesktopToolCall } from '@coding-agent-src/desktop/protocol/tool'
+import type { DesktopToolCall } from '@coding-agent-desktop-src/protocol/tool'
 import type { MessageRenderState } from '@renderer/stores/workspace-session'
 import type { ThreadMessage } from '@shared/coding-agent/types'
 import {

@@ -4,7 +4,7 @@
 
 import type { CodingThreadStore } from './thread-store'
 import type { WorkerEnvelope } from './worker-types'
-import type { DesktopProjectionEvent } from '@coding-agent-src/desktop/protocol/events/projection'
+import type { DesktopProjectionEvent } from '@coding-agent-desktop-src/protocol/events/projection'
 
 /**
  * 缓存 worker projection event。

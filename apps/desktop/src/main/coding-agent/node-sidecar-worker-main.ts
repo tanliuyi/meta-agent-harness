@@ -2,9 +2,9 @@
  * desktop coding agent worker 的普通 Node sidecar 入口。
  */
 
-import type { WorkerCommandEnvelope } from '@coding-agent-src/desktop/protocol/envelope'
-import { createDesktopError } from '@coding-agent-src/desktop/protocol/error'
-import { createWorkerErrorResponse } from '@coding-agent-src/desktop/protocol/envelope'
+import type { WorkerCommandEnvelope } from '@coding-agent-desktop-src/protocol/envelope'
+import { createDesktopError } from '@coding-agent-desktop-src/protocol/error'
+import { createWorkerErrorResponse } from '@coding-agent-desktop-src/protocol/envelope'
 import { installCodingAgentPackageDirEnv } from './coding-agent-package-dir'
 import { shouldRunCliCompatibilityMode } from './node-sidecar-worker-mode'
 
@@ -22,7 +22,7 @@ if (shouldRunCliCompatibilityMode(startupArgs)) {
 
 function runCliCompatibilityMode(args: string[]): void {
   process.env.PI_CODING_AGENT = 'true'
-  void import('@coding-agent-src/desktop/worker/print-runner').then(
+  void import('@coding-agent-desktop-src/worker/print-runner').then(
     ({ runDesktopPrintMode }) => {
       void runDesktopPrintMode(args).then(
         (exitCode) => {
@@ -50,7 +50,7 @@ function shouldDrainSuccessfulWindowsUpdate(args: readonly string[], exitCode: n
 
 async function runIpcWorkerMode(): Promise<void> {
   const { RuntimeDesktopWorkerService } =
-    await import('@coding-agent-src/desktop/worker/runtime-service')
+    await import('@coding-agent-desktop-src/worker/runtime-service')
   const service = new RuntimeDesktopWorkerService()
 
   service.setEventSink?.((event) => {

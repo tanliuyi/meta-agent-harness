@@ -364,6 +364,9 @@ async function openDiagnosticTarget(item: DiagnosticsItem): Promise<void> {
   padding: var(--space-2) var(--space-3);
   color: var(--color-accent);
   font-size: var(--font-size-ui-sm);
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
   background: var(--color-accent-soft);
   border: 1px solid var(--color-accent-outline);
   border-radius: var(--radius-md);
@@ -408,9 +411,15 @@ async function openDiagnosticTarget(item: DiagnosticsItem): Promise<void> {
   min-width: 0;
 
   strong,
-  span,
+  span {
+    display: block;
+    overflow-wrap: anywhere;
+    white-space: pre-wrap;
+  }
+
   small {
     display: block;
+    min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;

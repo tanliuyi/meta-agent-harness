@@ -4,7 +4,7 @@
 
 import type { CwdPath, IsoTime, SessionFile, ThreadId } from "./identity.ts";
 import type { AgentMessage, ThinkingLevel } from "@earendil-works/pi-agent-core";
-import type { RpcResponse, RpcSessionState } from "../../modes/rpc/rpc-types.ts";
+import type { RpcResponse, RpcSessionState } from "@earendil-works/pi-coding-agent";
 import type { DesktopSessionTreeNode } from "./snapshot.ts";
 
 /** Thread 运行时状态。 */

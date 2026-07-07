@@ -2,7 +2,7 @@
  * 实现 desktop transport 驱动的 Pi project trust 上下文。
  */
 
-import type { ProjectTrustContext } from "../../core/extensions/index.ts";
+import type { ProjectTrustContext } from "@earendil-works/pi-coding-agent";
 import type { ApprovalBridge } from "./approval-bridge.ts";
 
 /**
