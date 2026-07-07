@@ -116,7 +116,7 @@ const router = createRouter({
             {
               path: 'api-keys',
               name: 'SettingsModelsApiKeys',
-              component: () => import('../views/settings/models/ApiKeysView.vue')
+              redirect: '/settings/models/registry?tab=credentials'
             },
             {
               path: 'providers',

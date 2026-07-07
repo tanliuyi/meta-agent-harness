@@ -30,6 +30,8 @@ const selectedModelStatusLabel = computed(() => {
       return '无效'
     case 'disabled':
       return '已禁用'
+    default:
+      return '不在 registry 中'
   }
 })
 
@@ -92,7 +94,7 @@ const modelOptions = computed(() =>
         <template #icon>
           <Save :size="14" />
         </template>
-        保存默认模型
+        保存
       </BaseButton>
     </header>
 

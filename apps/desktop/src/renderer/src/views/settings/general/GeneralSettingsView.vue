@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { Slider } from '@/components/ui/slider'
 import { BaseButton, BasePanel, BaseSegmentedControl } from '@renderer/components/base'
 import { useAppearanceSettings } from '@renderer/composables/useAppearanceSettings'
 import { useTheme } from '@renderer/composables/useTheme'
@@ -18,6 +19,16 @@ const uiFontSizeModel = computed({
 const codeFontSizeModel = computed({
   get: () => appearanceSettings.codeFontSize.value,
   set: (value: number | string | null | undefined) => appearanceSettings.setCodeFontSize(value)
+})
+
+const uiFontSizeSliderModel = computed({
+  get: () => [uiFontSizeModel.value],
+  set: (value: number[] | undefined) => appearanceSettings.setUiFontSize(value?.[0])
+})
+
+const codeFontSizeSliderModel = computed({
+  get: () => [codeFontSizeModel.value],
+  set: (value: number[] | undefined) => appearanceSettings.setCodeFontSize(value?.[0])
 })
 </script>
 
@@ -67,12 +78,11 @@ const codeFontSizeModel = computed({
         <label class="font-size-field">
           <span>UI 字体大小</span>
           <div class="font-size-field__control">
-            <input
-              v-model.number="uiFontSizeModel"
+            <Slider
+              v-model="uiFontSizeSliderModel"
               :min="appearanceSettings.uiFontSizeRange.min"
               :max="appearanceSettings.uiFontSizeRange.max"
               :step="appearanceSettings.uiFontSizeRange.step"
-              type="range"
             />
             <input
               v-model.number="uiFontSizeModel"
@@ -88,12 +98,11 @@ const codeFontSizeModel = computed({
         <label class="font-size-field">
           <span>代码字体大小</span>
           <div class="font-size-field__control">
-            <input
-              v-model.number="codeFontSizeModel"
+            <Slider
+              v-model="codeFontSizeSliderModel"
               :min="appearanceSettings.codeFontSizeRange.min"
               :max="appearanceSettings.codeFontSizeRange.max"
               :step="appearanceSettings.codeFontSizeRange.step"
-              type="range"
             />
             <input
               v-model.number="codeFontSizeModel"

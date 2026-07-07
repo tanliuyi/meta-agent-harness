@@ -61,7 +61,7 @@ const styles = computed(() => {
   gap: var(--space-2);
   min-width: 0;
   min-height: 0;
-  padding-left: var(--space-2);
+  padding-left: var(--space-4);
 
   &--darwin {
     -webkit-app-region: drag;

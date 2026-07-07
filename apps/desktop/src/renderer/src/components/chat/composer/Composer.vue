@@ -9,25 +9,14 @@ import {
   defineAsyncComponent,
   nextTick,
   ref,
-  watch,
-  type ComponentPublicInstance
+  watch
 } from 'vue'
-import { useVirtualizer } from '@tanstack/vue-virtual'
 import { onClickOutside } from '@vueuse/core'
 import { BaseButton, BaseIconButton } from '@renderer/components/base'
-import BaseField from '@renderer/components/base/BaseField.vue'
 import ExtensionWidget from '@renderer/components/extension/ExtensionWidget.vue'
 import SendIcon from '@renderer/components/icons/SendIcon.vue'
 import { Command } from '@renderer/components/ui/command'
 import ScrollArea from '@renderer/components/ui/scroll-area/ScrollArea.vue'
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle
-} from '@renderer/components/ui/dialog'
 import {
   Tooltip,
   TooltipContent,
@@ -42,10 +31,10 @@ import {
   SelectTrigger,
   SelectValue
 } from '@renderer/components/ui/select'
-import { useSelectContentWidth } from '@renderer/components/ui/select/useSelectContentWidth'
+import { useSelectContentWidth } from '@renderer/components/ui/select/composables/useSelectContentWidth'
 import StopIcon from '@renderer/components/icons/StopIcon.vue'
-import { Command as CommandIcon, X } from 'lucide-vue-next'
-import ImagePreviewDialog, { type ImagePreviewItem } from '../ImagePreviewDialog.vue'
+import { Command as CommandIcon, LoaderCircle, X } from 'lucide-vue-next'
+import type { ImagePreviewItem } from '../ImagePreviewDialog.vue'
 import Usage from './Usage.vue'
 import type { TokenUsage } from './Usage.vue'
 import type { ComposerImageAttachment } from '@renderer/stores/workspace-session'
@@ -53,6 +42,7 @@ import {
   getCommandQueryArgs,
   getCommandQueryName
 } from '@renderer/components/session/panel/tabs/display/commandDisplay'
+import { useToast } from '@renderer/composables/useToast'
 import type {
   CommandInfo,
   ExtensionUiRequest,
@@ -70,6 +60,17 @@ type FileReferenceCompletionState = {
   selectedIndex: number
 }
 
+type SkillReferenceCompletionCandidate = {
+  name: string
+  label: string
+  description?: string
+}
+
+type SkillReferenceCompletionState = {
+  candidates: SkillReferenceCompletionCandidate[]
+  selectedIndex: number
+}
+
 type RunningMessageDelivery = 'steer' | 'followUp'
 
 type ComposerImagePreview = ComposerImageAttachment & {
@@ -79,6 +80,10 @@ type ComposerImagePreview = ComposerImageAttachment & {
 type ComposerExtensionWidget = {
   lines: string[]
   placement: 'aboveEditor' | 'belowEditor'
+}
+
+type DroppedFile = File & {
+  path?: string
 }
 
 type SessionModel = NonNullable<ThreadSnapshot['model']>
@@ -93,7 +98,114 @@ const thinkingOptions: Array<{ label: string; value: ThinkingLevel }> = [
   { label: 'XHigh', value: 'xhigh' }
 ]
 
+const supportedImageMimeTypes = new Set([
+  'image/jpeg',
+  'image/png',
+  'image/gif',
+  'image/webp',
+  'image/bmp'
+])
+const supportedImageExtensions = new Set(['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp'])
+const supportedTextMimeTypes = new Set([
+  'application/javascript',
+  'application/json',
+  'application/sql',
+  'application/toml',
+  'application/typescript',
+  'application/x-httpd-php',
+  'application/x-javascript',
+  'application/x-sh',
+  'application/x-toml',
+  'application/x-yaml',
+  'application/xml',
+  'application/yaml'
+])
+const supportedTextExtensions = new Set([
+  'bash',
+  'bat',
+  'c',
+  'cc',
+  'cmd',
+  'conf',
+  'config',
+  'cpp',
+  'cs',
+  'css',
+  'csv',
+  'env',
+  'fish',
+  'go',
+  'graphql',
+  'gql',
+  'h',
+  'hpp',
+  'htm',
+  'html',
+  'ini',
+  'java',
+  'js',
+  'json',
+  'jsonl',
+  'jsx',
+  'kt',
+  'kts',
+  'less',
+  'log',
+  'lua',
+  'mjs',
+  'md',
+  'mdx',
+  'php',
+  'proto',
+  'ps1',
+  'py',
+  'rb',
+  'rs',
+  'sass',
+  'scss',
+  'sh',
+  'sql',
+  'svelte',
+  'toml',
+  'ts',
+  'tsv',
+  'tsx',
+  'txt',
+  'vue',
+  'xml',
+  'yaml',
+  'yml',
+  'zsh'
+])
+const supportedTextFileNames = new Set([
+  '.editorconfig',
+  '.env',
+  '.env.example',
+  '.gitattributes',
+  '.gitignore',
+  'dockerfile',
+  'license',
+  'makefile',
+  'readme'
+])
+const maxDroppedTextFileBytes = 512 * 1024
+const maxDroppedImageFileBytes = 20 * 1024 * 1024
+
 const PlainTextEditor = defineAsyncComponent(() => import('./PlainTextEditor.vue'))
+const ImagePreviewDialog = defineAsyncComponent({
+  loader: () => import('../ImagePreviewDialog.vue'),
+  suspensible: false
+})
+const NameCommandDialog = defineAsyncComponent({
+  loader: () => import('./dialogs/NameCommandDialog.vue'),
+  suspensible: false
+})
+const VirtualSelectItems = defineAsyncComponent({
+  loader: () => import('./select/VirtualSelectItems.vue'),
+  suspensible: false
+})
+const VIRTUAL_SELECT_THRESHOLD = 24
+const toast = useToast()
 
 const props = withDefaults(
   defineProps<{
@@ -103,6 +215,8 @@ const props = withDefaults(
     isRunning?: boolean
     /** 是否允许发送。 */
     canSend?: boolean
+    /** 当前是否正在提交发送。 */
+    submitting?: boolean
     /** 当前输入区绑定的 thread ID。 */
     threadId?: string
     /** 当前未绑定 thread 的 Project ID。 */
@@ -145,6 +259,7 @@ const props = withDefaults(
   {
     isRunning: false,
     canSend: false,
+    submitting: false,
     projectId: undefined,
     projects: () => [],
     images: () => [],
@@ -185,6 +300,8 @@ const emit = defineEmits<{
   'select-images': [threadId?: string]
   /** 粘贴图片附件。 */
   'paste-images': [files: File[], threadId?: string]
+  /** 通过本地路径添加图片附件。 */
+  'add-image-paths': [paths: string[], threadId?: string]
   /** 删除图片附件。 */
   'remove-image': [id: string]
   /** 清空图片附件。 */
@@ -205,9 +322,13 @@ const emit = defineEmits<{
 
 const editorRef = ref<{
   closeFileReferenceCompletion(): void
+  closeSkillReferenceCompletion(): void
   focusEditor(): void
+  insertFileReferences(paths: string[]): void
   selectFileReferenceCompletion(candidate: PromptFileReferenceCandidate | undefined): void
+  selectSkillReferenceCompletion(candidate: SkillReferenceCompletionCandidate | undefined): void
   setFileReferenceCompletionIndex(index: number): void
+  setSkillReferenceCompletionIndex(index: number): void
 }>()
 const fileCompletionScrollRef = ref<{
   getViewport(): HTMLElement | undefined
@@ -222,10 +343,16 @@ const commandPaletteMode = ref<'button' | 'slash'>('button')
 const commandSearch = ref('')
 const draftText = ref('')
 const selectedCommandIndex = ref(0)
+const dragDepth = ref(0)
+const isDraggingFiles = ref(false)
 const nameCommandDialogOpen = ref(false)
 const nameCommandDraft = ref('')
 const extensionDrafts = ref<Record<string, string>>({})
 const fileReferenceCompletion = ref<FileReferenceCompletionState>({
+  candidates: [],
+  selectedIndex: 0
+})
+const skillReferenceCompletion = ref<SkillReferenceCompletionState>({
   candidates: [],
   selectedIndex: 0
 })
@@ -247,22 +374,6 @@ const imagePreviewItems = computed<ImagePreviewItem[]>(() =>
   }))
 )
 
-/** 图片附件总大小。 */
-const imageTotalSizeLabel = computed(() =>
-  formatFileSize(props.images.reduce((total, image) => total + image.size, 0))
-)
-
-/** 图片附件状态摘要。 */
-const imageAttachmentSummary = computed(() => {
-  if (props.selectingImages) {
-    return '正在处理图片'
-  }
-  if (props.images.length === 0) {
-    return ''
-  }
-  return `${props.images.length} 张图片 · ${imageTotalSizeLabel.value}`
-})
-
 const extensionWidgetEntries = computed(() => Object.entries(props.extensionWidgets))
 const widgetsAboveEditor = computed(() =>
   extensionWidgetEntries.value.filter(([, widget]) => widget.placement !== 'belowEditor')
@@ -271,6 +382,7 @@ const widgetsBelowEditor = computed(() =>
   extensionWidgetEntries.value.filter(([, widget]) => widget.placement === 'belowEditor')
 )
 const extensionRequestEntries = computed(() => Object.values(props.extensionRequests))
+const isDropTargetActive = computed(() => isDraggingFiles.value && !props.selectingImages)
 
 /** 当前模型选择器值。 */
 const currentModelValue = computed(() =>
@@ -290,6 +402,16 @@ const isModelSelectDisabled = computed(
   () => props.modelSelectDisabled || props.loadingModelOptions || props.modelOptions.length === 0
 )
 const modelSelectLabels = computed(() => props.modelOptions.map((model) => formatModelLabel(model)))
+const modelSelectItems = computed(() =>
+  props.modelOptions.map((model) => ({
+    key: createModelValue(model.provider, model.id),
+    label: formatModelLabel(model),
+    value: createModelValue(model.provider, model.id)
+  }))
+)
+const shouldVirtualizeModelSelect = computed(
+  () => props.modelOptions.length >= VIRTUAL_SELECT_THRESHOLD
+)
 const modelSelectContentWidth = useSelectContentWidth({
   labels: modelSelectLabels
 })
@@ -298,44 +420,21 @@ function handleModelSelectOpenChange(open: boolean): void {
     modelSelectContentWidth.scheduleMeasureContentWidth()
   }
 }
-const modelSelectScrollAreaRef = ref<ScrollAreaInstance | null>(null)
-const modelSelectVirtualizer = useVirtualizer(
-  computed(() => ({
-    count: props.modelOptions.length,
-    getScrollElement: () => modelSelectScrollAreaRef.value?.getViewport() ?? null,
-    estimateSize: () => 32,
-    overscan: 8
-  }))
-)
-const virtualModelItems = computed(() => modelSelectVirtualizer.value.getVirtualItems())
-const virtualModelTotalSize = computed(() => modelSelectVirtualizer.value.getTotalSize())
-function measureModelSelectItem(refValue: Element | ComponentPublicInstance | null): void {
-  const element = refValue instanceof Element ? refValue : refValue?.$el
-  if (element instanceof Element) {
-    modelSelectVirtualizer.value.measureElement(element)
-  }
-}
-const projectSelectScrollAreaRef = ref<ScrollAreaInstance | null>(null)
-const projectSelectVirtualizer = useVirtualizer(
-  computed(() => ({
-    count: props.projects.length,
-    getScrollElement: () => projectSelectScrollAreaRef.value?.getViewport() ?? null,
-    estimateSize: () => 32,
-    overscan: 8
-  }))
-)
-const virtualProjectItems = computed(() => projectSelectVirtualizer.value.getVirtualItems())
-const virtualProjectTotalSize = computed(() => projectSelectVirtualizer.value.getTotalSize())
-function measureProjectSelectItem(refValue: Element | ComponentPublicInstance | null): void {
-  const element = refValue instanceof Element ? refValue : refValue?.$el
-  if (element instanceof Element) {
-    projectSelectVirtualizer.value.measureElement(element)
-  }
-}
 const currentProjectLabel = computed(
   () => props.projects.find((project) => project.projectId === props.projectId)?.name
 )
 const projectSelectLabels = computed(() => props.projects.map((project) => project.name))
+const projectSelectItems = computed(() =>
+  props.projects.map((project) => ({
+    key: project.projectId,
+    label: project.name,
+    value: project.projectId,
+    disabled: project.status !== 'available'
+  }))
+)
+const shouldVirtualizeProjectSelect = computed(
+  () => props.projects.length >= VIRTUAL_SELECT_THRESHOLD
+)
 const projectSelectContentWidth = useSelectContentWidth({
   labels: projectSelectLabels
 })
@@ -358,10 +457,11 @@ const canOpenCommandPalette = computed(() => Boolean(props.threadId || props.pro
 /** command palette 过滤结果。 */
 const filteredCommands = computed(() => {
   const query = getCommandQueryName(activeCommandQuery.value).toLowerCase()
+  const runnableCommands = props.commands.filter((command) => command.source !== 'skill')
   if (!query) {
-    return props.commands
+    return runnableCommands
   }
-  return props.commands.filter((command) =>
+  return runnableCommands.filter((command) =>
     [command.name, command.description, command.source]
       .filter(Boolean)
       .join(' ')
@@ -373,6 +473,9 @@ const filteredCommands = computed(() => {
 const activeCommandQuery = computed(() =>
   commandPaletteMode.value === 'slash' ? draftText.value : commandSearch.value
 )
+const hasSkillCommands = computed(() =>
+  props.commands.some((command) => command.source === 'skill' && command.name.startsWith('skill:'))
+)
 
 watch(
   () => [
@@ -381,6 +484,16 @@ watch(
   ],
   () => {
     void nextTick(scrollSelectedFileReferenceIntoView)
+  }
+)
+
+watch(
+  () => [
+    skillReferenceCompletion.value.selectedIndex,
+    skillReferenceCompletion.value.candidates.length
+  ],
+  () => {
+    void nextTick(scrollSelectedSkillReferenceIntoView)
   }
 )
 
@@ -411,6 +524,14 @@ watch(
 )
 
 watch(draftText, (value) => {
+  if (
+    isSkillReferenceDraft(value) &&
+    canOpenCommandPalette.value &&
+    !hasSkillCommands.value &&
+    !props.loadingCommands
+  ) {
+    emit('load-commands')
+  }
   if (!isSlashCommandDraft(value)) {
     if (commandPaletteMode.value === 'slash') {
       closeCommandPalette()
@@ -444,6 +565,9 @@ watch(
  * 提交输入内容。
  */
 function handleSubmit(): void {
+  if (props.submitting) {
+    return
+  }
   emit('submit')
 }
 
@@ -465,6 +589,20 @@ function createEmptyComposerValue(): JSONContent {
 function handleFileReferenceCompletion(state: FileReferenceCompletionState): void {
   const shouldRestoreFocus = isEditorFocused.value
   fileReferenceCompletion.value = state
+  if (shouldRestoreFocus) {
+    void nextTick(() => {
+      editorRef.value?.focusEditor()
+    })
+  }
+}
+
+/**
+ * 同步编辑器技能补全候选。
+ * @param state - 补全展示状态。
+ */
+function handleSkillReferenceCompletion(state: SkillReferenceCompletionState): void {
+  const shouldRestoreFocus = isEditorFocused.value
+  skillReferenceCompletion.value = state
   if (shouldRestoreFocus) {
     void nextTick(() => {
       editorRef.value?.focusEditor()
@@ -499,6 +637,35 @@ function highlightFileReferenceCandidate(index: number): void {
     selectedIndex: index
   }
   editorRef.value?.setFileReferenceCompletionIndex(index)
+}
+
+/**
+ * 选择技能补全候选。
+ * @param candidate - 技能候选。
+ */
+function selectSkillReferenceCandidate(candidate: SkillReferenceCompletionCandidate): void {
+  editorRef.value?.selectSkillReferenceCompletion(candidate)
+}
+
+/**
+ * 获取 skill 候选列表展示名，隐藏内部 command 前缀。
+ * @param label - skill command label。
+ * @returns 裸 skill 名。
+ */
+function getSkillReferenceDisplayName(label: string): string {
+  return label.replace(/^skill:/, '')
+}
+
+/**
+ * 高亮当前鼠标所在的技能补全候选。
+ * @param index - 候选索引。
+ */
+function highlightSkillReferenceCandidate(index: number): void {
+  skillReferenceCompletion.value = {
+    ...skillReferenceCompletion.value,
+    selectedIndex: index
+  }
+  editorRef.value?.setSkillReferenceCompletionIndex(index)
 }
 
 /**
@@ -555,12 +722,79 @@ function handleFileReferenceKeyDown(event: KeyboardEvent): void {
 }
 
 /**
+ * 在技能补全打开时统一处理键盘选择，避免焦点变化吞掉编辑器按键。
+ * @param event - 键盘事件。
+ */
+function handleSkillReferenceKeyDown(event: KeyboardEvent): void {
+  const candidates = skillReferenceCompletion.value.candidates
+  if (event.isComposing || candidates.length === 0) {
+    return
+  }
+
+  if (event.key === 'ArrowDown') {
+    event.preventDefault()
+    event.stopPropagation()
+    const nextIndex = (skillReferenceCompletion.value.selectedIndex + 1) % candidates.length
+    highlightSkillReferenceCandidate(nextIndex)
+    void nextTick(scrollSelectedSkillReferenceIntoView)
+    return
+  }
+
+  if (event.key === 'ArrowUp') {
+    event.preventDefault()
+    event.stopPropagation()
+    const nextIndex =
+      (skillReferenceCompletion.value.selectedIndex - 1 + candidates.length) % candidates.length
+    highlightSkillReferenceCandidate(nextIndex)
+    void nextTick(scrollSelectedSkillReferenceIntoView)
+    return
+  }
+
+  if (event.key === 'Enter' || event.key === 'Tab') {
+    event.preventDefault()
+    event.stopPropagation()
+    editorRef.value?.selectSkillReferenceCompletion(
+      candidates[skillReferenceCompletion.value.selectedIndex]
+    )
+    return
+  }
+
+  if (event.key === 'Escape') {
+    event.preventDefault()
+    event.stopPropagation()
+    editorRef.value?.closeSkillReferenceCompletion()
+  }
+}
+
+/**
  * 保证键盘高亮的文件候选项处于可视区域。
  */
 function scrollSelectedFileReferenceIntoView(): void {
   const viewport = fileCompletionScrollRef.value?.getViewport()
   const selectedItem = composerShellRef.value?.querySelector(
     '.composer__file-completion-item.is-selected'
+  )
+  if (!viewport || !(selectedItem instanceof HTMLElement)) {
+    return
+  }
+  const viewportRect = viewport.getBoundingClientRect()
+  const itemRect = selectedItem.getBoundingClientRect()
+  if (itemRect.top < viewportRect.top) {
+    viewport.scrollTop -= viewportRect.top - itemRect.top
+    return
+  }
+  if (itemRect.bottom > viewportRect.bottom) {
+    viewport.scrollTop += itemRect.bottom - viewportRect.bottom
+  }
+}
+
+/**
+ * 保证键盘高亮的技能候选项处于可视区域。
+ */
+function scrollSelectedSkillReferenceIntoView(): void {
+  const viewport = fileCompletionScrollRef.value?.getViewport()
+  const selectedItem = composerShellRef.value?.querySelector(
+    '.composer__skill-completion-item.is-selected'
   )
   if (!viewport || !(selectedItem instanceof HTMLElement)) {
     return
@@ -600,6 +834,9 @@ function scrollSelectedCommandIntoView(): void {
  * 处理发送/停止图标按钮点击。
  */
 function handleActionClick(): void {
+  if (props.submitting) {
+    return
+  }
   if (props.isRunning && !props.canSend) {
     emit('abort')
     return
@@ -691,14 +928,6 @@ function openNameCommandDialog(initialValue?: string): void {
 }
 
 /**
- * 同步 /name 命令弹层打开状态。
- * @param open - 是否打开。
- */
-function handleNameCommandDialogOpenChange(open: boolean): void {
-  nameCommandDialogOpen.value = open
-}
-
-/**
  * 提交 /name 命令命名弹层。
  */
 function submitNameCommandDialog(): void {
@@ -778,10 +1007,23 @@ function isSlashCommandDraft(value: string): boolean {
 }
 
 /**
+ * 判断当前草稿是否正在输入 skill 引用。
+ * @param value - 编辑器纯文本。
+ * @returns 是否应加载 skill 命令。
+ */
+function isSkillReferenceDraft(value: string): boolean {
+  return /(^|[\s([{（【])\$[^\s$]*$/.test(value)
+}
+
+/**
  * 处理 Composer 范围内的快捷键。
  * @param event - 键盘事件。
  */
 function handleComposerKeyDown(event: KeyboardEvent): void {
+  handleSkillReferenceKeyDown(event)
+  if (event.defaultPrevented || event.isComposing) {
+    return
+  }
   handleFileReferenceKeyDown(event)
   if (event.defaultPrevented || event.isComposing) {
     return
@@ -854,6 +1096,176 @@ function handleThinkingLevelChange(value: unknown): void {
  */
 function openImagePicker(): void {
   emit('select-images', props.threadId)
+}
+
+/**
+ * 处理拖入文件。
+ * @param event - 拖拽事件。
+ */
+function handleDragEnter(event: DragEvent): void {
+  if (!hasDraggedFiles(event)) {
+    return
+  }
+  event.preventDefault()
+  dragDepth.value += 1
+  isDraggingFiles.value = true
+}
+
+/**
+ * 允许拖拽文件落入 Composer。
+ * @param event - 拖拽事件。
+ */
+function handleDragOver(event: DragEvent): void {
+  if (!hasDraggedFiles(event)) {
+    return
+  }
+  event.preventDefault()
+  event.dataTransfer!.dropEffect = 'copy'
+  isDraggingFiles.value = true
+}
+
+/**
+ * 同步文件拖出 Composer 状态。
+ * @param event - 拖拽事件。
+ */
+function handleDragLeave(event: DragEvent): void {
+  if (!hasDraggedFiles(event)) {
+    return
+  }
+  dragDepth.value = Math.max(0, dragDepth.value - 1)
+  if (dragDepth.value === 0) {
+    isDraggingFiles.value = false
+  }
+}
+
+/**
+ * 处理拖拽添加附件；图片走附件链路，小型文本文件走 @file 引用。
+ * @param event - 拖拽事件。
+ */
+function handleDrop(event: DragEvent): void {
+  if (!hasDraggedFiles(event)) {
+    return
+  }
+  event.preventDefault()
+  dragDepth.value = 0
+  isDraggingFiles.value = false
+
+  const files = Array.from(event.dataTransfer?.files ?? []) as DroppedFile[]
+  const imagePaths: string[] = []
+  const inlineImageFiles: DroppedFile[] = []
+  const filePaths: string[] = []
+  const rejections: string[] = []
+
+  for (const file of files) {
+    const localPath = getDroppedLocalPath(file)
+    if (isSupportedImageFile(file)) {
+      if (file.size > maxDroppedImageFileBytes) {
+        rejections.push(`${file.name} 超过 ${formatFileSize(maxDroppedImageFileBytes)}`)
+        continue
+      }
+      if (localPath) {
+        imagePaths.push(localPath)
+      } else {
+        inlineImageFiles.push(file)
+      }
+      continue
+    }
+
+    if (!isSupportedTextFile(file)) {
+      rejections.push(`${file.name} 不是支持的文本或图片文件`)
+      continue
+    }
+    if (file.size > maxDroppedTextFileBytes) {
+      rejections.push(`${file.name} 超过 ${formatFileSize(maxDroppedTextFileBytes)}`)
+      continue
+    }
+    if (!localPath) {
+      rejections.push(`${file.name} 无法获取本地路径`)
+      continue
+    }
+    filePaths.push(localPath)
+  }
+
+  if (imagePaths.length > 0) {
+    emit('add-image-paths', imagePaths, props.threadId)
+  }
+  if (inlineImageFiles.length > 0) {
+    emit('paste-images', inlineImageFiles, props.threadId)
+  }
+  editorRef.value?.insertFileReferences(filePaths)
+  showDroppedFileRejections(rejections)
+}
+
+/**
+ * 判断当前拖拽是否包含文件。
+ * @param event - 拖拽事件。
+ * @returns 是否包含文件。
+ */
+function hasDraggedFiles(event: DragEvent): boolean {
+  return Array.from(event.dataTransfer?.types ?? []).includes('Files')
+}
+
+/**
+ * 判断文件是否是 Composer 支持的图片附件。
+ * @param file - 浏览器 File。
+ * @returns 是否支持。
+ */
+function isSupportedImageFile(file: File): boolean {
+  if (supportedImageMimeTypes.has(file.type.toLowerCase())) {
+    return true
+  }
+  const extension = getFileExtension(file.name)
+  return extension ? supportedImageExtensions.has(extension) : false
+}
+
+/**
+ * 判断文件是否适合通过 @file 插入为文本引用。
+ * @param file - 浏览器 File。
+ * @returns 是否支持。
+ */
+function isSupportedTextFile(file: File): boolean {
+  const mimeType = file.type.toLowerCase()
+  if (mimeType.startsWith('text/') || supportedTextMimeTypes.has(mimeType)) {
+    return true
+  }
+  const name = file.name.toLowerCase()
+  if (supportedTextFileNames.has(name)) {
+    return true
+  }
+  const extension = getFileExtension(name)
+  return extension ? supportedTextExtensions.has(extension) : false
+}
+
+/**
+ * 获取 Electron 暴露的拖拽文件本地路径。
+ * @param file - 拖拽文件。
+ * @returns 本地路径。
+ */
+function getDroppedLocalPath(file: DroppedFile): string {
+  return window.api.fileSystem.getPathForFile(file) || file.path || ''
+}
+
+/**
+ * 展示拖拽文件拒绝提示。
+ * @param rejections - 拒绝原因列表。
+ */
+function showDroppedFileRejections(rejections: string[]): void {
+  if (rejections.length === 0) {
+    return
+  }
+  const visible = rejections.slice(0, 3).join('；')
+  const suffix = rejections.length > 3 ? ` 等 ${rejections.length} 个文件` : ''
+  toast.warning('部分文件未添加', `${visible}${suffix}`)
+}
+
+/**
+ * 获取文件扩展名。
+ * @param name - 文件名。
+ * @returns 小写扩展名。
+ */
+function getFileExtension(name: string): string | undefined {
+  const index = name.lastIndexOf('.')
+  return index >= 0 ? name.slice(index + 1).toLowerCase() : undefined
 }
 
 function openImagePreview(index: number): void {
@@ -977,8 +1389,47 @@ function clearExtensionDraft(id: string): void {
 </script>
 
 <template>
-  <div ref="composerShellRef" class="composer-shell" @keydown.capture="handleComposerKeyDown">
-    <Command v-if="fileReferenceCompletion.candidates.length > 0" class="composer__file-completion">
+  <div
+    ref="composerShellRef"
+    class="composer-shell"
+    :class="{ 'is-drop-target-active': isDropTargetActive }"
+    @keydown.capture="handleComposerKeyDown"
+    @dragenter="handleDragEnter"
+    @dragover="handleDragOver"
+    @dragleave="handleDragLeave"
+    @drop="handleDrop"
+  >
+    <Command
+      v-if="skillReferenceCompletion.candidates.length > 0"
+      class="composer__file-completion composer__skill-completion"
+    >
+      <ScrollArea ref="fileCompletionScrollRef" class="composer__file-completion-scroll">
+        <div class="composer__file-completion-list" role="listbox">
+          <button
+            v-for="(candidate, index) in skillReferenceCompletion.candidates"
+            :key="candidate.name"
+            type="button"
+            tabindex="-1"
+            class="composer__file-completion-item composer__skill-completion-item"
+            :class="{ 'is-selected': index === skillReferenceCompletion.selectedIndex }"
+            role="option"
+            :aria-selected="index === skillReferenceCompletion.selectedIndex"
+            @mousedown.prevent="selectSkillReferenceCandidate(candidate)"
+            @mouseenter="highlightSkillReferenceCandidate(index)"
+          >
+            <span class="composer__skill-completion-row">
+              <span class="composer__skill-completion-name">
+                {{ getSkillReferenceDisplayName(candidate.label) }}
+              </span>
+              <small v-if="candidate.description" class="composer__skill-completion-description">
+                {{ candidate.description }}
+              </small>
+            </span>
+          </button>
+        </div>
+      </ScrollArea>
+    </Command>
+    <Command v-else-if="fileReferenceCompletion.candidates.length > 0" class="composer__file-completion">
       <ScrollArea ref="fileCompletionScrollRef" class="composer__file-completion-scroll">
         <div class="composer__file-completion-list" role="listbox">
           <button
@@ -1138,12 +1589,6 @@ function clearExtensionDraft(id: string): void {
 
     <form class="composer" @submit.prevent="handleSubmit">
       <div v-if="imagePreviews.length > 0 || selectingImages" class="composer__attachments">
-        <div class="composer__attachments-header">
-          <span>{{ imageAttachmentSummary }}</span>
-          <button v-if="imagePreviews.length > 0" type="button" @click="emit('clear-images')">
-            清空
-          </button>
-        </div>
         <div v-if="imagePreviews.length > 0" class="composer__images">
           <div v-for="(image, index) in imagePreviews" :key="image.id" class="composer__image">
             <button
@@ -1154,10 +1599,6 @@ function clearExtensionDraft(id: string): void {
             >
               <img :src="image.previewSrc" :alt="image.name" />
             </button>
-            <div class="composer__image-meta">
-              <strong>{{ image.name }}</strong>
-              <span>{{ formatFileSize(image.size) }} · {{ getImageHintLabel(image) }}</span>
-            </div>
             <button
               type="button"
               class="composer__image-remove"
@@ -1175,10 +1616,12 @@ function clearExtensionDraft(id: string): void {
         :placeholder="placeholder"
         :thread-id="threadId"
         :project-id="projectId"
+        :commands="commands"
         @update:model-value="emit('update:modelValue', $event)"
         @text-change="handleEditorTextChange"
         @paste-images="emit('paste-images', $event, threadId)"
         @file-reference-completion="handleFileReferenceCompletion"
+        @skill-reference-completion="handleSkillReferenceCompletion"
         @focus-change="handleEditorFocusChange"
         @submit="handleSubmit"
       />
@@ -1248,30 +1691,21 @@ function clearExtensionDraft(id: string): void {
             class="composer__model-select-content"
             :content-style="modelSelectContentWidth.contentStyle.value"
           >
-            <ScrollArea ref="modelSelectScrollAreaRef" class="composer__model-select-scroll">
-              <SelectGroup
-                class="composer__model-select-size"
-                :style="{ height: `${virtualModelTotalSize}px` }"
-              >
+            <VirtualSelectItems
+              v-if="shouldVirtualizeModelSelect"
+              :items="modelSelectItems"
+              scroll-class="composer__model-select-scroll"
+              size-class="composer__model-select-size"
+              item-class="composer__model-select-item"
+            />
+            <ScrollArea v-else class="composer__model-select-scroll">
+              <SelectGroup class="composer__model-select-list">
                 <SelectItem
-                  v-for="virtualItem in virtualModelItems"
-                  :key="`${modelOptions[virtualItem.index]?.provider}:${modelOptions[virtualItem.index]?.id}`"
-                  :ref="measureModelSelectItem"
-                  :data-index="virtualItem.index"
-                  class="composer__model-select-item"
-                  :style="{ transform: `translateY(${virtualItem.start}px)` }"
-                  :value="
-                    createModelValue(
-                      modelOptions[virtualItem.index]?.provider ?? '',
-                      modelOptions[virtualItem.index]?.id ?? ''
-                    )
-                  "
+                  v-for="item in modelSelectItems"
+                  :key="item.key"
+                  :value="item.value"
                 >
-                  {{
-                    modelOptions[virtualItem.index]
-                      ? formatModelLabel(modelOptions[virtualItem.index])
-                      : ''
-                  }}
+                  {{ item.label }}
                 </SelectItem>
               </SelectGroup>
             </ScrollArea>
@@ -1338,6 +1772,7 @@ function clearExtensionDraft(id: string): void {
         <Usage v-if="usage" :usage="usage" />
 
         <ImagePreviewDialog
+          v-if="imagePreviewDialogOpen"
           v-model:open="imagePreviewDialogOpen"
           :images="imagePreviewItems"
           :initial-index="imagePreviewInitialIndex"
@@ -1347,12 +1782,13 @@ function clearExtensionDraft(id: string): void {
           type="button"
           size="medium"
           class="composer__action"
-          :class="{ 'is-stop': isRunning && !canSend }"
-          :label="isRunning && !canSend ? '停止' : isRunning ? '发送到队列' : '发送'"
-          :disabled="!isRunning && !canSend"
+          :class="{ 'is-stop': isRunning && !canSend, 'is-loading': submitting }"
+          :label="submitting ? '发送中' : isRunning && !canSend ? '停止' : isRunning ? '发送到队列' : '发送'"
+          :disabled="submitting || (!isRunning && !canSend)"
           @click="handleActionClick"
         >
-          <StopIcon v-if="isRunning && !canSend" :size="20" />
+          <LoaderCircle v-if="submitting" :size="18" />
+          <StopIcon v-else-if="isRunning && !canSend" :size="20" />
           <SendIcon v-else :size="20" />
         </BaseIconButton>
       </div>
@@ -1383,22 +1819,22 @@ function clearExtensionDraft(id: string): void {
           class="composer__project-select-content"
           :content-style="projectSelectContentWidth.contentStyle.value"
         >
-          <ScrollArea ref="projectSelectScrollAreaRef" class="composer__project-select-scroll">
-            <SelectGroup
-              class="composer__project-select-size"
-              :style="{ height: `${virtualProjectTotalSize}px` }"
-            >
+          <VirtualSelectItems
+            v-if="shouldVirtualizeProjectSelect"
+            :items="projectSelectItems"
+            scroll-class="composer__project-select-scroll"
+            size-class="composer__project-select-size"
+            item-class="composer__project-select-item"
+          />
+          <ScrollArea v-else class="composer__project-select-scroll">
+            <SelectGroup class="composer__project-select-list">
               <SelectItem
-                v-for="virtualItem in virtualProjectItems"
-                :key="projects[virtualItem.index]?.projectId"
-                :ref="measureProjectSelectItem"
-                :data-index="virtualItem.index"
-                class="composer__project-select-item"
-                :style="{ transform: `translateY(${virtualItem.start}px)` }"
-                :value="projects[virtualItem.index]?.projectId"
-                :disabled="projects[virtualItem.index]?.status !== 'available'"
+                v-for="item in projectSelectItems"
+                :key="item.key"
+                :disabled="item.disabled"
+                :value="item.value"
               >
-                {{ projects[virtualItem.index]?.name }}
+                {{ item.label }}
               </SelectItem>
             </SelectGroup>
           </ScrollArea>
@@ -1406,44 +1842,17 @@ function clearExtensionDraft(id: string): void {
       </Select>
     </div>
 
-    <Dialog :open="nameCommandDialogOpen" @update:open="handleNameCommandDialogOpenChange">
-      <DialogContent class="composer-command-dialog">
-        <form class="composer-command-dialog__form" @submit.prevent="submitNameCommandDialog">
-          <DialogHeader>
-            <DialogTitle>设置会话名称</DialogTitle>
-            <DialogDescription>为当前 Pi session 设置一个显示名称。</DialogDescription>
-          </DialogHeader>
-
-          <BaseField
-            id="composer-command-name"
-            v-model="nameCommandDraft"
-            label="会话名称"
-            placeholder="例如：资源接入排查"
-            hint="/name 需要提供会话名称"
-          />
-
-          <DialogFooter>
-            <BaseButton type="button" size="sm" variant="ghost" @click="nameCommandDialogOpen = false">
-              取消
-            </BaseButton>
-            <BaseButton
-              type="submit"
-              size="sm"
-              variant="primary"
-              :disabled="!nameCommandDraft.trim()"
-            >
-              保存
-            </BaseButton>
-          </DialogFooter>
-        </form>
-      </DialogContent>
-    </Dialog>
+    <NameCommandDialog
+      v-if="nameCommandDialogOpen"
+      v-model:open="nameCommandDialogOpen"
+      v-model="nameCommandDraft"
+      @submit="submitNameCommandDialog"
+    />
   </div>
 </template>
 
 <style lang="scss" scoped>
-.composer-shell,
-.composer-command-dialog__form {
+.composer-shell {
   display: grid;
   gap: var(--space-3);
   min-width: 0;
@@ -1452,6 +1861,28 @@ function clearExtensionDraft(id: string): void {
 .composer-shell {
   position: relative;
   margin-top: auto;
+
+  &::after {
+    position: absolute;
+    inset: 0;
+    z-index: 14;
+    display: grid;
+    place-items: center;
+    color: var(--color-primary);
+    font-size: var(--font-size-ui-sm);
+    font-weight: 650;
+    content: '释放以添加附件';
+    background: color-mix(in srgb, var(--color-primary) 8%, transparent);
+    border: 1px dashed var(--color-primary);
+    border-radius: 18px;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity var(--duration-fast) var(--ease-standard);
+  }
+
+  &.is-drop-target-active::after {
+    opacity: 1;
+  }
 }
 
 .composer {
@@ -1481,6 +1912,11 @@ function clearExtensionDraft(id: string): void {
   overflow: hidden;
 }
 
+.composer__skill-completion {
+  height: min(280px, calc(100vh - 260px));
+  min-height: 184px;
+}
+
 .composer__file-completion-scroll {
   width: 100%;
   height: 100%;
@@ -1508,6 +1944,7 @@ function clearExtensionDraft(id: string): void {
 .composer__file-completion-item {
   min-width: 0;
   width: 100%;
+  min-height: 32px;
   padding: 7px 8px;
   color: var(--color-text);
   text-align: left;
@@ -1527,6 +1964,43 @@ function clearExtensionDraft(id: string): void {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.composer__file-completion-description {
+  display: block;
+  min-width: 0;
+  margin-top: 2px;
+  overflow: hidden;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-ui-xs);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.composer__skill-completion-row {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+  white-space: nowrap;
+}
+
+.composer__skill-completion-name {
+  flex: 0 0 auto;
+  max-width: 42%;
+  min-width: 0;
+  overflow: hidden;
+  font-weight: 500;
+  text-overflow: ellipsis;
+}
+
+.composer__skill-completion-description {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-ui-xs);
+  text-overflow: ellipsis;
 }
 
 .composer__command-palette {
@@ -1812,75 +2286,35 @@ function clearExtensionDraft(id: string): void {
   min-width: 0;
 }
 
-.composer__attachments-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--space-2);
-  min-width: 0;
-  color: var(--color-text-muted);
-  font-size: var(--font-size-ui-xs);
-
-  span {
-    min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-  button {
-    flex: 0 0 auto;
-    height: 22px;
-    padding: 0 var(--space-2);
-    color: var(--color-text-muted);
-    font: inherit;
-    font-size: var(--font-size-ui-2xs);
-    font-weight: 650;
-    background: transparent;
-    border: 1px solid transparent;
-    border-radius: var(--radius-md);
-    cursor: pointer;
-
-    &:hover {
-      color: var(--color-text);
-      background: var(--color-surface-hover);
-      border-color: var(--color-border);
-    }
-  }
-}
-
 .composer__images {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(184px, 1fr));
+  display: flex;
+  flex-wrap: wrap;
   gap: var(--space-2);
   min-width: 0;
 }
 
 .composer__image {
   position: relative;
-  display: grid;
-  grid-template-columns: 44px minmax(0, 1fr) 18px;
-  gap: var(--space-2);
-  align-items: center;
   min-width: 0;
-  min-height: 56px;
-  padding: 5px 6px;
-  overflow: hidden;
-  background: var(--color-control-track);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
+  width: 56px;
+  height: 56px;
 
+  &:hover {
+    .composer__image-remove {
+      opacity: 1;
+    }
+  }
 }
 
 .composer__image-preview {
   display: block;
-  width: 44px;
-  height: 44px;
+  width: 56px;
+  height: 56px;
   padding: 0;
   overflow: hidden;
-  background: transparent;
-  border: 0;
-  border-radius: calc(var(--radius-md) - 2px);
+  background: var(--color-control-track);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
   cursor: zoom-in;
 
   img {
@@ -1922,10 +2356,14 @@ function clearExtensionDraft(id: string): void {
 }
 
 .composer__image-remove {
-  display: grid;
-  place-items: center;
-  width: 18px;
-  height: 18px;
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  width: 14px;
+  height: 14px;
   padding: 0;
   color: var(--color-text);
   background: var(--composer-image-remove-bg);
@@ -1933,7 +2371,6 @@ function clearExtensionDraft(id: string): void {
   border-radius: 50%;
   box-shadow: var(--shadow-sm);
   cursor: pointer;
-  opacity: 0.7;
   transition:
     opacity var(--duration-fast) var(--ease-standard),
     background var(--duration-fast) var(--ease-standard),
@@ -2070,6 +2507,20 @@ function clearExtensionDraft(id: string): void {
     &:hover:not(:disabled) {
       background: var(--composer-stop-hover-bg);
     }
+  }
+
+  &.is-loading {
+    cursor: wait;
+
+    :deep(svg) {
+      animation: composer-action-spin 0.8s linear infinite;
+    }
+  }
+}
+
+@keyframes composer-action-spin {
+  to {
+    transform: rotate(360deg);
   }
 }
 

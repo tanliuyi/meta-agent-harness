@@ -41,7 +41,7 @@ const toastMessages = computed(() => [...toast.toasts.value])
 <style lang="scss" scoped>
 .toast-viewport {
   position: fixed;
-  top: var(--space-4);
+  top: calc(var(--space-4) + 36px);
   left: 50%;
   z-index: 50;
   display: flex;

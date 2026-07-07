@@ -56,12 +56,22 @@ export function getUserMessageDisplayText(message: ThreadMessage): string | unde
   if (!text) {
     return undefined
   }
-  const skillBlock = parseDisplaySkillBlock(text)
-  if (skillBlock) {
-    const userMessage = skillBlock.userMessage ? stripHiddenFileBlocks(skillBlock.userMessage) : ''
-    return userMessage
-      ? `${getSkillReferenceLabel(skillBlock.name)}\n\n${userMessage}`
-      : getSkillReferenceLabel(skillBlock.name)
+  const skillContext = extractDisplaySkillContext(text)
+  if (skillContext.skills.length > 0) {
+    const segments = getSkillContextDisplaySegments(text)
+    const displayText = segments
+      .map((segment) => {
+        if (segment.type === 'text') {
+          return segment.text
+        }
+        if (segment.type === 'fileReference') {
+          return `@${segment.fileArg}`
+        }
+        return segment.label
+      })
+      .join('')
+      .trim()
+    return displayText || undefined
   }
 
   const displayText = stripHiddenFileBlocks(text)
@@ -98,29 +108,11 @@ export function getUserMessageDisplaySegments(message: ThreadMessage): UserMessa
   if (!text) {
     return []
   }
-  const fileReferenceNames = getHiddenFileBlockNames(text)
-
-  const skillBlock = parseDisplaySkillBlock(text)
-  if (skillBlock) {
-    const segments: UserMessageDisplaySegment[] = [
-      {
-        type: 'skillReference',
-        name: skillBlock.name,
-        label: getSkillReferenceLabel(skillBlock.name),
-        location: skillBlock.location
-      }
-    ]
-    const userMessage = skillBlock.userMessage ? stripHiddenFileBlocks(skillBlock.userMessage) : ''
-    if (userMessage) {
-      pushTextSegment(segments, '\n\n')
-      segments.push(
-        ...parseUserMessageDisplaySegments(userMessage, {
-          allowedFileArgs: fileReferenceNames
-        })
-      )
-    }
-    return segments
+  const skillContext = extractDisplaySkillContext(text)
+  if (skillContext.skills.length > 0) {
+    return getSkillContextDisplaySegments(text)
   }
+  const fileReferenceNames = getHiddenFileBlockNames(text)
 
   const displayText = stripHiddenFileBlocks(text)
   return displayText
@@ -132,6 +124,7 @@ export function getUserMessageDisplaySegments(message: ThreadMessage): UserMessa
 
 interface ParseUserMessageDisplaySegmentsOptions {
   allowedFileArgs?: readonly string[]
+  skillLocations?: Map<string, string>
 }
 
 /**
@@ -145,11 +138,25 @@ export function parseUserMessageDisplaySegments(
   options: ParseUserMessageDisplaySegmentsOptions = {}
 ): UserMessageDisplaySegment[] {
   const segments: UserMessageDisplaySegment[] = []
-  const fileReferencePattern = /(^|[\s([{（【])@(?:"((?:\\.|[^"\\])*)"|([^\s`"'<>]+))/g
+  const referencePattern =
+    /(^|[\s([{（【])(?:@(?:"((?:\\.|[^"\\])*)"|([^\s`"'<>]+))|\$skill:([A-Za-z0-9_.-]+))/g
   let cursor = 0
-  for (const match of text.matchAll(fileReferencePattern)) {
+  for (const match of text.matchAll(referencePattern)) {
     const matchStart = match.index ?? 0
-    const [rawMatch, prefix = '', quotedValue, bareValue] = match
+    const [rawMatch, prefix = '', quotedValue, bareValue, skillName] = match
+    const referenceStart = matchStart + prefix.length
+    if (skillName) {
+      pushTextSegment(segments, text.slice(cursor, referenceStart))
+      segments.push({
+        type: 'skillReference',
+        name: skillName,
+        label: getSkillReferenceLabel(skillName),
+        location: options.skillLocations?.get(skillName) ?? ''
+      })
+      cursor = matchStart + rawMatch.length
+      continue
+    }
+
     const rawValue = quotedValue !== undefined ? quotedValue.replace(/\\"/g, '"') : bareValue
     const fileArg = rawValue ? trimTrailingFileReferencePunctuation(rawValue) : ''
     if (!fileArg) {
@@ -159,8 +166,7 @@ export function parseUserMessageDisplaySegments(
       continue
     }
 
-    const fileReferenceStart = matchStart + prefix.length
-    pushTextSegment(segments, text.slice(cursor, fileReferenceStart))
+    pushTextSegment(segments, text.slice(cursor, referenceStart))
     segments.push({
       type: 'fileReference',
       fileArg,
@@ -210,29 +216,69 @@ function pushTextSegment(segments: UserMessageDisplaySegment[], text: string): v
 interface ParsedDisplaySkillBlock {
   name: string
   location: string
-  userMessage: string | undefined
 }
 
-function parseDisplaySkillBlock(text: string): ParsedDisplaySkillBlock | null {
-  return parseSkillBlock(text) ?? parseSkillBlock(stripHiddenFileBlocks(text))
-}
-
-function parseSkillBlock(text: string): ParsedDisplaySkillBlock | null {
-  const match = text.match(
-    /^<skill\s+name="([^"]+)"\s+location="([^"]+)">\n?[\s\S]*?\n?<\/skill>(?:\n\n([\s\S]+))?$/
+function getSkillContextDisplaySegments(text: string): UserMessageDisplaySegment[] {
+  const fileReferenceNames = getHiddenFileBlockNames(text)
+  const skillContext = extractDisplaySkillContext(text)
+  const skillLocations = new Map(skillContext.skills.map((skill) => [skill.name, skill.location]))
+  const userMessage = stripHiddenFileBlocks(skillContext.rest)
+  const userSegments = userMessage
+    ? parseUserMessageDisplaySegments(userMessage, {
+        allowedFileArgs: fileReferenceNames,
+        skillLocations
+      })
+    : []
+  const referencedSkills = new Set(
+    userSegments
+      .filter((segment): segment is Extract<UserMessageDisplaySegment, { type: 'skillReference' }> =>
+        segment.type === 'skillReference'
+      )
+      .map((segment) => segment.name)
   )
-  if (!match) {
-    return null
+  const prefixSkillSegments: UserMessageDisplaySegment[] = skillContext.skills
+    .filter((skill) => !referencedSkills.has(skill.name))
+    .map((skill) => ({
+      type: 'skillReference',
+      name: skill.name,
+      label: getSkillReferenceLabel(skill.name),
+      location: skill.location
+    }))
+  if (prefixSkillSegments.length === 0) {
+    return userSegments
   }
-  return {
-    name: match[1],
-    location: match[2],
-    userMessage: match[3]?.trim() || undefined
+  if (userSegments.length === 0) {
+    return prefixSkillSegments
   }
+  return [...prefixSkillSegments, { type: 'text', text: '\n\n' }, ...userSegments]
+}
+
+function extractDisplaySkillContext(text: string): {
+  skills: ParsedDisplaySkillBlock[]
+  rest: string
+} {
+  let rest = stripLeadingFileBlocks(text)
+  const skills: ParsedDisplaySkillBlock[] = []
+  while (true) {
+    const match = rest.match(/^<skill\s+name="([^"]+)"\s+location="([^"]+)">\n?[\s\S]*?\n?<\/skill>\s*/)
+    if (!match) {
+      break
+    }
+    skills.push({
+      name: match[1],
+      location: match[2]
+    })
+    rest = rest.slice(match[0].length)
+  }
+  return { skills, rest }
 }
 
 function stripHiddenFileBlocks(text: string): string {
   return text.replace(/<file\b[^>]*>[\s\S]*?<\/file>\s*/g, '').trim()
+}
+
+function stripLeadingFileBlocks(text: string): string {
+  return text.replace(/^(?:<file\b[^>]*>[\s\S]*?<\/file>\s*)+/g, '').trimStart()
 }
 
 function getHiddenFileBlockNames(text: string): string[] {

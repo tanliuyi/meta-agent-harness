@@ -1,4 +1,4 @@
-import type { DesktopToolCall } from '../../../../../../../../packages/coding-agent/src/desktop/protocol/tool'
+import type { DesktopToolCall } from '@coding-agent-src/desktop/protocol/tool'
 import type {
   MessageRenderState,
   WorkspaceToolCallStructure

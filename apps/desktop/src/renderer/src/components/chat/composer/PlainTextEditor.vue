@@ -9,6 +9,7 @@ import { EditorContent, useEditor, type JSONContent } from '@tiptap/vue-3'
 import { computed, ref, watch } from 'vue'
 import ScrollArea from '@renderer/components/ui/scroll-area/ScrollArea.vue'
 import type {
+  CommandInfo,
   FileReferenceCompletionResult,
   PromptFileReferenceCandidate
 } from '@shared/coding-agent/types'
@@ -16,6 +17,19 @@ import { formatFileArgForInsertion } from '@shared/coding-agent/file-reference-f
 
 export interface FileReferenceCompletionState {
   candidates: PromptFileReferenceCandidate[]
+  selectedIndex: number
+}
+
+export interface SkillReferenceCompletionCandidate {
+  name: string
+  label: string
+  description?: string
+  path?: string
+  baseDir?: string
+}
+
+export interface SkillReferenceCompletionState {
+  candidates: SkillReferenceCompletionCandidate[]
   selectedIndex: number
 }
 
@@ -38,6 +52,8 @@ const props = withDefaults(
     threadId?: string
     /** 当前未绑定 thread 的 Project ID。 */
     projectId?: string
+    /** 可插入的 skill command。 */
+    commands?: CommandInfo[]
   }>(),
   {
     modelValue: () => ({
@@ -50,7 +66,8 @@ const props = withDefaults(
     }),
     placeholder: '',
     threadId: undefined,
-    projectId: undefined
+    projectId: undefined,
+    commands: () => []
   }
 )
 
@@ -63,6 +80,8 @@ const emit = defineEmits<{
   'paste-images': [files: File[]]
   /** 同步文件引用补全候选。 */
   'file-reference-completion': [value: FileReferenceCompletionState]
+  /** 同步技能引用补全候选。 */
+  'skill-reference-completion': [value: SkillReferenceCompletionState]
   /** 同步编辑器焦点状态。 */
   'focus-change': [value: boolean]
   /** 触发提交快捷键。 */
@@ -74,11 +93,14 @@ const isFocused = ref(false)
 const currentText = ref('')
 const completion = ref<FileReferenceCompletionResult | undefined>()
 const selectedCompletionIndex = ref(0)
+const skillCompletion = ref<{ from: number; candidates: SkillReferenceCompletionCandidate[] }>()
+const selectedSkillCompletionIndex = ref(0)
 let completionTimer: ReturnType<typeof setTimeout> | undefined
 let completionRequestId = 0
 let lastEmittedContent: JSONContent | undefined
 
 const completionCandidates = computed(() => completion.value?.candidates ?? [])
+const skillCompletionCandidates = computed(() => skillCompletion.value?.candidates ?? [])
 
 const FileReferenceNode = Node.create({
   name: 'fileReference',
@@ -124,6 +146,65 @@ const FileReferenceNode = Node.create({
   }
 })
 
+const SkillReferenceNode = Node.create({
+  name: 'skillReference',
+  group: 'inline',
+  inline: true,
+  atom: true,
+  selectable: true,
+
+  addAttributes() {
+    return {
+      name: {
+        default: '',
+        parseHTML: (element) => element.getAttribute('data-skill-name') ?? '',
+        renderHTML: (attributes) => ({
+          'data-skill-name': attributes.name
+        })
+      },
+      label: {
+        default: '',
+        parseHTML: (element) => element.getAttribute('data-label') ?? '',
+        renderHTML: (attributes) => ({
+          'data-label': attributes.label
+        })
+      },
+      path: {
+        default: '',
+        parseHTML: (element) => element.getAttribute('data-skill-path') ?? '',
+        renderHTML: (attributes) => ({
+          'data-skill-path': attributes.path
+        })
+      },
+      baseDir: {
+        default: '',
+        parseHTML: (element) => element.getAttribute('data-skill-base-dir') ?? '',
+        renderHTML: (attributes) => ({
+          'data-skill-base-dir': attributes.baseDir
+        })
+      }
+    }
+  },
+
+  parseHTML() {
+    return [{ tag: 'span[data-skill-reference]' }]
+  },
+
+  renderHTML({ node, HTMLAttributes }) {
+    const name = String(node.attrs.name || '')
+    const label = String(node.attrs.label || `skill:${name}`)
+    return [
+      'span',
+      mergeAttributes(HTMLAttributes, {
+        'data-skill-reference': '',
+        class: 'file-reference-node skill-reference-node'
+      }),
+      ['span', { class: 'file-reference-node__icon' }, '$'],
+      ['span', { class: 'file-reference-node__label' }, label]
+    ]
+  }
+})
+
 /**
  * 获取文件引用在编辑器 chip 中展示的末级名称。
  * @param value - 文件路径或 label。
@@ -159,7 +240,8 @@ const editor = useEditor({
       underline: false,
       trailingNode: false
     }),
-    FileReferenceNode
+    FileReferenceNode,
+    SkillReferenceNode
   ],
   editorProps: {
     handlePaste(view, event) {
@@ -178,6 +260,33 @@ const editor = useEditor({
     handleKeyDown(_view, event) {
       if (event.isComposing) {
         return false
+      }
+      if (skillCompletionCandidates.value.length > 0) {
+        if (event.key === 'ArrowDown') {
+          event.preventDefault()
+          selectedSkillCompletionIndex.value =
+            (selectedSkillCompletionIndex.value + 1) % skillCompletionCandidates.value.length
+          emitSkillCompletionState()
+          return true
+        }
+        if (event.key === 'ArrowUp') {
+          event.preventDefault()
+          selectedSkillCompletionIndex.value =
+            (selectedSkillCompletionIndex.value - 1 + skillCompletionCandidates.value.length) %
+            skillCompletionCandidates.value.length
+          emitSkillCompletionState()
+          return true
+        }
+        if (event.key === 'Enter' || event.key === 'Tab') {
+          event.preventDefault()
+          selectSkillCompletion(skillCompletionCandidates.value[selectedSkillCompletionIndex.value])
+          return true
+        }
+        if (event.key === 'Escape') {
+          event.preventDefault()
+          closeSkillCompletion()
+          return true
+        }
       }
       if (completionCandidates.value.length > 0) {
         if (event.key === 'ArrowDown') {
@@ -230,12 +339,14 @@ const editor = useEditor({
     currentText.value = getPlainText(nextContent)
     emit('update:modelValue', nextContent)
     emit('text-change', currentText.value)
+    refreshSkillReferenceCompletion()
     scheduleFileReferenceCompletion()
   },
   onCreate({ editor: currentEditor }) {
     const content = currentEditor.getJSON()
     currentText.value = getPlainText(content)
     emit('text-change', currentText.value)
+    refreshSkillReferenceCompletion()
     scheduleFileReferenceCompletion()
   },
   onFocus() {
@@ -276,6 +387,14 @@ watch(
   () => [props.threadId, props.projectId],
   () => {
     closeCompletion()
+    closeSkillCompletion()
+  }
+)
+
+watch(
+  () => props.commands,
+  () => {
+    refreshSkillReferenceCompletion()
   }
 )
 
@@ -306,6 +425,64 @@ function scheduleFileReferenceCompletion(): void {
   completionTimer = setTimeout(() => {
     void refreshFileReferenceCompletion()
   }, 120)
+}
+
+/**
+ * 刷新 $skill 引用候选。
+ */
+function refreshSkillReferenceCompletion(): void {
+  const currentEditor = editor.value
+  if (!currentEditor) {
+    closeSkillCompletion()
+    return
+  }
+  const { state } = currentEditor
+  const textBeforeCursor = state.doc.textBetween(0, state.selection.from, '\n', '\n')
+  const token = findSkillReferenceToken(textBeforeCursor)
+  if (!token) {
+    closeSkillCompletion()
+    return
+  }
+  const query = token.query.toLowerCase()
+  const candidates = props.commands
+    .filter((command) => command.source === 'skill' && command.name.startsWith('skill:'))
+    .filter((command) => {
+      if (!query) {
+        return true
+      }
+      return [command.name, command.description]
+        .filter(Boolean)
+        .join(' ')
+        .toLowerCase()
+        .includes(query)
+    })
+    .slice(0, 12)
+    .map((command) => ({
+      name: command.name,
+      label: command.name,
+      description: command.description,
+      path: command.sourceInfo.path,
+      baseDir: command.sourceInfo.baseDir
+    }))
+  skillCompletion.value = candidates.length > 0 ? { from: token.from, candidates } : undefined
+  selectedSkillCompletionIndex.value = 0
+  emitSkillCompletionState()
+}
+
+/**
+ * 查找光标前正在输入的 $skill token。
+ * @param textBeforeCursor - 光标前纯文本。
+ * @returns token 信息。
+ */
+function findSkillReferenceToken(textBeforeCursor: string): { from: number; query: string } | undefined {
+  const match = textBeforeCursor.match(/(^|[\s([{（【])\$([^\s$]*)$/)
+  if (!match || match.index === undefined) {
+    return undefined
+  }
+  return {
+    from: match.index + match[1].length,
+    query: match[2] ?? ''
+  }
 }
 
 /**
@@ -377,11 +554,82 @@ function selectCompletion(candidate: PromptFileReferenceCandidate | undefined): 
 }
 
 /**
+ * 选择技能补全候选。
+ * @param candidate - 候选。
+ */
+function selectSkillCompletion(candidate: SkillReferenceCompletionCandidate | undefined): void {
+  const currentEditor = editor.value
+  const currentCompletion = skillCompletion.value
+  if (!candidate || !currentEditor || currentCompletion?.from === undefined) {
+    return
+  }
+  const insertion = {
+    type: 'skillReference',
+    attrs: {
+      name: candidate.name,
+      label: candidate.label,
+      path: candidate.path,
+      baseDir: candidate.baseDir
+    }
+  }
+  const textBeforeCursor = currentEditor.state.doc.textBetween(
+    0,
+    currentEditor.state.selection.from,
+    '\n',
+    '\n'
+  )
+  const tokenTextLength = textBeforeCursor.length - currentCompletion.from
+  const from = Math.max(1, currentEditor.state.selection.from - tokenTextLength)
+  currentEditor.commands.insertContentAt({ from, to: currentEditor.state.selection.from }, [
+    insertion,
+    { type: 'text', text: ' ' }
+  ])
+  closeSkillCompletion()
+}
+
+/**
  * 从外层 Composer 选择当前文件补全候选。
  * @param candidate - 候选。
  */
 function selectFileReferenceCompletion(candidate: PromptFileReferenceCandidate | undefined): void {
   selectCompletion(candidate)
+}
+
+/**
+ * 从外层 Composer 选择当前技能补全候选。
+ * @param candidate - 候选。
+ */
+function selectSkillReferenceCompletion(
+  candidate: SkillReferenceCompletionCandidate | undefined
+): void {
+  selectSkillCompletion(candidate)
+}
+
+/**
+ * 在当前光标位置插入文件引用。
+ * @param paths - 文件路径列表。
+ */
+function insertFileReferences(paths: string[]): void {
+  const currentEditor = editor.value
+  const filePaths = paths.map((path) => path.trim()).filter(Boolean)
+  if (!currentEditor || filePaths.length === 0) {
+    return
+  }
+
+  currentEditor.commands.focus()
+  currentEditor.commands.insertContent(
+    filePaths.flatMap((path) => [
+      {
+        type: 'fileReference',
+        attrs: {
+          fileArg: path,
+          label: path
+        }
+      },
+      { type: 'text', text: ' ' }
+    ])
+  )
+  closeCompletion()
 }
 
 /**
@@ -397,10 +645,29 @@ function setFileReferenceCompletionIndex(index: number): void {
 }
 
 /**
+ * 从外层 Composer 同步当前技能高亮候选。
+ * @param index - 候选索引。
+ */
+function setSkillReferenceCompletionIndex(index: number): void {
+  if (index < 0 || index >= skillCompletionCandidates.value.length) {
+    return
+  }
+  selectedSkillCompletionIndex.value = index
+  emitSkillCompletionState()
+}
+
+/**
  * 关闭文件补全。
  */
 function closeFileReferenceCompletion(): void {
   closeCompletion()
+}
+
+/**
+ * 关闭技能补全。
+ */
+function closeSkillReferenceCompletion(): void {
+  closeSkillCompletion()
 }
 
 /**
@@ -425,12 +692,31 @@ function closeCompletion(): void {
 }
 
 /**
+ * 关闭技能补全浮层。
+ */
+function closeSkillCompletion(): void {
+  skillCompletion.value = undefined
+  selectedSkillCompletionIndex.value = 0
+  emitSkillCompletionState()
+}
+
+/**
  * 向 Composer 同步文件补全展示状态。
  */
 function emitCompletionState(): void {
   emit('file-reference-completion', {
     candidates: completionCandidates.value,
     selectedIndex: selectedCompletionIndex.value
+  })
+}
+
+/**
+ * 向 Composer 同步技能补全展示状态。
+ */
+function emitSkillCompletionState(): void {
+  emit('skill-reference-completion', {
+    candidates: skillCompletionCandidates.value,
+    selectedIndex: selectedSkillCompletionIndex.value
   })
 }
 
@@ -487,6 +773,13 @@ function collectPlainText(node: JSONContent, parts: string[]): void {
     }
     return
   }
+  if (node.type === 'skillReference') {
+    const name = typeof node.attrs?.name === 'string' ? node.attrs.name : ''
+    if (name) {
+      parts.push(`$${name}`)
+    }
+    return
+  }
   if (typeof node.text === 'string') {
     parts.push(node.text)
   }
@@ -497,8 +790,12 @@ function collectPlainText(node: JSONContent, parts: string[]): void {
 
 defineExpose({
   closeFileReferenceCompletion,
+  closeSkillReferenceCompletion,
   focusEditor,
+  insertFileReferences,
   selectFileReferenceCompletion,
+  selectSkillReferenceCompletion,
+  setSkillReferenceCompletionIndex,
   setFileReferenceCompletionIndex
 })
 </script>

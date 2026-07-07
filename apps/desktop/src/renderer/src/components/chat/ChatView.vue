@@ -25,7 +25,7 @@ import useModelSettingsStore from '@renderer/stores/model-settings'
 import useWorkspaceSessionStore from '@renderer/stores/workspace-session'
 import useWorkspaceProjectStore from '@renderer/stores/workspace-project'
 import { useSessionContext } from '@renderer/composables/useSessionContext'
-import type { DesktopToolCall } from '../../../../../../../packages/coding-agent/src/desktop/protocol/tool.ts'
+import type { DesktopToolCall } from '@coding-agent-src/desktop/protocol/tool.ts'
 import ScrollArea from '../ui/scroll-area/ScrollArea.vue'
 import type {
   ComposerImageAttachment,
@@ -362,6 +362,31 @@ async function handleSelectImages(threadId?: string): Promise<void> {
     if (!images || images.length === 0) {
       return
     }
+    workspaceSession.addComposerImages(
+      images.map(toComposerImageAttachment),
+      workspaceSession.defaultSessionContextId,
+      threadId
+    )
+  } catch (error) {
+    imageSelectionError.value = error instanceof Error ? error.message : String(error)
+  } finally {
+    selectingImages.value = false
+  }
+}
+
+/**
+ * 处理拖拽进来的本地图片路径。
+ * @param paths - 本地图片路径。
+ * @param threadId - 拖拽图片时绑定的 thread ID。
+ */
+async function handleAddImagePaths(paths: string[], threadId?: string): Promise<void> {
+  if (paths.length === 0) {
+    return
+  }
+  imageSelectionError.value = undefined
+  selectingImages.value = true
+  try {
+    const images = await window.api.codingAgent.processPromptImageFiles(paths)
     workspaceSession.addComposerImages(
       images.map(toComposerImageAttachment),
       workspaceSession.defaultSessionContextId,
@@ -1280,6 +1305,7 @@ function getToolCallRevision(toolCall: DesktopToolCall | undefined): unknown[] {
         v-model:running-delivery="runningDelivery"
         :is-running="isRunning"
         :can-send="canSend"
+        :submitting="workspaceSession.isSendingPrompt"
         :thread-id="workspaceSession.activeSessionId"
         :project-id="workspaceSession.activeProjectId"
         :projects="workspaceProject.projectList"
@@ -1308,6 +1334,7 @@ function getToolCallRevision(toolCall: DesktopToolCall | undefined): unknown[] {
         @select-project="workspaceSession.startNewSession"
         @select-images="handleSelectImages"
         @paste-images="handlePasteImages"
+        @add-image-paths="handleAddImagePaths"
         @remove-image="workspaceSession.removeComposerImage"
         @clear-images="handleClearImages"
         @dismiss-image-error="handleDismissImageError"

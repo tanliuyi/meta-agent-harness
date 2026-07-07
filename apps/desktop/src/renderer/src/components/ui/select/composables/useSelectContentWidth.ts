@@ -16,6 +16,7 @@ type SelectContentWidthOptions = {
 }
 
 const SELECT_TEXT_WIDTH_CACHE_LIMIT = 2048
+const FALLBACK_FONT_SIZE_PX = 14
 const selectTextWidthCache = new Map<string, number>()
 let pretextModulePromise: Promise<PretextModule> | null = null
 
@@ -49,6 +50,16 @@ export function useSelectContentWidth(options: SelectContentWidthOptions) {
     })
   }
 
+  function getFallbackContentWidth(trigger: Element): number {
+    const triggerWidth = trigger.getBoundingClientRect().width
+    const style = window.getComputedStyle(trigger)
+    const fallbackTextWidth = estimateWidestSelectTextWidth(
+      toValue(options.labels),
+      readPixelValue(style.fontSize) || FALLBACK_FONT_SIZE_PX
+    )
+    return Math.max(triggerWidth, fallbackTextWidth + inlinePadding)
+  }
+
   async function measureContentWidth(): Promise<void> {
     const trigger = getElement(triggerRef.value)
     if (!trigger) {
@@ -56,7 +67,7 @@ export function useSelectContentWidth(options: SelectContentWidthOptions) {
       return
     }
 
-    const triggerWidth = trigger.getBoundingClientRect().width
+    const fallbackWidth = getFallbackContentWidth(trigger)
     const style = window.getComputedStyle(trigger)
     const font = getCanvasFont(style)
     const letterSpacing = readPixelValue(style.letterSpacing)
@@ -73,7 +84,7 @@ export function useSelectContentWidth(options: SelectContentWidthOptions) {
         measureSelectTextWidth(label, font, letterSpacing, pretext)
       )
     }
-    const nextWidth = Math.max(triggerWidth, Math.ceil(optionTextWidth + inlinePadding))
+    const nextWidth = Math.max(fallbackWidth, Math.ceil(optionTextWidth + inlinePadding))
     contentWidth.value = `${nextWidth}px`
   }
 
@@ -84,7 +95,7 @@ export function useSelectContentWidth(options: SelectContentWidthOptions) {
       return
     }
 
-    contentWidth.value = `${Math.ceil(trigger.getBoundingClientRect().width)}px`
+    contentWidth.value = `${Math.ceil(getFallbackContentWidth(trigger))}px`
   }
 
   onMounted(() => {
@@ -164,6 +175,31 @@ function getCanvasFont(style: CSSStyleDeclaration): string {
 function readPixelValue(value: string): number {
   const parsed = Number.parseFloat(value)
   return Number.isFinite(parsed) ? parsed : 0
+}
+
+export function estimateWidestSelectTextWidth(labels: string[], fontSize: number): number {
+  let widest = 0
+  for (const label of labels) {
+    widest = Math.max(widest, estimateSelectTextWidth(label, fontSize))
+  }
+  return widest
+}
+
+function estimateSelectTextWidth(text: string, fontSize: number): number {
+  let width = 0
+  for (const char of Array.from(text)) {
+    width += getFallbackCharWidth(char, fontSize)
+  }
+  return width
+}
+
+function getFallbackCharWidth(char: string, fontSize: number): number {
+  if (/\s/.test(char)) return fontSize * 0.35
+  if (/[\u3000-\u9fff\uff00-\uffef]/u.test(char)) return fontSize
+  if (/[.,:;|!'`]/.test(char)) return fontSize * 0.3
+  if (/[-_/\\()[\]{}]/.test(char)) return fontSize * 0.48
+  if (/[A-Z0-9]/.test(char)) return fontSize * 0.62
+  return fontSize * 0.56
 }
 
 function getSelectTextWidthCacheKey(text: string, font: string, letterSpacing: number): string {

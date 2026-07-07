@@ -14,6 +14,11 @@ describe('commandDisplay', () => {
     )
   })
 
+  it('不把 skill 作为可运行命令展示', () => {
+    expect(filterCommands(commands, '').map((command) => command.name)).toEqual(['deploy'])
+    expect(filterCommands(commands, '/skill:test').map((command) => command.name)).toEqual([])
+  })
+
   it('从命令输入中提取 Pi extension command 参数', () => {
     expect(getCommandQueryName('/deploy prod --force')).toBe('deploy')
     expect(getCommandQueryArgs('/deploy prod --force', 'deploy')).toBe('prod --force')

@@ -71,7 +71,7 @@ const thinkingStatusTone = computed<'neutral' | 'success' | 'warning' | 'info'>(
     <header class="models-page__header">
       <div>
         <p class="models-page__eyebrow">Reasoning</p>
-        <h1 class="models-page__title">思考强度 Thinking</h1>
+        <h1 class="models-page__title">思考</h1>
         <p class="models-page__subtitle">只保存全局默认 thinking level。</p>
       </div>
       <BaseButton
@@ -83,13 +83,13 @@ const thinkingStatusTone = computed<'neutral' | 'success' | 'warning' | 'info'>(
         <template #icon>
           <Save :size="14" />
         </template>
-        保存 Thinking
+        保存
       </BaseButton>
     </header>
 
     <div v-if="modelSettings.error" class="state-strip is-error">{{ modelSettings.error }}</div>
 
-    <BasePanel title="思考强度 Thinking Level" eyebrow="Global">
+    <BasePanel title="思考强度" eyebrow="Global">
       <div class="thinking-summary" aria-label="Thinking level summary">
         <div>
           <span>Default model</span>

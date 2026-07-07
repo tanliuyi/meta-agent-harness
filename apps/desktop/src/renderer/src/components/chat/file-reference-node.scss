@@ -19,8 +19,9 @@
 }
 
 @mixin file-reference-node-icon {
-  display: grid;
-  place-items: center;
+  display: flex;
+  justify-content: center;
+  align-items: center;
   width: 18px;
   height: 18px;
   color: var(--color-primary);

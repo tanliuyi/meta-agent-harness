@@ -29,7 +29,7 @@ const goBack = (): void => {
         <span>模型</span>
       </RouterLink>
       <RouterLink class="settings-link" to="/settings/agent">
-        <span>Agent</span>
+        <span>智能体</span>
       </RouterLink>
       <RouterLink class="settings-link" to="/settings/extensions">
         <span>扩展</span>

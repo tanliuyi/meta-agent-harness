@@ -1,8 +1,7 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, defineAsyncComponent } from 'vue'
 import BaseTool from './BaseTool.vue'
 import PencilIcon from '@renderer/components/icons/PencilIcon.vue'
-import DiffViewer from './DiffViewer.vue'
 import { countDisplayDiffStats } from './display/diffDisplay'
 import {
   getFileName,
@@ -17,6 +16,10 @@ import {
 } from './support/tool-message'
 
 const props = defineProps<ToolComponentProps>()
+const DiffViewer = defineAsyncComponent({
+  loader: () => import('./DiffViewer.vue'),
+  suspensible: false
+})
 
 const args = computed(() => getToolArgs(props.toolCall))
 const details = computed(() => getToolDetails(props.toolCall))

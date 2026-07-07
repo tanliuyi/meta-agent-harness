@@ -41,6 +41,7 @@ import type {
 
 const PROMPT_TITLE_MAX_CHARS = 30
 const EXTENSION_INLINE_NOTIFY_MAX_CHARS = 180
+const DEFERRED_SNAPSHOT_REFRESH_DELAY_MS = 900
 
 /** 会话面板 UI 状态。 */
 export type SessionUiState = {
@@ -248,7 +249,7 @@ const agentSessionEventTypes = new Set<AgentSessionIpcEvent['type']>([
  * @returns 默认会话 UI 状态。
  */
 const createUiState = (): SessionUiState => ({
-  panelOpen: true,
+  panelOpen: false,
   panelWidth: 420
 })
 
@@ -320,6 +321,9 @@ export default defineStore('workspace-session', () => {
     Record<string, RunCommandResult['details'] | undefined>
   >({})
 
+  /** 每个视图上下文当前是否正在提交 Composer。 */
+  const sendingPromptByContextId = shallowReactive<Record<string, boolean>>({})
+
   const workspaceProject = useWorkspaceProjectStore()
 
   /** Chat timeline 请求 SessionPanel Tree 定位的 entry。 */
@@ -340,6 +344,7 @@ export default defineStore('workspace-session', () => {
   /** 待提交的工具更新事件，按 thread + toolCall 合并。 */
   const pendingToolUpdateEvents = new Map<string, ToolUpdateIpcEvent>()
   let toolUpdateEventFlushId: number | null = null
+  let deferredSnapshotRefreshTimer: ReturnType<typeof setTimeout> | undefined
 
   /**
    * 确保指定上下文存在。
@@ -1078,6 +1083,9 @@ export default defineStore('workspace-session', () => {
     () => Boolean(getComposerText(draftMessage.value).trim()) || draftImages.value.length > 0
   )
 
+  /** 默认上下文 Composer 是否正在提交。 */
+  const isSendingPrompt = computed(() => Boolean(sendingPromptByContextId[defaultSessionContextId]))
+
   /** 会话列表，最近更新排在最上面。 */
   const sessionList = computed(() => sortSessionsByUpdatedAt(Object.values(sessions)))
 
@@ -1146,7 +1154,7 @@ export default defineStore('workspace-session', () => {
       }
       if (context.activeThreadId) {
         if (options.deferActiveSnapshot) {
-          void refreshSnapshot(context.activeThreadId)
+          scheduleDeferredSnapshotRefresh(context.activeThreadId, contextId)
         } else {
           await refreshSnapshot(context.activeThreadId)
         }
@@ -1225,6 +1233,25 @@ export default defineStore('workspace-session', () => {
   }
 
   /**
+   * 首屏启动路径延后后台 snapshot 刷新，避免在完整 IPC 注册前触发 preload 重试。
+   * 用户显式切换会话仍走即时 refreshSnapshot。
+   */
+  function scheduleDeferredSnapshotRefresh(threadId: string, contextId: string): void {
+    if (deferredSnapshotRefreshTimer) {
+      clearTimeout(deferredSnapshotRefreshTimer)
+    }
+
+    deferredSnapshotRefreshTimer = setTimeout(() => {
+      deferredSnapshotRefreshTimer = undefined
+      const context = contexts[contextId] ?? mainContextState
+      if (context.activeThreadId !== threadId || sessions[threadId]?.snapshot) {
+        return
+      }
+      void refreshSnapshot(threadId)
+    }, DEFERRED_SNAPSHOT_REFRESH_DELAY_MS)
+  }
+
+  /**
    * 加载指定会话可用模型列表。
    * @param threadId - 目标 thread ID，默认当前活跃会话。
    */
@@ -1270,7 +1297,20 @@ export default defineStore('workspace-session', () => {
           sourceInfo: extension.sourceInfo
         }))
       )
-      context.orphanCommands = mergeCommandInfos(getBuiltinCommandInfos(), extensionCommands)
+      const skillCommands =
+        snapshot.skillCommands ??
+        snapshot.resources.skills
+          .filter((skill) => skill.enabled)
+          .map((skill) => ({
+            name: `skill:${getSkillNameFromPath(skill.path)}`,
+            source: 'skill' as const,
+            sourceInfo: skill.sourceInfo
+          }))
+      context.orphanCommands = mergeCommandInfos(
+        getBuiltinCommandInfos(),
+        extensionCommands,
+        skillCommands
+      )
       context.orphanCommandsLoaded = true
     } catch (error) {
       globalErrorMessage.value = error instanceof Error ? error.message : String(error)
@@ -1417,11 +1457,15 @@ export default defineStore('workspace-session', () => {
     contextId = defaultSessionContextId,
     runningDelivery: RunningMessageDelivery = 'steer'
   ): Promise<void> => {
+    if (sendingPromptByContextId[contextId]) {
+      return
+    }
     const context = ensureSessionContext(contextId)
     let threadId = context.activeThreadId
     const draft = getComposerDraft(threadId, contextId)
     const text = getComposerText(draft).trim()
     const fileArgs = getComposerFileArgs(draft)
+    const skillReferences = getComposerSkillReferences(draft)
     const images = getComposerImages(threadId, contextId)
     const message = text || (images.length > 0 ? '请分析这些图片' : '')
     if (!message) {
@@ -1429,6 +1473,7 @@ export default defineStore('workspace-session', () => {
     }
     let runtime: WorkspaceSessionRuntime | undefined
     globalErrorMessage.value = undefined
+    sendingPromptByContextId[contextId] = true
     try {
       const ensured = await ensureThreadForContext(contextId)
       threadId = ensured.threadId
@@ -1457,6 +1502,7 @@ export default defineStore('workspace-session', () => {
         threadId: targetThreadId,
         message,
         ...(fileArgs.length > 0 ? { fileArgs } : {}),
+        ...(skillReferences.length > 0 ? { skillReferences } : {}),
         ...getPromptImagePayload(images)
       }
       if (isQueuedWhileRunning) {
@@ -1488,6 +1534,7 @@ export default defineStore('workspace-session', () => {
         globalErrorMessage.value = message
       }
     } finally {
+      sendingPromptByContextId[contextId] = false
       loadingThreads.value = false
     }
   }
@@ -1669,6 +1716,10 @@ export default defineStore('workspace-session', () => {
     args?: string,
     threadId = activeSessionId.value
   ): Promise<void> => {
+    if (isSkillCommandName(command)) {
+      toast.info('请在输入框使用 $ 引用技能', normalizeSkillCommandLabel(command))
+      return
+    }
     const desktopCommandResult = await runDesktopBuiltinCommand(command, args)
     if (desktopCommandResult.handled) {
       if (desktopCommandResult.message) {
@@ -1750,7 +1801,7 @@ export default defineStore('workspace-session', () => {
         return { handled: true, message: '已打开安全与信任设置' }
       case 'login':
       case 'logout':
-        await router.push('/settings/models/api-keys')
+        await router.push('/settings/models/registry?tab=credentials')
         return { handled: true, message: '已打开模型认证设置' }
       case 'tree': {
         if (trimmedArgs) {
@@ -2763,6 +2814,7 @@ export default defineStore('workspace-session', () => {
     getMessageRenderState,
     hasDraftMessage,
     isNewSessionActive,
+    isSendingPrompt,
     loadThreads,
     loadCommands,
     loadActiveSessionTreeBranches,
@@ -2914,6 +2966,24 @@ function isThreadRunning(session: WorkspaceSession | undefined): boolean {
   return ['queued', 'starting', 'running', 'stopping'].includes(session?.status ?? '')
 }
 
+function isSkillCommandName(command: string): boolean {
+  return normalizeSkillCommandLabel(command).startsWith('skill:')
+}
+
+function normalizeSkillCommandLabel(command: string): string {
+  return command.trim().replace(/^\/+/, '')
+}
+
+function getSkillNameFromPath(path: string): string {
+  const normalized = path.replace(/\\/g, '/').replace(/\/+$/, '')
+  const parts = normalized.split('/').filter(Boolean)
+  const fileName = parts.at(-1) ?? ''
+  if (fileName.toLowerCase() === 'skill.md' && parts.length >= 2) {
+    return parts.at(-2) ?? fileName
+  }
+  return fileName.replace(/\.[^.]+$/, '')
+}
+
 /**
  * 从 Tiptap JSON 中提取纯文本，用于提交 prompt。
  * @param content - Tiptap JSON 内容。
@@ -2943,6 +3013,29 @@ function getComposerFileArgs(content: JSONContent): string[] {
 }
 
 /**
+ * 从 Tiptap JSON 中提取 skillReference 节点携带的真实 skill 引用。
+ * @param content - Tiptap JSON 内容。
+ * @returns skill 引用列表。
+ */
+function getComposerSkillReferences(content: JSONContent): Array<{
+  name: string
+  path?: string
+  baseDir?: string
+}> {
+  const references: Array<{ name: string; path?: string; baseDir?: string }> = []
+  collectComposerSkillReferences(content, references)
+  const seen = new Set<string>()
+  return references.filter((reference) => {
+    const key = `${reference.name}\0${reference.path ?? ''}`
+    if (seen.has(key)) {
+      return false
+    }
+    seen.add(key)
+    return true
+  })
+}
+
+/**
  * 递归收集 fileReference 节点。
  * @param node - Tiptap JSON 节点。
  * @param fileArgs - 文件参数列表。
@@ -2957,6 +3050,33 @@ function collectComposerFileArgs(node: JSONContent, fileArgs: string[]): void {
   }
   for (const child of node.content ?? []) {
     collectComposerFileArgs(child, fileArgs)
+  }
+}
+
+/**
+ * 递归收集 skillReference 节点。
+ * @param node - Tiptap JSON 节点。
+ * @param references - skill 引用列表。
+ */
+function collectComposerSkillReferences(
+  node: JSONContent,
+  references: Array<{ name: string; path?: string; baseDir?: string }>
+): void {
+  if (node.type === 'skillReference') {
+    const name = typeof node.attrs?.name === 'string' ? node.attrs.name : ''
+    if (name) {
+      const path = typeof node.attrs?.path === 'string' ? node.attrs.path : undefined
+      const baseDir = typeof node.attrs?.baseDir === 'string' ? node.attrs.baseDir : undefined
+      references.push({
+        name,
+        ...(path ? { path } : {}),
+        ...(baseDir ? { baseDir } : {})
+      })
+    }
+    return
+  }
+  for (const child of node.content ?? []) {
+    collectComposerSkillReferences(child, references)
   }
 }
 
@@ -2992,6 +3112,13 @@ function collectComposerText(node: JSONContent, parts: string[]): void {
     const fileArg = typeof node.attrs?.fileArg === 'string' ? node.attrs.fileArg : ''
     if (fileArg) {
       parts.push(formatFileArgForInsertion(fileArg))
+    }
+    return
+  }
+  if (node.type === 'skillReference') {
+    const name = typeof node.attrs?.name === 'string' ? node.attrs.name : ''
+    if (name) {
+      parts.push(`$${name}`)
     }
     return
   }
@@ -3123,7 +3250,13 @@ export function applyEventToSessions(
   }
   if (event.type === 'projection') {
     const session = sessions[event.threadId]
-    if (!session?.snapshot) {
+    if (!session) {
+      return
+    }
+    if (event.event.type === 'thread.stateChanged') {
+      session.status = event.event.status
+    }
+    if (!session.snapshot) {
       return
     }
     applyProjectionEvent(session.snapshot, event.event)
@@ -3132,7 +3265,14 @@ export function applyEventToSessions(
   }
   if (isAgentSessionEventType(event)) {
     const session = sessions[event.threadId]
-    if (!session?.snapshot) {
+    if (!session) {
+      return
+    }
+    const status = getStatusFromAgentSessionEvent(event as AgentSessionIpcEvent)
+    if (status) {
+      session.status = status
+    }
+    if (!session.snapshot) {
       return
     }
     const messageId = applyAgentSessionEvent(session.snapshot, event as AgentSessionIpcEvent)
@@ -3144,6 +3284,22 @@ export function applyEventToSessions(
     if (messageId && onMessageRevision) {
       onMessageRevision(messageId, event.type === 'message_end' ? 'complete' : 'streaming')
     }
+  }
+}
+
+function getStatusFromAgentSessionEvent(
+  event: AgentSessionIpcEvent
+): WorkspaceSession['status'] | undefined {
+  switch (event.type) {
+    case 'agent_start':
+    case 'turn_start':
+      return 'running'
+    case 'turn_end':
+      return 'idle'
+    case 'agent_end':
+      return event.willRetry ? undefined : 'idle'
+    default:
+      return undefined
   }
 }
 
@@ -3218,6 +3374,11 @@ function applyAgentSessionEvent(
     case 'agent_start':
     case 'turn_start':
       snapshot.status = 'running'
+      return undefined
+    case 'agent_end':
+      if (!event.willRetry) {
+        snapshot.status = 'idle'
+      }
       return undefined
     case 'turn_end':
       snapshot.status = 'idle'

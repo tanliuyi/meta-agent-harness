@@ -33,7 +33,7 @@ const settingsGridAreas = computed(() => {
 /** 当前设置主菜单标题。 */
 const settingsTitle = computed(() => {
   if (route.path.startsWith('/settings/models')) return '模型'
-  if (route.path.startsWith('/settings/agent')) return 'Agent'
+  if (route.path.startsWith('/settings/agent')) return '智能体'
   if (route.path.startsWith('/settings/diagnostics')) return '诊断'
   if (route.path.startsWith('/settings/extensions')) return '扩展'
   if (route.path.startsWith('/settings/archive')) return '归档'
@@ -112,14 +112,25 @@ const settingsTitle = computed(() => {
 }
 
 .settings-content__header {
+  position: relative;
   display: flex;
   align-items: center;
   height: var(--session-header-height);
   min-width: 0;
   min-height: 0;
-  padding: 0 var(--space-2);
-  border-bottom: 1px solid var(--color-border-muted);
+  padding: 0 var(--space-4);
   user-select: none;
+
+  &::after {
+    content: '';
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    height: 1px;
+    background: var(--color-border-muted);
+    opacity: 0.4;
+  }
 
   &--darwin {
     -webkit-app-region: drag;

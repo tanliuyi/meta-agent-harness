@@ -22,6 +22,9 @@ declare module '*.vue' {
 interface Window {
   api: {
     codingAgent: import('@shared/coding-agent/types').CodingAgentApi
+    fileSystem: {
+      getPathForFile: (file: File) => string
+    }
     runtime: {
       platform: string
     }

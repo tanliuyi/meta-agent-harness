@@ -12,14 +12,19 @@ export const commandMenuSections: BaseContextMenuSection[] = [
 
 export function filterCommands(commands: CommandInfo[], query: string): CommandInfo[] {
   const normalizedQuery = getCommandQueryName(query).toLowerCase()
+  const runnableCommands = commands.filter(isRunnableCommand)
   if (!normalizedQuery) {
-    return commands
+    return runnableCommands
   }
-  return commands.filter((command) =>
+  return runnableCommands.filter((command) =>
     [command.name, command.description, command.source].some((value) =>
       value?.toLowerCase().includes(normalizedQuery)
     )
   )
+}
+
+export function isRunnableCommand(command: CommandInfo): boolean {
+  return command.source !== 'skill'
 }
 
 export function getCommandKey(command: CommandInfo): string {

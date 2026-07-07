@@ -1,14 +1,22 @@
 <script setup lang="ts">
 import { BaseBadge, BaseField, BasePanel } from '@renderer/components/base'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { SettingsSelectField } from '@renderer/views/settings/components/form'
+import ProviderCredentialsPanel from './ProviderCredentialsPanel.vue'
 import useModelSettingsStore, { type ModelStatus } from '@renderer/stores/model-settings'
 import { ChevronRight, Database, Search } from 'lucide-vue-next'
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 
 const modelSettings = useModelSettingsStore()
+const route = useRoute()
+const router = useRouter()
 const searchQuery = ref('')
 const statusFilter = ref('all')
+const activeTab = ref<RegistrySettingsTab>('registry')
 const expandedProviderGroups = ref<Record<string, boolean>>({})
+
+type RegistrySettingsTab = 'registry' | 'credentials'
 
 const statusFilters: Array<{ label: string; value: 'all' | ModelStatus }> = [
   { label: '全部', value: 'all' },
@@ -86,6 +94,25 @@ const modelGroups = computed<ModelProviderGroup[]>(() => {
   return [...groups.entries()].map(([provider, items]) => ({ provider, items }))
 })
 
+watch(
+  () => route.query.tab,
+  (tab) => {
+    activeTab.value = tab === 'credentials' ? 'credentials' : 'registry'
+  },
+  { immediate: true }
+)
+
+async function updateActiveTab(tab: string | number): Promise<void> {
+  const nextTab: RegistrySettingsTab = tab === 'credentials' ? 'credentials' : 'registry'
+  activeTab.value = nextTab
+  await router.replace({
+    query: {
+      ...route.query,
+      tab: nextTab === 'credentials' ? 'credentials' : undefined
+    }
+  })
+}
+
 function badgeToneForStatus(status: ModelStatus): 'neutral' | 'success' | 'warning' | 'info' {
   if (status === 'available') return 'success'
   if (status === 'missingAuth' || status === 'invalid') return 'warning'
@@ -137,117 +164,140 @@ function formatThinkingLevels(levels: string[] | undefined): string {
     <header class="models-page__header">
       <div>
         <p class="models-page__eyebrow">Registry</p>
-        <h1 class="models-page__title">可用模型</h1>
-        <p class="models-page__subtitle">查看当前 registry 中可选择的 provider 和 model。</p>
+        <h1 class="models-page__title">模型</h1>
+        <p class="models-page__subtitle">
+          查看当前 registry 中可选择的 provider、model 与凭据状态。
+        </p>
       </div>
     </header>
 
-    <BasePanel title="模型注册表" eyebrow="Read only">
-      <template #actions>
-        <BaseBadge :tone="hasModels ? 'success' : 'warning'">
-          {{ hasModels ? `${modelCount} 个模型` : '空' }}
-        </BaseBadge>
-      </template>
+    <Tabs
+      :model-value="activeTab"
+      class="models-registry-tabs"
+      @update:model-value="updateActiveTab"
+    >
+      <TabsList>
+        <TabsTrigger value="registry">模型注册表</TabsTrigger>
+        <TabsTrigger value="credentials">API Key</TabsTrigger>
+      </TabsList>
 
-      <div class="toolbar">
-        <BaseField
-          id="model-search"
-          v-model="searchQuery"
-          type="search"
-          label="搜索"
-          placeholder="provider、model id 或显示名"
-        />
-        <SettingsSelectField v-model="statusFilter" label="状态 Status" :options="statusFilters" />
-      </div>
+      <TabsContent value="credentials">
+        <ProviderCredentialsPanel v-if="activeTab === 'credentials'" />
+      </TabsContent>
 
-      <div v-if="hasModels" class="registry-summary" aria-label="模型注册表摘要">
-        <div>
-          <span>Provider</span>
-          <strong>{{ providerCount }}</strong>
-        </div>
-        <div>
-          <span>可用</span>
-          <strong>{{ availableCount }}</strong>
-        </div>
-        <div :class="{ 'has-warning': missingAuthCount > 0 }">
-          <span>缺凭据</span>
-          <strong>{{ missingAuthCount }}</strong>
-        </div>
-        <div :class="{ 'has-warning': invalidCount > 0 }">
-          <span>无效</span>
-          <strong>{{ invalidCount }}</strong>
-        </div>
-        <div>
-          <span>禁用</span>
-          <strong>{{ disabledCount }}</strong>
-        </div>
-        <div>
-          <span>能力覆盖</span>
-          <strong>{{ toolsCount }}T / {{ imagesCount }}I / {{ reasoningCount }}R</strong>
-        </div>
-      </div>
+      <TabsContent value="registry">
+        <BasePanel v-if="activeTab === 'registry'" title="模型注册表" eyebrow="Read only">
+          <template #actions>
+            <BaseBadge :tone="hasModels ? 'success' : 'warning'">
+              {{ hasModels ? `${modelCount} 个模型` : '空' }}
+            </BaseBadge>
+          </template>
 
-      <div v-if="!hasModels" class="empty-state">
-        <Database :size="22" />
-        <strong>没有可展示的模型</strong>
-        <span>请检查模型注册表、凭据状态或自定义 provider 配置。</span>
-      </div>
-
-      <div v-else-if="!hasFilteredModels" class="empty-state">
-        <Search :size="22" />
-        <strong>没有匹配的模型</strong>
-        <span>调整搜索词或状态筛选后再试。</span>
-      </div>
-
-      <div v-else class="provider-list">
-        <section v-for="group in modelGroups" :key="group.provider" class="provider-group">
-          <button
-            class="provider-group__header"
-            type="button"
-            :aria-expanded="isProviderGroupExpanded(group.provider)"
-            @click="toggleProviderGroup(group.provider)"
-          >
-            <ChevronRight
-              class="provider-group__chevron"
-              :class="{ 'is-expanded': isProviderGroupExpanded(group.provider) }"
-              :size="16"
-              aria-hidden="true"
+          <div class="toolbar">
+            <BaseField
+              id="model-search"
+              v-model="searchQuery"
+              type="search"
+              label="搜索"
+              placeholder="provider、model id 或显示名"
             />
-            <span>{{ group.provider }}</span>
-            <BaseBadge tone="neutral">{{ group.items.length }} models</BaseBadge>
-          </button>
-          <ul v-if="isProviderGroupExpanded(group.provider)" class="plain-list registry-list">
-            <li v-for="item in group.items" :key="`${item.model.provider}:${item.model.id}`">
-              <div class="registry-list__copy">
-                <strong>{{ item.model.displayName ?? item.model.id }}</strong>
-                <span>{{ item.model.provider }}/{{ item.model.id }}</span>
-                <div class="model-meta">
-                  <span>
-                    Context
-                    {{ formatTokenLimit(item.model.contextWindow, '未知') }}
-                  </span>
-                  <span>
-                    Output
-                    {{ formatTokenLimit(item.model.maxOutputTokens, '未知') }}
-                  </span>
-                  <span>{{ formatSource(item.model.source) }}</span>
-                </div>
-                <div v-if="item.model.supportsReasoning" class="model-meta">
-                  <span>{{ formatThinkingLevels(item.model.thinkingLevels) }}</span>
-                </div>
-              </div>
-              <div class="model-badges">
-                <BaseBadge :tone="item.badgeTone">
-                  {{ item.statusLabel }}
-                </BaseBadge>
-                <BaseBadge v-if="item.model.supportsTools" tone="info">Tools</BaseBadge>
-                <BaseBadge v-if="item.model.supportsImages" tone="info">Images</BaseBadge>
-                <BaseBadge v-if="item.model.supportsReasoning" tone="info">Reasoning</BaseBadge>
-              </div>
-            </li>
-          </ul>
-        </section>
-      </div>
-    </BasePanel>
+            <SettingsSelectField
+              v-model="statusFilter"
+              label="状态 Status"
+              :options="statusFilters"
+            />
+          </div>
+
+          <div v-if="hasModels" class="registry-summary" aria-label="模型注册表摘要">
+            <div>
+              <span>Provider</span>
+              <strong>{{ providerCount }}</strong>
+            </div>
+            <div>
+              <span>可用</span>
+              <strong>{{ availableCount }}</strong>
+            </div>
+            <div :class="{ 'has-warning': missingAuthCount > 0 }">
+              <span>缺凭据</span>
+              <strong>{{ missingAuthCount }}</strong>
+            </div>
+            <div :class="{ 'has-warning': invalidCount > 0 }">
+              <span>无效</span>
+              <strong>{{ invalidCount }}</strong>
+            </div>
+            <div>
+              <span>禁用</span>
+              <strong>{{ disabledCount }}</strong>
+            </div>
+            <div>
+              <span>能力覆盖</span>
+              <strong>{{ toolsCount }}T / {{ imagesCount }}I / {{ reasoningCount }}R</strong>
+            </div>
+          </div>
+
+          <div v-if="!hasModels" class="empty-state">
+            <Database :size="22" />
+            <strong>没有可展示的模型</strong>
+            <span>请检查模型注册表、凭据状态或自定义 provider 配置。</span>
+          </div>
+
+          <div v-else-if="!hasFilteredModels" class="empty-state">
+            <Search :size="22" />
+            <strong>没有匹配的模型</strong>
+            <span>调整搜索词或状态筛选后再试。</span>
+          </div>
+
+          <div v-else class="provider-list">
+            <section v-for="group in modelGroups" :key="group.provider" class="provider-group">
+              <button
+                class="provider-group__header"
+                type="button"
+                :aria-expanded="isProviderGroupExpanded(group.provider)"
+                @click="toggleProviderGroup(group.provider)"
+              >
+                <ChevronRight
+                  class="provider-group__chevron"
+                  :class="{ 'is-expanded': isProviderGroupExpanded(group.provider) }"
+                  :size="16"
+                  aria-hidden="true"
+                />
+                <span>{{ group.provider }}</span>
+                <BaseBadge tone="neutral">{{ group.items.length }} models</BaseBadge>
+              </button>
+              <ul v-if="isProviderGroupExpanded(group.provider)" class="plain-list registry-list">
+                <li v-for="item in group.items" :key="`${item.model.provider}:${item.model.id}`">
+                  <div class="registry-list__copy">
+                    <strong>{{ item.model.displayName ?? item.model.id }}</strong>
+                    <span>{{ item.model.provider }}/{{ item.model.id }}</span>
+                    <div class="model-meta">
+                      <span>
+                        Context
+                        {{ formatTokenLimit(item.model.contextWindow, '未知') }}
+                      </span>
+                      <span>
+                        Output
+                        {{ formatTokenLimit(item.model.maxOutputTokens, '未知') }}
+                      </span>
+                      <span>{{ formatSource(item.model.source) }}</span>
+                    </div>
+                    <div v-if="item.model.supportsReasoning" class="model-meta">
+                      <span>{{ formatThinkingLevels(item.model.thinkingLevels) }}</span>
+                    </div>
+                  </div>
+                  <div class="model-badges">
+                    <BaseBadge :tone="item.badgeTone">
+                      {{ item.statusLabel }}
+                    </BaseBadge>
+                    <BaseBadge v-if="item.model.supportsTools" tone="info">Tools</BaseBadge>
+                    <BaseBadge v-if="item.model.supportsImages" tone="info">Images</BaseBadge>
+                    <BaseBadge v-if="item.model.supportsReasoning" tone="info">Reasoning</BaseBadge>
+                  </div>
+                </li>
+              </ul>
+            </section>
+          </div>
+        </BasePanel>
+      </TabsContent>
+    </Tabs>
   </div>
 </template>

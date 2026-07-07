@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import type { PreparedTextWithSegments } from '@chenglou/pretext'
 import type { PreparedRichInline, RichInlineItem } from '@chenglou/pretext/rich-inline'
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, defineAsyncComponent, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import type { ThreadMessage } from '@shared/coding-agent/types'
 import {
   formatMessageTime,
@@ -12,7 +12,7 @@ import {
   getStandaloneMessageImages,
   getUserMessageDisplaySegments
 } from './support/message-format'
-import ImagePreviewDialog, { type ImagePreviewItem } from '../ImagePreviewDialog.vue'
+import type { ImagePreviewItem } from '../ImagePreviewDialog.vue'
 import BaseIconButton from '@/components/base/BaseIconButton.vue'
 import SkillIcon from '@/components/icons/SkillIcon.vue'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
@@ -24,6 +24,10 @@ const USER_MESSAGE_MAX_RATIO = 0.88
 const FILE_REFERENCE_FALLBACK_EXTRA_WIDTH = 36
 const TIGHT_WIDTH_MAX_TEXT_LENGTH = 360
 const TIGHT_WIDTH_MAX_SEGMENT_COUNT = 8
+const ImagePreviewDialog = defineAsyncComponent({
+  loader: () => import('../ImagePreviewDialog.vue'),
+  suspensible: false
+})
 
 const props = defineProps<{
   message: ThreadMessage
@@ -480,6 +484,7 @@ function toggleExpand(): void {
         </div>
       </div>
       <ImagePreviewDialog
+        v-if="imagePreviewDialogOpen"
         v-model:open="imagePreviewDialogOpen"
         :images="imagePreviewItems"
         :initial-index="imagePreviewInitialIndex"

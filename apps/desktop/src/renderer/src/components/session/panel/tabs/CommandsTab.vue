@@ -17,6 +17,7 @@ import {
 const workspaceSession = useWorkspaceSessionStore()
 const hasActiveThread = computed(() => Boolean(workspaceSession.activeSessionId))
 const commandQuery = ref('')
+const runnableCommands = computed(() => filterCommands(workspaceSession.activeCommands, ''))
 const filteredCommands = computed(() =>
   filterCommands(workspaceSession.activeCommands, commandQuery.value)
 )
@@ -54,7 +55,7 @@ function runCommand(command: CommandInfo): void {
       <div class="session-section__title">
         <h3>Commands</h3>
         <span v-if="workspaceSession.activeCommandsLoaded" class="session-panel-count">
-          {{ filteredCommands.length }} / {{ workspaceSession.activeCommands.length }}
+          {{ filteredCommands.length }} / {{ runnableCommands.length }}
         </span>
       </div>
       <BaseButton
@@ -76,7 +77,7 @@ function runCommand(command: CommandInfo): void {
     <div v-if="workspaceSession.activeCommandsLoading" class="session-empty">Loading...</div>
     <div
       v-else-if="
-        workspaceSession.activeCommandsLoaded && workspaceSession.activeCommands.length === 0
+        workspaceSession.activeCommandsLoaded && runnableCommands.length === 0
       "
       class="session-empty"
     >

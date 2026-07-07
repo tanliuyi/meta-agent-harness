@@ -7,7 +7,6 @@
 
 import ChatView from '@renderer/components/chat/ChatView.vue'
 import SessionHeader from '@renderer/components/session/SessionHeader.vue'
-import SessionPanel from '@renderer/components/session/SessionPanel.vue'
 import {
   provideSessionContext,
   type SessionInfo,
@@ -16,7 +15,7 @@ import {
 import { useResizablePane } from '@renderer/composables/useResizablePane'
 import useWorkspaceProjectStore from '@renderer/stores/workspace-project'
 import useWorkspaceSessionStore from '@renderer/stores/workspace-session'
-import { computed, onMounted, ref } from 'vue'
+import { computed, defineAsyncComponent, onBeforeUnmount, onMounted, ref } from 'vue'
 import {
   createStableSessionInfo,
   createStableSessionPanelState
@@ -28,9 +27,14 @@ const RESIZER_WIDTH = 1
 
 const workspaceSession = useWorkspaceSessionStore()
 const workspaceProject = useWorkspaceProjectStore()
+const SessionPanel = defineAsyncComponent(
+  () => import('@renderer/components/session/SessionPanel.vue')
+)
 
 /** 内容区容器元素引用。 */
 const workspaceContentRef = ref<HTMLElement | null>(null)
+const shouldRenderSessionPanel = ref(false)
+let sessionPanelRenderRaf: number | undefined
 
 /** 当前活跃会话对象。 */
 const activeSession = computed(() => workspaceSession.activeSession)
@@ -71,11 +75,22 @@ provideSessionContext({
 })
 
 /** 组件挂载时加载 Project 与当前 Project 下的 thread。 */
-onMounted(async () => {
-  await loadWorkspaceStartupData({
+onMounted(() => {
+  sessionPanelRenderRaf = requestAnimationFrame(() => {
+    sessionPanelRenderRaf = undefined
+    shouldRenderSessionPanel.value = true
+  })
+
+  void loadWorkspaceStartupData({
     loadProjects: workspaceProject.loadProjects,
     loadThreads: workspaceSession.loadThreads
   })
+})
+
+onBeforeUnmount(() => {
+  if (sessionPanelRenderRaf !== undefined) {
+    cancelAnimationFrame(sessionPanelRenderRaf)
+  }
 })
 
 /**
@@ -127,6 +142,7 @@ const {
     />
 
     <SessionPanel
+      v-if="shouldRenderSessionPanel"
       class="workspace-content__session-panel"
       :class="{ 'workspace-content__session-panel--collapsed': !sessionPanel.open }"
       :collapsed="!sessionPanel.open"
@@ -155,9 +171,20 @@ const {
 }
 
 .workspace-content__session-header {
+  position: relative;
   min-width: 0;
   min-height: 0;
-  border-bottom: 1px solid var(--color-border-muted);
+
+  &::after {
+    content: ' ';
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    height: 1px;
+    background: var(--color-border-muted);
+    opacity: 0.4;
+  }
 }
 
 .workspace-content__chat,

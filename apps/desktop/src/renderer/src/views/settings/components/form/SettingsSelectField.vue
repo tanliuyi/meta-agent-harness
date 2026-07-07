@@ -2,7 +2,7 @@
 import { computed, ref, type ComponentPublicInstance } from 'vue'
 import { useVirtualizer } from '@tanstack/vue-virtual'
 import ScrollArea from '@/components/ui/scroll-area/ScrollArea.vue'
-import { useSelectContentWidth } from '@/components/ui/select/useSelectContentWidth'
+import { useSelectContentWidth } from '@/components/ui/select/composables/useSelectContentWidth'
 import {
   Select,
   SelectContent,

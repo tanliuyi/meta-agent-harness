@@ -29,8 +29,8 @@ onMounted(() => {
   <div class="agent-shell">
     <ScrollArea class="agent-shell__nav">
       <div class="agent-shell__nav-header">
-        <h1>Agent</h1>
-        <p>每个配置域独立保存，切换页面会保留当前编辑状态。</p>
+        <h1>智能体</h1>
+        <p>每个配置域独立保存</p>
       </div>
       <RouterLink v-for="link in links" :key="link.to" class="agent-shell__link" :to="link.to">
         {{ link.label }}

@@ -1,8 +1,12 @@
-.general-field,
-.font-size-field {
-  display: grid;
+.general-field {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
   gap: var(--space-2);
   min-width: 0;
+}
+.font-size-field {
+  display: grid;
 }
 
 .general-field > span,
@@ -25,9 +29,8 @@
   align-items: center;
 }
 
-.font-size-field input[type='range'] {
+.font-size-field [data-slot='slider'] {
   width: 100%;
-  accent-color: var(--color-primary);
 }
 
 .font-size-field input[type='number'] {

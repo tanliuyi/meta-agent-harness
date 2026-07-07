@@ -2,7 +2,8 @@
 import type { SelectItemProps } from 'reka-ui'
 import type { HTMLAttributes } from 'vue'
 import { reactiveOmit } from '@vueuse/core'
-import { SelectItem, SelectItemText, useForwardProps } from 'reka-ui'
+import { SelectItem, useForwardProps } from 'reka-ui'
+import SelectItemText from './SelectItemText.vue'
 
 const props = defineProps<SelectItemProps & { class?: HTMLAttributes['class'] }>()
 

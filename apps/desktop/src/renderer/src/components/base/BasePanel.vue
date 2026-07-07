@@ -63,6 +63,9 @@ withDefaults(
 
 .base-panel__heading {
   min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
 }
 
 .base-panel__eyebrow {

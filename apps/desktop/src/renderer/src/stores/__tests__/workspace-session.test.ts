@@ -430,6 +430,53 @@ describe('applyEventToSessions', () => {
 
     expect(sessions['thread-a']?.status).toBe('idle')
     expect(sessions['thread-a']?.snapshot?.status).toBe('idle')
+
+    sessions['thread-a']!.status = 'running'
+    sessions['thread-a']!.snapshot!.status = 'running'
+    applyEventToSessions(sessions, {
+      type: 'agent_end',
+      threadId: 'thread-a',
+      messages: [],
+      willRetry: false
+    })
+
+    expect(sessions['thread-a']?.status).toBe('idle')
+    expect(sessions['thread-a']?.snapshot?.status).toBe('idle')
+  })
+
+  it('没有加载 snapshot 的后台 session 也会消费 turn lifecycle 状态', () => {
+    const sessions = createSessions()
+    delete sessions['thread-a']!.snapshot
+    sessions['thread-a']!.status = 'running'
+
+    applyEventToSessions(sessions, {
+      type: 'turn_end',
+      threadId: 'thread-a',
+      message: createAssistantMessage('done', fixtureTimestamp),
+      toolResults: []
+    })
+
+    expect(sessions['thread-a']?.status).toBe('idle')
+    expect(sessions['thread-a']?.snapshot).toBeUndefined()
+  })
+
+  it('没有加载 snapshot 的后台 session 也会消费 thread.stateChanged 状态', () => {
+    const sessions = createSessions()
+    delete sessions['thread-a']!.snapshot
+    sessions['thread-a']!.status = 'running'
+
+    applyEventToSessions(sessions, {
+      type: 'projection',
+      threadId: 'thread-a',
+      event: {
+        type: 'thread.stateChanged',
+        threadId: 'thread-a',
+        status: 'idle'
+      }
+    })
+
+    expect(sessions['thread-a']?.status).toBe('idle')
+    expect(sessions['thread-a']?.snapshot).toBeUndefined()
   })
 
   it('根据后端真实 model、thinking 与 queue event 更新运行状态投影', () => {
@@ -694,6 +741,41 @@ describe('workspace-session Project-first actions', () => {
     expect(store.activeSessionId).toBe('thread-a')
     expect(store.activeProjectId).toBe('project-a')
     expect(getSnapshot).toHaveBeenCalledWith('thread-a')
+  })
+
+  it('deferActiveSnapshot 启动路径延后恢复 thread 的 snapshot 刷新', async () => {
+    vi.useFakeTimers()
+    const thread = {
+      threadId: 'thread-a',
+      projectId: 'project-a',
+      status: 'idle',
+      createdAt: '2026-07-01T00:00:00.000Z',
+      updatedAt: '2026-07-01T00:00:00.000Z'
+    }
+    const snapshot = {
+      ...createSnapshot(),
+      threadId: 'thread-a',
+      projectId: 'project-a'
+    }
+    const sessionStorage = createMemorySessionStorage()
+    sessionStorage.setItem('meta-agent.workspace-session.active-thread.main', 'thread-a')
+    const listThreads = vi.fn().mockResolvedValue([thread])
+    const getSnapshot = vi.fn().mockResolvedValue(snapshot)
+    installCodingAgentApi({ listThreads, getSnapshot }, sessionStorage)
+    const store = useWorkspaceSessionStore()
+
+    await store.loadThreads(undefined, { deferActiveSnapshot: true })
+
+    expect(store.activeSessionId).toBe('thread-a')
+    expect(store.activeProjectId).toBe('project-a')
+    expect(getSnapshot).not.toHaveBeenCalled()
+
+    await vi.advanceTimersByTimeAsync(899)
+    expect(getSnapshot).not.toHaveBeenCalled()
+
+    await vi.advanceTimersByTimeAsync(1)
+    expect(getSnapshot).toHaveBeenCalledWith('thread-a')
+    expect(store.activeSnapshot?.threadId).toBe('thread-a')
   })
 
   it('active project 没有 thread 时进入该 project 的新会话草稿态', async () => {
@@ -1056,15 +1138,15 @@ describe('workspace-session Project-first actions', () => {
       createComposerContent('right draft')
     )
     expect(store.contexts['left-pane'].sessionPanels['thread-a']).toEqual({
-      panelOpen: true,
+      panelOpen: false,
       panelWidth: 300
     })
     expect(store.contexts['right-pane'].sessionPanels['thread-b']).toEqual({
       panelOpen: false,
       panelWidth: 420
     })
-    expect(store.contexts['left-pane'].panel).toEqual({ panelOpen: true, panelWidth: 420 })
-    expect(store.contexts['right-pane'].panel).toEqual({ panelOpen: true, panelWidth: 420 })
+    expect(store.contexts['left-pane'].panel).toEqual({ panelOpen: false, panelWidth: 420 })
+    expect(store.contexts['right-pane'].panel).toEqual({ panelOpen: false, panelWidth: 420 })
   })
 
   it('按 active session 隔离会话面板宽度与开启状态', async () => {
@@ -1085,16 +1167,16 @@ describe('workspace-session Project-first actions', () => {
     store.setActiveSessionPanelOpen(false)
 
     await store.setActiveSessionId('thread-b')
-    expect(store.activeSessionPanel).toEqual({ panelOpen: true, panelWidth: 420 })
+    expect(store.activeSessionPanel).toEqual({ panelOpen: false, panelWidth: 420 })
 
     store.setActiveSessionPanelWidth(520)
-    expect(store.activeSessionPanel).toEqual({ panelOpen: true, panelWidth: 520 })
+    expect(store.activeSessionPanel).toEqual({ panelOpen: false, panelWidth: 520 })
 
     await store.setActiveSessionId('thread-a')
     expect(store.activeSessionPanel).toEqual({ panelOpen: false, panelWidth: 360 })
 
     await store.setActiveSessionId('thread-b')
-    expect(store.activeSessionPanel).toEqual({ panelOpen: true, panelWidth: 520 })
+    expect(store.activeSessionPanel).toEqual({ panelOpen: false, panelWidth: 520 })
   })
 
   it('右侧栏运行态只暴露 active thread 的审批与事件', async () => {
@@ -1339,7 +1421,7 @@ describe('workspace-session Project-first actions', () => {
     expect(store.activeExtensionWidgets.notes).toBeUndefined()
   })
 
-  it('加载并运行 command 时复用 preload API', async () => {
+  it('加载 command 后不再通过 runCommand 执行 skill', async () => {
     const getCommands = vi.fn().mockResolvedValue([
       {
         name: 'skill:test',
@@ -1366,13 +1448,9 @@ describe('workspace-session Project-first actions', () => {
     expect(store.activeCommands.map((command) => command.name)).toEqual(
       expect.arrayContaining(['reload', 'skill:test'])
     )
-    expect(runCommand).toHaveBeenCalledWith({
-      threadId: 'thread-a',
-      command: 'skill:test',
-      args: 'with args'
-    })
-    expect(store.activeSessionActionMessage).toBe('已运行 skill:test with args')
-    expect(toastMock.success).toHaveBeenCalledWith('命令已完成', '已运行 skill:test with args')
+    expect(runCommand).not.toHaveBeenCalled()
+    expect(store.activeSessionActionMessage).toBeUndefined()
+    expect(toastMock.info).toHaveBeenCalledWith('请在输入框使用 $ 引用技能', 'skill:test')
   })
 
   it('运行 command 后使用 main 返回消息并按需刷新 snapshot', async () => {
@@ -1541,6 +1619,20 @@ describe('workspace-session Project-first actions', () => {
           flags: []
         }
       ],
+      skillCommands: [
+        {
+          name: 'skill:review',
+          description: 'Review staged changes',
+          source: 'skill',
+          sourceInfo: {
+            path: '/tmp/skills/review/SKILL.md',
+            source: 'test',
+            scope: 'temporary',
+            origin: 'top-level',
+            baseDir: '/tmp/skills/review'
+          }
+        }
+      ],
       diagnostics: []
     })
     const runCommand = vi.fn().mockResolvedValue(undefined)
@@ -1572,7 +1664,13 @@ describe('workspace-session Project-first actions', () => {
     })
     expect(store.activeSessionId).toBeUndefined()
     expect(store.activeCommands.map((command) => command.name)).toEqual(
-      expect.arrayContaining(['reload', 'extension:test'])
+      expect.arrayContaining(['reload', 'extension:test', 'skill:review'])
+    )
+    expect(store.activeCommands.find((command) => command.name === 'skill:review')).toEqual(
+      expect.objectContaining({
+        description: 'Review staged changes',
+        source: 'skill'
+      })
     )
     expect(store.activeCommands.find((command) => command.name === 'reload')?.source).toBe(
       'builtin'
@@ -1581,14 +1679,11 @@ describe('workspace-session Project-first actions', () => {
 
     await store.runCommand('skill:test', 'with args')
 
-    expect(createThread).toHaveBeenCalledWith({ projectId: 'project-a' })
-    expect(store.activeSessionId).toBe('thread-new')
-    expect(runCommand).toHaveBeenCalledWith({
-      threadId: 'thread-new',
-      command: 'skill:test',
-      args: 'with args'
-    })
-    expect(store.activeSessionActionMessage).toBe('已运行 skill:test with args')
+    expect(createThread).not.toHaveBeenCalled()
+    expect(store.activeSessionId).toBeUndefined()
+    expect(runCommand).not.toHaveBeenCalled()
+    expect(store.activeSessionActionMessage).toBeUndefined()
+    expect(toastMock.info).toHaveBeenCalledWith('请在输入框使用 $ 引用技能', 'skill:test')
   })
 
   it('同步 editor text 并触发 extension shortcut', async () => {
@@ -2409,6 +2504,35 @@ describe('workspace-session Project-first actions', () => {
     expect(prompt).toHaveBeenCalledWith({ threadId: 'thread-a', message: 'hello\nworld' })
   })
 
+  it('发送 Composer skill chip 时保留 $skill 引用语义', async () => {
+    const snapshot = createSnapshot()
+    const prompt = vi.fn().mockResolvedValue(undefined)
+    installCodingAgentApi({ prompt })
+    const store = useWorkspaceSessionStore()
+    store.sessions['thread-a'] = snapshotToWorkspaceSession(snapshot)
+    await store.setActiveSessionId('thread-a')
+    store.draftMessage = createComposerContentWithSkillReference(
+      '请用 ',
+      'skill:review',
+      ' 检查 '
+    )
+
+    await store.sendPrompt()
+
+    expect(prompt).toHaveBeenCalledWith({
+      threadId: 'thread-a',
+      message: '请用 $skill:review 检查 @src/App.vue',
+      fileArgs: ['src/App.vue'],
+      skillReferences: [
+        {
+          name: 'skill:review',
+          path: 'H:\\skills\\review\\SKILL.md',
+          baseDir: 'H:\\skills\\review'
+        }
+      ]
+    })
+  })
+
   it('运行中发送 Composer 草稿时默认复用 steer 链路入队', async () => {
     const snapshot = {
       ...createSnapshot(),
@@ -2502,6 +2626,45 @@ describe('workspace-session Project-first actions', () => {
     expect(store.sessions['thread-new']?.title).toBe('first prompt')
     expect(store.activeSessionId).toBe('thread-new')
     expect(store.activeProjectId).toBe('project-a')
+    expect(store.hasDraftMessage).toBe(false)
+  })
+
+  it('新会话草稿首次发送 pending 时忽略重复提交', async () => {
+    const snapshot = {
+      ...createSnapshot(),
+      threadId: 'thread-new',
+      projectId: 'project-a'
+    }
+    let resolveCreateThread: ((snapshot: ThreadSnapshot) => void) | undefined
+    const createThread = vi.fn(
+      () =>
+        new Promise<ThreadSnapshot>((resolve) => {
+          resolveCreateThread = resolve
+        })
+    )
+    const prompt = vi.fn().mockResolvedValue(undefined)
+    const setThreadTitle = vi.fn().mockResolvedValue({
+      ...snapshotToWorkspaceSession(snapshot),
+      title: 'first prompt'
+    })
+    installCodingAgentApi({ createThread, prompt, setThreadTitle })
+    const store = useWorkspaceSessionStore()
+    store.startNewSession('project-a')
+    store.draftMessage = createComposerContent('first prompt')
+
+    const firstSubmit = store.sendPrompt()
+    const secondSubmit = store.sendPrompt()
+
+    expect(store.isSendingPrompt).toBe(true)
+    expect(createThread).toHaveBeenCalledTimes(1)
+
+    resolveCreateThread?.(snapshot)
+    await Promise.all([firstSubmit, secondSubmit])
+
+    expect(createThread).toHaveBeenCalledTimes(1)
+    expect(prompt).toHaveBeenCalledTimes(1)
+    expect(prompt).toHaveBeenCalledWith({ threadId: 'thread-new', message: 'first prompt' })
+    expect(store.isSendingPrompt).toBe(false)
     expect(store.hasDraftMessage).toBe(false)
   })
 
@@ -3055,6 +3218,58 @@ function createComposerContentWithHardBreak(
           { type: 'text', text: before },
           { type: 'hardBreak' },
           { type: 'text', text: after }
+        ]
+      }
+    ]
+  }
+}
+
+/**
+ * 创建包含 skillReference 与 fileReference 的 Composer fixture。
+ * @param before - skill 前文本。
+ * @param skillName - skill command 名称。
+ * @param after - skill 与 file chip 之间的文本。
+ * @returns Tiptap JSON 内容。
+ */
+function createComposerContentWithSkillReference(
+  before: string,
+  skillName: string,
+  after: string
+): {
+  type: 'doc'
+  content: Array<{
+    type: 'paragraph'
+    content: Array<
+      | { type: 'text'; text: string }
+      | {
+          type: 'skillReference'
+          attrs: { name: string; label: string; path: string; baseDir: string }
+        }
+      | { type: 'fileReference'; attrs: { fileArg: string; label: string } }
+    >
+  }>
+} {
+  return {
+    type: 'doc',
+    content: [
+      {
+        type: 'paragraph',
+        content: [
+          { type: 'text', text: before },
+          {
+            type: 'skillReference',
+            attrs: {
+              name: skillName,
+              label: skillName,
+              path: 'H:\\skills\\review\\SKILL.md',
+              baseDir: 'H:\\skills\\review'
+            }
+          },
+          { type: 'text', text: after },
+          {
+            type: 'fileReference',
+            attrs: { fileArg: 'src/App.vue', label: 'src/App.vue' }
+          }
         ]
       }
     ]

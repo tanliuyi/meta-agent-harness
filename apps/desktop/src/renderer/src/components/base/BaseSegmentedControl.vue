@@ -56,7 +56,7 @@ defineEmits<{
   grid-auto-columns: 1fr;
   gap: 2px;
   min-width: 0;
-  padding: 2px;
+  padding: 4px;
   margin: 0;
   background: var(--color-control-track);
   border: 1px solid var(--color-border);
@@ -85,8 +85,8 @@ defineEmits<{
   &.is-active {
     color: var(--color-primary-strong);
     background: color-mix(in srgb, var(--color-primary-soft) 72%, var(--color-surface-raised));
-    border-color: color-mix(in srgb, var(--color-primary-outline) 68%, var(--color-border));
-    box-shadow: var(--shadow-primary-halo);
+    // border-color: color-mix(in srgb, var(--color-primary-outline) 68%, var(--color-border));
+    // box-shadow: var(--shadow-primary-halo);
   }
 }
 
