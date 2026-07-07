@@ -141,8 +141,9 @@ const open = computed({
 }
 
 .tool-group__summary {
-  flex: 1;
+  flex: 0 1 auto;
   min-width: 0;
+  max-width: 100%;
   overflow: hidden;
   color: var(--color-text-subtle);
   text-overflow: ellipsis;
@@ -174,7 +175,7 @@ const open = computed({
   }
 
   :deep(.tool-message__trigger) {
-    width: 100%;
+    width: fit-content;
   }
 
   :deep(.tool-message__icon) {

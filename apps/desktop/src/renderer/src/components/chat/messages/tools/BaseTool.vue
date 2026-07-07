@@ -199,7 +199,7 @@ watch(
   }
 
   &[data-state='open'] .tool-message__trigger {
-    width: 100%;
+    width: fit-content;
     // padding: var(--space-2);
     background: var(--color-canvas);
   }
@@ -304,8 +304,9 @@ watch(
 
 .tool-message__args,
 .tool-message__meta {
-  flex: 1;
+  flex: 0 1 auto;
   min-width: 0;
+  max-width: 100%;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
