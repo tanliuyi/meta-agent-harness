@@ -7,6 +7,7 @@ import SettingIcon from '@renderer/components/icons/SettingIcon.vue'
 import { confirm } from '@renderer/composables/useConfirmDialog'
 import useWorkspaceProjectStore from '@renderer/stores/workspace-project'
 import useWorkspaceSessionStore from '@renderer/stores/workspace-session'
+import useWorkspaceUiStore from '@renderer/stores/workspace-ui'
 import { useWorkspaceViewSettings } from '@renderer/composables/useWorkspaceViewSettings'
 import type { ProjectSummary, ProjectTrustDecision } from '@shared/coding-agent/types'
 import type { WorkspaceSession } from '@renderer/stores/workspace-session'
@@ -55,6 +56,7 @@ interface ProjectListItem {
 
 const workspaceProject = useWorkspaceProjectStore()
 const workspaceSession = useWorkspaceSessionStore()
+const workspaceUi = useWorkspaceUiStore()
 const { threadSortMode } = useWorkspaceViewSettings()
 const renameThreadDialogOpen = ref(false)
 const renameThreadTarget = ref<WorkspaceSession>()
@@ -373,8 +375,9 @@ function getProjectTrustIcon(project: ProjectSummary): Component | undefined {
           v-for="projectItem in projectListItems"
           :key="projectItem.project.projectId"
           v-slot="{ open }"
-          default-open
+          :open="workspaceUi.isProjectOpen(projectItem.project.projectId)"
           class="project-tree__item"
+          @update:open="(open) => workspaceUi.setProjectOpen(projectItem.project.projectId, open)"
         >
           <BaseContextMenu
             :sections="getProjectMenuSections(projectItem.project)"

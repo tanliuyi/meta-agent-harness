@@ -18,6 +18,9 @@ export default defineStore(
     /** 边栏当前宽度（像素）。 */
     const sidebarWidth = ref(208)
 
+    /** Project 展开状态，缺失时默认展开。 */
+    const projectOpenState = ref<Record<string, boolean>>({})
+
     /** 边栏最小宽度。 */
     const minSidebarWidth = 160
 
@@ -32,9 +35,33 @@ export default defineStore(
       sidebarWidth.value = Math.min(maxSidebarWidth, Math.max(minSidebarWidth, width))
     }
 
+    /**
+     * 获取 Project 是否展开；没有持久化记录时默认展开。
+     * @param projectId - Project ID。
+     * @returns 是否展开。
+     */
+    const isProjectOpen = (projectId: string): boolean => {
+      return projectOpenState.value[projectId] ?? true
+    }
+
+    /**
+     * 设置 Project 展开状态。
+     * @param projectId - Project ID。
+     * @param open - 是否展开。
+     */
+    const setProjectOpen = (projectId: string, open: boolean): void => {
+      projectOpenState.value = {
+        ...projectOpenState.value,
+        [projectId]: open
+      }
+    }
+
     return {
+      isProjectOpen,
       maxSidebarWidth,
       minSidebarWidth,
+      projectOpenState,
+      setProjectOpen,
       setSidebarWidth,
       sidebarOpen,
       sidebarWidth
@@ -42,7 +69,7 @@ export default defineStore(
   },
   {
     persist: {
-      pick: ['sidebarOpen', 'sidebarWidth']
+      pick: ['projectOpenState', 'sidebarOpen', 'sidebarWidth']
     }
   }
 )
