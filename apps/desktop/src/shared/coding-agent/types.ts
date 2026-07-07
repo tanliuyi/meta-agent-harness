@@ -5,29 +5,29 @@
 import type {
   ApprovalRequest as PackageApprovalRequest,
   ApprovalResponse as PackageApprovalResponse
-} from '../../../../../packages/coding-agent/src/desktop/protocol/approval'
-import type { AgentSessionEvent as PackageAgentSessionEvent } from '../../../../../packages/coding-agent/src/core/agent-session'
-import type { DesktopProjectionEvent as PackageDesktopProjectionEvent } from '../../../../../packages/coding-agent/src/desktop/protocol/events/projection'
-import type { WorkerLifecycleEvent as PackageWorkerLifecycleEvent } from '../../../../../packages/coding-agent/src/desktop/protocol/events/worker'
+} from '@coding-agent-src/desktop/protocol/approval'
+import type { AgentSessionEvent as PackageAgentSessionEvent } from '@coding-agent-src/core/agent-session'
+import type { DesktopProjectionEvent as PackageDesktopProjectionEvent } from '@coding-agent-src/desktop/protocol/events/projection'
+import type { WorkerLifecycleEvent as PackageWorkerLifecycleEvent } from '@coding-agent-src/desktop/protocol/events/worker'
 import type {
   ExtensionUiRequest as PackageExtensionUiRequest,
   ExtensionUiResponse as PackageExtensionUiResponse
-} from '../../../../../packages/coding-agent/src/desktop/protocol/extension-ui'
+} from '@coding-agent-src/desktop/protocol/extension-ui'
 import type { AgentMessage, ThinkingLevel as PiThinkingLevel } from '@earendil-works/pi-agent-core'
-import { toDesktopMessageContent as toPackageDesktopMessageContent } from '../../../../../packages/coding-agent/src/desktop/protocol/message'
+import { toDesktopMessageContent as toPackageDesktopMessageContent } from '@coding-agent-src/desktop/protocol/message'
 import type {
   DesktopMessage,
   ThreadSnapshot as PackageThreadSnapshot
-} from '../../../../../packages/coding-agent/src/desktop/protocol/snapshot'
+} from '@coding-agent-src/desktop/protocol/snapshot'
 import type {
   StartThreadInput as PackageStartThreadInput,
   ThreadRuntimeState,
   ThreadSummary as PackageThreadSummary
-} from '../../../../../packages/coding-agent/src/desktop/protocol/thread'
-import type { RpcResponse } from '../../../../../packages/coding-agent/src/modes/rpc/rpc-types'
-import type { SourceInfo } from '../../../../../packages/coding-agent/src/core/source-info'
+} from '@coding-agent-src/desktop/protocol/thread'
+import type { RpcResponse } from '@coding-agent-src/modes/rpc/rpc-types'
+import type { SourceInfo } from '@coding-agent-src/core/source-info'
 import type { ImageContent } from '@earendil-works/pi-ai'
-import type { ResourcesSnapshot as PackageResourcesSnapshot } from '../../../../../packages/coding-agent/src/core/resource-snapshot'
+import type { ResourcesSnapshot as PackageResourcesSnapshot } from '@coding-agent-src/core/resource-snapshot'
 
 /** 线程状态。 */
 export type ThreadStatus = ThreadRuntimeState
@@ -172,6 +172,16 @@ export interface PromptImageFile {
   inlineFallback?: PromptImage
 }
 
+/** Prompt skill 引用，由后端展开为真实 skill 上下文。 */
+export interface PromptSkillReference {
+  /** skill command 名称，例如 skill:review。 */
+  name: string
+  /** skill 文件真实路径。 */
+  path?: string
+  /** skill 引用资源的基准目录。 */
+  baseDir?: string
+}
+
 /** 待暂存的 prompt 图片内容。 */
 export type PromptImageDraft = PromptImage & {
   /** 原始文件名。 */
@@ -244,6 +254,8 @@ export interface PromptInput extends ThreadIdInput {
   message: string
   /** Pi @file 文件参数，由后端按 Pi @file 语义展开。 */
   fileArgs?: string[]
+  /** Composer 中结构化记录的 skill 引用。 */
+  skillReferences?: PromptSkillReference[]
   /** 附加图片数据。 */
   images?: PromptImage[]
   /** 附加图片文件，由后端按 Pi @file 语义展开。 */
@@ -258,6 +270,8 @@ export interface TextInput extends ThreadIdInput {
   message: string
   /** Pi @file 文件参数，由后端按 Pi @file 语义展开。 */
   fileArgs?: string[]
+  /** Composer 中结构化记录的 skill 引用。 */
+  skillReferences?: PromptSkillReference[]
   /** 附加图片数据。 */
   images?: PromptImage[]
   /** 附加图片文件，由后端按 Pi @file 语义展开。 */
@@ -1077,8 +1091,23 @@ export interface AgentSettingsSnapshot {
   diagnostics: AgentSettingsDiagnostic[]
 }
 
-/** Pi-compatible resource / extension 发现快照。 */
-export type ResourceSnapshot = PackageResourcesSnapshot
+/** Desktop 派生的 skill command 信息，用于未创建 thread 时展示 $skill 候选。 */
+export interface ResourceSkillCommandInfo {
+  /** skill command 名称，例如 skill:review。 */
+  name: string
+  /** skill 描述，来自 SKILL.md frontmatter。 */
+  description?: string
+  /** 命令来源。 */
+  source: 'skill'
+  /** skill 文件来源信息。 */
+  sourceInfo: SourceInfo
+}
+
+/** Pi-compatible resource / extension 发现快照，附带 desktop-only 展示元数据。 */
+export type ResourceSnapshot = PackageResourcesSnapshot & {
+  /** 已发现的 skill command 信息；desktop 用于新会话 $ 面板。 */
+  skillCommands?: ResourceSkillCommandInfo[]
+}
 
 /** 获取 Pi-compatible resource / extension 发现快照的输入。 */
 export interface ResourceSnapshotInput {
@@ -1318,6 +1347,8 @@ export interface CodingAgentApi {
   followUp(input: TextInput): Promise<void>
   /** 选择并处理 prompt 图片附件；用户取消时返回 undefined。 */
   selectPromptImages(): Promise<PromptImageAttachment[] | undefined>
+  /** 直接处理本地 prompt 图片文件。 */
+  processPromptImageFiles(paths: string[]): Promise<PromptImageAttachment[]>
   /** 暂存并处理 prompt 图片附件。 */
   stagePromptImages(images: PromptImageDraft[]): Promise<PromptImageAttachment[]>
   /** 选择资源路径；用户取消时返回 undefined。 */

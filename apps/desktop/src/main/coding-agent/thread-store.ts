@@ -10,7 +10,7 @@ import type {
   ListThreadsInput,
   ThreadSummary
 } from '@shared/coding-agent/types'
-import { getAgentDir } from '../../../../../packages/coding-agent/src/config'
+import { getDesktopAgentDir } from './agent-dir'
 
 /** Thread metadata 文件结构。 */
 interface ThreadMetadataFile {
@@ -274,5 +274,5 @@ export class CodingThreadStore {
 }
 
 function defaultThreadMetadataPath(): string {
-  return join(getAgentDir(), 'threads.json')
+  return join(getDesktopAgentDir(), 'threads.json')
 }

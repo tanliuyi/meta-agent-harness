@@ -5,9 +5,16 @@
 import { ipcMain } from 'electron'
 import { codingAgentChannels } from '@shared/coding-agent/channels'
 import { fail, ok } from '@shared/coding-agent/ipc-contract'
-import type { IpcResult, ListThreadsInput, ProjectSummary, ThreadSummary } from '@shared/coding-agent/types'
-import { ProjectStore } from '../project-store'
-import { CodingThreadStore } from '../thread-store'
+import type {
+  IpcResult,
+  ListThreadsInput,
+  ProjectSummary,
+  ThreadSummary
+} from '@shared/coding-agent/types'
+import {
+  createLightweightProjectMetadataStore,
+  createLightweightThreadMetadataStore
+} from './metadata-reader'
 
 type IpcMainHandle = Parameters<typeof ipcMain.handle>[1]
 
@@ -45,8 +52,8 @@ export function registerLightweightMetadataIpc(
   options: LightweightMetadataIpcOptions = {}
 ): LightweightMetadataIpcRegistration {
   const ipc = options.ipc ?? ipcMain
-  const projectStore = options.projectStore ?? new ProjectStore()
-  const threadStore = options.threadStore ?? new CodingThreadStore()
+  const projectStore = options.projectStore ?? createLightweightProjectMetadataStore()
+  const threadStore = options.threadStore ?? createLightweightThreadMetadataStore()
   let disposed = false
 
   handle(ipc, codingAgentChannels.listProjects, () => projectStore.listProjects())

@@ -8,8 +8,8 @@ import {
   toDesktopFileChanges,
   toDesktopMessages,
   toDesktopToolCalls
-} from '../../../../../packages/coding-agent/src/desktop/protocol/message'
-import { buildSnapshotFromSession as buildPackageSnapshotFromSession } from '../../../../../packages/coding-agent/src/desktop/storage/session-snapshot'
+} from '@coding-agent-src/desktop/protocol/message'
+import { buildSnapshotFromSession as buildPackageSnapshotFromSession } from '@coding-agent-src/desktop/storage/session-snapshot'
 import type { ThreadMessage, ThreadSnapshot, ThreadSummary } from '@shared/coding-agent/types'
 
 /** 构建 snapshot 输入。 */

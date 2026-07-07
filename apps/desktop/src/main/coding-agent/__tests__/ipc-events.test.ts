@@ -2,9 +2,13 @@
  * 本文件测试 main IPC event 转换与窗口路由。
  */
 
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { codingAgentChannels } from '@shared/coding-agent/channels'
-import { publishCodingAgentEvent, toCodingAgentIpcEvent } from '../ipc'
+import {
+  publishCodingAgentEvent,
+  syncThreadStatusFromWorkerEvent,
+  toCodingAgentIpcEvent
+} from '../ipc'
 import type { CodingAgentIpcEvent } from '@shared/coding-agent/types'
 
 describe('coding agent IPC events', () => {
@@ -137,5 +141,76 @@ describe('coding agent IPC events', () => {
     publishCodingAgentEvent(subscribers, event)
 
     expect(sent).toEqual([{ channel: codingAgentChannels.event, event }])
+  })
+
+  it('从 worker lifecycle 事件同步 thread metadata 状态', () => {
+    const manager = {
+      hasThread: vi.fn((threadId: string) => threadId === 'thread-a'),
+      updateThread: vi.fn()
+    }
+
+    syncThreadStatusFromWorkerEvent(manager, {
+      kind: 'event',
+      eventType: 'canonical',
+      threadId: 'thread-a',
+      event: { type: 'turn_start' }
+    })
+    syncThreadStatusFromWorkerEvent(manager, {
+      kind: 'event',
+      eventType: 'canonical',
+      threadId: 'thread-a',
+      event: {
+        type: 'turn_end',
+        message: {
+          role: 'assistant',
+          content: [{ type: 'text', text: 'done' }],
+          api: 'responses',
+          provider: 'openai',
+          model: 'gpt-5',
+          usage: {
+            input: 1,
+            output: 1,
+            cacheRead: 0,
+            cacheWrite: 0,
+            totalTokens: 2,
+            cost: {
+              input: 0,
+              output: 0,
+              cacheRead: 0,
+              cacheWrite: 0,
+              total: 0
+            }
+          },
+          stopReason: 'stop',
+          timestamp: 1782844800000
+        },
+        toolResults: []
+      }
+    })
+    syncThreadStatusFromWorkerEvent(manager, {
+      kind: 'event',
+      eventType: 'canonical',
+      threadId: 'thread-a',
+      event: {
+        type: 'agent_end',
+        messages: [],
+        willRetry: true
+      }
+    })
+    syncThreadStatusFromWorkerEvent(manager, {
+      kind: 'event',
+      eventType: 'projection',
+      threadId: 'thread-a',
+      event: {
+        type: 'thread.stateChanged',
+        threadId: 'thread-a',
+        status: 'idle'
+      }
+    })
+
+    expect(manager.updateThread).toHaveBeenNthCalledWith(1, 'thread-a', { status: 'running' })
+    expect(manager.updateThread).toHaveBeenNthCalledWith(2, 'thread-a', { status: 'idle' })
+    expect(manager.updateThread).toHaveBeenNthCalledWith(3, 'thread-a', { status: 'idle' })
+    expect(manager.updateThread).toHaveBeenCalledTimes(3)
   })
 })

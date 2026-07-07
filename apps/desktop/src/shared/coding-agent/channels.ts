@@ -35,6 +35,8 @@ export const codingAgentChannels = {
   followUp: 'coding-agent:follow-up',
   /** 选择并处理 prompt 图片附件。 */
   selectPromptImages: 'coding-agent:select-prompt-images',
+  /** 直接处理本地 prompt 图片文件。 */
+  processPromptImageFiles: 'coding-agent:process-prompt-image-files',
   /** 暂存并处理 prompt 图片附件。 */
   stagePromptImages: 'coding-agent:stage-prompt-images',
   /** 选择资源路径。 */

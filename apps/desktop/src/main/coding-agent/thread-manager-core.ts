@@ -7,24 +7,27 @@ import type { WorkerCommand, WorkerResponseEnvelope } from './worker-types'
 import type {
   ThreadLiveState,
   ThreadMessagesResponse
-} from '../../../../../packages/coding-agent/src/desktop/protocol/thread'
-import type { ContextUsage } from '../../../../../packages/coding-agent/src/core/extensions/types'
+} from '@coding-agent-src/desktop/protocol/thread'
+import type { ContextUsage } from '@coding-agent-src/core/extensions/types'
 import type { ThreadWorkerRegistry } from './thread-worker-registry'
 import type { CodingThreadStore } from './thread-store'
 import type { ProjectStore } from './project-store'
 import type { ProjectTrustService } from './project-trust-service'
 import type { ModelSettingsService } from './model-settings-service'
 import type { AgentSettingsService } from './agent-settings-service'
-import {
-  buildSnapshotFromSession,
-  toThreadFileChanges,
-  toThreadMessages,
-  toThreadToolCalls
-} from './session-snapshot'
-import { resolveSessionCwd } from '../../../../../packages/coding-agent/src/core/session-manager'
 import { withThreadLineage } from './thread-lineage'
+import { resolveSessionCwdLazy } from './session-manager-lazy'
 
-type ServiceProvider<T> = T | (() => T)
+type MaybePromise<T> = T | Promise<T>
+type ServiceProvider<T> = T | (() => MaybePromise<T>)
+type SessionSnapshotModule = typeof import('./session-snapshot')
+
+let sessionSnapshotModulePromise: Promise<SessionSnapshotModule> | undefined
+
+function loadSessionSnapshotModule(): Promise<SessionSnapshotModule> {
+  sessionSnapshotModulePromise ??= import('./session-snapshot')
+  return sessionSnapshotModulePromise
+}
 
 /**
  * Coding thread 管理核心类，负责线程注册、worker 路由和快照构建。
@@ -42,10 +45,14 @@ export class ThreadManagerCore {
   private readonly projectTrustService: ProjectTrustService | undefined
   /** 全局模型设置服务。 */
   private modelSettingsService: ModelSettingsService | undefined
-  private readonly createModelSettingsService: (() => ModelSettingsService) | undefined
+  private modelSettingsServicePromise: Promise<ModelSettingsService> | undefined
+  private readonly createModelSettingsService:
+    (() => MaybePromise<ModelSettingsService>) | undefined
   /** 全局 Pi agent 设置服务。 */
   private agentSettingsService: AgentSettingsService | undefined
-  private readonly createAgentSettingsService: (() => AgentSettingsService) | undefined
+  private agentSettingsServicePromise: Promise<AgentSettingsService> | undefined
+  private readonly createAgentSettingsService:
+    (() => MaybePromise<AgentSettingsService>) | undefined
 
   /**
    * 创建 ThreadManagerCore 实例。
@@ -156,7 +163,10 @@ export class ThreadManagerCore {
     const thread = this.requireThread(threadId)
     if (!this.hasWorker(threadId)) {
       const inactiveThread = normalizeInactiveThread(thread)
-      return this.buildSnapshotFromSessionFile(inactiveThread) ?? this.buildSnapshot(inactiveThread)
+      return (
+        (await this.buildSnapshotFromSessionFile(inactiveThread)) ??
+        this.buildSnapshot(inactiveThread)
+      )
     }
     const response = await this.workers.send(threadId, { type: 'get_state' })
 
@@ -165,7 +175,10 @@ export class ThreadManagerCore {
       this.syncThreadMetadataFromLiveState(thread, liveState)
       const currentThread = this.requireThread(threadId)
       const liveProjection = await this.getLiveProjection(threadId)
-      const persistedProjection = this.getPersistedProjectionFallback(currentThread, liveProjection)
+      const persistedProjection = await this.getPersistedProjectionFallback(
+        currentThread,
+        liveProjection
+      )
       const snapshot = this.buildSnapshot(currentThread, {
         ...(persistedProjection ?? {}),
         ...liveState,
@@ -177,7 +190,7 @@ export class ThreadManagerCore {
       isMissingWorkerResponse(response) ||
       (thread.status !== 'idle' && thread.status !== 'running')
     ) {
-      return this.buildSnapshotFromSessionFile(thread) ?? this.buildSnapshot(thread)
+      return (await this.buildSnapshotFromSessionFile(thread)) ?? this.buildSnapshot(thread)
     }
     throwResponseError(response)
   }
@@ -259,13 +272,15 @@ export class ThreadManagerCore {
       throwResponseError(response)
     }
     const data = response.data as ThreadMessagesResponse | undefined
-    return data
-      ? {
-          messages: toThreadMessages(data.messages, data.messageEntryIds),
-          toolCalls: toThreadToolCalls(data.messages, threadId),
-          fileChanges: toThreadFileChanges(data.messages, threadId)
-        }
-      : undefined
+    if (!data) {
+      return undefined
+    }
+    const sessionSnapshot = await loadSessionSnapshotModule()
+    return {
+      messages: sessionSnapshot.toThreadMessages(data.messages, data.messageEntryIds),
+      toolCalls: sessionSnapshot.toThreadToolCalls(data.messages, threadId),
+      fileChanges: sessionSnapshot.toThreadFileChanges(data.messages, threadId)
+    }
   }
 
   /**
@@ -347,11 +362,14 @@ export class ThreadManagerCore {
    * @param thread - 线程摘要。
    * @returns snapshot 或 undefined。
    */
-  private buildSnapshotFromSessionFile(thread: ThreadSummary): ThreadSnapshot | undefined {
+  private async buildSnapshotFromSessionFile(
+    thread: ThreadSummary
+  ): Promise<ThreadSnapshot | undefined> {
     if (!thread.sessionFile) {
       return undefined
     }
     try {
+      const { buildSnapshotFromSession } = await loadSessionSnapshotModule()
       const snapshot = buildSnapshotFromSession({
         thread,
         cwd: this.getThreadCwd(thread),
@@ -373,19 +391,20 @@ export class ThreadManagerCore {
    * @param liveProjection - worker 返回的 live projection。
    * @returns 持久化 projection 兜底。
    */
-  private getPersistedProjectionFallback(
+  private async getPersistedProjectionFallback(
     thread: ThreadSummary,
     liveProjection: Pick<ThreadSnapshot, 'messages' | 'toolCalls' | 'fileChanges'> | undefined
-  ):
+  ): Promise<
     | Pick<
         ThreadSnapshot,
         'messages' | 'toolCalls' | 'fileChanges' | 'sessionTree' | 'currentEntryId'
       >
-    | undefined {
+    | undefined
+  > {
     if (hasRenderableMessages(liveProjection)) {
       return undefined
     }
-    const persistedSnapshot = this.buildSnapshotFromSessionFile(thread)
+    const persistedSnapshot = await this.buildSnapshotFromSessionFile(thread)
     if (!persistedSnapshot || persistedSnapshot.messages.length === 0) {
       return undefined
     }
@@ -479,14 +498,24 @@ export class ThreadManagerCore {
    * @returns ModelSettingsService。
    * @throws 当未配置服务时。
    */
-  getModelSettingsService(): ModelSettingsService {
-    if (!this.modelSettingsService && this.createModelSettingsService) {
-      this.modelSettingsService = this.createModelSettingsService()
+  async getModelSettingsService(): Promise<ModelSettingsService> {
+    if (this.modelSettingsService) {
+      return this.modelSettingsService
     }
-    if (!this.modelSettingsService) {
+    if (!this.createModelSettingsService) {
       throw new Error('model settings service is required')
     }
-    return this.modelSettingsService
+    this.modelSettingsServicePromise ??= Promise.resolve(this.createModelSettingsService()).then(
+      (service) => {
+        this.modelSettingsService = service
+        return service
+      },
+      (error) => {
+        this.modelSettingsServicePromise = undefined
+        throw error
+      }
+    )
+    return await this.modelSettingsServicePromise
   }
 
   /**
@@ -494,14 +523,24 @@ export class ThreadManagerCore {
    * @returns AgentSettingsService。
    * @throws 当未配置服务时。
    */
-  getAgentSettingsService(): AgentSettingsService {
-    if (!this.agentSettingsService && this.createAgentSettingsService) {
-      this.agentSettingsService = this.createAgentSettingsService()
+  async getAgentSettingsService(): Promise<AgentSettingsService> {
+    if (this.agentSettingsService) {
+      return this.agentSettingsService
     }
-    if (!this.agentSettingsService) {
+    if (!this.createAgentSettingsService) {
       throw new Error('agent settings service is required')
     }
-    return this.agentSettingsService
+    this.agentSettingsServicePromise ??= Promise.resolve(this.createAgentSettingsService()).then(
+      (service) => {
+        this.agentSettingsService = service
+        return service
+      },
+      (error) => {
+        this.agentSettingsServicePromise = undefined
+        throw error
+      }
+    )
+    return await this.agentSettingsServicePromise
   }
 
   /**
@@ -542,7 +581,7 @@ export class ThreadManagerCore {
     const thread = this.requireThread(threadId)
     const statusAfterStart = thread.status === 'running' ? 'running' : 'idle'
     const cwd = thread.sessionFile
-      ? resolveSessionCwd(thread.sessionFile, this.getThreadCwd(thread))
+      ? await resolveSessionCwdLazy(thread.sessionFile, this.getThreadCwd(thread))
       : this.getThreadCwd(thread)
     this.updateThread(threadId, { status: 'starting' })
     await this.workers.acquireThreadWorker({

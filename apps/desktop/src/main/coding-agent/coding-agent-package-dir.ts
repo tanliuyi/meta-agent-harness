@@ -42,7 +42,9 @@ function getCodingAgentPackageDirCandidates(): string[] {
 
   candidates.push(resolve(process.cwd(), generatedPackageRelativePath))
   candidates.push(resolve(__dirname, '..', '..', generatedPackageRelativePath))
+  candidates.push(resolve(__dirname, '..', '..', '..', generatedPackageRelativePath))
   candidates.push(resolve(__dirname, '..', '..', '..', '..', 'packages', 'coding-agent'))
+  candidates.push(resolve(__dirname, '..', '..', '..', '..', '..', 'packages', 'coding-agent'))
 
   return candidates
 }

@@ -2,7 +2,7 @@
  * 本文件通过 preload 暴露受控的 renderer API。
  */
 
-import { contextBridge, ipcRenderer } from 'electron'
+import { contextBridge, ipcRenderer, webUtils } from 'electron'
 import type { CodingAgentApi, CodingAgentIpcEvent } from '@shared/coding-agent/types'
 import { codingAgentChannels } from '@shared/coding-agent/channels'
 import { unwrapIpcResult } from '@shared/coding-agent/ipc-contract'
@@ -16,6 +16,13 @@ interface WindowControlApi {
   close: () => Promise<void>
   isMaximized: () => Promise<boolean>
   platform: () => Promise<NodeJS.Platform>
+}
+
+/**
+ * 受控文件系统 API。
+ */
+interface FileSystemApi {
+  getPathForFile: (file: File) => string
 }
 
 /**
@@ -77,6 +84,8 @@ const codingAgent: CodingAgentApi = {
   steer: (input) => invokeCodingAgent(codingAgentChannels.steer, input),
   followUp: (input) => invokeCodingAgent(codingAgentChannels.followUp, input),
   selectPromptImages: () => invokeCodingAgent(codingAgentChannels.selectPromptImages),
+  processPromptImageFiles: (paths) =>
+    invokeCodingAgent(codingAgentChannels.processPromptImageFiles, paths),
   stagePromptImages: (images) => invokeCodingAgent(codingAgentChannels.stagePromptImages, images),
   selectResourcePath: (input) => invokeCodingAgent(codingAgentChannels.selectResourcePath, input),
   selectSessionFile: (input) => invokeCodingAgent(codingAgentChannels.selectSessionFile, input),
@@ -171,6 +180,16 @@ const windowControl: WindowControlApi = {
   platform: () => ipcRenderer.invoke('window:platform')
 }
 
+const fileSystem: FileSystemApi = {
+  getPathForFile: (file) => {
+    try {
+      return webUtils.getPathForFile(file)
+    } catch {
+      return ''
+    }
+  }
+}
+
 /**
  * 注入到 window 的受控 API 集合。
  */
@@ -178,7 +197,7 @@ const runtime: RuntimeApi = {
   platform: process.platform
 }
 
-const api = { codingAgent, runtime, windowControl }
+const api = { codingAgent, fileSystem, runtime, windowControl }
 
 if (process.contextIsolated) {
   try {

@@ -13,7 +13,7 @@ import {
 } from 'node:fs'
 import { basename, dirname, join, resolve } from 'node:path'
 import type { CreateProjectInput, ProjectStatus, ProjectSummary } from '@shared/coding-agent/types'
-import { getAgentDir } from '../../../../../packages/coding-agent/src/config'
+import { getDesktopAgentDir } from './agent-dir'
 
 /** Project metadata 文件结构。 */
 interface ProjectMetadataFile {
@@ -216,5 +216,5 @@ export function getProjectStatus(path: string): ProjectStatus {
 }
 
 function defaultProjectMetadataPath(): string {
-  return join(getAgentDir(), 'projects.json')
+  return join(getDesktopAgentDir(), 'projects.json')
 }

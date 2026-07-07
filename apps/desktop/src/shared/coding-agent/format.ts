@@ -1,1 +1,1 @@
-export { formatTokens } from '../../../../../packages/coding-agent/src/utils/format'
+export { formatTokens } from '@coding-agent-src/utils/format'

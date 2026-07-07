@@ -9,14 +9,12 @@ import { randomUUID } from 'node:crypto'
 import { tmpdir } from 'node:os'
 import { codingAgentChannels } from '@shared/coding-agent/channels'
 import { fail, ok } from '@shared/coding-agent/ipc-contract'
-import { detectSupportedImageMimeTypeFromFile } from '../../../../../packages/coding-agent/src/utils/mime'
-import { extensionForImageMimeType } from '../../../../../packages/coding-agent/src/utils/clipboard-image'
 import { CodingThreadManager } from './thread-manager'
 import { CodingThreadStore } from './thread-store'
 import { ProjectStore } from './project-store'
 import { ProjectTrustService } from './project-trust-service'
-import { ModelSettingsService } from './model-settings-service'
-import { AgentSettingsService } from './agent-settings-service'
+import type { ModelSettingsService } from './model-settings-service'
+import type { AgentSettingsService } from './agent-settings-service'
 import { createConfiguredWorkerClient } from './worker-client-factory'
 import { ThreadWorkerRegistry } from './thread-worker-registry'
 import { cacheWorkerProjectionEvent } from './projection-cache'
@@ -62,6 +60,7 @@ import type {
   SetSessionEntryLabelInput,
   SetProviderApiKeyInput,
   SetProjectTrustInput,
+  ThreadStatus,
   SetModelInput,
   SetThinkingInput,
   SwitchSessionInput,
@@ -73,10 +72,21 @@ import type {
   UpdateResourcePackageInput,
   UpsertCustomProviderInput
 } from '@shared/coding-agent/types'
-import {
-  completeFileReference as completePiFileReference,
-  extractFileReferenceQuery
-} from '../../../../../packages/coding-agent/src/core/file-reference'
+type FileReferenceModule = typeof import('@coding-agent-src/core/file-reference')
+
+type MimeModule = typeof import('@coding-agent-src/utils/mime')
+type ClipboardImageModule = typeof import('@coding-agent-src/utils/clipboard-image')
+type FileReferenceCompletionModule = {
+  completeFileReference: FileReferenceModule['completeFileReference']
+  extractFileReferenceQuery: FileReferenceModule['extractFileReferenceQuery']
+}
+type PromptImageProcessingModule = {
+  detectSupportedImageMimeTypeFromFile: MimeModule['detectSupportedImageMimeTypeFromFile']
+  extensionForImageMimeType: ClipboardImageModule['extensionForImageMimeType']
+}
+
+let fileReferenceCompletionModulePromise: Promise<FileReferenceCompletionModule> | undefined
+let promptImageProcessingModulePromise: Promise<PromptImageProcessingModule> | undefined
 
 /**
  * Coding agent IPC 注册选项。
@@ -101,8 +111,8 @@ export function registerCodingAgentIpc(options: CodingAgentIpcOptions = {}): Cod
   const subscribers = options.subscribers ?? new Set<WebContents>()
   const projectStore = new ProjectStore()
   const projectTrustService = new ProjectTrustService()
-  let modelSettingsService: ModelSettingsService | undefined
-  let agentSettingsService: AgentSettingsService | undefined
+  let modelSettingsService: Promise<ModelSettingsService> | undefined
+  let agentSettingsService: Promise<AgentSettingsService> | undefined
   const store = new CodingThreadStore()
   const manager =
     options.manager ??
@@ -111,6 +121,7 @@ export function registerCodingAgentIpc(options: CodingAgentIpcOptions = {}): Cod
         createWorker: options.createWorker ?? createConfiguredWorkerClient,
         onEvent: (event) => {
           cacheWorkerProjectionEvent(store, event)
+          syncThreadStatusFromWorkerEvent(manager, event)
           if (isThreadActivityEvent(event)) {
             manager.touchThreadActivity(event.threadId)
           }
@@ -132,8 +143,8 @@ export function registerCodingAgentIpc(options: CodingAgentIpcOptions = {}): Cod
       store,
       projectStore,
       projectTrustService,
-      () => (modelSettingsService ??= new ModelSettingsService()),
-      () => (agentSettingsService ??= new AgentSettingsService())
+      () => (modelSettingsService ??= createModelSettingsService()),
+      () => (agentSettingsService ??= createAgentSettingsService())
     )
 
   handle(manager, codingAgentChannels.createProject, async () => {
@@ -205,6 +216,9 @@ export function registerCodingAgentIpc(options: CodingAgentIpcOptions = {}): Cod
   handle(manager, codingAgentChannels.steer, (input: TextInput) => manager.steer(input))
   handle(manager, codingAgentChannels.followUp, (input: TextInput) => manager.followUp(input))
   handle(manager, codingAgentChannels.selectPromptImages, () => selectPromptImages())
+  handle(manager, codingAgentChannels.processPromptImageFiles, (paths: string[]) =>
+    processPromptImageFiles(paths)
+  )
   handle(manager, codingAgentChannels.stagePromptImages, (images: PromptImageDraft[]) =>
     stagePromptImages(manager, images)
   )
@@ -406,6 +420,37 @@ export function registerCodingAgentIpc(options: CodingAgentIpcOptions = {}): Cod
   return manager
 }
 
+async function createModelSettingsService(): Promise<ModelSettingsService> {
+  const { ModelSettingsService } = await import('./model-settings-service')
+  return new ModelSettingsService()
+}
+
+async function createAgentSettingsService(): Promise<AgentSettingsService> {
+  const { AgentSettingsService } = await import('./agent-settings-service')
+  return new AgentSettingsService()
+}
+
+function loadPromptImageProcessingModule(): Promise<PromptImageProcessingModule> {
+  promptImageProcessingModulePromise ??= Promise.all([
+    import('@coding-agent-src/utils/mime'),
+    import('@coding-agent-src/utils/clipboard-image')
+  ]).then(([mime, clipboardImage]) => ({
+    detectSupportedImageMimeTypeFromFile: mime.detectSupportedImageMimeTypeFromFile,
+    extensionForImageMimeType: clipboardImage.extensionForImageMimeType
+  }))
+  return promptImageProcessingModulePromise
+}
+
+function loadFileReferenceCompletionModule(): Promise<FileReferenceCompletionModule> {
+  fileReferenceCompletionModulePromise ??= import('@coding-agent-src/core/file-reference').then(
+    (fileReference) => ({
+      completeFileReference: fileReference.completeFileReference,
+      extractFileReferenceQuery: fileReference.extractFileReferenceQuery
+    })
+  )
+  return fileReferenceCompletionModulePromise
+}
+
 /**
  * 补全 prompt 中的 Pi @file 文件引用。
  * @param manager - thread 管理器。
@@ -416,6 +461,11 @@ async function completeFileReference(
   manager: CodingThreadManager,
   input: FileReferenceCompletionInput
 ): Promise<FileReferenceCompletionResult> {
+  if (!input.textBeforeCursor.includes('@')) {
+    return { candidates: [] }
+  }
+  const { completeFileReference: completePiFileReference, extractFileReferenceQuery } =
+    await loadFileReferenceCompletionModule()
   const query = extractFileReferenceQuery(input.textBeforeCursor)
   if (!query) {
     return { candidates: [] }
@@ -540,6 +590,48 @@ export function publishCodingAgentEvent(
 }
 
 /**
+ * 从 worker 事件同步 thread metadata 状态，避免 listThreads 返回陈旧 running。
+ * @param manager - thread manager。
+ * @param event - worker event envelope。
+ */
+export function syncThreadStatusFromWorkerEvent(
+  manager: Pick<CodingThreadManager, 'hasThread' | 'updateThread'>,
+  event: WorkerEnvelope
+): void {
+  if (event.kind !== 'event') {
+    return
+  }
+  const status = getThreadStatusFromWorkerEvent(event)
+  if (!status || !event.threadId || !manager.hasThread(event.threadId)) {
+    return
+  }
+  manager.updateThread(event.threadId, { status })
+}
+
+function getThreadStatusFromWorkerEvent(event: WorkerEnvelope): ThreadStatus | undefined {
+  if (event.kind !== 'event') {
+    return undefined
+  }
+  if (event.eventType === 'projection' && event.event.type === 'thread.stateChanged') {
+    return event.event.status
+  }
+  if (event.eventType !== 'canonical') {
+    return undefined
+  }
+  switch (event.event.type) {
+    case 'agent_start':
+    case 'turn_start':
+      return 'running'
+    case 'turn_end':
+      return 'idle'
+    case 'agent_end':
+      return event.event.willRetry ? undefined : 'idle'
+    default:
+      return undefined
+  }
+}
+
+/**
  * 选择并处理 prompt 图片附件。
  * @param manager - thread manager。
  * @returns 处理后的图片附件；用户取消时返回 undefined。
@@ -553,9 +645,16 @@ async function selectPromptImages(): Promise<PromptImageAttachment[] | undefined
   if (result.canceled || result.filePaths.length === 0) {
     return undefined
   }
-  return await Promise.all(
-    result.filePaths.map((filePath) => createPromptImageAttachment(filePath))
-  )
+  return await processPromptImageFiles(result.filePaths)
+}
+
+/**
+ * 直接处理本地 prompt 图片文件。
+ * @param filePaths - 本地图片路径。
+ * @returns 处理后的图片附件。
+ */
+async function processPromptImageFiles(filePaths: string[]): Promise<PromptImageAttachment[]> {
+  return await Promise.all(filePaths.map((filePath) => createPromptImageAttachment(filePath)))
 }
 
 /**
@@ -657,6 +756,7 @@ async function stagePromptImages(
  * @returns 临时文件路径。
  */
 async function writePromptImageDraft(image: PromptImageDraft): Promise<string> {
+  const { extensionForImageMimeType } = await loadPromptImageProcessingModule()
   const ext = extensionForImageMimeType(image.mimeType) ?? 'png'
   const dir = join(tmpdir(), 'meta-agent-prompt-images')
   await mkdir(dir, { recursive: true })
@@ -677,6 +777,7 @@ async function createPromptImageAttachment(
   displayName = basename(filePath),
   displaySize?: number
 ): Promise<PromptImageAttachment> {
+  const { detectSupportedImageMimeTypeFromFile } = await loadPromptImageProcessingModule()
   const mimeType = await detectSupportedImageMimeTypeFromFile(filePath)
   if (!mimeType) {
     throw new Error(`${basename(filePath)} 不是支持的图片格式`)

@@ -2,8 +2,9 @@
   "extends": "@electron-toolkit/tsconfig/tsconfig.node.json",
   "include": ["electron.vite.config.*", "src/main/**/*", "src/preload/**/*", "src/shared/**/*"],
   "compilerOptions": {
-    "composite": true,
+    "composite": false,
     "noEmit": true,
+    "noUnusedParameters": false,
     "allowImportingTsExtensions": true,
     "types": ["electron-vite/node"],
     "paths": {
@@ -16,6 +17,9 @@
       "@earendil-works/pi-ai/*": [
         "../../packages/ai/dist/*.d.ts",
         "../../packages/ai/dist/providers/*.d.ts"
+      ],
+      "@coding-agent-src/*": [
+        "../../packages/coding-agent/src/*"
       ],
       "@shared/*": [
         "./src/shared/*"

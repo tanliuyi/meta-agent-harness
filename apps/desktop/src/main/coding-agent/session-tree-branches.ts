@@ -7,11 +7,11 @@ import type {
   SessionTreeBranchRow,
   SessionTreeBranchSegmentRow
 } from '@shared/coding-agent/types'
-import {
-  SessionManager,
-  type SessionEntry,
-  type SessionTreeNode
-} from '../../../../../packages/coding-agent/src/core/session-manager'
+import type {
+  SessionEntry,
+  SessionTreeNode
+} from '@coding-agent-src/core/session-manager'
+import { loadSessionManagerModule } from './session-manager-lazy'
 
 interface FlatSessionTreeEntry {
   node: SessionTreeNode
@@ -38,11 +38,12 @@ const sessionTreeBranchesCache = new Map<string, SessionTreeBranchesCacheEntry>(
  * @param input - 查询输入。
  * @returns 扁平 tree rows。
  */
-export function buildSessionTreeBranches(
+export async function buildSessionTreeBranches(
   sessionFile: string,
   input: BuildSessionTreeBranchesInput = {}
-): LoadSessionTreeBranchesResult {
-  const { currentEntryId: persistedCurrentEntryId, flatEntries } = loadFlatSessionTree(sessionFile)
+): Promise<LoadSessionTreeBranchesResult> {
+  const { currentEntryId: persistedCurrentEntryId, flatEntries } =
+    await loadFlatSessionTree(sessionFile)
   const currentEntryId =
     input.currentEntryId !== undefined ? input.currentEntryId : persistedCurrentEntryId
   const filter = input.filter ?? 'all'
@@ -63,12 +64,13 @@ export function buildSessionTreeBranches(
   }
 }
 
-function loadFlatSessionTree(sessionFile: string): SessionTreeBranchesCacheEntry {
+async function loadFlatSessionTree(sessionFile: string): Promise<SessionTreeBranchesCacheEntry> {
   const cacheKey = getSessionTreeBranchesCacheKey(sessionFile)
   const cached = sessionTreeBranchesCache.get(sessionFile)
   if (cached?.key === cacheKey) {
     return cached
   }
+  const { SessionManager } = await loadSessionManagerModule()
   const manager = SessionManager.open(sessionFile)
   const entry = {
     key: cacheKey,

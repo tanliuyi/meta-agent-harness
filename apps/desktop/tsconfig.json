@@ -3,6 +3,7 @@
     "baseUrl": ".",
     "paths": {
       "@/*": ["src/renderer/src/*"],
+      "@coding-agent-src/*": ["../../packages/coding-agent/src/*"],
       "@shared/*": ["src/shared/*"],
       "@renderer/*": ["src/renderer/src/*"]
     }

@@ -4,6 +4,7 @@ import { resolve } from 'path'
 export default defineConfig({
   resolve: {
     alias: {
+      '@coding-agent-src': resolve(__dirname, '../../packages/coding-agent/src'),
       '@shared': resolve(__dirname, 'src/shared')
     }
   },

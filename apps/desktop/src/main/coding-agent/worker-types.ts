@@ -7,12 +7,12 @@ import type {
   WorkerCommand,
   WorkerEnvelope,
   WorkerResponseEnvelope
-} from '../../../../../packages/coding-agent/src/desktop/protocol/envelope'
-import type { WorkerSnapshot } from '../../../../../packages/coding-agent/src/desktop/protocol/snapshot'
+} from '@coding-agent-src/desktop/protocol/envelope'
+import type { WorkerSnapshot } from '@coding-agent-src/desktop/protocol/snapshot'
 import type {
   StartThreadInput,
   ThreadRuntimeState
-} from '../../../../../packages/coding-agent/src/desktop/protocol/thread'
+} from '@coding-agent-src/desktop/protocol/thread'
 
 export type {
   WorkerCommand,
@@ -20,12 +20,12 @@ export type {
   WorkerEnvelope,
   WorkerEventEnvelope,
   WorkerResponseEnvelope
-} from '../../../../../packages/coding-agent/src/desktop/protocol/envelope'
-export type { WorkerSnapshot } from '../../../../../packages/coding-agent/src/desktop/protocol/snapshot'
+} from '@coding-agent-src/desktop/protocol/envelope'
+export type { WorkerSnapshot } from '@coding-agent-src/desktop/protocol/snapshot'
 export type {
   StartThreadInput,
   ThreadRuntimeState
-} from '../../../../../packages/coding-agent/src/desktop/protocol/thread'
+} from '@coding-agent-src/desktop/protocol/thread'
 
 /**
  * worker hang 信息。

@@ -80,6 +80,17 @@ describe('createNodeSidecarWorkerClient', () => {
     expect(resolveNodeSidecarWorkerEntry(chunksDir)).toBe(workerEntry)
   })
 
+  it('打包后优先使用 app.asar.unpacked 中的 sidecar worker', async () => {
+    const resourcesDir = mkdtempSync(join(tmpdir(), 'meta-agent-resources-'))
+    const unpackedMainDir = join(resourcesDir, 'app.asar.unpacked', 'out', 'main')
+    const asarMainDir = join(resourcesDir, 'app.asar', 'out', 'main')
+    const workerEntry = join(unpackedMainDir, 'coding-agent-node-sidecar-worker.js')
+    mkdirSync(unpackedMainDir, { recursive: true })
+    writeFileSync(workerEntry, '')
+
+    expect(resolveNodeSidecarWorkerEntry(asarMainDir)).toBe(workerEntry)
+  })
+
   it('通过环境变量配置 Node 可执行文件', () => {
     vi.stubEnv('CODING_AGENT_NODE_SIDECAR_EXEC_PATH', '/tmp/node')
 

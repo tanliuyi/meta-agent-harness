@@ -57,10 +57,25 @@ export function resolveNodeSidecarWorkerEntry(baseDir = __dirname): string {
   }
 
   const candidates = [
+    ...getUnpackedBaseDirCandidates(baseDir).flatMap((unpackedBaseDir) => [
+      join(unpackedBaseDir, 'coding-agent-node-sidecar-worker.js'),
+      join(unpackedBaseDir, '..', 'coding-agent-node-sidecar-worker.js')
+    ]),
     join(baseDir, 'coding-agent-node-sidecar-worker.js'),
     join(baseDir, '..', 'coding-agent-node-sidecar-worker.js')
   ]
   return candidates.find((candidate) => existsSync(candidate)) ?? candidates[0]
+}
+
+/**
+ * 将 Electron app.asar 内路径映射到 app.asar.unpacked。
+ * 普通 Node 子进程无法加载 asar 虚拟路径，必须执行解包后的实体文件。
+ */
+function getUnpackedBaseDirCandidates(baseDir: string): string[] {
+  if (!baseDir.includes('app.asar') || baseDir.includes('app.asar.unpacked')) {
+    return []
+  }
+  return [baseDir.replace('app.asar', 'app.asar.unpacked')]
 }
 
 /**

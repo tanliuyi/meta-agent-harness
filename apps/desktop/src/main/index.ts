@@ -49,7 +49,7 @@ function createWindow(): void {
     height: mainWindowState.height,
     show: false,
     autoHideMenuBar: true,
-    ...(process.platform === 'linux' ? { icon } : {}),
+    ...(process.platform === 'darwin' ? {} : { icon }),
     ...getFramelessOptions(),
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),

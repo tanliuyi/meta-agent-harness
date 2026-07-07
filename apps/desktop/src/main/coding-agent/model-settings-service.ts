@@ -9,10 +9,10 @@ import { app, shell } from 'electron'
 import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { randomUUID } from 'node:crypto'
-import { AuthStorage } from '../../../../../packages/coding-agent/src/core/auth-storage'
-import { ModelRegistry } from '../../../../../packages/coding-agent/src/core/model-registry'
-import { SettingsManager } from '../../../../../packages/coding-agent/src/core/settings-manager'
-import { getAgentDir } from '../../../../../packages/coding-agent/src/config'
+import { AuthStorage } from '@coding-agent-src/core/auth-storage'
+import { ModelRegistry } from '@coding-agent-src/core/model-registry'
+import { SettingsManager } from '@coding-agent-src/core/settings-manager'
+import { getAgentDir } from '@coding-agent-src/config'
 import type {
   CustomProviderSummary,
   ModelProviderSummary,

@@ -4,7 +4,7 @@
 
 import type { CreateThreadInput, ThreadSnapshot } from '@shared/coding-agent/types'
 import type { ThreadManagerCore } from './thread-manager-core'
-import { resolveSessionCwd } from '../../../../../packages/coding-agent/src/core/session-manager'
+import { resolveSessionCwdLazy } from './session-manager-lazy'
 
 /**
  * 创建新线程并启动 worker。
@@ -39,7 +39,7 @@ export async function createThread(
     updatedAt: now
   })
   const cwd = input.sessionFile
-    ? resolveSessionCwd(input.sessionFile, project.path, input.cwdOverride)
+    ? await resolveSessionCwdLazy(input.sessionFile, project.path, input.cwdOverride)
     : project.path
   try {
     await core.getWorkers().acquireThreadWorker({
@@ -94,7 +94,7 @@ export async function restartThread(
   }
   core.updateThread(threadId, { status: 'starting' })
   const cwd = thread.sessionFile
-    ? resolveSessionCwd(thread.sessionFile, core.getThreadCwd(thread))
+    ? await resolveSessionCwdLazy(thread.sessionFile, core.getThreadCwd(thread))
     : core.getThreadCwd(thread)
   await core.getWorkers().acquireThreadWorker({
     threadId,

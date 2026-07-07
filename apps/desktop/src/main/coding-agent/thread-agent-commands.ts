@@ -3,25 +3,113 @@
  */
 
 import { clipboard } from 'electron'
-import { readFileSync } from 'fs'
-import { getChangelogPath, getShareViewerUrl } from '../../../../../packages/coding-agent/src/config'
-import { KEYBINDINGS, KeybindingsManager } from '../../../../../packages/coding-agent/src/core/keybindings'
-import { parseChangelog } from '../../../../../packages/coding-agent/src/utils/changelog'
+import { readFileSync } from 'node:fs'
+import { readFile, stat } from 'node:fs/promises'
+import { dirname } from 'node:path'
 import type {
   PromptImage,
   PromptImageFile,
+  PromptSkillReference,
   PromptInput,
   RunCommandResult,
   RunCommandInput,
   TextInput
 } from '@shared/coding-agent/types'
 import type { ThreadManagerCore } from './thread-manager-core'
-import { processFileArguments } from '../../../../../packages/coding-agent/src/cli/file-processor'
-import {
-  dedupeFileArgs,
-  parseFileReferenceTokens
-} from '../../../../../packages/coding-agent/src/core/file-reference'
-import { resolveReadPath } from '../../../../../packages/coding-agent/src/core/tools/path-utils'
+type ConfigModule = typeof import('@coding-agent-src/config')
+type ChangelogModule = typeof import('@coding-agent-src/utils/changelog')
+type KeybindingsModule =
+  typeof import('@coding-agent-src/core/keybindings')
+type ShareViewerConfigModule = {
+  getShareViewerUrl: ConfigModule['getShareViewerUrl']
+}
+type ChangelogSupportModule = {
+  getChangelogPath: ChangelogModule['getChangelogPath']
+  parseChangelog: ChangelogModule['parseChangelog']
+}
+type HotkeysSupportModule = {
+  KEYBINDINGS: KeybindingsModule['KEYBINDINGS']
+  KeybindingsManager: KeybindingsModule['KeybindingsManager']
+}
+type FileReferenceModule =
+  typeof import('@coding-agent-src/core/file-reference')
+type PromptFileReferenceModule = {
+  dedupeFileArgs: FileReferenceModule['dedupeFileArgs']
+  parseFileReferenceTokens: FileReferenceModule['parseFileReferenceTokens']
+}
+
+type PathUtilsModule =
+  typeof import('@coding-agent-src/core/tools/path-utils')
+type ImageProcessModule =
+  typeof import('@coding-agent-src/utils/image-process')
+type MimeModule = typeof import('@coding-agent-src/utils/mime')
+type PromptFileSupportModule = {
+  resolveReadPath: PathUtilsModule['resolveReadPath']
+  detectSupportedImageMimeTypeFromFile: MimeModule['detectSupportedImageMimeTypeFromFile']
+  processImage: ImageProcessModule['processImage']
+}
+
+let shareViewerConfigModulePromise: Promise<ShareViewerConfigModule> | undefined
+let changelogSupportModulePromise: Promise<ChangelogSupportModule> | undefined
+let hotkeysSupportModulePromise: Promise<HotkeysSupportModule> | undefined
+let promptFileReferenceModulePromise: Promise<PromptFileReferenceModule> | undefined
+let promptFileSupportModulePromise: Promise<PromptFileSupportModule> | undefined
+
+const maxPromptTextFileBytes = 512 * 1024
+const maxPromptImageFileBytes = 20 * 1024 * 1024
+const maxTextProbeBytes = 4096
+
+function loadShareViewerConfigModule(): Promise<ShareViewerConfigModule> {
+  shareViewerConfigModulePromise ??= import(
+    '@coding-agent-src/config'
+  ).then((config) => ({
+    getShareViewerUrl: config.getShareViewerUrl
+  }))
+  return shareViewerConfigModulePromise
+}
+
+function loadChangelogSupportModule(): Promise<ChangelogSupportModule> {
+  changelogSupportModulePromise ??= import(
+    '@coding-agent-src/utils/changelog'
+  ).then((changelog) => ({
+    getChangelogPath: changelog.getChangelogPath,
+    parseChangelog: changelog.parseChangelog
+  }))
+  return changelogSupportModulePromise
+}
+
+function loadHotkeysSupportModule(): Promise<HotkeysSupportModule> {
+  hotkeysSupportModulePromise ??= import(
+    '@coding-agent-src/core/keybindings'
+  ).then((keybindings) => ({
+    KEYBINDINGS: keybindings.KEYBINDINGS,
+    KeybindingsManager: keybindings.KeybindingsManager
+  }))
+  return hotkeysSupportModulePromise
+}
+
+function loadPromptFileReferenceModule(): Promise<PromptFileReferenceModule> {
+  promptFileReferenceModulePromise ??= import(
+    '@coding-agent-src/core/file-reference'
+  ).then((fileReference) => ({
+    dedupeFileArgs: fileReference.dedupeFileArgs,
+    parseFileReferenceTokens: fileReference.parseFileReferenceTokens
+  }))
+  return promptFileReferenceModulePromise
+}
+
+function loadPromptFileSupportModule(): Promise<PromptFileSupportModule> {
+  promptFileSupportModulePromise ??= Promise.all([
+    import('@coding-agent-src/core/tools/path-utils'),
+    import('@coding-agent-src/utils/image-process'),
+    import('@coding-agent-src/utils/mime')
+  ]).then(([pathUtils, imageProcess, mime]) => ({
+    resolveReadPath: pathUtils.resolveReadPath,
+    detectSupportedImageMimeTypeFromFile: mime.detectSupportedImageMimeTypeFromFile,
+    processImage: imageProcess.processImage
+  }))
+  return promptFileSupportModulePromise
+}
 
 /**
  * 向线程发送 prompt 消息。
@@ -87,6 +175,9 @@ export async function runCommand(
   core: ThreadManagerCore,
   input: RunCommandInput
 ): Promise<RunCommandResult | undefined> {
+  if (isSkillCommandName(input.command)) {
+    throw new Error('Skill commands must be inserted into the prompt with $ instead of run-command')
+  }
   const builtinResult = await runBuiltinCommand(core, input)
   if (builtinResult.handled) {
     return builtinResult.result
@@ -235,11 +326,14 @@ async function runBuiltinCommand(
       })
       return {
         handled: true,
-        result: { message: `已切换模型到 ${model.provider}/${model.modelId}`, refreshSnapshot: true }
+        result: {
+          message: `已切换模型到 ${model.provider}/${model.modelId}`,
+          refreshSnapshot: true
+        }
       }
     }
     case 'changelog': {
-      const details = getChangelogCommandDetails(args)
+      const details = await getChangelogCommandDetails(args)
       return {
         handled: true,
         result: {
@@ -249,7 +343,7 @@ async function runBuiltinCommand(
       }
     }
     case 'hotkeys': {
-      const details = getHotkeysCommandDetails()
+      const details = await getHotkeysCommandDetails()
       return {
         handled: true,
         result: {
@@ -316,21 +410,26 @@ async function shareSession(
     })
   })
   const body = (await response.json().catch(() => undefined)) as
-    | { id?: unknown; message?: unknown }
-    | undefined
+    { id?: unknown; message?: unknown } | undefined
   if (!response.ok) {
-    throw new Error(`GitHub gist 创建失败：${typeof body?.message === 'string' ? body.message : response.statusText}`)
+    throw new Error(
+      `GitHub gist 创建失败：${typeof body?.message === 'string' ? body.message : response.statusText}`
+    )
   }
   if (typeof body?.id !== 'string' || !body.id) {
     throw new Error('GitHub gist 创建成功但未返回 gist ID')
   }
+  const { getShareViewerUrl } = await loadShareViewerConfigModule()
   return {
     gistId: body.id,
     url: getShareViewerUrl(body.id)
   }
 }
 
-function getChangelogCommandDetails(args: string | undefined): RunCommandResult['details'] {
+async function getChangelogCommandDetails(
+  args: string | undefined
+): Promise<RunCommandResult['details']> {
+  const { getChangelogPath, parseChangelog } = await loadChangelogSupportModule()
   const entries = parseChangelog(getChangelogPath())
   if (entries.length === 0) {
     return undefined
@@ -348,12 +447,15 @@ function getChangelogCommandDetails(args: string | undefined): RunCommandResult[
     : entries.slice(0, Math.max(1, Math.min(count, 20)))
   const body = selectedEntries.map((entry) => entry.content).join('\n\n')
   return {
-    title: versionFilter ? `Changelog ${trimmedArgs}` : `Changelog 最近 ${selectedEntries.length} 条`,
+    title: versionFilter
+      ? `Changelog ${trimmedArgs}`
+      : `Changelog 最近 ${selectedEntries.length} 条`,
     body: body || '没有匹配的 changelog 条目'
   }
 }
 
-function getHotkeysCommandDetails(): NonNullable<RunCommandResult['details']> {
+async function getHotkeysCommandDetails(): Promise<NonNullable<RunCommandResult['details']>> {
+  const { KEYBINDINGS, KeybindingsManager } = await loadHotkeysSupportModule()
   const effectiveConfig = KeybindingsManager.create().getEffectiveConfig()
   const rows = Object.entries(KEYBINDINGS).map(([id, definition]) => {
     const keys = effectiveConfig[id]
@@ -368,6 +470,10 @@ function getHotkeysCommandDetails(): NonNullable<RunCommandResult['details']> {
 
 function normalizeCommandName(command: string): string {
   return command.trim().replace(/^\/+/, '')
+}
+
+function isSkillCommandName(command: string): boolean {
+  return normalizeCommandName(command).startsWith('skill:')
 }
 
 function formatCommandLabel(command: string, args?: string): string {
@@ -408,14 +514,16 @@ async function resolvePromptInput(
   core: ThreadManagerCore,
   input: TextInput
 ): Promise<Pick<TextInput, 'message' | 'images'>> {
+  const message = await resolvePromptSkillReferences(input.message, input.skillReferences)
   if (
     (!input.imageFiles || input.imageFiles.length === 0) &&
     (!input.fileArgs || input.fileArgs.length === 0) &&
     !input.message.includes('@')
   ) {
-    return { message: input.message, images: input.images }
+    return { message, images: input.images }
   }
   const cwd = getPromptCwd(core, input.threadId)
+  const { dedupeFileArgs, parseFileReferenceTokens } = await loadPromptFileReferenceModule()
   const parsedTokens = await parseFileReferenceTokens(input.message, cwd)
   const fileArgs = dedupeFileArgs(
     [
@@ -426,9 +534,9 @@ async function resolvePromptInput(
     cwd
   )
   if (fileArgs.length === 0) {
-    return { message: input.message, images: input.images }
+    return { message, images: input.images }
   }
-  const autoResizeImages = await core.getAgentSettingsService().getImageAutoResize()
+  const autoResizeImages = await (await core.getAgentSettingsService()).getImageAutoResize()
   const processed = await processPromptFileArgs(
     fileArgs,
     input.imageFiles ?? [],
@@ -437,9 +545,62 @@ async function resolvePromptInput(
   )
   const images = [...processed.images, ...(input.images ?? [])]
   return {
-    message: `${processed.text}${input.message}`,
+    message: `${processed.text}${message}`,
     ...(images.length > 0 ? { images } : {})
   }
+}
+
+/**
+ * 展开 desktop Composer 中的 $skill:name 引用，避免修改 Pi core。
+ * @param core - thread 管理核心。
+ * @param threadId - thread ID。
+ * @param message - 用户 prompt。
+ * @returns 带 skill 上下文块的 prompt。
+ */
+async function resolvePromptSkillReferences(
+  message: string,
+  skillReferences: readonly PromptSkillReference[] = []
+): Promise<string> {
+  if (skillReferences.length === 0) {
+    return message
+  }
+  const blocks: string[] = []
+  for (const reference of skillReferences) {
+    const block = await createSkillReferenceBlockFromReference(reference)
+    if (block) {
+      blocks.push(block)
+    }
+  }
+  return blocks.length > 0 ? `${blocks.join('\n\n')}\n\n${message}` : message
+}
+
+function normalizeSkillReferenceName(name: string): string {
+  return name.trim().replace(/^\$?skill:/, '')
+}
+
+async function createSkillReferenceBlockFromReference(
+  reference: PromptSkillReference
+): Promise<string | undefined> {
+  if (!reference.path) {
+    return undefined
+  }
+  const content = await readFile(reference.path, 'utf-8').catch(() => undefined)
+  if (content === undefined) {
+    return undefined
+  }
+  const name = normalizeSkillReferenceName(reference.name)
+  const baseDir = reference.baseDir ?? dirname(reference.path)
+  const body = stripSkillFrontmatter(content).trim()
+  return `<skill name="${name}" location="${reference.path}">\nReferences are relative to ${baseDir}.\n\n${body}\n</skill>`
+}
+
+/**
+ * 移除 skill 文件 frontmatter。
+ * @param content - skill 文件内容。
+ * @returns 正文。
+ */
+function stripSkillFrontmatter(content: string): string {
+  return content.replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n?/, '')
 }
 
 /**
@@ -458,10 +619,11 @@ async function processPromptFileArgs(
 ): Promise<{ text: string; images: PromptImage[] }> {
   let text = ''
   const images: PromptImage[] = []
-  const imageFallbacks = createImageFallbackMap(imageFiles, cwd)
+  const support = await loadPromptFileSupportModule()
+  const imageFallbacks = createImageFallbackMap(imageFiles, cwd, support.resolveReadPath)
   for (const fileArg of fileArgs) {
-    const absolutePath = resolveReadPath(fileArg, cwd)
-    const processed = await processFileArguments([absolutePath], { autoResizeImages })
+    const absolutePath = support.resolveReadPath(fileArg, cwd)
+    const processed = await processPromptFileArg(absolutePath, support, autoResizeImages)
     const imageFile = imageFallbacks.get(absolutePath)
     text += imageFile ? getPromptImageFileText(processed.text, imageFile) : processed.text
     if (processed.images.length > 0) {
@@ -476,6 +638,148 @@ async function processPromptFileArgs(
 }
 
 /**
+ * 安全展开单个 prompt 文件参数，避免 desktop main 因 CLI process.exit 行为退出。
+ * @param absolutePath - 已解析的绝对路径。
+ * @param support - 文件处理依赖。
+ * @param autoResizeImages - 是否启用图片自动 resize。
+ * @returns 展开后的文本与图片。
+ */
+async function processPromptFileArg(
+  absolutePath: string,
+  support: PromptFileSupportModule,
+  autoResizeImages: boolean
+): Promise<{ text: string; images: PromptImage[] }> {
+  const fileStats = await stat(absolutePath).catch(() => undefined)
+  if (!fileStats) {
+    return { text: createSkippedPromptFileText(absolutePath, '文件不存在或不可访问'), images: [] }
+  }
+  if (!fileStats.isFile()) {
+    return { text: createSkippedPromptFileText(absolutePath, '不是普通文件'), images: [] }
+  }
+  if (fileStats.size === 0) {
+    return { text: '', images: [] }
+  }
+
+  const mimeType = await support.detectSupportedImageMimeTypeFromFile(absolutePath).catch(() => null)
+  if (mimeType) {
+    return processPromptImageFile(absolutePath, fileStats.size, mimeType, support, autoResizeImages)
+  }
+  return processPromptTextFile(absolutePath, fileStats.size)
+}
+
+/**
+ * 安全展开 prompt 图片文件。
+ */
+async function processPromptImageFile(
+  absolutePath: string,
+  size: number,
+  mimeType: string,
+  support: PromptFileSupportModule,
+  autoResizeImages: boolean
+): Promise<{ text: string; images: PromptImage[] }> {
+  if (size > maxPromptImageFileBytes) {
+    return {
+      text: createSkippedPromptFileText(
+        absolutePath,
+        `图片超过 ${formatBytes(maxPromptImageFileBytes)} 限制`
+      ),
+      images: []
+    }
+  }
+
+  try {
+    const content = await readFile(absolutePath)
+    const processed = await support.processImage(content, mimeType, { autoResizeImages })
+    if (!processed.ok) {
+      return { text: `<file name="${absolutePath}">${processed.message}</file>\n`, images: [] }
+    }
+    const attachment: PromptImage = {
+      type: 'image',
+      mimeType: processed.mimeType,
+      data: processed.data
+    }
+    const hints = processed.hints.length > 0 ? processed.hints.join('\n') : ''
+    return { text: `<file name="${absolutePath}">${hints}</file>\n`, images: [attachment] }
+  } catch (error) {
+    return {
+      text: createSkippedPromptFileText(absolutePath, getFileReadErrorMessage(error)),
+      images: []
+    }
+  }
+}
+
+/**
+ * 安全展开 prompt 文本文件。
+ */
+async function processPromptTextFile(
+  absolutePath: string,
+  size: number
+): Promise<{ text: string; images: PromptImage[] }> {
+  if (size > maxPromptTextFileBytes) {
+    return {
+      text: createSkippedPromptFileText(
+        absolutePath,
+        `文件超过 ${formatBytes(maxPromptTextFileBytes)} 限制`
+      ),
+      images: []
+    }
+  }
+
+  try {
+    const content = await readFile(absolutePath)
+    if (!isLikelyTextBuffer(content)) {
+      return {
+        text: createSkippedPromptFileText(absolutePath, '不是支持的文本或图片文件'),
+        images: []
+      }
+    }
+    return { text: `<file name="${absolutePath}">\n${content.toString('utf8')}\n</file>\n`, images: [] }
+  } catch (error) {
+    return {
+      text: createSkippedPromptFileText(absolutePath, getFileReadErrorMessage(error)),
+      images: []
+    }
+  }
+}
+
+function createSkippedPromptFileText(absolutePath: string, reason: string): string {
+  return `<file name="${absolutePath}">[Skipped: ${reason}.]</file>\n`
+}
+
+function getFileReadErrorMessage(error: unknown): string {
+  const message = error instanceof Error ? error.message : String(error)
+  return `无法读取文件：${message}`
+}
+
+function isLikelyTextBuffer(buffer: Buffer): boolean {
+  const length = Math.min(buffer.length, maxTextProbeBytes)
+  if (length === 0) {
+    return true
+  }
+  let controlBytes = 0
+  for (let index = 0; index < length; index += 1) {
+    const byte = buffer[index] ?? 0
+    if (byte === 0) {
+      return false
+    }
+    if (byte < 32 && byte !== 9 && byte !== 10 && byte !== 12 && byte !== 13) {
+      controlBytes += 1
+    }
+  }
+  return controlBytes / length < 0.02
+}
+
+function formatBytes(bytes: number): string {
+  if (bytes < 1024) {
+    return `${bytes} B`
+  }
+  if (bytes < 1024 * 1024) {
+    return `${(bytes / 1024).toFixed(bytes < 10 * 1024 ? 1 : 0)} KB`
+  }
+  return `${(bytes / (1024 * 1024)).toFixed(bytes < 10 * 1024 * 1024 ? 1 : 0)} MB`
+}
+
+/**
  * 创建图片 fallback 映射。
  * @param imageFiles - 图片文件引用。
  * @param cwd - prompt cwd。
@@ -483,11 +787,12 @@ async function processPromptFileArgs(
  */
 function createImageFallbackMap(
   imageFiles: PromptImageFile[],
-  cwd: string
+  cwd: string,
+  resolvePath: (inputPath: string, cwd: string) => string
 ): Map<string, PromptImageFile> {
   const map = new Map<string, PromptImageFile>()
   for (const imageFile of imageFiles) {
-    map.set(resolveReadPath(imageFile.path, cwd), imageFile)
+    map.set(resolvePath(imageFile.path, cwd), imageFile)
   }
   return map
 }

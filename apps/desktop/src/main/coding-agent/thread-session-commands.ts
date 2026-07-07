@@ -198,7 +198,7 @@ export async function loadSessionTreeBranches(
   if (!sessionState.sessionFile) {
     throw new Error('thread does not have a session file')
   }
-  return buildSessionTreeBranches(sessionState.sessionFile, {
+  return await buildSessionTreeBranches(sessionState.sessionFile, {
     ...input,
     currentEntryId: sessionState.currentEntryId
   })

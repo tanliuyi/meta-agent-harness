@@ -310,6 +310,42 @@ export default function(pi) {
     ])
   })
 
+  it('为 desktop 新会话候选派生 skill command 描述', async () => {
+    const dir = createTempDir()
+    const agentDir = join(dir, 'agent')
+    const skillDir = join(dir, 'skills', 'review')
+    mkdirSync(skillDir, { recursive: true })
+    writeFileSync(
+      join(skillDir, 'SKILL.md'),
+      `---
+name: review
+description: Review staged changes
+---
+
+Use this skill to review code.
+`
+    )
+    const service = new AgentSettingsService({
+      agentDir,
+      cwd: dir
+    })
+
+    await service.updateAgentSettings({
+      resources: {
+        skills: [skillDir]
+      }
+    })
+    const snapshot = await service.getResourceSnapshot()
+
+    expect(snapshot.skillCommands).toEqual([
+      expect.objectContaining({
+        name: 'skill:review',
+        description: 'Review staged changes',
+        source: 'skill'
+      })
+    ])
+  })
+
   it('按传入 cwd 和 project trust 构建项目视角 resource snapshot', async () => {
     const dir = createTempDir()
     const agentDir = join(dir, 'agent')

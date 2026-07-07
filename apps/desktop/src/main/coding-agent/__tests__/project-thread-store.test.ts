@@ -11,7 +11,7 @@ import { CodingThreadStore } from '../thread-store'
 import { ThreadManagerCore } from '../thread-manager-core'
 import { CodingThreadManager } from '../thread-manager'
 import { buildSessionTreeBranches } from '../session-tree-branches'
-import { SessionManager } from '../../../../../../packages/coding-agent/src/core/session-manager'
+import { SessionManager } from '@coding-agent-src/core/session-manager'
 import type { ApprovalRequest, ThreadSummary } from '@shared/coding-agent/types'
 import type { ThreadWorkerRegistry } from '../thread-worker-registry'
 
@@ -988,7 +988,7 @@ describe('loadSessionTreeBranches', () => {
 })
 
 describe('buildSessionTreeBranches', () => {
-  it('在 main 进程把完整 session tree 压成浅层 branch rows', () => {
+  it('在 main 进程把完整 session tree 压成浅层 branch rows', async () => {
     const root = createTempDir()
     const cwd = join(root, 'repo')
     const sessionDir = join(root, 'sessions')
@@ -1033,7 +1033,7 @@ describe('buildSessionTreeBranches', () => {
       throw new Error('session file is required')
     }
 
-    const result = buildSessionTreeBranches(sessionFile)
+    const result = await buildSessionTreeBranches(sessionFile)
     const entryRows = result.rows.filter((row) => row.kind === 'entry')
     const segmentRows = result.rows.filter((row) => row.kind === 'segment')
 
@@ -1054,13 +1054,13 @@ describe('buildSessionTreeBranches', () => {
     })
     expect(entryRows.find((row) => row.current)?.visualDepth).toBeLessThanOrEqual(2)
 
-    const entriesResult = buildSessionTreeBranches(sessionFile, { viewMode: 'entries' })
+    const entriesResult = await buildSessionTreeBranches(sessionFile, { viewMode: 'entries' })
     expect(entriesResult.rows.every((row) => row.kind === 'entry')).toBe(true)
     expect(entriesResult.rows).toHaveLength(entriesResult.visibleEntries)
     expect(entriesResult.visibleEntries).toBe(entriesResult.totalEntries)
     expect(Math.max(...entriesResult.rows.map((row) => row.visualDepth))).toBeLessThanOrEqual(1)
 
-    const searchResult = buildSessionTreeBranches(sessionFile, { query: 'linear 4' })
+    const searchResult = await buildSessionTreeBranches(sessionFile, { query: 'linear 4' })
     expect(searchResult.rows).toEqual([
       expect.objectContaining({
         kind: 'entry',

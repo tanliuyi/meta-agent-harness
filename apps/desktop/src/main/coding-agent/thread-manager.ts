@@ -36,6 +36,7 @@ import type {
   NewSessionInput,
   PromptInput,
   ProjectSummary,
+  ProjectExtensionPathsInput,
   ProviderCredentialStatus,
   RenameThreadInput,
   RenameProjectInput,
@@ -61,6 +62,7 @@ import type {
   ToggleInput,
   AgentSettingsSnapshot,
   UpdateAgentSettingsInput,
+  UpdateProjectExtensionPathsInput,
   UpdateResourcePackageInput,
   UpdateModelSettingsInput,
   UpsertCustomProviderInput
@@ -515,7 +517,7 @@ export class CodingThreadManager extends ThreadManagerCore {
    * @returns 模型设置快照。
    */
   getModelSettings(): Promise<ModelSettingsSnapshot> {
-    return this.getModelSettingsService().getModelSettings()
+    return this.getModelSettingsService().then((service) => service.getModelSettings())
   }
 
   /**
@@ -524,7 +526,7 @@ export class CodingThreadManager extends ThreadManagerCore {
    * @returns 模型设置快照。
    */
   updateModelSettings(input: UpdateModelSettingsInput): Promise<ModelSettingsSnapshot> {
-    return this.getModelSettingsService().updateModelSettings(input)
+    return this.getModelSettingsService().then((service) => service.updateModelSettings(input))
   }
 
   /**
@@ -532,7 +534,7 @@ export class CodingThreadManager extends ThreadManagerCore {
    * @returns registry 快照。
    */
   listModelRegistry(): Promise<ModelRegistrySnapshot> {
-    return this.getModelSettingsService().listModelRegistry()
+    return this.getModelSettingsService().then((service) => service.listModelRegistry())
   }
 
   /**
@@ -540,7 +542,7 @@ export class CodingThreadManager extends ThreadManagerCore {
    * @returns 凭据状态列表。
    */
   listProviderCredentials(): Promise<ProviderCredentialStatus[]> {
-    return this.getModelSettingsService().listProviderCredentials()
+    return this.getModelSettingsService().then((service) => service.listProviderCredentials())
   }
 
   /**
@@ -548,7 +550,7 @@ export class CodingThreadManager extends ThreadManagerCore {
    * @returns 诊断列表。
    */
   listModelDiagnostics(): Promise<ModelSettingsDiagnostic[]> {
-    return this.getModelSettingsService().listModelDiagnostics()
+    return this.getModelSettingsService().then((service) => service.listModelDiagnostics())
   }
 
   /**
@@ -556,7 +558,7 @@ export class CodingThreadManager extends ThreadManagerCore {
    * @returns 自定义 provider 摘要列表。
    */
   listCustomProviders(): Promise<CustomProviderSummary[]> {
-    return this.getModelSettingsService().listCustomProviders()
+    return this.getModelSettingsService().then((service) => service.listCustomProviders())
   }
 
   /**
@@ -565,7 +567,7 @@ export class CodingThreadManager extends ThreadManagerCore {
    * @returns 模型设置快照。
    */
   upsertCustomProvider(input: UpsertCustomProviderInput): Promise<ModelSettingsSnapshot> {
-    return this.getModelSettingsService().upsertCustomProvider(input)
+    return this.getModelSettingsService().then((service) => service.upsertCustomProvider(input))
   }
 
   /**
@@ -574,7 +576,7 @@ export class CodingThreadManager extends ThreadManagerCore {
    * @returns 模型设置快照。
    */
   deleteCustomProvider(provider: string): Promise<ModelSettingsSnapshot> {
-    return this.getModelSettingsService().deleteCustomProvider(provider)
+    return this.getModelSettingsService().then((service) => service.deleteCustomProvider(provider))
   }
 
   /**
@@ -583,7 +585,7 @@ export class CodingThreadManager extends ThreadManagerCore {
    * @returns 模型设置快照。
    */
   setProviderApiKey(input: SetProviderApiKeyInput): Promise<ModelSettingsSnapshot> {
-    return this.getModelSettingsService().setProviderApiKey(input)
+    return this.getModelSettingsService().then((service) => service.setProviderApiKey(input))
   }
 
   /**
@@ -596,15 +598,17 @@ export class CodingThreadManager extends ThreadManagerCore {
     input: LoginProviderOAuthInput,
     onEvent?: (event: ModelOAuthLoginEvent) => void
   ): Promise<ModelSettingsSnapshot> {
-    return this.getModelSettingsService().loginProviderOAuth(input, onEvent)
+    return this.getModelSettingsService().then((service) =>
+      service.loginProviderOAuth(input, onEvent)
+    )
   }
 
   /**
    * 响应 OAuth 登录过程中的 renderer 输入请求。
    * @param input - OAuth prompt 响应。
    */
-  respondModelOAuthPrompt(input: ModelOAuthPromptResponseInput): void {
-    this.getModelSettingsService().respondOAuthPrompt(input)
+  async respondModelOAuthPrompt(input: ModelOAuthPromptResponseInput): Promise<void> {
+    ;(await this.getModelSettingsService()).respondOAuthPrompt(input)
   }
 
   /**
@@ -612,7 +616,7 @@ export class CodingThreadManager extends ThreadManagerCore {
    * @returns 模型设置快照。
    */
   refreshModelRegistry(): Promise<ModelSettingsSnapshot> {
-    return this.getModelSettingsService().refreshModelRegistry()
+    return this.getModelSettingsService().then((service) => service.refreshModelRegistry())
   }
 
   /**
@@ -620,7 +624,7 @@ export class CodingThreadManager extends ThreadManagerCore {
    * @returns agent 设置快照。
    */
   getAgentSettings(): Promise<AgentSettingsSnapshot> {
-    return this.getAgentSettingsService().getAgentSettings()
+    return this.getAgentSettingsService().then((service) => service.getAgentSettings())
   }
 
   /**
@@ -629,30 +633,43 @@ export class CodingThreadManager extends ThreadManagerCore {
    * @returns agent 设置快照。
    */
   updateAgentSettings(input: UpdateAgentSettingsInput): Promise<AgentSettingsSnapshot> {
-    return this.getAgentSettingsService().updateAgentSettings(input)
+    return this.getAgentSettingsService().then((service) => service.updateAgentSettings(input))
   }
 
   /** 列出 Pi package manager 配置包。 */
   listResourcePackages(): Promise<ResourcePackageSummary[]> {
-    return this.getAgentSettingsService().listResourcePackages()
+    return this.getAgentSettingsService().then((service) => service.listResourcePackages())
   }
 
   /** 获取 Pi-compatible resource / extension 发现快照。 */
-  getResourceSnapshot(input: ResourceSnapshotInput = {}): Promise<ResourceSnapshot> {
+  async getResourceSnapshot(input: ResourceSnapshotInput = {}): Promise<ResourceSnapshot> {
+    const service = await this.getAgentSettingsService()
     if (input.threadId) {
       const thread = this.requireThread(input.threadId)
       const cwd = this.getThreadCwd(thread)
-      return this.getAgentSettingsService().getResourceSnapshot({
+      return service.getResourceSnapshot({
         cwd,
         projectTrusted: this.getProjectTrustOverride(cwd)
       })
     }
-    return this.getAgentSettingsService().getResourceSnapshot(input)
+    return service.getResourceSnapshot(input)
+  }
+
+  /** 获取 Project 本地 extension 路径配置。 */
+  getProjectExtensionPaths(input: ProjectExtensionPathsInput): Promise<string[]> {
+    return this.getAgentSettingsService().then((service) => service.getProjectExtensionPaths(input))
+  }
+
+  /** 更新 Project 本地 extension 路径配置。 */
+  updateProjectExtensionPaths(input: UpdateProjectExtensionPathsInput): Promise<string[]> {
+    return this.getAgentSettingsService().then((service) =>
+      service.updateProjectExtensionPaths(input)
+    )
   }
 
   /** 新增并持久化 package source。 */
   addResourcePackage(input: ResourcePackageInput): Promise<ResourcePackageSummary[]> {
-    return this.getAgentSettingsService().addResourcePackage(input)
+    return this.getAgentSettingsService().then((service) => service.addResourcePackage(input))
   }
 
   /** 安装并持久化 package source。 */
@@ -660,12 +677,14 @@ export class CodingThreadManager extends ThreadManagerCore {
     input: ResourcePackageInput,
     onEvent?: (event: ResourcePackageProgressEvent) => void
   ): Promise<ResourcePackageSummary[]> {
-    return this.getAgentSettingsService().installResourcePackage(input, onEvent)
+    return this.getAgentSettingsService().then((service) =>
+      service.installResourcePackage(input, onEvent)
+    )
   }
 
   /** 移除并持久化 package source。 */
   removeResourcePackage(input: ResourcePackageInput): Promise<ResourcePackageSummary[]> {
-    return this.getAgentSettingsService().removeResourcePackage(input)
+    return this.getAgentSettingsService().then((service) => service.removeResourcePackage(input))
   }
 
   /** 更新已配置 package source。 */
@@ -673,7 +692,9 @@ export class CodingThreadManager extends ThreadManagerCore {
     input?: UpdateResourcePackageInput,
     onEvent?: (event: ResourcePackageProgressEvent) => void
   ): Promise<ResourcePackageSummary[]> {
-    return this.getAgentSettingsService().updateResourcePackage(input, onEvent)
+    return this.getAgentSettingsService().then((service) =>
+      service.updateResourcePackage(input, onEvent)
+    )
   }
 
   /**

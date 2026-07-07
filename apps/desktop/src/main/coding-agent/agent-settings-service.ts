@@ -7,16 +7,17 @@
  */
 
 import { app } from 'electron'
-import { join } from 'node:path'
+import { readFile } from 'node:fs/promises'
+import { basename, dirname, extname, join } from 'node:path'
 import {
   SettingsManager,
   type PackageSource,
   type TransportSetting
-} from '../../../../../packages/coding-agent/src/core/settings-manager'
-import { DefaultPackageManager } from '../../../../../packages/coding-agent/src/core/package-manager'
-import { buildResourcesSnapshot } from '../../../../../packages/coding-agent/src/core/resource-snapshot'
-import type { ProgressEvent as PackageProgressEvent } from '../../../../../packages/coding-agent/src/core/package-manager'
-import { getAgentDir } from '../../../../../packages/coding-agent/src/config'
+} from '@coding-agent-src/core/settings-manager'
+import { DefaultPackageManager } from '@coding-agent-src/core/package-manager'
+import { buildResourcesSnapshot } from '@coding-agent-src/core/resource-snapshot'
+import type { ProgressEvent as PackageProgressEvent } from '@coding-agent-src/core/package-manager'
+import { getAgentDir } from '@coding-agent-src/config'
 import { readDesktopRuntimeConfig, writeDesktopRuntimeConfig } from './desktop-runtime-config'
 import type {
   AgentDefaultProjectTrust,
@@ -99,6 +100,7 @@ export class AgentSettingsService {
 
   /** 获取 Pi-compatible resource / extension 发现快照。 */
   async getResourceSnapshot(input: ResourceSnapshotInput = {}): Promise<ResourceSnapshot> {
+    let snapshot: ResourceSnapshot
     if (input.cwd) {
       const settingsManager = SettingsManager.create(input.cwd, this.agentDir, {
         projectTrusted: input.projectTrusted ?? false
@@ -108,19 +110,21 @@ export class AgentSettingsService {
         agentDir: this.agentDir,
         settingsManager
       })
-      return buildResourcesSnapshot({
+      snapshot = await buildResourcesSnapshot({
         cwd: input.cwd,
         agentDir: this.agentDir,
         settingsManager,
         packageManager
       })
+      return this.withSkillCommands(snapshot)
     }
-    return buildResourcesSnapshot({
+    snapshot = await buildResourcesSnapshot({
       cwd: this.cwd,
       agentDir: this.agentDir,
       settingsManager: this.settingsManager,
       packageManager: this.packageManager
     })
+    return this.withSkillCommands(snapshot)
   }
 
   /** 获取项目级 extension 路径配置。 */
@@ -272,6 +276,26 @@ export class AgentSettingsService {
         settingsPath: this.settingsPath
       },
       diagnostics: this.createDiagnostics()
+    }
+  }
+
+  private async withSkillCommands(snapshot: ResourceSnapshot): Promise<ResourceSnapshot> {
+    const skillCommands = await Promise.all(
+      snapshot.resources.skills
+        .filter((skill) => skill.enabled)
+        .map(async (skill) => {
+          const metadata = await readSkillCommandMetadata(skill.path)
+          return {
+            name: `skill:${metadata.name}`,
+            description: metadata.description,
+            source: 'skill' as const,
+            sourceInfo: skill.sourceInfo
+          }
+        })
+    )
+    return {
+      ...snapshot,
+      skillCommands
     }
   }
 
@@ -599,4 +623,74 @@ export class AgentSettingsService {
     if (valid.includes(value)) return value
     throw new Error(`invalid treeFilterMode: ${String(value)}`)
   }
+}
+
+interface SkillCommandMetadata {
+  name: string
+  description?: string
+}
+
+async function readSkillCommandMetadata(resourcePath: string): Promise<SkillCommandMetadata> {
+  const skillFile = getSkillFilePath(resourcePath)
+  const fallbackName = getSkillNameFromPath(resourcePath)
+  try {
+    const raw = await readFile(skillFile, 'utf-8')
+    const frontmatter = parseSimpleFrontmatter(raw)
+    return {
+      name: frontmatter.name || fallbackName,
+      description: frontmatter.description
+    }
+  } catch {
+    return { name: fallbackName }
+  }
+}
+
+function getSkillFilePath(resourcePath: string): string {
+  const lowerName = basename(resourcePath).toLowerCase()
+  if (lowerName === 'skill.md' || extname(resourcePath).toLowerCase() === '.md') {
+    return resourcePath
+  }
+  return join(resourcePath, 'SKILL.md')
+}
+
+function getSkillNameFromPath(resourcePath: string): string {
+  const normalized = resourcePath.replace(/\\/g, '/').replace(/\/+$/, '')
+  const parts = normalized.split('/').filter(Boolean)
+  const fileName = parts.at(-1) ?? ''
+  if (fileName.toLowerCase() === 'skill.md' && parts.length >= 2) {
+    return parts.at(-2) ?? fileName
+  }
+  if (extname(fileName)) {
+    return fileName.replace(/\.[^.]+$/, '')
+  }
+  return basename(dirname(join(resourcePath, 'SKILL.md'))) || fileName
+}
+
+function parseSimpleFrontmatter(raw: string): Partial<SkillCommandMetadata> {
+  const match = raw.match(/^---\r?\n([\s\S]*?)\r?\n---/)
+  if (!match) {
+    return {}
+  }
+  const values: Record<string, string> = {}
+  for (const line of match[1].split(/\r?\n/)) {
+    const field = line.match(/^([A-Za-z0-9_-]+):\s*(.*)$/)
+    if (!field) {
+      continue
+    }
+    const key = field[1]
+    const value = cleanFrontmatterString(field[2])
+    if (key === 'name' || key === 'description') {
+      values[key] = value
+    }
+  }
+  return {
+    name: values.name,
+    description: values.description
+  }
+}
+
+function cleanFrontmatterString(value: string): string {
+  const trimmed = value.trim()
+  const quoted = trimmed.match(/^(['"])(.*)\1$/)
+  return (quoted ? quoted[2] : trimmed).trim()
 }

@@ -3,11 +3,11 @@
  */
 
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { mkdtempSync, rmSync, writeFileSync } from 'fs'
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import { clipboard } from 'electron'
-import { runCommand, toSlashCommand } from '../thread-agent-commands'
+import { prompt, runCommand, toSlashCommand } from '../thread-agent-commands'
 import type { ThreadManagerCore } from '../thread-manager-core'
 import type { WorkerCommand } from '../worker-types'
 
@@ -56,6 +56,168 @@ describe('thread-agent-commands', () => {
         streamingBehavior: undefined
       }
     ])
+  })
+
+  it('runCommand 不再支持 skill 命令链路', async () => {
+    const core = {
+      requireThread: vi.fn(),
+      updateThread: vi.fn(),
+      sendOk: vi.fn()
+    } as unknown as ThreadManagerCore
+
+    await expect(
+      runCommand(core, {
+        threadId: 'thread-a',
+        command: 'skill:test',
+        args: 'with args'
+      })
+    ).rejects.toThrow('Skill commands must be inserted into the prompt with $ instead of run-command')
+
+    expect(core.sendOk).not.toHaveBeenCalled()
+    expect(core.updateThread).not.toHaveBeenCalled()
+  })
+
+  it('prompt 跳过超过限制的文件引用，不把大文件内容送入 worker', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'desktop-prompt-file-'))
+    const largeFile = join(root, 'large.txt')
+    writeFileSync(largeFile, 'a'.repeat(512 * 1024 + 1))
+    const commands: WorkerCommand[] = []
+    const core = {
+      requireThread: vi.fn(() => ({ threadId: 'thread-a' })),
+      getThreadCwd: vi.fn(() => root),
+      getAgentSettingsService: vi.fn(async () => ({
+        getImageAutoResize: vi.fn(() => true)
+      })),
+      updateThread: vi.fn(),
+      sendOk: vi.fn(async (_threadId: string, command: WorkerCommand) => {
+        commands.push(command)
+      })
+    } as unknown as ThreadManagerCore
+
+    try {
+      await prompt(core, {
+        threadId: 'thread-a',
+        message: '请看看这个文件',
+        fileArgs: [largeFile]
+      })
+
+      expect(commands).toHaveLength(1)
+      const command = commands[0]
+      if (!command || command.type !== 'prompt') {
+        throw new Error('Expected prompt command')
+      }
+      expect(command).toMatchObject({
+        type: 'prompt',
+        images: undefined,
+        streamingBehavior: undefined
+      })
+      expect(command.message).toContain('[Skipped: 文件超过 512 KB 限制.]')
+      expect(command.message).toContain('请看看这个文件')
+      expect(command.message).not.toContain('a'.repeat(1024))
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it('prompt 不展开手打的 $skill 文本', async () => {
+    const commands: WorkerCommand[] = []
+    const core = {
+      requireThread: vi.fn(() => ({ threadId: 'thread-a' })),
+      updateThread: vi.fn(),
+      sendData: vi.fn(),
+      sendOk: vi.fn(async (_threadId: string, command: WorkerCommand) => {
+        commands.push(command)
+      })
+    } as unknown as ThreadManagerCore
+
+    await prompt(core, {
+      threadId: 'thread-a',
+      message: '请用 $skill:review 检查这个改动'
+    })
+
+    expect(core.sendData).not.toHaveBeenCalled()
+    const command = commands[0]
+    if (!command || command.type !== 'prompt') {
+      throw new Error('Expected prompt command')
+    }
+    expect(command.message).toBe('请用 $skill:review 检查这个改动')
+  })
+
+  it('prompt 优先使用 Composer 结构化 skill 引用的真实路径', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'desktop-prompt-structured-skill-'))
+    const skillDir = join(root, 'skills', 'review')
+    const skillFile = join(skillDir, 'SKILL.md')
+    mkdirSync(skillDir, { recursive: true })
+    writeFileSync(skillFile, '# Structured Skill\n\nUse the selected path.')
+    const commands: WorkerCommand[] = []
+    const core = {
+      requireThread: vi.fn(() => ({ threadId: 'thread-a' })),
+      updateThread: vi.fn(),
+      sendData: vi.fn(),
+      sendOk: vi.fn(async (_threadId: string, command: WorkerCommand) => {
+        commands.push(command)
+      })
+    } as unknown as ThreadManagerCore
+
+    try {
+      await prompt(core, {
+        threadId: 'thread-a',
+        message: '请用 $skill:review 检查这个改动',
+        skillReferences: [{ name: 'skill:review', path: skillFile, baseDir: skillDir }]
+      })
+
+      expect(core.sendData).not.toHaveBeenCalled()
+      const command = commands[0]
+      if (!command || command.type !== 'prompt') {
+        throw new Error('Expected prompt command')
+      }
+      expect(command.message).toContain(`<skill name="review" location="${skillFile}">`)
+      expect(command.message).toContain('Use the selected path.')
+      expect(command.message).toContain('请用 $skill:review 检查这个改动')
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it('prompt 不把 skill 文档里的 @file 示例当作用户文件引用', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'desktop-prompt-skill-file-token-'))
+    const skillDir = join(root, 'skills', 'review')
+    const skillFile = join(skillDir, 'SKILL.md')
+    const realFile = join(root, 'real.txt')
+    mkdirSync(skillDir, { recursive: true })
+    writeFileSync(skillFile, '# Review Skill\n\nExample: read @missing.txt only if user asks.')
+    writeFileSync(realFile, 'real file content')
+    const commands: WorkerCommand[] = []
+    const core = {
+      requireThread: vi.fn(() => ({ threadId: 'thread-a' })),
+      getThreadCwd: vi.fn(() => root),
+      getAgentSettingsService: vi.fn(async () => ({
+        getImageAutoResize: vi.fn(() => true)
+      })),
+      updateThread: vi.fn(),
+      sendData: vi.fn(),
+      sendOk: vi.fn(async (_threadId: string, command: WorkerCommand) => {
+        commands.push(command)
+      })
+    } as unknown as ThreadManagerCore
+
+    try {
+      await prompt(core, {
+        threadId: 'thread-a',
+        message: '请用 $skill:review 检查 @real.txt',
+        skillReferences: [{ name: 'skill:review', path: skillFile, baseDir: skillDir }]
+      })
+
+      const command = commands[0]
+      if (!command || command.type !== 'prompt') {
+        throw new Error('Expected prompt command')
+      }
+      expect(command.message).toContain('real file content')
+      expect(command.message).toContain('Example: read @missing.txt only if user asks.')
+      expect(command.message).not.toContain('missing.txt">[Skipped:')
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
   })
 
   it('runCommand 对内建 reload 走 runtime control，不写入 user prompt', async () => {

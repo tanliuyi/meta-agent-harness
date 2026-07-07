@@ -9,6 +9,7 @@ coverage/
 .vite/
 
 *.log
+*.tsbuildinfo
 .env
 .env.*
 !.env.example

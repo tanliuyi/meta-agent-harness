@@ -9,8 +9,13 @@ export interface WindowControlApi {
   platform: () => Promise<NodeJS.Platform>
 }
 
+export interface FileSystemApi {
+  getPathForFile: (file: File) => string
+}
+
 export interface MetaAgentApi {
   codingAgent: import('@shared/coding-agent/types').CodingAgentApi
+  fileSystem: FileSystemApi
   runtime: {
     platform: NodeJS.Platform
   }

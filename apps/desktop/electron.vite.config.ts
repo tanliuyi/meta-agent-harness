@@ -8,11 +8,13 @@ import vue from '@vitejs/plugin-vue'
 
 const sharedAlias = resolve('src/shared')
 const rendererAlias = resolve('src/renderer/src')
+const codingAgentSrcAlias = resolve('../../packages/coding-agent/src')
 
 export default defineConfig({
   main: {
     resolve: {
       alias: {
+        '@coding-agent-src': codingAgentSrcAlias,
         '@shared': sharedAlias
       }
     },
@@ -21,7 +23,8 @@ export default defineConfig({
         input: {
           index: resolve('src/main/index.ts'),
           'coding-agent-utility-worker': resolve(
-            '../../packages/coding-agent/src/desktop/worker/worker-main.ts'
+            codingAgentSrcAlias,
+            'desktop/worker/worker-main.ts'
           ),
           'coding-agent-node-sidecar-worker': resolve(
             'src/main/coding-agent/node-sidecar-worker-main.ts'
@@ -33,6 +36,7 @@ export default defineConfig({
   preload: {
     resolve: {
       alias: {
+        '@coding-agent-src': codingAgentSrcAlias,
         '@shared': sharedAlias
       }
     }
@@ -42,6 +46,7 @@ export default defineConfig({
     resolve: {
       alias: {
         '@': rendererAlias,
+        '@coding-agent-src': codingAgentSrcAlias,
         '@shared': sharedAlias,
         '@renderer': rendererAlias
       }

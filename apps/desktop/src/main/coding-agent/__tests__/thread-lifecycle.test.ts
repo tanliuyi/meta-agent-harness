@@ -13,7 +13,7 @@ import { CodingThreadManager } from '../thread-manager'
 import {
   resolveSessionCwd,
   SessionManager
-} from '../../../../../../packages/coding-agent/src/core/session-manager'
+} from '@coding-agent-src/core/session-manager'
 import type { StartThreadInput, WorkerLease } from '../worker-types'
 import type { ThreadWorkerRegistry } from '../thread-worker-registry'
 import type { AgentMessage } from '@earendil-works/pi-agent-core'
