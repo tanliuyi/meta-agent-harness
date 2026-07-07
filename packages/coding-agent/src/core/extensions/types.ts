@@ -943,6 +943,12 @@ export interface ResolvedCommand extends RegisteredCommand {
 	invocationName: string;
 }
 
+export type LegacyMessageRenderer<TDetails = unknown> = (
+	message: CustomMessage<TDetails>,
+	options: { expanded: boolean },
+	theme: unknown,
+) => unknown;
+
 // ============================================================================
 // Extension API
 // ============================================================================
@@ -1005,6 +1011,14 @@ export interface ExtensionAPI {
 
 	/** Register a tool that the LLM can call. */
 	registerTool<TParams extends TSchema = TSchema, TDetails = unknown>(tool: ToolDefinition<TParams, TDetails>): void;
+
+	/**
+	 * Legacy TUI-only renderer registration hook.
+	 *
+	 * Current hosts render custom messages from structured message content, so this
+	 * compatibility hook intentionally does not affect desktop/RPC rendering.
+	 */
+	registerMessageRenderer<TDetails = unknown>(customType: string, renderer: LegacyMessageRenderer<TDetails>): void;
 
 	// =========================================================================
 	// Command, Shortcut, Flag Registration

@@ -87,6 +87,21 @@ describe("ExtensionRunner", () => {
 	};
 
 	describe("project_trust", () => {
+		it("accepts legacy message renderer registrations", async () => {
+			const rendererPath = path.join(extensionsDir, "message-renderer.ts");
+			fs.writeFileSync(
+				rendererPath,
+				`export default function(pi) {
+	pi.registerMessageRenderer("legacy", () => undefined);
+}`,
+			);
+
+			const extensionsResult = await loadExtensions([rendererPath], tempDir);
+
+			expect(extensionsResult.errors).toEqual([]);
+			expect(extensionsResult.extensions).toHaveLength(1);
+		});
+
 		it("continues past undecided handlers and returns the first yes/no decision", async () => {
 			const undecidedPath = path.join(extensionsDir, "undecided.ts");
 			const decidedPath = path.join(extensionsDir, "decided.ts");

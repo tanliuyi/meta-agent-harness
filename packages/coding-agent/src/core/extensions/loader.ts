@@ -224,6 +224,10 @@ function createExtensionAPI(
 			runtime.refreshTools();
 		},
 
+		registerMessageRenderer(): void {
+			runtime.assertActive();
+		},
+
 		registerCommand(name: string, options: Omit<RegisteredCommand, "name" | "sourceInfo">): void {
 			runtime.assertActive();
 			extension.commands.set(name, {

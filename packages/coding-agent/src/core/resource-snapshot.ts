@@ -8,7 +8,7 @@
 import { resolve, sep } from "node:path";
 import type { SourceInfo } from "./source-info.ts";
 import { createSourceInfo } from "./source-info.ts";
-import { loadExtensions } from "./extensions/index.ts";
+import { loadExtensions } from "./extensions/loader.ts";
 import type { ResourceDiagnostic } from "./diagnostics.ts";
 import {
 	DefaultPackageManager,
