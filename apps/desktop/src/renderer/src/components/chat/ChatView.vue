@@ -28,6 +28,7 @@ import { useSessionContext } from '@renderer/composables/useSessionContext'
 import type { DesktopToolCall } from '@coding-agent-src/desktop/protocol/tool.ts'
 import ScrollArea from '../ui/scroll-area/ScrollArea.vue'
 import type {
+  ComposerFileAttachment,
   ComposerImageAttachment,
   MessageRenderState
 } from '@renderer/stores/workspace-session'
@@ -426,6 +427,22 @@ async function handlePasteImages(files: File[], threadId?: string): Promise<void
 }
 
 /**
+ * 处理拖拽进来的本地文件路径。
+ * @param files - 本地文件路径附件。
+ * @param threadId - 拖拽文件时绑定的 thread ID。
+ */
+function handleAddFiles(
+  files: Array<Omit<ComposerFileAttachment, 'id'>>,
+  threadId?: string
+): void {
+  workspaceSession.addComposerFiles(
+    files.map(toComposerFileAttachment),
+    workspaceSession.defaultSessionContextId,
+    threadId
+  )
+}
+
+/**
  * 清空当前 Composer 图片附件。
  */
 function handleClearImages(): void {
@@ -449,6 +466,18 @@ function toComposerImageAttachment(image: PromptImageAttachment): ComposerImageA
   return {
     ...image,
     id: `${image.name}-${image.size}-${crypto.randomUUID()}`
+  }
+}
+
+/**
+ * 给文件路径附件补充前端稳定 ID。
+ * @param file - 文件路径附件。
+ * @returns Composer 文件路径附件。
+ */
+function toComposerFileAttachment(file: Omit<ComposerFileAttachment, 'id'>): ComposerFileAttachment {
+  return {
+    ...file,
+    id: `${file.name}-${file.size}-${crypto.randomUUID()}`
   }
 }
 
@@ -1310,6 +1339,7 @@ function getToolCallRevision(toolCall: DesktopToolCall | undefined): unknown[] {
         :project-id="workspaceSession.activeProjectId"
         :projects="workspaceProject.projectList"
         :images="workspaceSession.draftImages"
+        :files="workspaceSession.draftFiles"
         :image-error="imageSelectionError"
         :selecting-images="selectingImages"
         :usage="tokenUsage"
@@ -1335,7 +1365,9 @@ function getToolCallRevision(toolCall: DesktopToolCall | undefined): unknown[] {
         @select-images="handleSelectImages"
         @paste-images="handlePasteImages"
         @add-image-paths="handleAddImagePaths"
+        @add-files="handleAddFiles"
         @remove-image="workspaceSession.removeComposerImage"
+        @remove-file="workspaceSession.removeComposerFile"
         @clear-images="handleClearImages"
         @dismiss-image-error="handleDismissImageError"
         @load-commands="workspaceSession.loadCommands()"

@@ -265,7 +265,11 @@ describe('thread-agent-commands', () => {
       })
     } as unknown as ThreadManagerCore
 
-    await runCommand(core, { threadId: 'thread-a', command: 'name', args: 'Demo' })
+    const nameResult = await runCommand(core, {
+      threadId: 'thread-a',
+      command: 'name',
+      args: 'Demo'
+    })
     const sessionResult = await runCommand(core, { threadId: 'thread-a', command: 'session' })
     const copyResult = await runCommand(core, { threadId: 'thread-a', command: 'copy' })
     const exportResult = await runCommand(core, {
@@ -281,6 +285,7 @@ describe('thread-agent-commands', () => {
       { type: 'export_html', outputPath: '/tmp/session.html' }
     ])
     expect(core.updateThread).toHaveBeenCalledWith('thread-a', { title: 'Demo' })
+    expect(nameResult).toEqual({ message: '已重命名为 Demo', refreshSnapshot: true })
     expect(sessionResult?.message).toBe('会话统计：用户 2，助手 3，工具 4，tokens 99')
     expect(copyResult?.message).toBe('已复制最后一条助手消息')
     expect(exportResult?.message).toBe('已导出到 /tmp/session.html')

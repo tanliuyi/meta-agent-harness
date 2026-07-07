@@ -2813,6 +2813,33 @@ describe('workspace-session Project-first actions', () => {
     expect(store.hasDraftMessage).toBe(false)
   })
 
+  it('允许发送只有文件路径附件的 Composer 草稿', async () => {
+    const snapshot = createSnapshot()
+    const prompt = vi.fn().mockResolvedValue(undefined)
+    installCodingAgentApi({ prompt })
+    const store = useWorkspaceSessionStore()
+    store.sessions['thread-a'] = snapshotToWorkspaceSession(snapshot)
+    await store.setActiveSessionId('thread-a')
+    store.addComposerFiles([
+      {
+        id: 'file-a',
+        path: 'E:\\Temp\\只看气温系统需求变更文档_v1.3.docx',
+        name: '只看气温系统需求变更文档_v1.3.docx',
+        size: 1024
+      }
+    ])
+
+    await store.sendPrompt()
+
+    expect(prompt).toHaveBeenCalledWith({
+      threadId: 'thread-a',
+      message: '请处理这些文件',
+      fileArgs: ['E:\\Temp\\只看气温系统需求变更文档_v1.3.docx']
+    })
+    expect(store.draftFiles).toEqual([])
+    expect(store.hasDraftMessage).toBe(false)
+  })
+
   it('发送失败时保留当前 thread 的 Composer JSON 草稿', async () => {
     const snapshot = createSnapshot()
     const prompt = vi.fn().mockRejectedValue(new Error('network down'))

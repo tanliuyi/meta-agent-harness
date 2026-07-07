@@ -11,6 +11,11 @@ function getInitialPlatform(): string | null {
   return window.api?.runtime?.platform ?? null
 }
 
+function applyPlatformAttribute(platform: string | null): void {
+  if (!platform) return
+  document.documentElement.dataset.platform = platform
+}
+
 /**
  * 应用级 Store。
  * 提供应用名称、运行平台等全局基础状态。
@@ -32,8 +37,13 @@ export const useAppStore = defineStore('app', {
      * 初始化 renderer 运行时基础信息。
      */
     async initializeRuntime(): Promise<void> {
-      if (this.platform) return
+      if (this.platform) {
+        applyPlatformAttribute(this.platform)
+        return
+      }
+
       this.platform = await window.api.windowControl.platform()
+      applyPlatformAttribute(this.platform)
     }
   }
 })

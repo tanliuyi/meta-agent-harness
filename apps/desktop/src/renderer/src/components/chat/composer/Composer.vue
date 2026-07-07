@@ -4,13 +4,7 @@
  */
 
 import type { JSONContent } from '@tiptap/vue-3'
-import {
-  computed,
-  defineAsyncComponent,
-  nextTick,
-  ref,
-  watch
-} from 'vue'
+import { computed, defineAsyncComponent, nextTick, ref, watch } from 'vue'
 import { onClickOutside } from '@vueuse/core'
 import { BaseButton, BaseIconButton } from '@renderer/components/base'
 import ExtensionWidget from '@renderer/components/extension/ExtensionWidget.vue'
@@ -33,11 +27,14 @@ import {
 } from '@renderer/components/ui/select'
 import { useSelectContentWidth } from '@renderer/components/ui/select/composables/useSelectContentWidth'
 import StopIcon from '@renderer/components/icons/StopIcon.vue'
-import { Command as CommandIcon, LoaderCircle, X } from 'lucide-vue-next'
+import { Command as CommandIcon, File as FileIcon, LoaderCircle, X } from 'lucide-vue-next'
 import type { ImagePreviewItem } from '../ImagePreviewDialog.vue'
 import Usage from './Usage.vue'
 import type { TokenUsage } from './Usage.vue'
-import type { ComposerImageAttachment } from '@renderer/stores/workspace-session'
+import type {
+  ComposerFileAttachment,
+  ComposerImageAttachment
+} from '@renderer/stores/workspace-session'
 import {
   getCommandQueryArgs,
   getCommandQueryName
@@ -106,89 +103,6 @@ const supportedImageMimeTypes = new Set([
   'image/bmp'
 ])
 const supportedImageExtensions = new Set(['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp'])
-const supportedTextMimeTypes = new Set([
-  'application/javascript',
-  'application/json',
-  'application/sql',
-  'application/toml',
-  'application/typescript',
-  'application/x-httpd-php',
-  'application/x-javascript',
-  'application/x-sh',
-  'application/x-toml',
-  'application/x-yaml',
-  'application/xml',
-  'application/yaml'
-])
-const supportedTextExtensions = new Set([
-  'bash',
-  'bat',
-  'c',
-  'cc',
-  'cmd',
-  'conf',
-  'config',
-  'cpp',
-  'cs',
-  'css',
-  'csv',
-  'env',
-  'fish',
-  'go',
-  'graphql',
-  'gql',
-  'h',
-  'hpp',
-  'htm',
-  'html',
-  'ini',
-  'java',
-  'js',
-  'json',
-  'jsonl',
-  'jsx',
-  'kt',
-  'kts',
-  'less',
-  'log',
-  'lua',
-  'mjs',
-  'md',
-  'mdx',
-  'php',
-  'proto',
-  'ps1',
-  'py',
-  'rb',
-  'rs',
-  'sass',
-  'scss',
-  'sh',
-  'sql',
-  'svelte',
-  'toml',
-  'ts',
-  'tsv',
-  'tsx',
-  'txt',
-  'vue',
-  'xml',
-  'yaml',
-  'yml',
-  'zsh'
-])
-const supportedTextFileNames = new Set([
-  '.editorconfig',
-  '.env',
-  '.env.example',
-  '.gitattributes',
-  '.gitignore',
-  'dockerfile',
-  'license',
-  'makefile',
-  'readme'
-])
-const maxDroppedTextFileBytes = 512 * 1024
 const maxDroppedImageFileBytes = 20 * 1024 * 1024
 
 const PlainTextEditor = defineAsyncComponent(() => import('./PlainTextEditor.vue'))
@@ -225,6 +139,8 @@ const props = withDefaults(
     projects?: ProjectSummary[]
     /** 图片附件草稿。 */
     images?: ComposerImageAttachment[]
+    /** 文件路径附件草稿。 */
+    files?: ComposerFileAttachment[]
     /** 图片处理错误。 */
     imageError?: string
     /** 是否正在选择/处理图片。 */
@@ -263,6 +179,7 @@ const props = withDefaults(
     projectId: undefined,
     projects: () => [],
     images: () => [],
+    files: () => [],
     imageError: undefined,
     selectingImages: false,
     usage: undefined,
@@ -302,8 +219,12 @@ const emit = defineEmits<{
   'paste-images': [files: File[], threadId?: string]
   /** 通过本地路径添加图片附件。 */
   'add-image-paths': [paths: string[], threadId?: string]
+  /** 通过本地路径添加文件附件。 */
+  'add-files': [files: Array<Omit<ComposerFileAttachment, 'id'>>, threadId?: string]
   /** 删除图片附件。 */
   'remove-image': [id: string]
+  /** 删除文件附件。 */
+  'remove-file': [id: string]
   /** 清空图片附件。 */
   'clear-images': []
   /** 关闭图片处理错误。 */
@@ -363,6 +284,7 @@ const imagePreviews = computed<ComposerImagePreview[]>(() =>
     previewSrc: `data:${image.mimeType};base64,${image.data}`
   }))
 )
+const fileAttachments = computed(() => props.files)
 const imagePreviewDialogOpen = ref(false)
 const imagePreviewInitialIndex = ref(0)
 const imagePreviewItems = computed<ImagePreviewItem[]>(() =>
@@ -1139,7 +1061,7 @@ function handleDragLeave(event: DragEvent): void {
 }
 
 /**
- * 处理拖拽添加附件；图片走附件链路，小型文本文件走 @file 引用。
+ * 处理拖拽添加附件；图片走图片链路，其他本地文件退化为路径附件。
  * @param event - 拖拽事件。
  */
 function handleDrop(event: DragEvent): void {
@@ -1153,7 +1075,7 @@ function handleDrop(event: DragEvent): void {
   const files = Array.from(event.dataTransfer?.files ?? []) as DroppedFile[]
   const imagePaths: string[] = []
   const inlineImageFiles: DroppedFile[] = []
-  const filePaths: string[] = []
+  const fileAttachments: Array<Omit<ComposerFileAttachment, 'id'>> = []
   const rejections: string[] = []
 
   for (const file of files) {
@@ -1171,19 +1093,15 @@ function handleDrop(event: DragEvent): void {
       continue
     }
 
-    if (!isSupportedTextFile(file)) {
-      rejections.push(`${file.name} 不是支持的文本或图片文件`)
-      continue
-    }
-    if (file.size > maxDroppedTextFileBytes) {
-      rejections.push(`${file.name} 超过 ${formatFileSize(maxDroppedTextFileBytes)}`)
-      continue
-    }
     if (!localPath) {
       rejections.push(`${file.name} 无法获取本地路径`)
       continue
     }
-    filePaths.push(localPath)
+    fileAttachments.push({
+      path: localPath,
+      name: file.name,
+      size: file.size
+    })
   }
 
   if (imagePaths.length > 0) {
@@ -1192,7 +1110,9 @@ function handleDrop(event: DragEvent): void {
   if (inlineImageFiles.length > 0) {
     emit('paste-images', inlineImageFiles, props.threadId)
   }
-  editorRef.value?.insertFileReferences(filePaths)
+  if (fileAttachments.length > 0) {
+    emit('add-files', fileAttachments, props.threadId)
+  }
   showDroppedFileRejections(rejections)
 }
 
@@ -1216,24 +1136,6 @@ function isSupportedImageFile(file: File): boolean {
   }
   const extension = getFileExtension(file.name)
   return extension ? supportedImageExtensions.has(extension) : false
-}
-
-/**
- * 判断文件是否适合通过 @file 插入为文本引用。
- * @param file - 浏览器 File。
- * @returns 是否支持。
- */
-function isSupportedTextFile(file: File): boolean {
-  const mimeType = file.type.toLowerCase()
-  if (mimeType.startsWith('text/') || supportedTextMimeTypes.has(mimeType)) {
-    return true
-  }
-  const name = file.name.toLowerCase()
-  if (supportedTextFileNames.has(name)) {
-    return true
-  }
-  const extension = getFileExtension(name)
-  return extension ? supportedTextExtensions.has(extension) : false
 }
 
 /**
@@ -1429,7 +1331,10 @@ function clearExtensionDraft(id: string): void {
         </div>
       </ScrollArea>
     </Command>
-    <Command v-else-if="fileReferenceCompletion.candidates.length > 0" class="composer__file-completion">
+    <Command
+      v-else-if="fileReferenceCompletion.candidates.length > 0"
+      class="composer__file-completion"
+    >
       <ScrollArea ref="fileCompletionScrollRef" class="composer__file-completion-scroll">
         <div class="composer__file-completion-list" role="listbox">
           <button
@@ -1588,7 +1493,10 @@ function clearExtensionDraft(id: string): void {
     </div>
 
     <form class="composer" @submit.prevent="handleSubmit">
-      <div v-if="imagePreviews.length > 0 || selectingImages" class="composer__attachments">
+      <div
+        v-if="imagePreviews.length > 0 || fileAttachments.length > 0 || selectingImages"
+        class="composer__attachments"
+      >
         <div v-if="imagePreviews.length > 0" class="composer__images">
           <div v-for="(image, index) in imagePreviews" :key="image.id" class="composer__image">
             <button
@@ -1604,6 +1512,23 @@ function clearExtensionDraft(id: string): void {
               class="composer__image-remove"
               :aria-label="`移除 ${image.name}`"
               @click="emit('remove-image', image.id)"
+            >
+              <X :size="10" />
+            </button>
+          </div>
+        </div>
+        <div v-if="fileAttachments.length > 0" class="composer__files">
+          <div v-for="file in fileAttachments" :key="file.id" class="composer__file">
+            <FileIcon :size="15" class="composer__file-icon" />
+            <div class="composer__file-meta">
+              <strong :title="file.path">{{ file.name }}</strong>
+              <span>{{ formatFileSize(file.size) }}</span>
+            </div>
+            <button
+              type="button"
+              class="composer__file-remove"
+              :aria-label="`移除 ${file.name}`"
+              @click="emit('remove-file', file.id)"
             >
               <X :size="10" />
             </button>
@@ -1700,11 +1625,7 @@ function clearExtensionDraft(id: string): void {
             />
             <ScrollArea v-else class="composer__model-select-scroll">
               <SelectGroup class="composer__model-select-list">
-                <SelectItem
-                  v-for="item in modelSelectItems"
-                  :key="item.key"
-                  :value="item.value"
-                >
+                <SelectItem v-for="item in modelSelectItems" :key="item.key" :value="item.value">
                   {{ item.label }}
                 </SelectItem>
               </SelectGroup>
@@ -1731,7 +1652,7 @@ function clearExtensionDraft(id: string): void {
                 </SelectTrigger>
               </TooltipTrigger>
 
-              <SelectContent>
+              <SelectContent :content-style="{ width: '128px', minWidth: '128px' }">
                 <SelectGroup>
                   <SelectItem
                     v-for="option in thinkingOptions"
@@ -1783,7 +1704,15 @@ function clearExtensionDraft(id: string): void {
           size="medium"
           class="composer__action"
           :class="{ 'is-stop': isRunning && !canSend, 'is-loading': submitting }"
-          :label="submitting ? '发送中' : isRunning && !canSend ? '停止' : isRunning ? '发送到队列' : '发送'"
+          :label="
+            submitting
+              ? '发送中'
+              : isRunning && !canSend
+                ? '停止'
+                : isRunning
+                  ? '发送到队列'
+                  : '发送'
+          "
           :disabled="submitting || (!isRunning && !canSend)"
           @click="handleActionClick"
         >
@@ -1862,6 +1791,22 @@ function clearExtensionDraft(id: string): void {
   position: relative;
   margin-top: auto;
 
+  &.is-drop-target-active .composer::after {
+    opacity: 1;
+  }
+}
+
+.composer {
+  position: relative;
+  display: grid;
+  gap: var(--space-2);
+  padding: var(--space-4);
+  background: var(--color-surface-raised);
+  border: 1px solid var(--color-border);
+  border-radius: 18px;
+  box-shadow: var(--shadow-sm);
+  z-index: 2;
+
   &::after {
     position: absolute;
     inset: 0;
@@ -1879,22 +1824,6 @@ function clearExtensionDraft(id: string): void {
     pointer-events: none;
     transition: opacity var(--duration-fast) var(--ease-standard);
   }
-
-  &.is-drop-target-active::after {
-    opacity: 1;
-  }
-}
-
-.composer {
-  position: relative;
-  display: grid;
-  gap: var(--space-2);
-  padding: var(--space-4);
-  background: var(--color-surface-raised);
-  border: 1px solid var(--color-border);
-  border-radius: 18px;
-  box-shadow: var(--shadow-sm);
-  z-index: 2;
 }
 
 .composer__file-completion {
@@ -2291,6 +2220,87 @@ function clearExtensionDraft(id: string): void {
   flex-wrap: wrap;
   gap: var(--space-2);
   min-width: 0;
+}
+
+.composer__files {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.composer__file {
+  position: relative;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: flex-start;
+  gap: var(--space-2);
+  min-width: 180px;
+  max-width: min(320px, 100%);
+  height: 40px;
+  padding: var(--space-1) var(--space-4) var(--space-1) var(--space-2);
+  color: var(--color-text);
+  background: var(--color-control-track);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+}
+
+.composer__file-icon {
+  color: var(--color-text-muted);
+}
+
+.composer__file-meta {
+  display: grid;
+  gap: 1px;
+  min-width: 0;
+
+  strong,
+  span {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  strong {
+    font-size: var(--font-size-ui-xs);
+    font-weight: 650;
+  }
+
+  span {
+    color: var(--color-text-muted);
+    font-size: var(--font-size-ui-2xs);
+  }
+}
+
+.composer__file-remove {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  width: 14px;
+  height: 14px;
+  padding: 0;
+  color: var(--color-text);
+  background: var(--composer-image-remove-bg);
+  border: 1px solid var(--color-border);
+  border-radius: 50%;
+  box-shadow: var(--shadow-sm);
+  cursor: pointer;
+  transition:
+    opacity var(--duration-fast) var(--ease-standard),
+    background var(--duration-fast) var(--ease-standard),
+    color var(--duration-fast) var(--ease-standard),
+    border-color var(--duration-fast) var(--ease-standard);
+
+  &:hover {
+    opacity: 1;
+    color: var(--color-danger-ink);
+    background: var(--color-danger);
+    border-color: var(--color-danger);
+  }
 }
 
 .composer__image {

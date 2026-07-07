@@ -246,7 +246,7 @@ async function runBuiltinCommand(
       }
       await core.sendOk(input.threadId, { type: 'set_session_name', name: args })
       core.updateThread(input.threadId, { title: args })
-      return { handled: true, result: { message: `已重命名为 ${args}` } }
+      return { handled: true, result: { message: `已重命名为 ${args}`, refreshSnapshot: true } }
     case 'session': {
       const stats = await core.sendData<{
         userMessages?: number

@@ -1,7 +1,15 @@
 <script setup lang="ts">
 import type { PreparedTextWithSegments } from '@chenglou/pretext'
 import type { PreparedRichInline, RichInlineItem } from '@chenglou/pretext/rich-inline'
-import { computed, defineAsyncComponent, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import {
+  computed,
+  defineAsyncComponent,
+  nextTick,
+  onBeforeUnmount,
+  onMounted,
+  ref,
+  watch
+} from 'vue'
 import type { ThreadMessage } from '@shared/coding-agent/types'
 import {
   formatMessageTime,
@@ -16,7 +24,7 @@ import type { ImagePreviewItem } from '../ImagePreviewDialog.vue'
 import BaseIconButton from '@/components/base/BaseIconButton.vue'
 import SkillIcon from '@/components/icons/SkillIcon.vue'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
-import { Check, Copy, GitFork, MapPin, Pencil } from 'lucide-vue-next'
+import { Check, Copy, File as FileIcon, GitFork, MapPin, Pencil } from 'lucide-vue-next'
 
 const COLLAPSED_MAX_HEIGHT = 320
 const USER_MESSAGE_MAX_WIDTH = 640
@@ -456,7 +464,8 @@ function toggleExpand(): void {
             <div
               v-for="(attachment, index) in fileAttachments"
               :key="`${attachment.name}-${index}`"
-              class="user-message__attachment user-message__attachment--image"
+              class="user-message__attachment"
+              :class="{ 'user-message__attachment--image': attachment.imageSrc }"
             >
               <button
                 v-if="attachment.imageSrc"
@@ -467,6 +476,17 @@ function toggleExpand(): void {
               >
                 <img class="user-message__attachment-image" :src="attachment.imageSrc" alt="" />
               </button>
+              <template v-else>
+                <FileIcon :size="16" class="user-message__attachment-icon" />
+                <div class="user-message__attachment-meta">
+                  <div class="user-message__attachment-name" :title="attachment.name">
+                    {{ attachment.name }}
+                  </div>
+                  <div v-if="attachment.note" class="user-message__attachment-note">
+                    {{ attachment.note }}
+                  </div>
+                </div>
+              </template>
             </div>
           </div>
           <div v-if="standaloneImages.length > 0" class="user-message__images">
@@ -730,7 +750,7 @@ function toggleExpand(): void {
 }
 
 .user-message__image-preview {
-  display: block;
+  display: flex;
   width: 100%;
   padding: 0;
   background: transparent;
@@ -745,20 +765,20 @@ function toggleExpand(): void {
 }
 
 .user-message__attachments {
-  display: grid;
-  gap: var(--space-2);
+  display: flex;
+  flex-direction: row;
+  gap: var(--space-1);
   width: fit-content;
   max-width: 100%;
-
-  &:not(:last-child) {
-    margin-bottom: var(--space-2);
-  }
 }
 
 .user-message__attachment {
-  display: grid;
-  gap: 2px;
+  display: flex;
+  align-items: start;
+  gap: var(--space-1);
   min-width: 0;
+  width: fit-content;
+  max-width: 100%;
   padding: 6px 8px;
   background: var(--user-message-attachment-bg);
   border: 1px solid var(--user-message-attachment-border);
@@ -774,25 +794,36 @@ function toggleExpand(): void {
   }
 }
 
+.user-message__attachment-icon {
+  color: var(--color-text-muted);
+}
+
+.user-message__attachment-meta {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
 .user-message__attachment-image {
   width: 100%;
   height: auto;
-  max-height: 180px;
   object-fit: cover;
   background: var(--color-surface);
   border: 1px solid var(--user-message-media-border);
   border-radius: var(--radius-lg);
 
   .user-message__attachment--image & {
-    width: 96px;
-    height: 96px;
+    width: 64px;
+    height: 64px;
     object-fit: cover;
   }
 }
 
 .user-message__attachment-name,
 .user-message__attachment-note {
+  min-width: 0;
   overflow-wrap: anywhere;
+  white-space: pre-wrap;
 }
 
 .user-message__attachment-name {

@@ -1,10 +1,5 @@
 <script setup lang="ts">
-import {
-  BaseButton,
-  BaseField,
-  BasePanel,
-  BaseSegmentedControl
-} from '@renderer/components/base'
+import { BaseButton, BaseField, BasePanel, BaseSegmentedControl } from '@renderer/components/base'
 import {
   Dialog,
   DialogContent,
@@ -55,7 +50,10 @@ const extensionPathRows = computed(() => agentSettings.resolvedExtensionPaths)
 const resourceSnapshot = computed(() => agentSettings.resourceSnapshot)
 const activeProject = computed(() => workspaceProject.activeProject)
 const activeProjectCwd = computed(
-  () => workspaceSession.activeSnapshot?.cwd ?? activeProject.value?.path ?? projectSnapshotInput.value?.cwd
+  () =>
+    workspaceSession.activeSnapshot?.cwd ??
+    activeProject.value?.path ??
+    projectSnapshotInput.value?.cwd
 )
 const canWriteProjectSettings = computed(() => Boolean(activeProjectCwd.value))
 const projectSnapshotInput = computed<ResourceSnapshotInput | undefined>(() => {
@@ -77,7 +75,8 @@ const snapshotInput = computed<ResourceSnapshotInput>(() =>
 )
 const snapshotScopeLabel = computed(() => {
   if (snapshotScope.value === 'global') return '全局设置视角'
-  if (workspaceSession.activeSnapshot?.cwd) return `当前会话 · ${workspaceSession.activeSnapshot.cwd}`
+  if (workspaceSession.activeSnapshot?.cwd)
+    return `当前会话 · ${workspaceSession.activeSnapshot.cwd}`
   if (activeProject.value?.path) return `当前项目 · ${activeProject.value.path}`
   return '未选择项目，使用全局设置视角'
 })
@@ -222,7 +221,9 @@ async function saveAddedPath(): Promise<void> {
       appendPathSetting(agentSettings.projectExtensionPaths, path)
     )
   } else {
-    await saveUserExtensionPaths(appendPathSetting(agentSettings.draft?.resources.extensions ?? [], path))
+    await saveUserExtensionPaths(
+      appendPathSetting(agentSettings.draft?.resources.extensions ?? [], path)
+    )
   }
   closeAddDialog()
   await refreshResourceSnapshot()
@@ -505,14 +506,22 @@ function getDiagnosticTypeLabel(type: string): string {
                   >
                     /{{ command.name }}
                   </span>
-                  <span v-for="tool in row.extension.tools" :key="`tool:${row.path.path}:${tool.name}`">
-                    工具：{{ tool.name }}
+                  <span
+                    v-for="tool in row.extension.tools"
+                    :key="`tool:${row.path.path}:${tool.name}`"
+                  >
+                    tool：{{ tool.name }}
                   </span>
-                  <span v-for="flag in row.extension.flags" :key="`flag:${row.path.path}:${flag.name}`">
+                  <span
+                    v-for="flag in row.extension.flags"
+                    :key="`flag:${row.path.path}:${flag.name}`"
+                  >
                     --{{ flag.name }}
                   </span>
                 </template>
-                <span v-else>{{ row.path.enabled ? '未注册命令/工具/参数' : '已禁用，未加载能力' }}</span>
+                <span v-else>{{
+                  row.path.enabled ? '未注册命令/工具/参数' : '已禁用，未加载能力'
+                }}</span>
               </div>
 
               <div class="extension-list__actions">
@@ -598,7 +607,9 @@ function getDiagnosticTypeLabel(type: string): string {
               type="submit"
               size="sm"
               variant="primary"
-              :disabled="!pathDraft.trim() || (scopeDraft === 'project' && !canWriteProjectSettings)"
+              :disabled="
+                !pathDraft.trim() || (scopeDraft === 'project' && !canWriteProjectSettings)
+              "
             >
               保存
             </BaseButton>

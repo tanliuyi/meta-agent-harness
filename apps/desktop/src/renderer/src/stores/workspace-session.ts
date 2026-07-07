@@ -10,8 +10,10 @@ import {
   createComposerContentFromText,
   createEmptyComposerContent,
   ensureComposerDraft,
+  ensureComposerFiles,
   ensureComposerImages,
   getPromptImagePayload,
+  type ComposerFileAttachment,
   type ComposerImageAttachment
 } from './workspace-session-composer'
 import { useToast } from '@renderer/composables/useToast'
@@ -52,6 +54,7 @@ export type SessionUiState = {
 }
 
 export type { ComposerImageAttachment } from './workspace-session-composer'
+export type { ComposerFileAttachment } from './workspace-session-composer'
 
 /** 运行中消息的交付方式。 */
 export type RunningMessageDelivery = 'steer' | 'followUp'
@@ -99,6 +102,10 @@ export type WorkspaceSessionContext = {
   orphanImageAttachments: ComposerImageAttachment[]
   /** 当前上下文内每个 thread 独立的图片草稿。 */
   composerImageAttachments: Record<string, ComposerImageAttachment[]>
+  /** 未选中会话时的临时文件路径附件草稿。 */
+  orphanFileAttachments: ComposerFileAttachment[]
+  /** 当前上下文内每个 thread 独立的文件路径附件草稿。 */
+  composerFileAttachments: Record<string, ComposerFileAttachment[]>
   /** 当前上下文未绑定 thread 时的面板 UI 状态。 */
   panel: SessionUiState
   /** 当前上下文内每个 thread 独立的面板 UI 状态。 */
@@ -270,6 +277,9 @@ const emptyComposerDraft = createEmptyComposerContent()
 /** 空 Composer 图片列表，避免草稿 getter 为无附件 thread 创建新数组。 */
 const emptyComposerImages = Object.freeze([]) as unknown as ComposerImageAttachment[]
 
+/** 空 Composer 文件路径附件列表，避免草稿 getter 为无附件 thread 创建新数组。 */
+const emptyComposerFiles = Object.freeze([]) as unknown as ComposerFileAttachment[]
+
 /**
  * Workspace Session Store。
  * 负责加载、创建、管理 thread，处理 IPC 事件以及审批请求。
@@ -357,6 +367,8 @@ export default defineStore('workspace-session', () => {
       composerDrafts: {},
       orphanImageAttachments: [],
       composerImageAttachments: {},
+      orphanFileAttachments: [],
+      composerFileAttachments: {},
       panel: createUiState(),
       sessionPanels: {},
       orphanCommands: [],
@@ -405,6 +417,7 @@ export default defineStore('workspace-session', () => {
   function initializeThreadComposerState(context: WorkspaceSessionContext, threadId: string): void {
     context.composerDrafts[threadId] ??= createEmptyComposerContent()
     context.composerImageAttachments[threadId] ??= []
+    context.composerFileAttachments[threadId] ??= []
   }
 
   /**
@@ -722,6 +735,11 @@ export default defineStore('workspace-session', () => {
       for (const threadId of Object.keys(context.composerImageAttachments)) {
         if (!existingThreadIds.has(threadId)) {
           delete context.composerImageAttachments[threadId]
+        }
+      }
+      for (const threadId of Object.keys(context.composerFileAttachments)) {
+        if (!existingThreadIds.has(threadId)) {
+          delete context.composerFileAttachments[threadId]
         }
       }
     }
@@ -1078,9 +1096,21 @@ export default defineStore('workspace-session', () => {
       : context.orphanImageAttachments
   })
 
+  /** 当前活跃会话的 Composer 文件路径附件，按 session 隔离。 */
+  const draftFiles = computed(() => {
+    const threadId = activeSessionId.value
+    const context = mainContext.value
+    return threadId
+      ? (context.composerFileAttachments[threadId] ?? emptyComposerFiles)
+      : context.orphanFileAttachments
+  })
+
   /** 当前活跃会话是否有可发送草稿。 */
   const hasDraftMessage = computed(
-    () => Boolean(getComposerText(draftMessage.value).trim()) || draftImages.value.length > 0
+    () =>
+      Boolean(getComposerText(draftMessage.value).trim()) ||
+      draftImages.value.length > 0 ||
+      draftFiles.value.length > 0
   )
 
   /** 默认上下文 Composer 是否正在提交。 */
@@ -1427,6 +1457,7 @@ export default defineStore('workspace-session', () => {
     loadingThreads.value = true
     const orphanDraft = context.orphanDraftMessage
     const orphanImages = [...context.orphanImageAttachments]
+    const orphanFiles = [...context.orphanFileAttachments]
     const orphanModel = context.orphanModel
     const orphanThinkingLevel = context.orphanThinkingLevel
     const snapshot = await window.api.codingAgent.createThread({
@@ -1445,6 +1476,7 @@ export default defineStore('workspace-session', () => {
     workspaceProject.setActiveProjectId(snapshot.projectId)
     context.composerDrafts[threadId] = orphanDraft
     context.composerImageAttachments[threadId] = orphanImages
+    context.composerFileAttachments[threadId] = orphanFiles
     const runtime = ensureRuntime(threadId)
     runtime.errorMessage = undefined
     return { threadId, runtime }
@@ -1464,10 +1496,15 @@ export default defineStore('workspace-session', () => {
     let threadId = context.activeThreadId
     const draft = getComposerDraft(threadId, contextId)
     const text = getComposerText(draft).trim()
-    const fileArgs = getComposerFileArgs(draft)
     const skillReferences = getComposerSkillReferences(draft)
     const images = getComposerImages(threadId, contextId)
-    const message = text || (images.length > 0 ? '请分析这些图片' : '')
+    const files = getComposerFiles(threadId, contextId)
+    const fileArgs = dedupeStrings([
+      ...getComposerFileArgs(draft),
+      ...files.map((file) => file.path)
+    ])
+    const message =
+      text || (images.length > 0 ? '请分析这些图片' : '') || (files.length > 0 ? '请处理这些文件' : '')
     if (!message) {
       return
     }
@@ -1516,8 +1553,10 @@ export default defineStore('workspace-session', () => {
       }
       clearComposerDraft(targetThreadId, contextId)
       clearComposerImages(targetThreadId, contextId)
+      clearComposerFiles(targetThreadId, contextId)
       context.orphanDraftMessage = createEmptyComposerContent()
       context.orphanImageAttachments = []
+      context.orphanFileAttachments = []
       context.orphanModel = undefined
       context.orphanThinkingLevel = undefined
       if (session) {
@@ -2556,6 +2595,68 @@ export default defineStore('workspace-session', () => {
   }
 
   /**
+   * 获取指定会话的文件路径附件草稿。
+   * @param threadId - 目标 thread ID，默认当前活跃会话。
+   * @returns 文件路径附件列表。
+   */
+  const getComposerFiles = (
+    threadId = activeSessionId.value,
+    contextId = defaultSessionContextId
+  ): ComposerFileAttachment[] => {
+    const context = ensureSessionContext(contextId)
+    if (!threadId) {
+      return context.orphanFileAttachments
+    }
+    return ensureComposerFiles(context.composerFileAttachments, threadId)
+  }
+
+  /**
+   * 添加文件路径附件草稿。
+   * @param files - 文件路径附件。
+   */
+  const addComposerFiles = (
+    files: ComposerFileAttachment[],
+    contextId = defaultSessionContextId,
+    threadId = getContextActiveThreadId(contextId)
+  ): void => {
+    if (files.length === 0) {
+      return
+    }
+    const target = getComposerFiles(threadId, contextId)
+    const existingPaths = new Set(target.map((file) => file.path))
+    for (const file of files) {
+      if (existingPaths.has(file.path)) {
+        continue
+      }
+      existingPaths.add(file.path)
+      target.push(file)
+    }
+  }
+
+  /**
+   * 删除文件路径附件草稿。
+   * @param fileId - 文件附件 ID。
+   */
+  const removeComposerFile = (fileId: string, contextId = defaultSessionContextId): void => {
+    const files = getComposerFiles(getContextActiveThreadId(contextId), contextId)
+    const index = files.findIndex((file) => file.id === fileId)
+    if (index >= 0) {
+      files.splice(index, 1)
+    }
+  }
+
+  /**
+   * 清空文件路径附件草稿。
+   * @param threadId - 目标 thread ID，默认当前活跃会话。
+   */
+  const clearComposerFiles = (
+    threadId = activeSessionId.value,
+    contextId = defaultSessionContextId
+  ): void => {
+    getComposerFiles(threadId, contextId).splice(0)
+  }
+
+  /**
    * 应用 extension UI 请求。
    * 交互类请求进入待响应队列；状态类请求直接投影到当前 thread runtime。
    * @param threadId - 所属 thread ID。
@@ -2792,15 +2893,18 @@ export default defineStore('workspace-session', () => {
     activeSessionTreeBranchesState,
     activeToolCallsById,
     activeToolCallStructures,
+    addComposerFiles,
     clearExtensionWidget,
     clearExtensionNotifications,
     contexts,
     createThread,
+    clearComposerFiles,
     clearComposerDraft,
     clearComposerImages,
     cloneActiveSession,
     compactActive,
     defaultSessionContextId,
+    draftFiles,
     draftImages,
     draftMessage,
     errorMessage,
@@ -2810,6 +2914,7 @@ export default defineStore('workspace-session', () => {
     getContextActiveThreadId,
     getContextComposerDrafts,
     getComposerDraft,
+    getComposerFiles,
     getComposerImages,
     getMessageRenderState,
     hasDraftMessage,
@@ -2823,6 +2928,7 @@ export default defineStore('workspace-session', () => {
     loadingThreads,
     loadingTreeChildrenByEntryId,
     maxSessionPanelWidth,
+    removeComposerFile,
     focusActiveSessionTreeEntry,
     loadActiveSessionTreeChildren,
     loadActiveSessionTreePath,

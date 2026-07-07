@@ -16,6 +16,7 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/component
 import ScrollArea from '@/components/ui/scroll-area/ScrollArea.vue'
 import { ShieldAlert, ShieldCheck, ShieldOff } from '@lucide/vue'
 import { RouterLink } from 'vue-router'
+import NameCommandDialog from '@renderer/components/chat/composer/dialogs/NameCommandDialog.vue'
 import SidebarThreadItem from './SidebarThreadItem.vue'
 import {
   getExpandButtonText,
@@ -25,7 +26,7 @@ import {
   type ProjectThreadItem
 } from './support/sidebar-project-list'
 
-type ThreadMenuActionId = 'copy-id' | 'open-parent' | 'locate-current-leaf' | 'archive'
+type ThreadMenuActionId = 'copy-id' | 'rename' | 'open-parent' | 'locate-current-leaf' | 'archive'
 type ProjectMenuActionId = 'new-thread' | 'project-trust'
 
 interface ProjectMenuItem {
@@ -46,6 +47,7 @@ interface ProjectListItem {
   threads: ProjectThreadItem[]
   visibleThreads: ProjectThreadItem[]
   expansion: Readonly<ProjectExpansion>
+  hasRunningThread: boolean
   canExpand: boolean
   canCollapse: boolean
   expandButtonText: string
@@ -54,6 +56,9 @@ interface ProjectListItem {
 const workspaceProject = useWorkspaceProjectStore()
 const workspaceSession = useWorkspaceSessionStore()
 const { threadSortMode } = useWorkspaceViewSettings()
+const renameThreadDialogOpen = ref(false)
+const renameThreadTarget = ref<WorkspaceSession>()
+const renameThreadDraft = ref('')
 const expandedProjects = ref<Record<string, { displayCount: number; hasExpanded: boolean }>>({})
 const defaultProjectExpansion: Readonly<ProjectExpansion> = Object.freeze({
   displayCount: 5,
@@ -96,6 +101,7 @@ const projectListItems = computed<ProjectListItem[]>(() => {
       threads,
       visibleThreads,
       expansion,
+      hasRunningThread: threads.some((threadItem) => threadItem.thread.status === 'running'),
       canExpand: expansion.displayCount < threads.length,
       canCollapse: expansion.hasExpanded && expansion.displayCount > 5,
       expandButtonText: getExpandButtonText(threads.length, expansion.displayCount)
@@ -194,6 +200,9 @@ async function runThreadMenuAction(
     case 'copy-id':
       await navigator.clipboard.writeText(thread.threadId)
       return
+    case 'rename':
+      openRenameThreadDialog(thread)
+      return
     case 'open-parent':
       await workspaceSession.openParentSession(thread.threadId)
       return
@@ -212,6 +221,24 @@ async function runThreadMenuAction(
 async function navigateThreadLeaf(thread: WorkspaceSession, entryId: string): Promise<void> {
   await workspaceSession.setActiveSessionId(thread.threadId)
   await workspaceSession.navigateActiveSessionTree(entryId)
+}
+
+function openRenameThreadDialog(thread: WorkspaceSession): void {
+  renameThreadTarget.value = thread
+  renameThreadDraft.value = thread.title?.trim() ?? ''
+  renameThreadDialogOpen.value = true
+}
+
+async function submitRenameThreadDialog(): Promise<void> {
+  const thread = renameThreadTarget.value
+  const nextName = renameThreadDraft.value.trim()
+  if (!thread || !nextName) {
+    return
+  }
+  await workspaceSession.runCommand('name', nextName, thread.threadId)
+  renameThreadDialogOpen.value = false
+  renameThreadTarget.value = undefined
+  renameThreadDraft.value = ''
 }
 
 async function archiveThread(thread: WorkspaceSession): Promise<void> {
@@ -358,7 +385,18 @@ function getProjectTrustIcon(project: ProjectSummary): Component | undefined {
               <div class="project-tree__project">
                 <FolderIcon v-if="!open" :size="12" />
                 <FolderOpenIcon v-else :size="12" />
-                <span>{{ projectItem.project.name }}</span>
+                <span class="project-tree__project-name">{{ projectItem.project.name }}</span>
+                <span
+                  v-if="!open && projectItem.hasRunningThread"
+                  class="thread-status project-tree__running-status is-running"
+                  aria-label="运行中"
+                  role="img"
+                >
+                  <svg class="thread-status__svg" viewBox="0 0 16 16" aria-hidden="true">
+                    <circle class="thread-status__track" cx="8" cy="8" r="6.25" />
+                    <circle class="thread-status__runner" cx="8" cy="8" r="6.25" />
+                  </svg>
+                </span>
                 <BaseIconButton
                   label="创建 Thread"
                   size="small"
@@ -427,6 +465,12 @@ function getProjectTrustIcon(project: ProjectSummary): Component | undefined {
       </RouterLink>
     </div>
   </aside>
+
+  <NameCommandDialog
+    v-model:open="renameThreadDialogOpen"
+    v-model="renameThreadDraft"
+    @submit="submitRenameThreadDialog"
+  />
 </template>
 
 <style lang="scss" scoped>
@@ -461,6 +505,7 @@ function getProjectTrustIcon(project: ProjectSummary): Component | undefined {
 }
 
 .sidebar-section__header {
+  position: relative;
   flex-shrink: 0;
   display: flex;
   align-items: center;
@@ -480,13 +525,14 @@ function getProjectTrustIcon(project: ProjectSummary): Component | undefined {
   }
 
   .project-tree__add-btn {
-    visibility: hidden;
+    display: none;
     margin-left: auto;
   }
 
-  &:hover {
+  &:hover,
+  &:focus-within {
     .project-tree__add-btn {
-      visibility: visible;
+      display: flex;
     }
   }
 }
@@ -497,11 +543,20 @@ function getProjectTrustIcon(project: ProjectSummary): Component | undefined {
   font-size: var(--font-size-ui-xs);
 }
 
-.project-tree,
 .session-group {
   display: flex;
   flex-direction: column;
   gap: 2px;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.project-tree {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
   min-width: 0;
   margin: 0;
   padding: 0;
@@ -522,27 +577,35 @@ function getProjectTrustIcon(project: ProjectSummary): Component | undefined {
   align-items: center;
   gap: var(--space-2);
   min-width: 0;
-  height: 2.4em;
+  height: 2.2em;
   padding: 0 var(--space-3);
   color: var(--color-text-muted);
 
-  span {
+  svg {
+    width: 1.2em;
+    height: 1.2em;
+  }
+
+  .project-tree__project-name {
+    flex: 1;
     min-width: 0;
     overflow: hidden;
     font-size: var(--font-size-ui);
+    color: var(--color-text);
     font-weight: 560;
     text-overflow: ellipsis;
     white-space: nowrap;
+    text-align: start;
   }
 
   .thread__add-btn {
-    visibility: hidden;
-    margin-left: auto;
+    display: none;
   }
 
-  &:hover {
+  &:hover,
+  &:focus-within {
     .thread__add-btn {
-      visibility: visible;
+      display: flex;
     }
   }
 }
@@ -678,6 +741,7 @@ function getProjectTrustIcon(project: ProjectSummary): Component | undefined {
   align-items: center;
   justify-content: flex-start;
   gap: var(--space-2);
+  height: 2.4em;
   margin: 0 var(--space-2);
   padding: 0 var(--space-3) 0 var(--space-8);
 }

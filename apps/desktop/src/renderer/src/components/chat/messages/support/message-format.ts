@@ -342,10 +342,17 @@ export function getMessageFileAttachments(message: ThreadMessage): MessageFileAt
       continue
     }
     const note = body?.trim()
+    const isImageName = isImageFileName(name)
+    const inlineImage = isImageName ? images[imageIndex++] : undefined
     const fileImageSrc = getFileAttachmentImageSrc(name)
-    const inlineImage = fileImageSrc ? images[imageIndex++] : undefined
     const imageSrc = inlineImage ? getMessageImageSrc(inlineImage) : fileImageSrc
     if (!imageSrc) {
+      if (isSkippedFileAttachmentNote(note)) {
+        attachments.push({
+          name,
+          isImage: false
+        })
+      }
       continue
     }
     attachments.push({
@@ -358,16 +365,29 @@ export function getMessageFileAttachments(message: ThreadMessage): MessageFileAt
   return attachments
 }
 
+function isSkippedFileAttachmentNote(note: string | undefined): boolean {
+  return Boolean(note?.startsWith('[Skipped:'))
+}
+
 /**
  * 获取文件附件图片预览 URL。
  * @param filePath - 文件路径。
  * @returns 可用于 img 的 file URL。
  */
 export function getFileAttachmentImageSrc(filePath: string): string | undefined {
-  if (!/\.(?:png|jpe?g|gif|webp|bmp)$/i.test(filePath)) {
+  if (!isImageFileName(filePath) || !isAbsoluteLocalFilePath(filePath)) {
     return undefined
   }
   return toFileUrl(filePath)
+}
+
+function isImageFileName(filePath: string): boolean {
+  return /\.(?:png|jpe?g|gif|webp|bmp)$/i.test(filePath)
+}
+
+function isAbsoluteLocalFilePath(filePath: string): boolean {
+  const normalized = filePath.replace(/\\/g, '/')
+  return /^[a-zA-Z]:\//.test(normalized) || normalized.startsWith('/')
 }
 
 /**
@@ -437,13 +457,18 @@ export function getMessageImages(message: ThreadMessage): MessageImage[] {
   if (!Array.isArray(content)) {
     return []
   }
-  return content.filter(
-    (part): part is MessageImage & { type: 'image' } =>
-      isRecord(part) &&
-      part.type === 'image' &&
-      typeof part.data === 'string' &&
-      typeof part.mimeType === 'string'
-  )
+  return content.flatMap((part): MessageImage[] => {
+    if (!isRecord(part) || part.type !== 'image' || typeof part.data !== 'string') {
+      return []
+    }
+    const mimeType = readImageMimeType(part)
+    return mimeType ? [{ mimeType, data: part.data }] : []
+  })
+}
+
+function readImageMimeType(part: Record<string, unknown>): string | undefined {
+  const mimeType = part.mimeType ?? part.mediaType ?? part.mime_type
+  return typeof mimeType === 'string' ? mimeType : undefined
 }
 
 /**

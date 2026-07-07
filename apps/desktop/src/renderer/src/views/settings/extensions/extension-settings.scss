@@ -221,9 +221,6 @@
 }
 
 .extension-list__row {
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: start;
-
   &.is-disabled {
     .extension-list__copy strong {
       color: var(--color-text-muted);

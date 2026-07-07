@@ -1,11 +1,12 @@
 import type { Component } from 'vue'
 import type { WorkspaceSession } from '@renderer/stores/workspace-session'
 import type { ThreadSnapshot } from '@shared/coding-agent/types'
-import { Archive, Copy, GitBranch, LocateFixed } from '@lucide/vue'
+import { Archive, Copy, GitBranch, LocateFixed, Pencil } from '@lucide/vue'
 
 type SessionTreeNode = NonNullable<ThreadSnapshot['sessionTree']>[number]
 
-export type ThreadMenuActionId = 'copy-id' | 'open-parent' | 'locate-current-leaf' | 'archive'
+export type ThreadMenuActionId =
+  'copy-id' | 'rename' | 'open-parent' | 'locate-current-leaf' | 'archive'
 
 export interface ThreadMenuItem {
   id: ThreadMenuActionId
@@ -29,6 +30,7 @@ export interface ThreadLeafShortcut {
 export function isThreadMenuActionId(actionId: string): actionId is ThreadMenuActionId {
   return (
     actionId === 'copy-id' ||
+    actionId === 'rename' ||
     actionId === 'open-parent' ||
     actionId === 'locate-current-leaf' ||
     actionId === 'archive'
@@ -57,6 +59,7 @@ export function getThreadMenuSections(thread: WorkspaceSession): ThreadMenuSecti
     {
       items: [
         { id: 'copy-id', label: '复制 Thread ID', icon: Copy },
+        { id: 'rename', label: '重命名会话', icon: Pencil },
         {
           id: 'open-parent',
           label: '打开来源对话',

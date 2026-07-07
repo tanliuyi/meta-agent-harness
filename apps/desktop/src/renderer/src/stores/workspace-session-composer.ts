@@ -11,6 +11,18 @@ export type ComposerImageAttachment = PromptImageAttachment & {
   id: string
 }
 
+/** Composer 中尚未发送的文件路径附件。 */
+export type ComposerFileAttachment = {
+  /** 前端稳定 ID。 */
+  id: string
+  /** 本地文件绝对路径。 */
+  path: string
+  /** 原始文件名。 */
+  name: string
+  /** 原始文件大小，字节。 */
+  size: number
+}
+
 /**
  * 创建空白 Composer 文档。
  * @returns Tiptap 空文档。
@@ -79,6 +91,20 @@ export function ensureComposerImages(
 ): ComposerImageAttachment[] {
   composerImages[threadId] ??= []
   return composerImages[threadId]
+}
+
+/**
+ * 确保指定会话存在文件附件草稿。
+ * @param composerFiles - 文件附件草稿桶。
+ * @param threadId - thread ID。
+ * @returns 文件附件列表。
+ */
+export function ensureComposerFiles(
+  composerFiles: Record<string, ComposerFileAttachment[]>,
+  threadId: string
+): ComposerFileAttachment[] {
+  composerFiles[threadId] ??= []
+  return composerFiles[threadId]
 }
 
 /**

@@ -14,8 +14,8 @@ describe('message-format', () => {
       id: 'message-a',
       role: 'user',
       text:
-        '<file name="a.png">[Image omitted: could not be resized below the inline image size limit.]</file>\n' +
-        '<file name="b.png"></file>\n' +
+        '<file name="/tmp/a.png">[Image omitted: could not be resized below the inline image size limit.]</file>\n' +
+        '<file name="/tmp/b.png"></file>\n' +
         '请看这些图片',
       raw: {
         role: 'user',
@@ -28,15 +28,15 @@ describe('message-format', () => {
     expect(getUserMessageDisplayText(message)).toBe('请看这些图片')
     expect(getMessageFileAttachments(message)).toEqual([
       {
-        name: 'a.png',
+        name: '/tmp/a.png',
         isImage: true,
-        imageSrc: 'file:///a.png',
+        imageSrc: 'file:///tmp/a.png',
         note: '[Image omitted: could not be resized below the inline image size limit.]'
       },
       {
-        name: 'b.png',
+        name: '/tmp/b.png',
         isImage: true,
-        imageSrc: 'file:///b.png'
+        imageSrc: 'file:///tmp/b.png'
       }
     ])
   })
@@ -83,6 +83,46 @@ describe('message-format', () => {
     expect(getStandaloneMessageImages(message)).toEqual([])
   })
 
+  it('renders relative @image references from raw image content instead of file URLs', () => {
+    const message = {
+      id: 'message-relative-image',
+      role: 'user',
+      text: '<file name="hero.jpg"></file>\n使用 @hero.jpg 作为背景',
+      raw: {
+        role: 'user',
+        content: [
+          { type: 'text', text: '<file name="hero.jpg"></file>\n使用 @hero.jpg 作为背景' },
+          { type: 'image', mediaType: 'image/jpeg', data: 'abc' }
+        ],
+        timestamp: 1783036800000
+      },
+      createdAt: '2026-07-03T00:00:00.000Z'
+    } satisfies ThreadMessage
+
+    expect(getMessageFileAttachments(message)[0]).toMatchObject({
+      name: 'hero.jpg',
+      isImage: true,
+      imageSrc: 'data:image/jpeg;base64,abc'
+    })
+    expect(getStandaloneMessageImages(message)).toEqual([])
+  })
+
+  it('does not render relative @image references as broken file URLs without image content', () => {
+    const message = {
+      id: 'message-relative-image-missing-content',
+      role: 'user',
+      text: '<file name="hero.jpg"></file>\n使用 @hero.jpg 作为背景',
+      raw: {
+        role: 'user',
+        content: '<file name="hero.jpg"></file>\n使用 @hero.jpg 作为背景',
+        timestamp: 1783036800000
+      },
+      createdAt: '2026-07-03T00:00:00.000Z'
+    } satisfies ThreadMessage
+
+    expect(getMessageFileAttachments(message)).toEqual([])
+  })
+
   it('does not render text @file blocks as expanded attachment rows', () => {
     const message = {
       id: 'message-d',
@@ -98,6 +138,32 @@ describe('message-format', () => {
 
     expect(getMessageFileAttachments(message)).toEqual([])
     expect(getUserMessageDisplayText(message)).toBe('请看 @README.md')
+  })
+
+  it('renders skipped non-image file paths as attachment rows without skipped text', () => {
+    const message = {
+      id: 'message-docx',
+      role: 'user',
+      text:
+        '<file name="E:\\Temp\\只看气温系统需求变更文档_v1.3.docx">[Skipped: 不是支持的文本或图片文件.]</file>\n' +
+        '请处理这些文件',
+      raw: {
+        role: 'user',
+        content:
+          '<file name="E:\\Temp\\只看气温系统需求变更文档_v1.3.docx">[Skipped: 不是支持的文本或图片文件.]</file>\n' +
+          '请处理这些文件',
+        timestamp: 1783036800000
+      },
+      createdAt: '2026-07-03T00:00:00.000Z'
+    } satisfies ThreadMessage
+
+    expect(getMessageFileAttachments(message)).toEqual([
+      {
+        name: 'E:\\Temp\\只看气温系统需求变更文档_v1.3.docx',
+        isImage: false
+      }
+    ])
+    expect(getUserMessageDisplayText(message)).toBe('请处理这些文件')
   })
 
   it('parses bare @file references as inline display segments', () => {

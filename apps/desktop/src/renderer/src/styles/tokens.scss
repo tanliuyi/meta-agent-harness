@@ -2,7 +2,7 @@
   --font-sans: 'Source Han Sans SC VF', 'Source Han Sans SC', sans-serif;
   --font-mono: 'JetBrains Mono', 'Source Han Sans SC VF', 'Source Han Sans SC', monospace;
   --font-size-ui: 14px;
-  --font-size-ui-2xs: 11px;
+  --font-size-ui-2xs: 12px;
   --font-size-ui-xs: 12px;
   --font-size-ui-sm: 13px;
   --font-size-ui-lg: 16px;
@@ -59,14 +59,14 @@
   --file-reference-bg: color-mix(in srgb, var(--color-surface) 76%, transparent);
   --file-reference-selected-ring: color-mix(in srgb, var(--color-primary) 32%, transparent);
   --file-reference-icon-bg: color-mix(in srgb, var(--color-primary) 14%, transparent);
-  --user-message-bg: color-mix(in srgb, var(--color-primary) 18%, var(--color-surface-raised));
-  --user-message-border: color-mix(in srgb, var(--color-primary) 38%, var(--color-border));
-  --user-message-media-border: color-mix(in srgb, var(--color-primary) 28%, var(--color-border));
-  --user-message-attachment-bg: color-mix(in srgb, var(--color-surface) 72%, transparent);
+  --user-message-bg: color-mix(in srgb, var(--color-primary) 6%, var(--color-surface));
+  --user-message-border: color-mix(in srgb, var(--color-primary) 14%, var(--color-border-muted));
+  --user-message-media-border: color-mix(in srgb, var(--color-primary) 16%, var(--color-border-muted));
+  --user-message-attachment-bg: color-mix(in srgb, var(--color-surface) 88%, transparent);
   --user-message-attachment-border: color-mix(
     in srgb,
-    var(--color-primary) 24%,
-    var(--color-border)
+    var(--color-primary) 10%,
+    var(--color-border-muted)
   );
   --color-diff-added-bg: color-mix(in srgb, var(--color-primary) 18%, var(--color-canvas));
   --color-diff-added-gutter-bg: color-mix(
@@ -87,6 +87,10 @@
   --field-control-height: 28px;
   --composer-action-control-height: 28px;
   --scrollbar-size: 6px;
+}
+
+:root[data-platform='win32'] {
+  --markdown-text-weight: 450;
 }
 
 :root,

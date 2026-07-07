@@ -3,7 +3,6 @@ import { computed, ref, type ComponentPublicInstance } from 'vue'
 import { useVirtualizer } from '@tanstack/vue-virtual'
 import DiffViewer from '@renderer/components/chat/messages/tools/DiffViewer.vue'
 import useWorkspaceSessionStore from '@renderer/stores/workspace-session'
-import { getFileName } from '../shared/utils'
 import {
   countFileChangeStats,
   createVirtualFileChangeRows,
@@ -87,11 +86,7 @@ function measureChangeItem(refValue: Element | ComponentPublicInstance | null): 
       >
         <summary class="change-file__summary">
           <span class="change-file__main">
-            <span class="change-file__title">{{ getFileName(change.path) }}</span>
-            <span class="change-file__meta">
-              {{ change.changeType }} ·
-              {{ change.path }}
-            </span>
+            <span class="change-file__title">{{ change.path }}</span>
           </span>
           <strong class="change-file__stats">
             <span class="change-stats__additions">{{ formatAdditions(change.additions) }}</span>
@@ -100,7 +95,11 @@ function measureChangeItem(refValue: Element | ComponentPublicInstance | null): 
         </summary>
 
         <div class="change-file__diff">
-          <DiffViewer v-if="getReviewDiff(change)" :diff="getReviewDiff(change)!" />
+          <DiffViewer
+            v-if="getReviewDiff(change)"
+            :diff="getReviewDiff(change)!"
+            expand-vertically
+          />
           <pre v-else>No diff available</pre>
         </div>
       </details>

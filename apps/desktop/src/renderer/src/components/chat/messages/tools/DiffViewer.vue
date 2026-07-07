@@ -3,6 +3,7 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch, type CSSPro
 import { useVirtualizer } from '@tanstack/vue-virtual'
 import ScrollArea from '@renderer/components/ui/scroll-area/ScrollArea.vue'
 import {
+  createStaticDiffLineRows,
   createVirtualDiffLineRows,
   measureDiffContentWidth,
   parseDisplayDiff
@@ -16,9 +17,15 @@ const DIFF_LINE_HEIGHT = 20
 type MaybeRefValue<T> = T extends { value: infer Value } ? Value : T
 type DiffVirtualizerOptions = MaybeRefValue<Parameters<typeof useVirtualizer>[0]>
 
-const props = defineProps<{
-  diff: string
-}>()
+const props = withDefaults(
+  defineProps<{
+    diff: string
+    expandVertically?: boolean
+  }>(),
+  {
+    expandVertically: false
+  }
+)
 
 const viewerRef = ref<HTMLElement>()
 const scrollAreaRef = ref<ScrollAreaInstance | null>(null)
@@ -46,7 +53,11 @@ const virtualizerOptions = computed<DiffVirtualizerOptions>((previous) => {
 const virtualizer = useVirtualizer(virtualizerOptions)
 const virtualItems = computed(() => virtualizer.value.getVirtualItems())
 const virtualTotalSize = computed(() => virtualizer.value.getTotalSize())
-const virtualRows = computed(() => createVirtualDiffLineRows(virtualItems.value, lines.value))
+const diffRows = computed(() =>
+  props.expandVertically
+    ? createStaticDiffLineRows(lines.value, DIFF_LINE_HEIGHT)
+    : createVirtualDiffLineRows(virtualItems.value, lines.value)
+)
 const viewerStyle = computed<CSSProperties>(() => ({
   '--diff-content-width': measuredContentWidth.value
     ? `${measuredContentWidth.value}px`
@@ -54,7 +65,7 @@ const viewerStyle = computed<CSSProperties>(() => ({
   '--diff-line-height': `${DIFF_LINE_HEIGHT}px`
 }))
 const tableStyle = computed<CSSProperties>(() => ({
-  height: `${virtualTotalSize.value}px`
+  height: `${props.expandVertically ? lines.value.length * DIFF_LINE_HEIGHT : virtualTotalSize.value}px`
 }))
 
 function scheduleMeasureContentWidth(): void {
@@ -104,8 +115,17 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div ref="viewerRef" class="diff-viewer" :style="viewerStyle">
-    <ScrollArea ref="scrollAreaRef" scrollbars="both" class="diff-viewer__scroll">
+  <div
+    ref="viewerRef"
+    class="diff-viewer"
+    :class="{ 'diff-viewer--expanded-vertical': expandVertically }"
+    :style="viewerStyle"
+  >
+    <ScrollArea
+      ref="scrollAreaRef"
+      :scrollbars="expandVertically ? 'horizontal' : 'both'"
+      class="diff-viewer__scroll"
+    >
       <div
         class="diff-viewer__table"
         role="table"
@@ -114,7 +134,7 @@ onBeforeUnmount(() => {
         :style="tableStyle"
       >
         <div
-          v-for="row in virtualRows"
+          v-for="row in diffRows"
           :key="row.line.key"
           v-memo="[row.line]"
           class="diff-viewer__line"
@@ -204,6 +224,16 @@ onBeforeUnmount(() => {
 .diff-viewer__scroll :deep([data-slot='scroll-area-viewport'] > div) {
   width: 100%;
   min-width: 100% !important;
+}
+
+.diff-viewer--expanded-vertical {
+  max-height: none;
+}
+
+.diff-viewer--expanded-vertical .diff-viewer__scroll,
+.diff-viewer--expanded-vertical .diff-viewer__scroll :deep([data-slot='scroll-area-viewport']) {
+  height: auto;
+  max-height: none;
 }
 
 .diff-viewer__table {

@@ -93,6 +93,27 @@ export function createVirtualDiffLineRows(
   return rows
 }
 
+export function createStaticDiffLineRows(
+  lines: DiffLine[],
+  lineHeight: number
+): VirtualDiffLineRow[] {
+  return lines.map((line, index) => {
+    const start = index * lineHeight
+    return {
+      line,
+      virtualItem: {
+        index,
+        start,
+        size: lineHeight,
+        end: start + lineHeight,
+        key: index,
+        lane: 0
+      } as VirtualItem,
+      transform: `translateY(${start}px)`
+    }
+  })
+}
+
 export function countDisplayDiffStats(value: unknown): { additions: number; deletions: number } {
   if (typeof value !== 'string') {
     return { additions: 0, deletions: 0 }

@@ -848,7 +848,6 @@
   width: 100%;
   max-width: 100%;
   min-width: 0;
-  max-height: 320px;
   min-height: 0;
   overflow: hidden;
   border-top: 1px solid var(--color-border-muted);
@@ -858,7 +857,6 @@
   flex: 1 1 0;
   width: 100%;
   max-width: 100%;
-  max-height: 320px;
 }
 
 .change-file__diff pre {
