@@ -8,15 +8,13 @@ import vue from '@vitejs/plugin-vue'
 
 const sharedAlias = resolve('src/shared')
 const rendererAlias = resolve('src/renderer/src')
-const codingAgentSrcAlias = resolve('../../packages/coding-agent/src')
-const codingAgentIndexAlias = resolve(codingAgentSrcAlias, 'index.ts')
 const codingAgentDesktopSrcAlias = resolve('../../packages/coding-agent-desktop/src')
 const codingAgentDesktopIndexAlias = resolve(codingAgentDesktopSrcAlias, 'index.ts')
+const codingAgentRuntimeSrcAlias = resolve(codingAgentDesktopSrcAlias, 'agent-runtime')
 
 const commonAliases = [
-  { find: '@coding-agent-src', replacement: codingAgentSrcAlias },
+  { find: '@coding-agent-src', replacement: codingAgentRuntimeSrcAlias },
   { find: '@coding-agent-desktop-src', replacement: codingAgentDesktopSrcAlias },
-  { find: '@earendil-works/pi-coding-agent', replacement: codingAgentIndexAlias },
   {
     find: /^@earendil-works\/pi-coding-agent-desktop\/(.*)$/,
     replacement: `${codingAgentDesktopSrcAlias}/$1`

@@ -1,6 +1,6 @@
 /**
  * 本文件只做 Desktop Project-aware snapshot 适配。
- * JSONL 读取和 Pi message 转换复用 packages/coding-agent 的 desktop storage 逻辑。
+ * JSONL 读取和 Pi message 转换复用 coding-agent-desktop 自持有的 storage 逻辑。
  */
 
 import type { AgentMessage } from '@earendil-works/pi-agent-core'

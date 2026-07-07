@@ -410,6 +410,7 @@ export const ANTHROPIC_MODELS = {
 		api: "anthropic-messages",
 		provider: "anthropic",
 		baseUrl: "https://api.anthropic.com",
+		compat: {"forceAdaptiveThinking":true},
 		reasoning: true,
 		input: ["text", "image"],
 		cost: {

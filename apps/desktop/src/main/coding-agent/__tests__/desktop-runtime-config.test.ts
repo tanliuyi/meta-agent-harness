@@ -26,7 +26,7 @@ describe('desktop-runtime-config', () => {
     })
   })
 
-  it('显式配置 utilityProcess 时保留兼容模式', () => {
+  it('显式配置 utilityProcess 时保留配置值', () => {
     const dir = createTempDir()
     const configPath = join(dir, 'desktop-runtime.json')
 

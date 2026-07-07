@@ -207,6 +207,7 @@ export const OPENCODE_MODELS = {
 		api: "anthropic-messages",
 		provider: "opencode",
 		baseUrl: "https://opencode.ai/zen",
+		compat: {"forceAdaptiveThinking":true},
 		reasoning: true,
 		input: ["text", "image"],
 		cost: {

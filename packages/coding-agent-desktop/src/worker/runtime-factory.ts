@@ -7,12 +7,12 @@ import {
 	createAgentSessionServices,
 	createAgentSessionFromServices,
 	type AgentSessionRuntime,
-} from "@earendil-works/pi-coding-agent";
-import { getAgentDir } from "@earendil-works/pi-coding-agent";
-import { resolveProjectTrusted } from "@earendil-works/pi-coding-agent";
-import { SessionManager } from "@earendil-works/pi-coding-agent";
-import { SettingsManager } from "@earendil-works/pi-coding-agent";
-import { hasTrustRequiringProjectResources, ProjectTrustStore } from "@earendil-works/pi-coding-agent";
+} from "../agent-runtime/index.ts";
+import { getAgentDir } from "../agent-runtime/index.ts";
+import { resolveProjectTrusted } from "../agent-runtime/index.ts";
+import { SessionManager } from "../agent-runtime/index.ts";
+import { SettingsManager } from "../agent-runtime/index.ts";
+import { hasTrustRequiringProjectResources, ProjectTrustStore } from "../agent-runtime/index.ts";
 import type { StartThreadInput } from "../protocol/thread.ts";
 import type { ApprovalBridge } from "./approval-bridge.ts";
 import { createDesktopProjectTrustContext } from "./project-trust-context.ts";

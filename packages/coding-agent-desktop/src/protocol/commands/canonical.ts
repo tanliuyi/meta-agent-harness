@@ -2,7 +2,7 @@
  * 定义与 Pi RPC 同构的 canonical agent command。
  */
 
-import type { RpcCommand } from "@earendil-works/pi-coding-agent";
+import type { RpcCommand } from "../../agent-runtime/index.ts";
 
 /** 分配式 Omit 辅助类型。 */
 type DistributiveOmit<T, K extends PropertyKey> = T extends unknown ? Omit<T, K> : never;

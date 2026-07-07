@@ -3,18 +3,18 @@
  */
 
 import { describe, expect, it } from 'vitest'
-import { shouldRunCliCompatibilityMode } from '../node-sidecar-worker-mode'
+import { shouldRunArgvMode } from '../node-sidecar-worker-mode'
 
 describe('node-sidecar-worker-mode', () => {
   it('无启动参数时作为 Desktop IPC worker 运行', () => {
-    expect(shouldRunCliCompatibilityMode([])).toBe(false)
+    expect(shouldRunArgvMode([])).toBe(false)
   })
 
-  it('带 Pi print/json 参数时作为 CLI 兼容入口运行', () => {
-    expect(shouldRunCliCompatibilityMode(['--mode', 'json', '-p', 'Task: hello'])).toBe(true)
+  it('带 print/json 参数时作为 desktop argv 入口运行', () => {
+    expect(shouldRunArgvMode(['--mode', 'json', '-p', 'Task: hello'])).toBe(true)
   })
 
-  it('任意 Pi argv 启动参数都进入兼容入口', () => {
-    expect(shouldRunCliCompatibilityMode(['--help'])).toBe(true)
+  it('任意 argv 启动参数都进入 desktop argv 入口', () => {
+    expect(shouldRunArgvMode(['--help'])).toBe(true)
   })
 })

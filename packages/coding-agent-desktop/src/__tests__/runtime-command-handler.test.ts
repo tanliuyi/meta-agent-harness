@@ -2,9 +2,21 @@
  * 本文件测试 desktop runtime command handler 与 Pi RPC 主干语义的一致性。
  */
 
-import { describe, expect, it } from "vitest";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { SessionManager } from "../agent-runtime/index.ts";
+import { afterEach, describe, expect, it } from "vitest";
 import { handleRuntimeCommand, type RuntimeCommandHandlerHost } from "../worker/runtime-command-handler.ts";
 import type { WorkerCommandEnvelope } from "../protocol/envelope.ts";
+
+const roots: string[] = [];
+
+afterEach(() => {
+	for (const root of roots.splice(0)) {
+		rmSync(root, { recursive: true, force: true });
+	}
+});
 
 /** Runtime command handler 测试套件。 */
 describe("handleRuntimeCommand", () => {
@@ -134,19 +146,31 @@ describe("handleRuntimeCommand", () => {
 
 	/** 验证 create_fork_session 只返回新 session 文件，不替换当前 runtime。 */
 	it("create_fork_session 返回新 session 文件", async () => {
-		const host = createHost();
+		const root = mkdtempSync(join(tmpdir(), "desktop-runtime-command-"));
+		roots.push(root);
+		const manager = SessionManager.create(join(root, "repo"), join(root, "sessions"));
+		manager.appendMessage({ role: "user", content: "hello", timestamp: 1 });
+		const entryId = manager.appendMessage({ role: "assistant", content: "world", timestamp: 2 });
+		const originalSessionFile = manager.getSessionFile();
+		const host = createHost(
+			createSession({
+				sessionFile: originalSessionFile,
+				sessionManager: manager,
+			}),
+		);
 
 		const response = await handleRuntimeCommand(
 			host,
-			command("1", { type: "create_fork_session", entryId: "entry-a", position: "at" }),
+			command("1", { type: "create_fork_session", entryId, position: "at" }),
 		);
 
 		expect(response?.success).toBe(true);
 		expect(response?.data).toEqual({
-			sessionFile: "fork.jsonl",
+			sessionFile: expect.any(String),
 			text: undefined,
 			cancelled: false,
 		});
+		expect((response?.data as { sessionFile?: string } | undefined)?.sessionFile).not.toBe(originalSessionFile);
 	});
 
 	/** 验证 set_model 找不到模型时返回结构化错误。 */
@@ -354,7 +378,6 @@ describe("handleRuntimeCommand", () => {
 		expect(received).toEqual({
 			inputPath: "import.jsonl",
 			cwdOverride: "/tmp/override",
-			contextCwd: "/tmp/imported",
 		});
 	});
 });

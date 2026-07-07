@@ -9,7 +9,7 @@ import { fileURLToPath } from 'node:url'
 /**
  * 获取 Pi-compatible agentDir。
  *
- * 这里刻意避免导入 packages/coding-agent/src/config，防止 main 首包或完整 IPC
+ * 这里刻意避免导入完整 agent runtime config，防止 main 首包或完整 IPC
  * 注册路径解析 CLI 安装检测、自更新、包资源路径等与 desktop metadata 无关的逻辑。
  */
 export function getDesktopAgentDir(): string {

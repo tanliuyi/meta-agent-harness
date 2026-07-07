@@ -2,7 +2,7 @@
  * 本文件从 Pi AgentSession 构建 desktop runtime state 响应。
  */
 
-import type { AgentSession } from "@earendil-works/pi-coding-agent";
+import type { AgentSession } from "../agent-runtime/index.ts";
 import { toDesktopSessionTree } from "../storage/session-snapshot.ts";
 import type { ThreadLiveState } from "../protocol/thread.ts";
 

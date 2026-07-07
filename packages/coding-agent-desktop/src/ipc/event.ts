@@ -2,7 +2,7 @@
  * 本文件定义 Electron preload IPC 转发给 renderer 的事件结构。
  */
 
-import type { AgentSessionEvent } from "@earendil-works/pi-coding-agent";
+import type { AgentSessionEvent } from "../agent-runtime/index.ts";
 import type { ThreadId } from "../protocol/identity.ts";
 import type { ThreadSnapshot } from "../protocol/snapshot.ts";
 import type { DesktopProjectionEvent } from "../protocol/events/projection.ts";

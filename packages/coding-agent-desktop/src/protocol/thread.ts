@@ -4,7 +4,7 @@
 
 import type { CwdPath, IsoTime, SessionFile, ThreadId } from "./identity.ts";
 import type { AgentMessage, ThinkingLevel } from "@earendil-works/pi-agent-core";
-import type { RpcResponse, RpcSessionState } from "@earendil-works/pi-coding-agent";
+import type { ContextUsage, RpcResponse, RpcSessionState } from "../agent-runtime/index.ts";
 import type { DesktopSessionTreeNode } from "./snapshot.ts";
 
 /** Thread 运行时状态。 */
@@ -60,6 +60,8 @@ export type ThreadLiveState = RpcSessionState & {
 	currentEntryId?: string | null;
 	/** 当前是否启用自动重试。 */
 	autoRetryEnabled?: boolean;
+	/** 当前上下文窗口使用量。 */
+	contextUsage?: ContextUsage;
 };
 
 /** get_messages 命令返回的 Pi live messages。 */

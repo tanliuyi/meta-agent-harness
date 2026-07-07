@@ -5,7 +5,7 @@
 import type { ApprovalResponse } from "../approval.ts";
 import type { ExtensionUiResponse } from "../extension-ui.ts";
 import type { StartThreadInput } from "../thread.ts";
-import type { KeyId } from "@earendil-works/pi-coding-agent";
+import type { KeyId } from "../../agent-runtime/index.ts";
 
 /** Desktop worker 控制命令联合类型。 */
 export type DesktopControlCommand =

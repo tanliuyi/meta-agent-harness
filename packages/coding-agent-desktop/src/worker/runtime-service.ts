@@ -2,10 +2,12 @@
  * 本文件实现接入 Pi AgentSessionRuntime 的 desktop worker service。
  */
 
-import type { AgentSessionRuntime } from "@earendil-works/pi-coding-agent";
-import type { AgentSessionEvent } from "@earendil-works/pi-coding-agent";
-import type { ExtensionCommandContextActions } from "@earendil-works/pi-coding-agent";
-import { KeybindingsManager } from "@earendil-works/pi-coding-agent";
+import type { AgentSessionRuntime } from "../agent-runtime/index.ts";
+import type { AgentSessionEvent } from "../agent-runtime/index.ts";
+import type { ExtensionCommandContextActions } from "../agent-runtime/index.ts";
+import type { ExtensionContext } from "../agent-runtime/index.ts";
+import type { KeyId } from "../agent-runtime/index.ts";
+import { KeybindingsManager } from "../agent-runtime/index.ts";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import { createDesktopError } from "../protocol/error.ts";
 import { createWorkerErrorResponse, createWorkerResponse, type WorkerCommandEnvelope, type WorkerEventEnvelope, type WorkerResponseEnvelope } from "../protocol/envelope.ts";
@@ -164,10 +166,12 @@ export class RuntimeDesktopWorkerService implements DesktopWorkerService {
 			);
 		}
 		if (envelope.command.type === "shortcut.dispatch") {
-			const handled = await this.runtime.session.extensionRunner.executeShortcut(
-				envelope.command.shortcut,
-				KeybindingsManager.create().getResolvedBindings(),
-			);
+			const shortcuts = this.runtime.session.extensionRunner.getShortcuts(KeybindingsManager.create().getResolvedBindings());
+			const shortcut = shortcuts.get(envelope.command.shortcut.toLowerCase() as KeyId);
+			const handled = shortcut !== undefined;
+			if (shortcut) {
+				await shortcut.handler(this.createShortcutContext());
+			}
 			return createWorkerResponse(envelope.id, envelope.command.type, { handled });
 		}
 		const response = await handleRuntimeCommand(
@@ -257,6 +261,41 @@ export class RuntimeDesktopWorkerService implements DesktopWorkerService {
 					},
 				});
 			},
+		};
+	}
+
+	private createShortcutContext(): ExtensionContext {
+		const runtime = this.requireRuntime();
+		const uiBridge = this.uiBridge;
+		if (!uiBridge) {
+			throw new Error("extension UI bridge is missing");
+		}
+		return {
+			ui: uiBridge.createContext(),
+			mode: "rpc",
+			hasUI: true,
+			cwd: runtime.cwd,
+			sessionManager: runtime.session.sessionManager,
+			modelRegistry: runtime.session.modelRegistry,
+			model: runtime.session.model,
+			isIdle: () => !runtime.session.isStreaming,
+			isProjectTrusted: () => true,
+			signal: runtime.session.agent.signal,
+			abort: () => {
+				void runtime.session.abort();
+			},
+			hasPendingMessages: () => runtime.session.pendingMessageCount > 0,
+			shutdown: () => {
+				void this.stop("extension-shutdown");
+			},
+			getContextUsage: () => runtime.session.getContextUsage(),
+			compact: (options) => {
+				void runtime.session
+					.compact(options?.customInstructions)
+					.then((result) => options?.onComplete?.(result))
+					.catch((error) => options?.onError?.(error instanceof Error ? error : new Error(String(error))));
+			},
+			getSystemPrompt: () => runtime.session.systemPrompt,
 		};
 	}
 

@@ -1,6 +1,6 @@
 /**
  * 本文件只保留 Electron main 内部 registry 的运行时抽象。
- * Worker 协议类型统一复用 packages/coding-agent，避免 Desktop 维护第二套协议。
+ * Worker 协议类型统一复用 coding-agent-desktop，避免 Electron main 维护第二套协议。
  */
 
 import type {

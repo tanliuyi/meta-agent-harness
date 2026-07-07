@@ -19,6 +19,7 @@ import type {
   DesktopMessage,
   ThreadSnapshot as PackageThreadSnapshot
 } from '@coding-agent-desktop-src/protocol/snapshot'
+import type { ModelIdentity } from '@coding-agent-desktop-src/protocol/model'
 import type {
   StartThreadInput as PackageStartThreadInput,
   ThreadRuntimeState,
@@ -1234,8 +1235,18 @@ export interface DiagnosticsInput {
   source?: string
 }
 
+/** Desktop 运行态补充事件。 */
+export type DesktopRuntimeIpcEvent = {
+  /** 事件类型。 */
+  type: 'model_changed'
+  /** 当前模型。 */
+  model: ModelIdentity
+  /** 触发来源。 */
+  source?: 'set' | 'cycle'
+}
+
 /** Coding Agent IPC 事件联合类型。 */
-export type AgentSessionIpcEvent = PackageAgentSessionEvent & {
+export type AgentSessionIpcEvent = (PackageAgentSessionEvent | DesktopRuntimeIpcEvent) & {
   /** 关联线程 ID。 */
   threadId: string
   /** 与当前 session tree 对应的 entry ID，仅 message_end 持久化后可用。 */

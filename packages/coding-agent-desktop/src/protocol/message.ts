@@ -2,7 +2,7 @@
  * 定义 Pi AgentMessage 到 desktop message 的纯转换逻辑。
  */
 
-import type { CustomMessage } from "@earendil-works/pi-coding-agent";
+import type { CustomMessage } from "../agent-runtime/index.ts";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import type { DesktopMessage } from "./snapshot.ts";
 import { createDesktopFileChangeFromEditResult, type DesktopFileChange, type DesktopToolCall } from "./tool.ts";

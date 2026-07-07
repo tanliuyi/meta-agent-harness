@@ -19,13 +19,10 @@
         "../../packages/ai/dist/providers/*.d.ts"
       ],
       "@coding-agent-src/*": [
-        "../../packages/coding-agent/src/*"
+        "../../packages/coding-agent-desktop/src/agent-runtime/*"
       ],
       "@coding-agent-desktop-src/*": [
         "../../packages/coding-agent-desktop/src/*"
-      ],
-      "@earendil-works/pi-coding-agent": [
-        "../../packages/coding-agent/dist/index.d.ts"
       ],
       "@earendil-works/pi-coding-agent-desktop": [
         "../../packages/coding-agent-desktop/src/index.ts"

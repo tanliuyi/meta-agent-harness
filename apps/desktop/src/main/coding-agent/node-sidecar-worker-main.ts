@@ -6,13 +6,13 @@ import type { WorkerCommandEnvelope } from '@coding-agent-desktop-src/protocol/e
 import { createDesktopError } from '@coding-agent-desktop-src/protocol/error'
 import { createWorkerErrorResponse } from '@coding-agent-desktop-src/protocol/envelope'
 import { installCodingAgentPackageDirEnv } from './coding-agent-package-dir'
-import { shouldRunCliCompatibilityMode } from './node-sidecar-worker-mode'
+import { shouldRunArgvMode } from './node-sidecar-worker-mode'
 
 installCodingAgentPackageDirEnv()
 
 const startupArgs = process.argv.slice(2)
-if (shouldRunCliCompatibilityMode(startupArgs)) {
-  runCliCompatibilityMode(startupArgs)
+if (shouldRunArgvMode(startupArgs)) {
+  runArgvMode(startupArgs)
 } else {
   void runIpcWorkerMode().catch((error) => {
     console.error(error instanceof Error ? error.message : String(error))
@@ -20,7 +20,7 @@ if (shouldRunCliCompatibilityMode(startupArgs)) {
   })
 }
 
-function runCliCompatibilityMode(args: string[]): void {
+function runArgvMode(args: string[]): void {
   process.env.PI_CODING_AGENT = 'true'
   void import('@coding-agent-desktop-src/worker/print-runner').then(
     ({ runDesktopPrintMode }) => {

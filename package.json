@@ -7,10 +7,19 @@
     "build": "corepack pnpm -r build",
     "dev": "corepack pnpm -r --parallel dev",
     "lint": "corepack pnpm -r lint",
-    "test": "corepack pnpm -r test"
+    "test": "corepack pnpm -r test",
+    "sync:pi:packages": "node scripts/sync-pi-packages.mjs --apply",
+    "sync:pi:packages:dry-run": "node scripts/sync-pi-packages.mjs --dry-run"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
+  "devDependencies": {
+    "@smithy/types": "4.15.1",
+    "@types/node": "24.12.4",
+    "@typescript/native-preview": "7.0.0-dev.20260120.1",
+    "shx": "0.4.0",
+    "typescript": "5.9.3"
+  },
   "packageManager": "pnpm@11.7.0"
 }

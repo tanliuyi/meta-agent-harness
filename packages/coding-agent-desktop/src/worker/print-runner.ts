@@ -1,51 +1,51 @@
 /**
- * Desktop argv compatibility runner for extension-spawned child agents.
+ * Desktop argv runner for extension-spawned child agents.
  *
- * This supports Pi argv protocols without depending on the CLI entrypoint.
+ * This supports argv protocols without depending on the old CLI package.
  */
 
 import { createInterface } from 'node:readline'
 import { type ImageContent, modelsAreEqual } from '@earendil-works/pi-ai'
 import chalk from 'chalk'
-import { type Args, type Mode, parseArgs, printHelp } from "@earendil-works/pi-coding-agent"
-import { processFileArguments } from "@earendil-works/pi-coding-agent"
-import { buildInitialMessage } from "@earendil-works/pi-coding-agent"
-import { listModels } from "@earendil-works/pi-coding-agent"
-import { ENV_SESSION_DIR, expandTildePath, getAgentDir, getPackageDir, VERSION } from "@earendil-works/pi-coding-agent"
+import { type Args, type Mode, parseArgs, printHelp } from "../agent-runtime/index.ts"
+import { processFileArguments } from "../agent-runtime/index.ts"
+import { buildInitialMessage } from "../agent-runtime/index.ts"
+import { listModels } from "../agent-runtime/index.ts"
+import { ENV_SESSION_DIR, expandTildePath, getAgentDir, getPackageDir, VERSION } from "../agent-runtime/index.ts"
 import {
   type CreateAgentSessionRuntimeFactory,
   createAgentSessionRuntime
-} from "@earendil-works/pi-coding-agent"
+} from "../agent-runtime/index.ts"
 import {
   type AgentSessionRuntimeDiagnostic,
   createAgentSessionFromServices,
   createAgentSessionServices
-} from "@earendil-works/pi-coding-agent"
-import { formatNoModelsAvailableMessage } from "@earendil-works/pi-coding-agent"
-import { AuthStorage } from "@earendil-works/pi-coding-agent"
-import { exportFromFile } from "@earendil-works/pi-coding-agent"
-import type { ProjectTrustContext } from "@earendil-works/pi-coding-agent"
-import { applyHttpProxySettings, configureHttpDispatcher } from "@earendil-works/pi-coding-agent"
-import type { ModelRegistry } from "@earendil-works/pi-coding-agent"
-import { resolveCliModel, resolveModelScope, type ScopedModel } from "@earendil-works/pi-coding-agent"
-import { restoreStdout, takeOverStdout } from "@earendil-works/pi-coding-agent"
-import { type AppMode, resolveProjectTrusted } from "@earendil-works/pi-coding-agent"
-import type { CreateAgentSessionOptions } from "@earendil-works/pi-coding-agent"
+} from "../agent-runtime/index.ts"
+import { formatNoModelsAvailableMessage } from "../agent-runtime/index.ts"
+import { AuthStorage } from "../agent-runtime/index.ts"
+import { exportFromFile } from "../agent-runtime/index.ts"
+import type { ProjectTrustContext } from "../agent-runtime/index.ts"
+import { applyHttpProxySettings, configureHttpDispatcher } from "../agent-runtime/index.ts"
+import type { ModelRegistry } from "../agent-runtime/index.ts"
+import { resolveCliModel, resolveModelScope, type ScopedModel } from "../agent-runtime/index.ts"
+import { restoreStdout, takeOverStdout } from "../agent-runtime/index.ts"
+import { type AppMode, resolveProjectTrusted } from "../agent-runtime/index.ts"
+import type { CreateAgentSessionOptions } from "../agent-runtime/index.ts"
 import {
   formatMissingSessionCwdPrompt,
   getMissingSessionCwdIssue,
   MissingSessionCwdError
-} from "@earendil-works/pi-coding-agent"
-import { assertValidSessionId, SessionManager } from "@earendil-works/pi-coding-agent"
-import { SettingsManager } from "@earendil-works/pi-coding-agent"
-import { printTimings, resetTimings, time } from "@earendil-works/pi-coding-agent"
-import { hasTrustRequiringProjectResources, ProjectTrustStore } from "@earendil-works/pi-coding-agent"
-import { runMigrations } from "@earendil-works/pi-coding-agent"
-import { runPrintMode } from "@earendil-works/pi-coding-agent"
-import { runRpcMode } from "@earendil-works/pi-coding-agent"
-import { handleConfigCommand, handlePackageCommand } from "@earendil-works/pi-coding-agent"
-import { isLocalPath, normalizePath, resolvePath } from "@earendil-works/pi-coding-agent"
-import { cleanupWindowsSelfUpdateQuarantine } from "@earendil-works/pi-coding-agent"
+} from "../agent-runtime/index.ts"
+import { assertValidSessionId, SessionManager } from "../agent-runtime/index.ts"
+import { SettingsManager } from "../agent-runtime/index.ts"
+import { printTimings, resetTimings, time } from "../agent-runtime/index.ts"
+import { hasTrustRequiringProjectResources, ProjectTrustStore } from "../agent-runtime/index.ts"
+import { runMigrations } from "../agent-runtime/index.ts"
+import { runPrintMode } from "../agent-runtime/index.ts"
+import { runRpcMode } from "../agent-runtime/index.ts"
+import { handleConfigCommand, handlePackageCommand } from "../agent-runtime/index.ts"
+import { isLocalPath, normalizePath, resolvePath } from "../agent-runtime/index.ts"
+import { cleanupWindowsSelfUpdateQuarantine } from "../agent-runtime/index.ts"
 
 const EXTENSION_LOAD_FAILURE_HINT = 'Hint: Start without extensions using "pi -ne".'
 

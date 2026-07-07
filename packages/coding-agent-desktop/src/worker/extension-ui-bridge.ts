@@ -2,7 +2,7 @@
  * 实现 Pi extension UI context 与 desktop transport event 的桥接。
  */
 
-import type { ExtensionUIContext, ExtensionUIDialogOptions } from "@earendil-works/pi-coding-agent";
+import type { ExtensionUIContext, ExtensionUIDialogOptions } from "../agent-runtime/index.ts";
 import type { ExtensionUiRequest, ExtensionUiResponse } from "../protocol/extension-ui.ts";
 import type { ThreadId } from "../protocol/identity.ts";
 import type { WorkerEventEnvelope } from "../protocol/envelope.ts";
@@ -61,6 +61,7 @@ export class ExtensionUiBridge {
 						"cancelled" in response ? undefined : "value" in response && typeof response.value === "string" ? response.value : undefined,
 				),
 			notify: (message, notifyType) => this.emitUi({ type: "notify", id: crypto.randomUUID(), message, notifyType }),
+			onTerminalInput: () => () => {},
 			setStatus: (statusKey, statusText) =>
 				this.emitUi({ type: "setStatus", id: crypto.randomUUID(), statusKey, statusText }),
 			setWorkingMessage: (message) => this.emitUi({ type: "setWorkingMessage", id: crypto.randomUUID(), message }),

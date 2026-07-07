@@ -157,7 +157,7 @@ describe('agent-settings store', () => {
     )
   })
 
-  it('保存显示与交互时不提交 TUI-only 字段', async () => {
+  it('保存显示与交互时不提交 terminal-only 字段', async () => {
     const snapshot = createAgentSettingsSnapshot()
     snapshot.display.theme = 'minimal'
     const updateAgentSettings = vi.fn().mockResolvedValue(snapshot)
@@ -204,7 +204,7 @@ describe('agent-settings store', () => {
     })
   })
 
-  it('保存资源和高级设置时不提交 TUI theme 或 markdown 渲染字段', async () => {
+  it('保存资源和高级设置时不提交 terminal theme 或 markdown 渲染字段', async () => {
     const snapshot = createAgentSettingsSnapshot()
     snapshot.resources.themes = ['~/pi/themes']
     const updateAgentSettings = vi.fn().mockResolvedValue(snapshot)

@@ -3,6 +3,7 @@
  */
 
 import { createDesktopError } from "../protocol/error.ts";
+import { SessionManager } from "../agent-runtime/index.ts";
 import { createWorkerErrorResponse, createWorkerResponse, type WorkerCommandEnvelope, type WorkerResponseEnvelope } from "../protocol/envelope.ts";
 import type { CanonicalAgentCommand } from "../protocol/commands/canonical.ts";
 import { toDesktopSessionTreeChildren } from "../storage/session-snapshot.ts";
@@ -36,30 +37,27 @@ export async function handleRuntimeSessionCommand(
 			return createWorkerResponse(envelope.id, command.type, result);
 		}
 		case "import_session": {
-			const result = await host.runtime.importFromJsonl(command.inputPath, {
-				cwdOverride: command.cwdOverride,
-				projectTrustContextFactory: host.projectTrustContextFactory,
-			});
+			const result = await host.runtime.importFromJsonl(command.inputPath, command.cwdOverride);
 			await rebindIfNeeded(host, result.cancelled);
 			return createWorkerResponse(envelope.id, command.type, result);
 		}
-			case "fork": {
-				const result = await host.runtime.fork(command.entryId, { position: command.position });
-				await rebindIfNeeded(host, result.cancelled);
-				return createWorkerResponse(envelope.id, command.type, { text: result.selectedText, cancelled: result.cancelled });
-			}
-			case "create_fork_session": {
-				const result = await host.runtime.createForkedSessionFile(command.entryId, { position: command.position });
-				return createWorkerResponse(envelope.id, command.type, {
-					sessionFile: result.sessionFile,
-					text: result.selectedText,
-					cancelled: result.cancelled,
-				});
-			}
-			case "navigate_tree": {
-				const result = await session.navigateTree(command.entryId, {
-					summarize: command.summarize,
-					customInstructions: command.customInstructions,
+		case "fork": {
+			const result = await host.runtime.fork(command.entryId, { position: command.position });
+			await rebindIfNeeded(host, result.cancelled);
+			return createWorkerResponse(envelope.id, command.type, { text: result.selectedText, cancelled: result.cancelled });
+		}
+		case "create_fork_session": {
+			const result = createForkedSessionFile(host, command.entryId, command.position);
+			return createWorkerResponse(envelope.id, command.type, {
+				sessionFile: result.sessionFile,
+				text: result.selectedText,
+				cancelled: result.cancelled,
+			});
+		}
+		case "navigate_tree": {
+			const result = await session.navigateTree(command.entryId, {
+				summarize: command.summarize,
+				customInstructions: command.customInstructions,
 			});
 			return createWorkerResponse(envelope.id, command.type, {
 				editorText: result.editorText,
@@ -115,4 +113,53 @@ export async function handleRuntimeSessionCommand(
 		default:
 			return undefined;
 	}
+}
+
+function createForkedSessionFile(
+	host: RuntimeCommandHandlerHost,
+	entryId: string,
+	position: "before" | "at" | undefined,
+): { cancelled: false; sessionFile?: string; selectedText?: string } {
+	const runtimeSession = host.runtime.session;
+	const sessionFile = runtimeSession.sessionFile;
+	if (!sessionFile) {
+		return { cancelled: false, sessionFile: undefined };
+	}
+	const selectedEntry = runtimeSession.sessionManager.getEntry(entryId);
+	if (!selectedEntry) {
+		throw new Error("Invalid entry ID for forking");
+	}
+
+	let targetLeafId: string | null;
+	let selectedText: string | undefined;
+	if ((position ?? "before") === "at") {
+		targetLeafId = selectedEntry.id;
+	} else {
+		if (selectedEntry.type !== "message" || selectedEntry.message.role !== "user") {
+			throw new Error("Invalid entry ID for forking");
+		}
+		targetLeafId = selectedEntry.parentId;
+		selectedText = extractUserMessageText(selectedEntry.message.content);
+	}
+
+	const sessionManager = SessionManager.open(sessionFile, runtimeSession.sessionManager.getSessionDir());
+	if (!targetLeafId) {
+		sessionManager.newSession({ parentSession: sessionFile });
+		return { cancelled: false, sessionFile: sessionManager.getSessionFile(), selectedText };
+	}
+	return {
+		cancelled: false,
+		sessionFile: sessionManager.createBranchedSession(targetLeafId),
+		selectedText,
+	};
+}
+
+function extractUserMessageText(content: string | Array<{ type: string; text?: string }>): string {
+	if (typeof content === "string") {
+		return content;
+	}
+	return content
+		.filter((part): part is { type: "text"; text: string } => part.type === "text" && typeof part.text === "string")
+		.map((part) => part.text)
+		.join("");
 }

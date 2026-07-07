@@ -6,7 +6,7 @@ import { appendFileSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { resolveSessionCwd, SessionManager } from "@earendil-works/pi-coding-agent";
+import { resolveSessionCwd, SessionManager } from "../agent-runtime/index.ts";
 import { buildSnapshotFromSession, toDesktopSessionTreeChildren } from "../storage/session-snapshot.ts";
 
 const roots: string[] = [];

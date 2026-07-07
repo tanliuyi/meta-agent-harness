@@ -13,6 +13,7 @@ import type {
   ApprovalResponseInput,
   ToggleInput
 } from '@shared/coding-agent/types'
+import type { KeyId } from '@coding-agent-src/core/keybindings'
 import { getBuiltinCommandInfos } from '@shared/coding-agent/builtin-commands'
 import type { ThreadManagerCore } from './thread-manager-core'
 
@@ -101,7 +102,7 @@ export async function dispatchExtensionShortcut(
 ): Promise<boolean> {
   const result = await core.sendData<ExtensionShortcutResult>(input.threadId, {
     type: 'shortcut.dispatch',
-    shortcut: input.shortcut
+    shortcut: input.shortcut as KeyId
   })
   return result.handled
 }

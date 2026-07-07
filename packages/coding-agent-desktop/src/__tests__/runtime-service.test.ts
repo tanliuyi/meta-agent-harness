@@ -3,12 +3,12 @@
  */
 
 import { describe, expect, it } from "vitest";
-import type { AgentSessionRuntime } from "@earendil-works/pi-coding-agent";
-import type { AgentSessionEvent } from "@earendil-works/pi-coding-agent";
+import type { AgentSessionRuntime } from "../agent-runtime/index.ts";
+import type { AgentSessionEvent } from "../agent-runtime/index.ts";
 import { RuntimeDesktopWorkerService } from "../worker/runtime-service.ts";
 import type { StartThreadInput } from "../protocol/thread.ts";
 import type { WorkerEventEnvelope } from "../protocol/envelope.ts";
-import type { ExtensionBindings } from "@earendil-works/pi-coding-agent";
+import type { ExtensionBindings } from "../agent-runtime/index.ts";
 
 /** RuntimeDesktopWorkerService 测试套件。 */
 describe("RuntimeDesktopWorkerService", () => {
@@ -269,10 +269,19 @@ describe("RuntimeDesktopWorkerService", () => {
 						bindings = nextBindings;
 					},
 					extensionRunner: {
-						executeShortcut: async (shortcut: string) => {
-							shortcutRuns.push(shortcut);
-							return true;
-						},
+						getShortcuts: () =>
+							new Map([
+								[
+									"shift+ctrl+k",
+									{
+										shortcut: "shift+ctrl+k",
+										extensionPath: "test-extension",
+										handler: () => {
+											shortcutRuns.push("shift+ctrl+k");
+										},
+									},
+								],
+							]),
 					},
 				},
 			}),
@@ -302,7 +311,7 @@ describe("RuntimeDesktopWorkerService", () => {
 			createRuntime({
 				session: {
 					extensionRunner: {
-						executeShortcut: async () => false,
+						getShortcuts: () => new Map(),
 					},
 				},
 			}),
