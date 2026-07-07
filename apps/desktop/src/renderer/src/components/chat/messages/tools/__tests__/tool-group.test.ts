@@ -2,8 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   getToolGroupStatus,
   groupTimelineTools,
-  summarizeExploreToolGroup,
-  summarizeMutationToolGroup,
+  summarizeToolGroup,
   type ToolCall
 } from '../support/tool-group'
 
@@ -13,8 +12,10 @@ type TestItem =
   | { type: 'thinking'; key: string }
 
 describe('tool-group', () => {
-  it('合并连续 mutation tools', () => {
+  it('合并连续工具', () => {
     const items = [
+      toolItem('read-a', 'read', { path: 'src/a.ts' }),
+      toolItem('bash-a', 'bash', { command: 'pnpm test' }),
       toolItem('edit-a', 'edit', { path: 'src/a.ts' }),
       toolItem('write-b', 'write', { path: 'src/b.ts' })
     ]
@@ -22,9 +23,10 @@ describe('tool-group', () => {
     expect(groupTimelineTools(items)).toMatchObject([
       {
         type: 'tool-group',
-        groupKind: 'mutation',
-        toolCallIds: ['edit-a', 'write-b'],
+        toolCallIds: ['read-a', 'bash-a', 'edit-a', 'write-b'],
         toolCalls: [
+          { toolCallId: 'read-a', toolName: 'read' },
+          { toolCallId: 'bash-a', toolName: 'bash' },
           { toolCallId: 'edit-a', toolName: 'edit' },
           { toolCallId: 'write-b', toolName: 'write' }
         ]
@@ -32,57 +34,18 @@ describe('tool-group', () => {
     ])
   })
 
-  it('合并连续 explore tools', () => {
-    const items = [
-      toolItem('read-a', 'read', { path: 'src/a.ts' }),
-      toolItem('grep-a', 'grep', { pattern: 'foo', path: 'src' }),
-      toolItem('ls-a', 'ls', { path: 'src' })
-    ]
-
-    expect(groupTimelineTools(items)).toMatchObject([
-      {
-        type: 'tool-group',
-        groupKind: 'explore',
-        toolCallIds: ['read-a', 'grep-a', 'ls-a'],
-        toolCalls: [
-          { toolCallId: 'read-a', toolName: 'read' },
-          { toolCallId: 'grep-a', toolName: 'grep' },
-          { toolCallId: 'ls-a', toolName: 'ls' }
-        ]
-      }
-    ])
-  })
-
-  it('不同类型工具相邻时分开，单个工具不分组', () => {
-    const items = [
-      toolItem('read-a', 'read', { path: 'src/a.ts' }),
-      toolItem('edit-a', 'edit', { path: 'src/a.ts' }),
-      toolItem('write-b', 'write', { path: 'src/b.ts' }),
-      toolItem('grep-a', 'grep', { pattern: 'foo' })
-    ]
-
-    expect(groupTimelineTools(items).map((item) => item.type)).toEqual([
-      'tool',
-      'tool-group',
-      'tool'
-    ])
-  })
-
-  it('非工具项和 bash 会打断分组', () => {
+  it('非工具项会打断分组，单个工具不分组', () => {
     const items: TestItem[] = [
       toolItem('read-a', 'read', { path: 'src/a.ts' }),
       { type: 'thinking', key: 'thinking-a' },
       toolItem('grep-a', 'grep', { pattern: 'foo' }),
-      toolItem('bash-a', 'bash', { command: 'cat package.json' }),
       toolItem('find-a', 'find', { pattern: '*.ts' })
     ]
 
     expect(groupTimelineTools(items).map((item) => item.type)).toEqual([
       'tool',
       'thinking',
-      'tool',
-      'tool',
-      'tool'
+      'tool-group'
     ])
   })
 
@@ -95,7 +58,6 @@ describe('tool-group', () => {
     expect(groupTimelineTools(items)).toMatchObject([
       {
         type: 'tool-group',
-        groupKind: 'explore',
         toolCallIds: ['message-read-a', 'grep-a']
       }
     ])
@@ -117,26 +79,34 @@ describe('tool-group', () => {
     expect(appendedGroup.key).toBe(initialGroup.key)
   })
 
-  it('mutation 摘要使用路径去重并将 write 称为写入', () => {
+  it('摘要按已知工具语义统计，并用执行统计扩展工具', () => {
     expect(
-      summarizeMutationToolGroup([
-        toolCall('edit-a', 'edit', { path: 'src/a.ts' }),
-        toolCall('edit-b', 'edit', { path: 'src/a.ts' }),
-        toolCall('write-a', 'write', { file_path: 'src/b.ts' })
-      ])
-    ).toBe('编辑 1 文件，写入 1 文件')
-  })
-
-  it('explore 摘要统计查看、搜索和列目录', () => {
-    expect(
-      summarizeExploreToolGroup([
+      summarizeToolGroup([
         toolCall('read-a', 'read', { path: 'src/a.ts' }),
         toolCall('read-b', 'read', { path: 'src/a.ts' }),
         toolCall('grep-a', 'grep', { pattern: 'foo' }),
         toolCall('find-a', 'find', { pattern: '*.ts' }),
-        toolCall('ls-a', 'ls', { path: 'src' })
+        toolCall('ls-a', 'ls', { path: 'src' }),
+        toolCall('edit-a', 'edit', { path: 'src/a.ts' }),
+        toolCall('edit-b', 'edit', { path: 'src/a.ts' }),
+        toolCall('write-a', 'write', { file_path: 'src/b.ts' }),
+        toolCall('bash-a', 'bash', { command: 'pnpm test' }),
+        toolCall('extension-a', 'extensionTool', {})
       ])
-    ).toBe('查看 1 文件，搜索 2 次，列出 1 目录')
+    ).toBe(
+      '已读取 1 文件，已搜索 2 次，已列出 1 目录，已编辑 1 文件，已写入 1 文件，已运行 1 命令，已执行 1 工具'
+    )
+  })
+
+  it('摘要按工具状态展示', () => {
+    expect(
+      summarizeToolGroup([
+        toolCall('bash-a', 'bash', {}, 'queued'),
+        toolCall('bash-b', 'bash', {}, 'running'),
+        toolCall('bash-c', 'bash', {}, 'succeeded'),
+        toolCall('bash-d', 'bash', {}, 'failed')
+      ])
+    ).toBe('准备运行 1 命令，1 命令运行，已运行 1 命令，1 命令失败')
   })
 
   it('聚合工具组状态', () => {

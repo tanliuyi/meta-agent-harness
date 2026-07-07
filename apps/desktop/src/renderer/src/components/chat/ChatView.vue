@@ -9,12 +9,12 @@ import { useElementSize, useResizeObserver } from '@vueuse/core'
 import { ChevronDown } from 'lucide-vue-next'
 import Composer from './composer/Composer.vue'
 import AssistantMessage from './messages/AssistantMessage.vue'
+import CompactionDivider from './messages/CompactionDivider.vue'
 import ThinkingMessage from './messages/ThinkingMessage.vue'
 import SystemMessage from './messages/SystemMessage.vue'
 import ToolMessage from './messages/ToolMessage.vue'
 import UserMessage from './messages/UserMessage.vue'
-import ExploreToolGroup from './messages/tools/ExploreToolGroup.vue'
-import MutationToolGroup from './messages/tools/MutationToolGroup.vue'
+import ToolGroup from './messages/tools/ToolGroup.vue'
 import type { ToolCall, ToolGroupStatus } from './messages/tools/support/tool-group'
 import {
   scheduleInitialSettingsLoad,
@@ -36,6 +36,7 @@ import {
   createDisplayTimelineItems,
   createProcessingCollapseResult,
   createTimelineItems,
+  getTimelineItemRevision as getBaseTimelineItemRevision,
   getTimelineItemToolGroupStatus,
   getToolResultMessageToolCall,
   isCollapsedHistoryItem,
@@ -71,8 +72,8 @@ type TimelineItemComponent =
   | typeof SystemMessage
   | typeof ToolMessage
   | typeof ThinkingMessage
-  | typeof MutationToolGroup
-  | typeof ExploreToolGroup
+  | typeof ToolGroup
+  | typeof CompactionDivider
 type TimelineViewItem = {
   key: string
   item: TimelineItem
@@ -100,10 +101,14 @@ type TimelineViewItem = {
   toolCalls?: ToolCall[]
   summary?: string
   status?: ToolGroupStatus
+  toolGroupOpen?: boolean
 }
 
 /** 已折叠处理段的展开状态。 */
 const collapsedHistoryOpenByKey = ref<Record<string, boolean>>({})
+
+/** 工具组展开状态，按稳定 timeline key 保存。 */
+const toolGroupOpenByKey = ref<Record<string, boolean>>({})
 
 /** 当前会话的渲染消息列表。 */
 const messages = computed<ThreadMessage[]>(() => workspaceSession.activeSnapshot?.messages ?? [])
@@ -300,6 +305,19 @@ watch(
   }
 )
 
+watch(
+  () => timelineItems.value.filter((item) => item.type === 'tool-group').map((item) => item.key),
+  (keys) => {
+    const keySet = new Set(keys)
+    for (const key of Object.keys(toolGroupOpenByKey.value)) {
+      if (!keySet.has(key)) {
+        const { [key]: _removed, ...nextOpenByKey } = toolGroupOpenByKey.value
+        toolGroupOpenByKey.value = nextOpenByKey
+      }
+    }
+  }
+)
+
 /** 消息滚动容器。 */
 const timelineRef = ref<ScrollAreaInstance | null>(null)
 const timelineInnerRef = ref<HTMLElement | null>(null)
@@ -431,10 +449,7 @@ async function handlePasteImages(files: File[], threadId?: string): Promise<void
  * @param files - 本地文件路径附件。
  * @param threadId - 拖拽文件时绑定的 thread ID。
  */
-function handleAddFiles(
-  files: Array<Omit<ComposerFileAttachment, 'id'>>,
-  threadId?: string
-): void {
+function handleAddFiles(files: Array<Omit<ComposerFileAttachment, 'id'>>, threadId?: string): void {
   workspaceSession.addComposerFiles(
     files.map(toComposerFileAttachment),
     workspaceSession.defaultSessionContextId,
@@ -474,7 +489,9 @@ function toComposerImageAttachment(image: PromptImageAttachment): ComposerImageA
  * @param file - 文件路径附件。
  * @returns Composer 文件路径附件。
  */
-function toComposerFileAttachment(file: Omit<ComposerFileAttachment, 'id'>): ComposerFileAttachment {
+function toComposerFileAttachment(
+  file: Omit<ComposerFileAttachment, 'id'>
+): ComposerFileAttachment {
   return {
     ...file,
     id: `${file.name}-${file.size}-${crypto.randomUUID()}`
@@ -518,10 +535,13 @@ function getTimelineItemComponent(item: TimelineItem): TimelineItemComponent {
     return ThinkingMessage
   }
   if (item.type === 'tool-group') {
-    return item.groupKind === 'mutation' ? MutationToolGroup : ExploreToolGroup
+    return ToolGroup
   }
   if (item.type === 'tool') {
     return ToolMessage
+  }
+  if (item.type === 'compaction-divider') {
+    return CompactionDivider
   }
   return getMessageComponent(item.message.role)
 }
@@ -547,7 +567,9 @@ function getTimelineItemClassSuffix(item: TimelineItem): string {
  * @returns 消息。
  */
 function getTimelineItemMessage(item: TimelineItem): ThreadMessage | undefined {
-  return item.type === 'message' || item.type === 'thinking' ? item.message : undefined
+  return item.type === 'message' || item.type === 'thinking' || item.type === 'compaction-divider'
+    ? item.message
+    : undefined
 }
 
 /**
@@ -637,6 +659,18 @@ function getTimelineItemToolGroupSummary(item: TimelineItem): string | undefined
 }
 
 /**
+ * 获取工具组展开状态。
+ * @param item - timeline 项。
+ * @returns 是否展开。
+ */
+function getTimelineItemToolGroupOpen(item: TimelineItem): boolean | undefined {
+  if (item.type !== 'tool-group') {
+    return undefined
+  }
+  return toolGroupOpenByKey.value[item.key] ?? workspaceSession.activeExtensionToolsExpanded
+}
+
+/**
  * 将 timeline item 转成模板消费的稳定视图模型。
  * @param item - timeline 项。
  * @returns timeline 视图模型。
@@ -671,7 +705,8 @@ function toTimelineViewItem(item: TimelineItem): TimelineViewItem {
     toolCallIds: getTimelineItemToolCallIds(item),
     toolCalls: getTimelineItemToolCalls(item),
     summary: getTimelineItemToolGroupSummary(item),
-    status: getTimelineItemToolGroupStatus(item)
+    status: getTimelineItemToolGroupStatus(item),
+    toolGroupOpen: getTimelineItemToolGroupOpen(item)
   }
 }
 
@@ -681,10 +716,11 @@ function createStableTimelineViewItems(
 ): TimelineViewItem[] {
   let hasChanged = previous?.length !== items.length
   const next: TimelineViewItem[] = []
+  const previousByKey = new Map(previous?.map((item) => [item.key, item]))
 
-  for (let index = 0; index < items.length; index += 1) {
-    const viewItem = toTimelineViewItem(items[index])
-    const previousItem = previous?.[index]
+  for (const item of items) {
+    const viewItem = toTimelineViewItem(item)
+    const previousItem = previousByKey.get(viewItem.key)
     if (previousItem && isSameTimelineViewItem(previousItem, viewItem)) {
       next.push(previousItem)
     } else {
@@ -718,7 +754,8 @@ function isSameTimelineViewItem(left: TimelineViewItem, right: TimelineViewItem)
     left.toolCallIds === right.toolCallIds &&
     left.toolCalls === right.toolCalls &&
     left.summary === right.summary &&
-    left.status === right.status
+    left.status === right.status &&
+    left.toolGroupOpen === right.toolGroupOpen
   )
 }
 
@@ -755,6 +792,16 @@ function isCollapsedHistoryOpen(
   item: Extract<TimelineItem, { type: 'collapsed-history' }>
 ): boolean {
   return !item.collapsible || Boolean(collapsedHistoryOpenByKey.value[item.key])
+}
+
+function setToolGroupOpen(viewItem: TimelineViewItem, open: boolean): void {
+  if (viewItem.item.type !== 'tool-group') {
+    return
+  }
+  toolGroupOpenByKey.value = {
+    ...toolGroupOpenByKey.value,
+    [viewItem.item.key]: open
+  }
 }
 
 async function forkFromMessage(entryId: string): Promise<void> {
@@ -1140,9 +1187,12 @@ watch(
     if (!visible || !frames || frames.length <= 1) {
       return
     }
-    activityIndicatorTimerId = window.setInterval(() => {
-      activityIndicatorFrameIndex.value = (activityIndicatorFrameIndex.value + 1) % frames.length
-    }, Math.max(50, intervalMs))
+    activityIndicatorTimerId = window.setInterval(
+      () => {
+        activityIndicatorFrameIndex.value = (activityIndicatorFrameIndex.value + 1) % frames.length
+      },
+      Math.max(50, intervalMs)
+    )
   },
   { immediate: true }
 )
@@ -1181,60 +1231,8 @@ onBeforeUnmount(() => {
  * @returns 更新依赖。
  */
 function getTimelineItemRevision(item: TimelineItem | undefined): unknown[] {
-  if (!item) {
-    return []
-  }
-  if (item.type === 'collapsed-history') {
-    return [
-      item.hiddenCount,
-      item.hiddenTurnCount,
-      item.durationLabel,
-      item.collapsible,
-      isCollapsedHistoryOpen(item)
-    ]
-  }
-  if (item.type === 'message') {
-    return [item.revision, ...getToolCallRevision(item.toolCall)]
-  }
-  if (item.type === 'thinking') {
-    return [item.revision, item.text, item.collapseWhenResponseAppears]
-  }
-  if (item.type === 'tool-group') {
-    return [
-      item.groupKind,
-      item.summary,
-      getTimelineItemToolGroupStatus(item),
-      ...item.toolCalls.flatMap((toolCall) => [
-        toolCall.toolCallId,
-        toolCall.toolName,
-        toolCall.args
-      ])
-    ]
-  }
-  return [
-    item.toolCall.toolCallId,
-    item.toolCall.toolName,
-    item.toolCall.args,
-    item.toolCall.startedAt,
-    item.toolCall.finishedAt
-  ]
-}
-
-/** 获取工具调用渲染依赖。 */
-function getToolCallRevision(toolCall: DesktopToolCall | undefined): unknown[] {
-  if (!toolCall) {
-    return []
-  }
-  return [
-    toolCall.toolCallId,
-    toolCall.toolName,
-    toolCall.status,
-    toolCall.args,
-    toolCall.partialResult,
-    toolCall.result,
-    toolCall.startedAt,
-    toolCall.finishedAt
-  ]
+  const revision = getBaseTimelineItemRevision(item)
+  return item?.type === 'collapsed-history' ? [...revision, isCollapsedHistoryOpen(item)] : revision
 }
 </script>
 
@@ -1278,6 +1276,16 @@ function getToolCallRevision(toolCall: DesktopToolCall | undefined): unknown[] {
               :class="viewItem.collapsedIconClass"
             />
           </button>
+          <ToolGroup
+            v-else-if="viewItem.item.type === 'tool-group'"
+            :open="viewItem.toolGroupOpen"
+            :tool-call-ids="viewItem.toolCallIds ?? []"
+            :tool-calls="viewItem.toolCalls ?? []"
+            :default-open="workspaceSession.activeExtensionToolsExpanded"
+            :summary="viewItem.summary ?? ''"
+            :status="viewItem.status"
+            @update:open="setToolGroupOpen(viewItem, $event)"
+          />
           <component
             :is="viewItem.component"
             v-else
@@ -1435,6 +1443,11 @@ function getToolCallRevision(toolCall: DesktopToolCall | undefined): unknown[] {
 .chat-view__message--tool,
 .chat-view__message--collapsed-history {
   justify-content: flex-start;
+}
+
+.chat-view__message--compaction-divider {
+  justify-content: stretch;
+  width: 100%;
 }
 
 .chat-view__collapsed-history {

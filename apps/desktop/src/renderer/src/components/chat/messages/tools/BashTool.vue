@@ -38,11 +38,11 @@ const isError = computed(() => isToolError(props.message, props.toolCall))
 const status = computed(() => props.toolCall?.status)
 const name = computed(() =>
   getToolStatusLabel(status.value, {
-    queued: '准备执行',
-    running: '正在执行',
+    queued: '执行',
+    running: '执行',
     succeeded: '已执行',
     failed: '执行失败',
-    cancelled: '已取消执行'
+    cancelled: '取消执行'
   })
 )
 const truncation = computed(() => readRecord(details.value.truncation))

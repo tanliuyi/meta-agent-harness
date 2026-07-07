@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, watch } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { ChevronRight } from 'lucide-vue-next'
 import ToolGroupIcon from '@renderer/components/icons/ToolGroupIcon.vue'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
@@ -7,27 +7,44 @@ import type { ToolGroupStatus } from './support/tool-group'
 
 const props = withDefaults(
   defineProps<{
-    name: string
     summary: string
     status?: ToolGroupStatus
     isError?: boolean
     defaultOpen?: boolean
+    open?: boolean
   }>(),
   {
     status: undefined,
     isError: false,
-    defaultOpen: false
+    defaultOpen: false,
+    open: undefined
   }
 )
 
-const open = ref(props.defaultOpen)
+const emit = defineEmits<{
+  'update:open': [open: boolean]
+}>()
+
+const localOpen = ref(props.defaultOpen)
 
 watch(
   () => props.defaultOpen,
   (defaultOpen) => {
-    open.value = defaultOpen
+    if (props.open === undefined) {
+      localOpen.value = defaultOpen
+    }
   }
 )
+
+const open = computed({
+  get: () => props.open ?? localOpen.value,
+  set: (value: boolean) => {
+    if (props.open === undefined) {
+      localOpen.value = value
+    }
+    emit('update:open', value)
+  }
+})
 </script>
 
 <template>
@@ -37,18 +54,17 @@ watch(
     :class="{ 'tool-group--error': isError }"
     :data-status="status"
   >
-    <CollapsibleTrigger class="tool-group__trigger">
+    <CollapsibleTrigger class="tool-group__trigger" :aria-label="summary">
       <span class="tool-group__leading-icon">
         <slot name="icon"><ToolGroupIcon :size="14" /></slot>
       </span>
-      <span class="tool-group__name">{{ name }}</span>
       <span class="tool-group__summary">{{ summary }}</span>
       <ChevronRight :size="16" class="tool-group__icon" aria-hidden="true" />
     </CollapsibleTrigger>
 
     <CollapsibleContent v-if="open" class="tool-group__content">
       <div class="tool-group__list">
-        <slot />
+        <slot :open="open" />
       </div>
     </CollapsibleContent>
   </Collapsible>
@@ -124,12 +140,6 @@ watch(
   color: var(--color-text-muted);
 }
 
-.tool-group__name {
-  flex: 0 0 auto;
-  color: var(--color-text-muted);
-  font-size: var(--font-size-ui);
-}
-
 .tool-group__summary {
   flex: 1;
   min-width: 0;
@@ -140,7 +150,7 @@ watch(
 }
 
 .tool-group--error {
-  .tool-group__name {
+  .tool-group__summary {
     color: var(--color-danger);
   }
 }

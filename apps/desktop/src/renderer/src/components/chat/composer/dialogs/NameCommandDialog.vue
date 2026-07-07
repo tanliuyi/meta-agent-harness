@@ -14,7 +14,7 @@ import {
   DialogTitle
 } from '@renderer/components/ui/dialog'
 
-const props = defineProps<{
+defineProps<{
   open: boolean
   modelValue: string
 }>()
@@ -36,7 +36,7 @@ function closeDialog(): void {
       <form class="composer-command-dialog__form" @submit.prevent="emit('submit')">
         <DialogHeader>
           <DialogTitle>设置会话名称</DialogTitle>
-          <DialogDescription>为当前 Pi session 设置一个显示名称。</DialogDescription>
+          <DialogDescription>为当前 session 设置一个显示名称。</DialogDescription>
         </DialogHeader>
 
         <BaseField
@@ -44,7 +44,6 @@ function closeDialog(): void {
           :model-value="modelValue"
           label="会话名称"
           placeholder="例如：资源接入排查"
-          hint="/name 需要提供会话名称"
           @update:model-value="emit('update:modelValue', $event)"
         />
 

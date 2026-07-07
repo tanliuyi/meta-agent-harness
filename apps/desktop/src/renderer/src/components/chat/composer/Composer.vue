@@ -1723,9 +1723,8 @@ function clearExtensionDraft(id: string): void {
       </div>
     </form>
 
-    <div class="composer-footer">
+    <div v-if="!threadId" class="composer-footer">
       <Select
-        v-if="!threadId"
         :model-value="projectId ?? ''"
         :disabled="isRunning || projects.length === 0"
         @update:model-value="handleProjectChange"
@@ -2069,9 +2068,8 @@ function clearExtensionDraft(id: string): void {
 }
 
 .composer__delivery-select {
-  width: 84px;
   min-width: 0;
-  flex: 0 0 84px;
+  flex: 0 0 auto;
 }
 
 .composer__model-select,
@@ -2535,9 +2533,10 @@ function clearExtensionDraft(id: string): void {
 }
 
 .composer-footer {
-  background: var(--color-canvas);
-  margin-top: -8px;
-  padding-top: 8px;
+  background: var(--color-surface-raised);
+  margin-top: -22px;
+  padding-top: 10px;
+  padding-bottom: 4px;
   border-radius: 0 0 var(--radius-lg) var(--radius-lg);
 }
 </style>

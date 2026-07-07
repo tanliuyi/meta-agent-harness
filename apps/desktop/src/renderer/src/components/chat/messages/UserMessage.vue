@@ -630,7 +630,8 @@ function toggleExpand(): void {
 }
 
 .message__time {
-  font-size: var(--font-size-ui-xs);
+  margin-right: var(--space-1);
+  font-size: var(--font-size-ui-sm);
   color: var(--color-text-muted);
 }
 

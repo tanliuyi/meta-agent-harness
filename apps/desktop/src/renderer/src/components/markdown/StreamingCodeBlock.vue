@@ -1,6 +1,17 @@
 <script setup lang="ts">
-import { computed, inject, markRaw, onMounted, ref, shallowRef, triggerRef, watch } from 'vue'
+import {
+  computed,
+  inject,
+  markRaw,
+  onBeforeUnmount,
+  onMounted,
+  ref,
+  shallowRef,
+  triggerRef,
+  watch
+} from 'vue'
 import type { Ref } from 'vue'
+import { Check, Copy } from 'lucide-vue-next'
 import ScrollArea from '@/components/ui/scroll-area/ScrollArea.vue'
 import { shikiHighlightService } from './shiki-highlight-service'
 import type { HighlightTokens } from './shiki-highlight.worker'
@@ -33,6 +44,8 @@ const context = inject<Ref<StreamingMarkdownContext>>(MarkdownContextKey)!
 const highlightedTokens = shallowRef<HighlightTokens>()
 const isLoading = ref(false)
 const needsRetry = ref(false)
+const isCopied = ref(false)
+let copyTimeout: ReturnType<typeof setTimeout> | undefined
 const blockId = Math.random().toString(36).slice(2)
 
 const code = computed(() => props.node.code ?? '')
@@ -43,6 +56,21 @@ function shouldHighlight(): boolean {
   if (!ctx.messageId) return false
   if (!code.value) return false
   return true
+}
+
+async function copyCode(): Promise<void> {
+  if (!code.value) return
+
+  try {
+    await navigator.clipboard.writeText(code.value)
+    isCopied.value = true
+    if (copyTimeout) clearTimeout(copyTimeout)
+    copyTimeout = setTimeout(() => {
+      isCopied.value = false
+    }, 1000)
+  } catch (err) {
+    console.error('Failed to copy code block:', err)
+  }
 }
 
 function applyHighlightResult(
@@ -119,6 +147,10 @@ onMounted(() => {
   }
 })
 
+onBeforeUnmount(() => {
+  if (copyTimeout) clearTimeout(copyTimeout)
+})
+
 watch(
   () => [context.value.isStreaming, context.value.theme, code.value, language.value],
   () => {
@@ -134,8 +166,18 @@ watch(
 
 <template>
   <div class="streaming-code-block">
-    <div v-if="language" class="streaming-code-block__header">
+    <div v-if="code" class="streaming-code-block__header">
       <span class="streaming-code-block__lang">{{ language }}</span>
+      <button
+        class="streaming-code-block__copy"
+        type="button"
+        :aria-label="isCopied ? '已复制代码' : '复制代码'"
+        :title="isCopied ? '已复制代码' : '复制代码'"
+        @click="copyCode"
+      >
+        <Check v-if="isCopied" :size="14" />
+        <Copy v-else :size="14" />
+      </button>
     </div>
     <ScrollArea scrollbars="horizontal" class="streaming-code-block__scroll">
       <!-- prettier-ignore -->
@@ -168,7 +210,48 @@ watch(
 }
 
 .streaming-code-block__lang {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
   text-transform: lowercase;
+  white-space: nowrap;
+}
+
+.streaming-code-block__copy {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  color: var(--color-text-muted);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  opacity: 0;
+  cursor: pointer;
+  transition:
+    opacity var(--duration-fast) var(--ease-standard),
+    color var(--duration-fast) var(--ease-standard),
+    background var(--duration-fast) var(--ease-standard),
+    border-color var(--duration-fast) var(--ease-standard);
+}
+
+.streaming-code-block:hover .streaming-code-block__copy,
+.streaming-code-block__copy:focus-visible {
+  opacity: 1;
+}
+
+.streaming-code-block__copy:hover,
+.streaming-code-block__copy:focus-visible {
+  color: var(--color-text);
+  background: var(--color-surface-hover);
+  border-color: var(--color-border-strong);
+}
+
+.streaming-code-block__copy :deep(svg) {
+  flex-shrink: 0;
 }
 
 .streaming-code-block__scroll {

@@ -45,11 +45,11 @@ const isError = computed(() => isToolError(props.message, props.toolCall))
 const status = computed(() => props.toolCall?.status)
 const name = computed(() =>
   getToolStatusLabel(status.value, {
-    queued: '准备编辑',
-    running: '正在编辑',
+    queued: '编辑',
+    running: '编辑',
     succeeded: '已编辑',
     failed: '编辑失败',
-    cancelled: '已取消编辑'
+    cancelled: '取消编辑'
   })
 )
 </script>

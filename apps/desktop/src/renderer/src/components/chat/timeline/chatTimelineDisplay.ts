@@ -5,6 +5,7 @@ import type {
 } from '@renderer/stores/workspace-session'
 import type { ThreadMessage } from '@shared/coding-agent/types'
 import {
+  createToolGroupTimelineItem,
   getToolGroupStatus,
   groupTimelineTools,
   type ToolGroupStatus,
@@ -44,10 +45,22 @@ export type TimelineItem =
       key: string
       toolCall: DesktopToolCall
     }
+  | {
+      type: 'compaction-divider'
+      key: string
+      message: ThreadMessage
+    }
   | ToolGroupTimelineItem
 
 export type UngroupedTimelineItem = Exclude<TimelineItem, ToolGroupTimelineItem>
 export type CollapsedHistoryTimelineItem = Extract<TimelineItem, { type: 'collapsed-history' }>
+
+type AssistantTimelineSegment =
+  | UngroupedTimelineItem
+  | {
+      type: 'assistant-tool-call'
+      toolCallId: string
+    }
 
 export type ProcessingCollapseContext = {
   key: string
@@ -75,30 +88,52 @@ export interface CreateTimelineItemsInput {
 
 export function createTimelineItems(input: CreateTimelineItemsInput): TimelineItem[] {
   const consumedToolCallIds = new Set<string>()
-  const items: UngroupedTimelineItem[] = []
+  const items: TimelineItem[] = []
+  let pendingToolGroupKey: string | undefined
+  let pendingToolCalls: DesktopToolCall[] = []
+
+  const flushPendingToolGroup = (): void => {
+    if (pendingToolCalls.length === 0) {
+      return
+    }
+    items.push(createToolGroupTimelineItem(pendingToolCalls, pendingToolGroupKey))
+    pendingToolGroupKey = undefined
+    pendingToolCalls = []
+  }
+
   for (const message of input.messages) {
     const renderState = input.getMessageRenderState(message)
+    if (isCompactionMessage(message)) {
+      flushPendingToolGroup()
+      items.push({
+        type: 'compaction-divider',
+        key: `${message.id}:compaction`,
+        message
+      })
+      continue
+    }
     if (message.role === 'assistant') {
-      items.push(
-        ...getAssistantTimelineItems(message, renderState, {
-          hideThinkingBlock: input.hideThinkingBlock
-        })
-      )
-      for (const toolCallId of message.toolCallIds ?? []) {
-        const toolCall = input.resolveTimelineToolCall(toolCallId)
+      const assistantSegments = getAssistantTimelineSegments(message, renderState, {
+        hideThinkingBlock: input.hideThinkingBlock
+      })
+      for (const segment of assistantSegments) {
+        if (segment.type !== 'assistant-tool-call') {
+          flushPendingToolGroup()
+          items.push(segment)
+          continue
+        }
+        const toolCall = input.resolveTimelineToolCall(segment.toolCallId)
         if (!toolCall) {
           continue
         }
         consumedToolCallIds.add(toolCall.toolCallId)
-        items.push({
-          type: 'tool',
-          key: `tool-${toolCall.toolCallId}`,
-          toolCall
-        })
+        pendingToolGroupKey ??= getStableToolGroupKey([toolCall.toolCallId])
+        pendingToolCalls.push(toolCall)
       }
       continue
     }
 
+    flushPendingToolGroup()
     const toolCall =
       message.role === 'tool' ? input.getToolResultMessageToolCall(message) : undefined
     if (toolCall) {
@@ -113,6 +148,8 @@ export function createTimelineItems(input: CreateTimelineItemsInput): TimelineIt
       renderState: renderState.renderState
     })
   }
+
+  flushPendingToolGroup()
 
   for (const toolCall of input.toolCallStructures) {
     if (consumedToolCallIds.has(toolCall.toolCallId)) {
@@ -132,6 +169,10 @@ export function createTimelineItems(input: CreateTimelineItemsInput): TimelineIt
   return groupTimelineTools(items)
 }
 
+function getStableToolGroupKey(toolCallIds: string[]): string | undefined {
+  return toolCallIds[0] ? `tool-group:${toolCallIds[0]}` : undefined
+}
+
 interface GetAssistantTimelineItemsOptions {
   hideThinkingBlock: boolean
 }
@@ -141,10 +182,20 @@ export function getAssistantTimelineItems(
   renderState: MessageRenderState,
   options: GetAssistantTimelineItemsOptions
 ): UngroupedTimelineItem[] {
+  return getAssistantTimelineSegments(message, renderState, options).filter(
+    (item): item is UngroupedTimelineItem => item.type !== 'assistant-tool-call'
+  )
+}
+
+function getAssistantTimelineSegments(
+  message: ThreadMessage,
+  renderState: MessageRenderState,
+  options: GetAssistantTimelineItemsOptions
+): AssistantTimelineSegment[] {
   const content = getMessageRawRecord(message).content
   if (!Array.isArray(content)) {
     const text = getMessageText(message)
-    return text
+    const items: AssistantTimelineSegment[] = text
       ? [
           {
             type: 'message',
@@ -156,9 +207,12 @@ export function getAssistantTimelineItems(
           }
         ]
       : []
+    appendMissingAssistantToolCallSegments(items, message.toolCallIds, new Set())
+    return items
   }
 
-  const items: UngroupedTimelineItem[] = []
+  const items: AssistantTimelineSegment[] = []
+  const rawToolCallIds = new Set<string>()
   content.forEach((part, index) => {
     if (!isRecord(part) || typeof part.type !== 'string') {
       return
@@ -193,10 +247,30 @@ export function getAssistantTimelineItems(
         revision: renderState.revision,
         renderState: renderState.renderState
       })
+      return
+    }
+    if (part.type === 'toolCall' && typeof part.id === 'string') {
+      rawToolCallIds.add(part.id)
+      items.push({ type: 'assistant-tool-call', toolCallId: part.id })
     }
   })
 
+  appendMissingAssistantToolCallSegments(items, message.toolCallIds, rawToolCallIds)
   return items
+}
+
+function appendMissingAssistantToolCallSegments(
+  items: AssistantTimelineSegment[],
+  toolCallIds: string[] | undefined,
+  seenToolCallIds: Set<string>
+): void {
+  for (const toolCallId of toolCallIds ?? []) {
+    if (seenToolCallIds.has(toolCallId)) {
+      continue
+    }
+    seenToolCallIds.add(toolCallId)
+    items.push({ type: 'assistant-tool-call', toolCallId })
+  }
 }
 
 export function createProcessingCollapseResult(input: {
@@ -227,7 +301,7 @@ export function createProcessingCollapseResult(input: {
       continue
     }
     contexts.push({
-      key: `${input.activeSessionId ?? 'session'}:${boundaryIndex}`,
+      key: `${input.activeSessionId ?? 'session'}:${items[index].key}`,
       boundaryIndex,
       processEndIndex,
       hiddenCount,
@@ -273,6 +347,13 @@ export function createDisplayTimelineItems(input: {
     items.push(collapsedItem)
     if (input.isCollapsedHistoryOpen(collapsedItem)) {
       appendTimelineRange(
+        items,
+        input.timelineItems,
+        context.boundaryIndex,
+        context.processEndIndex
+      )
+    } else {
+      appendVisibleItemsInCollapsedRange(
         items,
         input.timelineItems,
         context.boundaryIndex,
@@ -346,15 +427,22 @@ export function getTimelineItemRevision(item: TimelineItem | undefined): unknown
   if (item.type === 'thinking') {
     return [item.revision, item.text, item.collapseWhenResponseAppears]
   }
+  if (item.type === 'compaction-divider') {
+    return [item.message.id, item.message.createdAt]
+  }
   if (item.type === 'tool-group') {
     return [
-      item.groupKind,
       item.summary,
       getTimelineItemToolGroupStatus(item),
       ...item.toolCalls.flatMap((toolCall) => [
         toolCall.toolCallId,
         toolCall.toolName,
-        toolCall.args
+        toolCall.status,
+        toolCall.args,
+        toolCall.partialResult,
+        toolCall.result,
+        toolCall.startedAt,
+        toolCall.finishedAt
       ])
     ]
   }
@@ -384,6 +472,20 @@ function appendTimelineRange(
   for (let index = startIndex; index < endIndex; index += 1) {
     const item = source[index]
     if (item) {
+      target.push(item)
+    }
+  }
+}
+
+function appendVisibleItemsInCollapsedRange(
+  target: TimelineItem[],
+  source: TimelineItem[],
+  startIndex: number,
+  endIndex: number
+): void {
+  for (let index = startIndex; index < endIndex; index += 1) {
+    const item = source[index]
+    if (item?.type === 'compaction-divider') {
       target.push(item)
     }
   }
@@ -491,6 +593,9 @@ function getTimelineItemStartTime(item: TimelineItem | undefined): number | unde
     }
     return undefined
   }
+  if (item.type === 'compaction-divider') {
+    return parseTime(item.message.createdAt)
+  }
   return parseTime(item.message.createdAt)
 }
 
@@ -510,6 +615,9 @@ function getTimelineItemEndTime(item: TimelineItem | undefined): number | undefi
       }
     }
     return undefined
+  }
+  if (item.type === 'compaction-divider') {
+    return parseTime(item.message.createdAt)
   }
   return parseTime(item.message.createdAt)
 }
@@ -534,6 +642,10 @@ function hasFollowingResponseContent(
     }
   }
   return false
+}
+
+function isCompactionMessage(message: ThreadMessage): boolean {
+  return message.role === 'system' && message.systemEvent?.kind === 'compaction'
 }
 
 function isGenericToolName(value: unknown): boolean {

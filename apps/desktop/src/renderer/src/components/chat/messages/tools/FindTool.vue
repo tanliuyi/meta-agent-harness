@@ -28,11 +28,11 @@ const isError = computed(() => isToolError(props.message, props.toolCall))
 const status = computed(() => props.toolCall?.status)
 const name = computed(() =>
   getToolStatusLabel(status.value, {
-    queued: '准备查找',
-    running: '正在查找',
+    queued: '查找',
+    running: '查找',
     succeeded: '已查找',
     failed: '查找失败',
-    cancelled: '已取消查找'
+    cancelled: '取消查找'
   })
 )
 </script>

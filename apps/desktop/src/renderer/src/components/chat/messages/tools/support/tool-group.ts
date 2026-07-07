@@ -2,14 +2,20 @@ import type { ThreadSnapshot } from '@shared/coding-agent/types'
 import { isRecord } from '../../support/message-format'
 
 export type ToolCall = ThreadSnapshot['toolCalls'][number]
-export type GroupableToolCall = Pick<ToolCall, 'toolCallId' | 'toolName' | 'args'>
-export type ToolGroupKind = 'mutation' | 'explore'
+export type GroupableToolCall = Pick<ToolCall, 'toolCallId' | 'toolName' | 'status' | 'args'>
 export type ToolGroupStatus = ToolCall['status']
+
+interface ToolGroupSummaryDescriptor {
+  key: string
+  verb: string
+  noun: string
+  count: number
+  status: ToolGroupStatus
+}
 
 export interface ToolGroupTimelineItem {
   type: 'tool-group'
   key: string
-  groupKind: ToolGroupKind
   toolCallIds: string[]
   toolCalls: ToolCall[]
   summary: string
@@ -34,26 +40,8 @@ export type GroupableTimelineItem<TMessage = unknown> =
 
 export type GroupedTimelineItem<TItem> = TItem | ToolGroupTimelineItem
 
-const MUTATION_TOOL_NAMES = new Set(['edit', 'write'])
-const EXPLORE_TOOL_NAMES = new Set(['read', 'grep', 'find', 'ls'])
-
 /**
- * 获取工具调用对应的分组类型。
- * @param toolCall - 工具调用。
- * @returns 分组类型。
- */
-export function getToolGroupKind(toolCall: Pick<ToolCall, 'toolName'>): ToolGroupKind | undefined {
-  if (MUTATION_TOOL_NAMES.has(toolCall.toolName)) {
-    return 'mutation'
-  }
-  if (EXPLORE_TOOL_NAMES.has(toolCall.toolName)) {
-    return 'explore'
-  }
-  return undefined
-}
-
-/**
- * 将连续同类工具调用合并为 timeline tool group。
+ * 将连续工具调用合并为 timeline tool group。
  * @param items - 原始 timeline 项。
  * @returns 分组后的 timeline 项。
  */
@@ -61,7 +49,6 @@ export function groupTimelineTools<TItem extends GroupableTimelineItem>(
   items: TItem[]
 ): Array<GroupedTimelineItem<TItem>> {
   const result: Array<GroupedTimelineItem<TItem>> = []
-  let pendingKind: ToolGroupKind | undefined
   let pendingItems: TItem[] = []
   let pendingToolCalls: ToolCall[] = []
 
@@ -69,34 +56,48 @@ export function groupTimelineTools<TItem extends GroupableTimelineItem>(
     if (pendingItems.length === 0) {
       return
     }
-    if (pendingKind && pendingItems.length > 1) {
-      result.push(createToolGroupItem(pendingKind, pendingToolCalls))
+    if (pendingItems.length > 1) {
+      result.push(createToolGroupTimelineItem(pendingToolCalls))
     } else {
       result.push(...pendingItems)
     }
-    pendingKind = undefined
     pendingItems = []
     pendingToolCalls = []
   }
 
   for (const item of items) {
     const toolCall = getTimelineItemToolCall(item)
-    const kind = toolCall ? getToolGroupKind(toolCall) : undefined
-    if (!toolCall || !kind) {
+    if (!toolCall) {
       flushPending()
       result.push(item)
       continue
     }
-    if (pendingKind && pendingKind !== kind) {
-      flushPending()
-    }
-    pendingKind = kind
     pendingItems.push(item)
     pendingToolCalls.push(toolCall)
   }
 
   flushPending()
   return result
+}
+
+/**
+ * 创建通用工具组 timeline item。
+ * @param toolCalls - 工具调用列表。
+ * @param key - 可选稳定 key。
+ * @returns 工具组 timeline item。
+ */
+export function createToolGroupTimelineItem(
+  toolCalls: ToolCall[],
+  key = `tool-group:${toolCalls[0]?.toolCallId ?? 'empty'}`
+): ToolGroupTimelineItem {
+  const toolCallIds = toolCalls.map((toolCall) => toolCall.toolCallId)
+  return {
+    type: 'tool-group',
+    key,
+    toolCallIds,
+    toolCalls,
+    summary: summarizeToolGroup(toolCalls)
+  }
 }
 
 /**
@@ -124,36 +125,20 @@ export function getToolGroupStatus(toolCalls: ToolCall[]): ToolGroupStatus | und
 }
 
 /**
- * 生成修改工具组摘要。
+ * 生成通用工具组摘要。
  * @param toolCalls - 工具调用列表。
  * @returns 摘要。
  */
-export function summarizeMutationToolGroup(toolCalls: GroupableToolCall[]): string {
-  const editCount = countUniqueToolPaths(toolCalls, 'edit')
-  const writeCount = countUniqueToolPaths(toolCalls, 'write')
+export function summarizeToolGroup(toolCalls: GroupableToolCall[]): string {
   return joinSummaryParts([
-    editCount > 0 ? `编辑 ${editCount} 文件` : undefined,
-    writeCount > 0 ? `写入 ${writeCount} 文件` : undefined
+    ...summarizeByStatus(toolCalls, 'read', '读取', '文件', countUniqueToolPaths),
+    ...summarizeByStatus(toolCalls, ['grep', 'find'], '搜索', '次', countTools),
+    ...summarizeByStatus(toolCalls, 'ls', '列出', '目录', countTools),
+    ...summarizeByStatus(toolCalls, 'edit', '编辑', '文件', countUniqueToolPaths),
+    ...summarizeByStatus(toolCalls, 'write', '写入', '文件', countUniqueToolPaths),
+    ...summarizeByStatus(toolCalls, 'bash', '运行', '命令', countTools),
+    ...summarizeGenericToolsByStatus(toolCalls)
   ])
-}
-
-/**
- * 生成探索工具组摘要。
- * @param toolCalls - 工具调用列表。
- * @returns 摘要。
- */
-export function summarizeExploreToolGroup(toolCalls: GroupableToolCall[]): string {
-  const readCount = countUniqueToolPaths(toolCalls, 'read')
-  const searchCount = toolCalls.filter(
-    (toolCall) => toolCall.toolName === 'grep' || toolCall.toolName === 'find'
-  ).length
-  const lsCount = toolCalls.filter((toolCall) => toolCall.toolName === 'ls').length
-  const summary = joinSummaryParts([
-    readCount > 0 ? `查看 ${readCount} 文件` : undefined,
-    searchCount > 0 ? `搜索 ${searchCount} 次` : undefined,
-    lsCount > 0 ? `列出 ${lsCount} 目录` : undefined
-  ])
-  return summary || `探索 ${toolCalls.length} 项`
 }
 
 /**
@@ -167,21 +152,6 @@ export function getToolCallPath(toolCall: GroupableToolCall): string | undefined
   }
   const path = toolCall.args.path ?? toolCall.args.file_path
   return typeof path === 'string' && path ? path : undefined
-}
-
-function createToolGroupItem(kind: ToolGroupKind, toolCalls: ToolCall[]): ToolGroupTimelineItem {
-  const toolCallIds = toolCalls.map((toolCall) => toolCall.toolCallId)
-  return {
-    type: 'tool-group',
-    key: `tool-group:${kind}:${toolCallIds[0] ?? 'empty'}`,
-    groupKind: kind,
-    toolCallIds,
-    toolCalls,
-    summary:
-      kind === 'mutation'
-        ? summarizeMutationToolGroup(toolCalls)
-        : summarizeExploreToolGroup(toolCalls)
-  }
 }
 
 function getTimelineItemToolCall(item: GroupableTimelineItem): ToolCall | undefined {
@@ -200,12 +170,84 @@ function getTimelineItemToolCall(item: GroupableTimelineItem): ToolCall | undefi
   return undefined
 }
 
-function countUniqueToolPaths(toolCalls: GroupableToolCall[], toolName: string): number {
-  const matching = toolCalls.filter((toolCall) => toolCall.toolName === toolName)
+function summarizeByStatus(
+  toolCalls: GroupableToolCall[],
+  toolNames: string | string[],
+  verb: string,
+  noun: string,
+  counter: (toolCalls: GroupableToolCall[], toolNames: string | string[]) => number
+): string[] {
+  return createStatusDescriptors(toolCalls, toolNames, verb, noun, counter).map(formatStatusSummary)
+}
+
+function summarizeGenericToolsByStatus(toolCalls: GroupableToolCall[]): string[] {
+  const knownToolNames = new Set(['read', 'grep', 'find', 'ls', 'edit', 'write', 'bash'])
+  const genericTools = toolCalls.filter((toolCall) => !knownToolNames.has(toolCall.toolName))
+  return createStatusDescriptors(
+    genericTools,
+    undefined,
+    '执行',
+    '工具',
+    (items) => items.length
+  ).map(formatStatusSummary)
+}
+
+function createStatusDescriptors(
+  toolCalls: GroupableToolCall[],
+  toolNames: string | string[] | undefined,
+  verb: string,
+  noun: string,
+  counter: (toolCalls: GroupableToolCall[], toolNames: string | string[]) => number
+): ToolGroupSummaryDescriptor[] {
+  const matching = toolNames === undefined ? toolCalls : filterTools(toolCalls, toolNames)
+  return (['queued', 'running', 'succeeded', 'failed', 'cancelled'] as ToolGroupStatus[])
+    .map((status) => {
+      const statusCalls = matching.filter((toolCall) => toolCall.status === status)
+      const count = toolNames === undefined ? statusCalls.length : counter(statusCalls, toolNames)
+      return count > 0 ? { key: `${verb}:${status}`, verb, noun, count, status } : undefined
+    })
+    .filter((descriptor): descriptor is ToolGroupSummaryDescriptor => Boolean(descriptor))
+}
+
+function formatStatusSummary(descriptor: ToolGroupSummaryDescriptor): string {
+  const quantity = `${descriptor.count} ${descriptor.noun}`
+  switch (descriptor.status) {
+    case 'queued':
+      return `准备${descriptor.verb} ${quantity}`
+    case 'running':
+      return `${quantity}${descriptor.verb}`
+    case 'succeeded':
+      return `已${descriptor.verb} ${quantity}`
+    case 'failed':
+      return `${quantity}失败`
+    case 'cancelled':
+      return `已取消 ${quantity}`
+    default:
+      return `准备${descriptor.verb} ${quantity}`
+  }
+}
+
+function countUniqueToolPaths(
+  toolCalls: GroupableToolCall[],
+  toolNames: string | string[]
+): number {
+  const matching = filterTools(toolCalls, toolNames)
   const paths = new Set(
     matching.map(getToolCallPath).filter((path): path is string => Boolean(path))
   )
   return paths.size > 0 ? paths.size : matching.length
+}
+
+function countTools(toolCalls: GroupableToolCall[], toolNames: string | string[]): number {
+  return filterTools(toolCalls, toolNames).length
+}
+
+function filterTools(
+  toolCalls: GroupableToolCall[],
+  toolNames: string | string[]
+): GroupableToolCall[] {
+  const names = new Set(Array.isArray(toolNames) ? toolNames : [toolNames])
+  return toolCalls.filter((toolCall) => names.has(toolCall.toolName))
 }
 
 function joinSummaryParts(parts: Array<string | undefined>): string {
