@@ -92,7 +92,7 @@ describe('message-format', () => {
         role: 'user',
         content: [
           { type: 'text', text: '<file name="hero.jpg"></file>\n使用 @hero.jpg 作为背景' },
-          { type: 'image', mediaType: 'image/jpeg', data: 'abc' }
+          { type: 'image', mimeType: 'image/jpeg', data: 'abc' }
         ],
         timestamp: 1783036800000
       },
