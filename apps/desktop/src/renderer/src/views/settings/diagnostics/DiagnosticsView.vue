@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { BaseBadge, BaseButton, BasePanel } from '@renderer/components/base'
+import ScrollArea from '@/components/ui/scroll-area/ScrollArea.vue'
 import useDiagnosticsStore, {
   type DiagnosticsDomain,
   type DiagnosticsItem,
@@ -117,139 +118,141 @@ async function openDiagnosticTarget(item: DiagnosticsItem): Promise<void> {
 </script>
 
 <template>
-  <div class="diagnostics-page">
-    <header class="diagnostics-page__header">
-      <div>
-        <p class="diagnostics-page__eyebrow">Diagnostics</p>
-        <h1 class="diagnostics-page__title">诊断</h1>
-        <p class="diagnostics-page__subtitle">
-          汇总 thread、model registry、auth 和 settings 加载状态。
-        </p>
-      </div>
-      <BaseButton size="sm" :disabled="diagnostics.loading" @click="diagnostics.load">
-        <template #icon>
-          <RefreshCw :size="14" />
+  <ScrollArea class="diagnostics-page-scroll">
+    <div class="diagnostics-page">
+      <header class="diagnostics-page__header">
+        <div>
+          <p class="diagnostics-page__eyebrow">Diagnostics</p>
+          <h1 class="diagnostics-page__title">诊断</h1>
+          <p class="diagnostics-page__subtitle">
+            汇总 thread、model registry、auth 和 settings 加载状态。
+          </p>
+        </div>
+        <BaseButton size="sm" :disabled="diagnostics.loading" @click="diagnostics.load">
+          <template #icon>
+            <RefreshCw :size="14" />
+          </template>
+          刷新
+        </BaseButton>
+      </header>
+
+      <section class="diagnostics-summary" aria-label="诊断统计">
+        <button
+          type="button"
+          class="diagnostics-summary__item"
+          :class="{ 'is-active': selectedSeverity === 'all' && selectedDomain === 'all' }"
+          @click="setSummaryFilter('all')"
+        >
+          <span>总数</span>
+          <strong>{{ diagnostics.counts.total }}</strong>
+        </button>
+        <button
+          type="button"
+          class="diagnostics-summary__item"
+          :class="{ 'is-active': selectedSeverity === 'error' && selectedDomain === 'all' }"
+          @click="setSummaryFilter('error')"
+        >
+          <span>错误</span>
+          <strong>{{ diagnostics.counts.error }}</strong>
+        </button>
+        <button
+          type="button"
+          class="diagnostics-summary__item"
+          :class="{ 'is-active': selectedSeverity === 'warning' && selectedDomain === 'all' }"
+          @click="setSummaryFilter('warning')"
+        >
+          <span>警告</span>
+          <strong>{{ diagnostics.counts.warning }}</strong>
+        </button>
+        <button
+          type="button"
+          class="diagnostics-summary__item"
+          :class="{ 'is-active': selectedSeverity === 'info' && selectedDomain === 'all' }"
+          @click="setSummaryFilter('info')"
+        >
+          <span>信息</span>
+          <strong>{{ diagnostics.counts.info }}</strong>
+        </button>
+      </section>
+
+      <BasePanel title="诊断信息" eyebrow="Read only">
+        <template #actions>
+          <div class="diagnostics-filters" aria-label="诊断过滤">
+            <button
+              :class="{ 'is-active': selectedDomain === 'all' }"
+              type="button"
+              @click="setDomain('all')"
+            >
+              全部
+            </button>
+            <button
+              v-for="domain in ['thread', 'model', 'agent'] as const"
+              :key="domain"
+              :class="{ 'is-active': selectedDomain === domain }"
+              type="button"
+              @click="setDomain(domain)"
+            >
+              {{ domainLabels[domain] }}
+            </button>
+          </div>
         </template>
-        刷新
-      </BaseButton>
-    </header>
 
-    <section class="diagnostics-summary" aria-label="诊断统计">
-      <button
-        type="button"
-        class="diagnostics-summary__item"
-        :class="{ 'is-active': selectedSeverity === 'all' && selectedDomain === 'all' }"
-        @click="setSummaryFilter('all')"
-      >
-        <span>总数</span>
-        <strong>{{ diagnostics.counts.total }}</strong>
-      </button>
-      <button
-        type="button"
-        class="diagnostics-summary__item"
-        :class="{ 'is-active': selectedSeverity === 'error' && selectedDomain === 'all' }"
-        @click="setSummaryFilter('error')"
-      >
-        <span>错误</span>
-        <strong>{{ diagnostics.counts.error }}</strong>
-      </button>
-      <button
-        type="button"
-        class="diagnostics-summary__item"
-        :class="{ 'is-active': selectedSeverity === 'warning' && selectedDomain === 'all' }"
-        @click="setSummaryFilter('warning')"
-      >
-        <span>警告</span>
-        <strong>{{ diagnostics.counts.warning }}</strong>
-      </button>
-      <button
-        type="button"
-        class="diagnostics-summary__item"
-        :class="{ 'is-active': selectedSeverity === 'info' && selectedDomain === 'all' }"
-        @click="setSummaryFilter('info')"
-      >
-        <span>信息</span>
-        <strong>{{ diagnostics.counts.info }}</strong>
-      </button>
-    </section>
-
-    <BasePanel title="诊断信息" eyebrow="Read only">
-      <template #actions>
-        <div class="diagnostics-filters" aria-label="诊断过滤">
+        <div class="diagnostics-severity-filter">
           <button
-            :class="{ 'is-active': selectedDomain === 'all' }"
+            :class="{ 'is-active': selectedSeverity === 'all' }"
             type="button"
-            @click="setDomain('all')"
+            @click="setSeverity('all')"
           >
-            全部
+            全部级别
           </button>
           <button
-            v-for="domain in ['thread', 'model', 'agent'] as const"
-            :key="domain"
-            :class="{ 'is-active': selectedDomain === domain }"
+            v-for="severity in ['error', 'warning', 'info'] as const"
+            :key="severity"
+            :class="{ 'is-active': selectedSeverity === severity }"
             type="button"
-            @click="setDomain(domain)"
+            @click="setSeverity(severity)"
           >
-            {{ domainLabels[domain] }}
+            {{ severityLabels[severity] }}
           </button>
         </div>
-      </template>
 
-      <div class="diagnostics-severity-filter">
-        <button
-          :class="{ 'is-active': selectedSeverity === 'all' }"
-          type="button"
-          @click="setSeverity('all')"
-        >
-          全部级别
-        </button>
-        <button
-          v-for="severity in ['error', 'warning', 'info'] as const"
-          :key="severity"
-          :class="{ 'is-active': selectedSeverity === severity }"
-          type="button"
-          @click="setSeverity(severity)"
-        >
-          {{ severityLabels[severity] }}
-        </button>
-      </div>
+        <div class="diagnostics-active-filter">
+          <span>{{ activeFilterLabel }}</span>
+          <strong>{{ filteredItems.length }}</strong>
+        </div>
 
-      <div class="diagnostics-active-filter">
-        <span>{{ activeFilterLabel }}</span>
-        <strong>{{ filteredItems.length }}</strong>
-      </div>
+        <p v-if="diagnostics.error" class="diagnostics-error">{{ diagnostics.error }}</p>
 
-      <p v-if="diagnostics.error" class="diagnostics-error">{{ diagnostics.error }}</p>
+        <ul v-if="filteredItems.length > 0" class="diagnostics-list">
+          <li v-for="item in filteredItems" :key="item.id">
+            <AlertTriangle v-if="item.severity !== 'info'" :size="15" />
+            <CheckCircle2 v-else :size="15" />
+            <div class="diagnostics-list__copy">
+              <strong>{{ item.message }}</strong>
+              <span>{{ item.details ?? formatMeta(item) }}</span>
+              <small>{{ formatMeta(item) }}</small>
+            </div>
+            <div class="diagnostics-list__meta">
+              <BaseBadge :tone="badgeToneForSeverity(item.severity)">
+                {{ severityLabels[item.severity] }}
+              </BaseBadge>
+              <BaseButton size="sm" variant="ghost" @click="openDiagnosticTarget(item)">
+                <template #icon>
+                  <component :is="getItemActionIcon(item)" :size="13" />
+                </template>
+                {{ getItemActionLabel(item) }}
+              </BaseButton>
+            </div>
+          </li>
+        </ul>
 
-      <ul v-if="filteredItems.length > 0" class="diagnostics-list">
-        <li v-for="item in filteredItems" :key="item.id">
-          <AlertTriangle v-if="item.severity !== 'info'" :size="15" />
-          <CheckCircle2 v-else :size="15" />
-          <div class="diagnostics-list__copy">
-            <strong>{{ item.message }}</strong>
-            <span>{{ item.details ?? formatMeta(item) }}</span>
-            <small>{{ formatMeta(item) }}</small>
-          </div>
-          <div class="diagnostics-list__meta">
-            <BaseBadge :tone="badgeToneForSeverity(item.severity)">
-              {{ severityLabels[item.severity] }}
-            </BaseBadge>
-            <BaseButton size="sm" variant="ghost" @click="openDiagnosticTarget(item)">
-              <template #icon>
-                <component :is="getItemActionIcon(item)" :size="13" />
-              </template>
-              {{ getItemActionLabel(item) }}
-            </BaseButton>
-          </div>
-        </li>
-      </ul>
-
-      <div v-else class="diagnostics-empty">
-        <SlidersHorizontal :size="16" />
-        <span>{{ diagnostics.loading ? '正在加载诊断信息' : '暂无诊断信息' }}</span>
-      </div>
-    </BasePanel>
-  </div>
+        <div v-else class="diagnostics-empty">
+          <SlidersHorizontal :size="16" />
+          <span>{{ diagnostics.loading ? '正在加载诊断信息' : '暂无诊断信息' }}</span>
+        </div>
+      </BasePanel>
+    </div>
+  </ScrollArea>
 </template>
 
 <style lang="scss" scoped>
