@@ -293,8 +293,8 @@ describe('extensionPanelDisplay', () => {
     expect(injected).toContain('data-pi-panel-host-style="true"')
     expect(injected).toContain('data-pi-panel-helper="true"')
     expect(injected).toContain('data-pi-panel-csp="true"')
-    expect(injected).toMatch(/script-src 'nonce-[a-z0-9]+'/)
-    expect(injected).toMatch(/<script nonce="[a-z0-9]+">window\.app = true<\/script>/)
+    expect(injected).toContain("script-src 'nonce-theme-init'")
+    expect(injected).toContain('<script nonce="theme-init">window.app = true</script>')
   })
 
   it('业务 HTML 引用 window.piPanel 时仍然注入 helper', () => {

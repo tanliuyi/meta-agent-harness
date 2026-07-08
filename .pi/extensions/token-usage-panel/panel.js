@@ -14,6 +14,22 @@ function setText(id, value) {
   el(id).textContent = value;
 }
 
+function setStatus(label, state) {
+  const node = el("hostStatus");
+  node.textContent = label;
+  if (state) {
+    node.dataset.state = state;
+  } else {
+    delete node.dataset.state;
+  }
+}
+
+function setActionsEnabled(enabled) {
+  ["refresh", "showLog", "reset"].forEach((id) => {
+    el(id).disabled = !enabled;
+  });
+}
+
 function escapeHtml(value) {
   return String(value ?? "").replace(/[&<>'"]/g, (char) => {
     switch (char) {
@@ -38,6 +54,8 @@ function barRow(label, value, max, color) {
 
 function render(state) {
   if (!state || state.type !== "usage-state") return;
+  panelApi?.setState(state);
+  setStatus("Live", "ready");
   const s = state.stats || {};
   setText("log", state.logFile || "");
   setText("updated", state.updatedAt ? "Updated " + time(state.updatedAt) : "");
@@ -73,5 +91,21 @@ function render(state) {
     : '<tr><td colspan="7" class="empty">No requests recorded.</td></tr>';
 }
 
-panelApi?.onMessage(render);
+const restoredState = panelApi?.getState();
+if (restoredState?.type === "usage-state") {
+  render(restoredState);
+}
+
+if (panelApi) {
+  setActionsEnabled(true);
+  setStatus(restoredState?.type === "usage-state" ? "Live" : "Waiting", restoredState?.type === "usage-state" ? "ready" : undefined);
+  panelApi.onMessage(render);
+  panelApi.post({ type: "ready" });
+} else {
+  setActionsEnabled(false);
+  setStatus("Host bridge unavailable", "error");
+}
+
+el("refresh").addEventListener("click", () => panelApi?.post({ type: "refresh" }));
+el("showLog").addEventListener("click", () => panelApi?.post({ type: "show-log" }));
 el("reset").addEventListener("click", () => panelApi?.post({ type: "reset" }));

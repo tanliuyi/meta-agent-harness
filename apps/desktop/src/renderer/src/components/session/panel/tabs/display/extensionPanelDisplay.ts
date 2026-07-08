@@ -68,6 +68,7 @@ const PI_PANEL_HOST_STYLE_MARKER = 'data-pi-panel-host-style="true"'
 const PI_PANEL_THEME_STYLE_ATTR = 'data-pi-panel-theme-style'
 const PI_PANEL_THEME_STYLE_MARKER = 'data-pi-panel-theme-style="true"'
 const PI_PANEL_THEME_TOKEN_STYLE_ID = 'pi-panel-theme-tokens'
+const PI_PANEL_SCRIPT_NONCE = 'theme-init'
 const PI_PANEL_HOST_STYLE = `
 <style ${PI_PANEL_HOST_STYLE_MARKER}>
 :root {
@@ -553,11 +554,7 @@ export function injectExtensionPanelHostStyles(
 }
 
 function createPanelNonce(): string {
-  if (globalThis.crypto?.randomUUID) {
-    return globalThis.crypto.randomUUID().replace(/-/g, '')
-  }
-  const random = Math.random().toString(36).slice(2)
-  return `${Date.now().toString(36)}${random}`
+  return PI_PANEL_SCRIPT_NONCE
 }
 
 function injectIntoHead(html: string, content: string): string {

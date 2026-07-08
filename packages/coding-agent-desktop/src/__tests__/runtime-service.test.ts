@@ -259,6 +259,30 @@ describe("RuntimeDesktopWorkerService", () => {
 		expect(bindings?.commandContextActions?.reload).toEqual(expect.any(Function));
 	});
 
+	it("runtime rebind 发生在启动阶段时已有 extension UI bridge", async () => {
+		let rebindSession: (() => Promise<void>) | undefined;
+		let bindCount = 0;
+		const service = new RuntimeDesktopWorkerService(async () =>
+			createRuntime({
+				setRebindSession: (next) => {
+					rebindSession = next;
+				},
+				session: {
+					bindExtensions: async (nextBindings: ExtensionBindings) => {
+						bindCount++;
+						expect(nextBindings.uiContext).toBeDefined();
+						expect(nextBindings.desktopContext).toBeDefined();
+					},
+				},
+			}),
+		);
+
+		await service.startThread({ threadId: "thread-1", cwd: "H:/repo" });
+		await rebindSession?.();
+
+		expect(bindCount).toBe(2);
+	});
+
 	it("同步 editor text 并触发 extension shortcut", async () => {
 		let bindings: ExtensionBindings | undefined;
 		const shortcutRuns: string[] = [];
@@ -324,14 +348,16 @@ describe("RuntimeDesktopWorkerService", () => {
 
 	it("向 extension 派发 desktop panel lifecycle", async () => {
 		const panelEvents: unknown[] = [];
+		const extensionRunner = {
+			panelEvents,
+			async emit(event: unknown) {
+				this.panelEvents.push(event);
+			},
+		};
 		const service = new RuntimeDesktopWorkerService(async () =>
 			createRuntime({
 				session: {
-					extensionRunner: {
-						emit: async (event: unknown) => {
-							panelEvents.push(event);
-						},
-					},
+					extensionRunner,
 				},
 			}),
 		);

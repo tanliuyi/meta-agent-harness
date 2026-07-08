@@ -1,10 +1,11 @@
 import { appendFileSync, mkdirSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 
 const CONFIG_DIR_NAME = ".pi";
 const PANEL_ID = "token-usage";
+const PANEL_VIEW_TYPE = "pi.tokenUsage";
 const MAX_RECENT_RECORDS = 25;
 const panelRoot = fileURLToPath(new URL("./token-usage-panel", import.meta.url));
 
@@ -192,6 +193,7 @@ function toSerializableStats(stats: UsageStats): SerializableUsageStats {
 function toPanelState(stats: UsageStats, recent: UsageRecord[], logFile: string) {
 	return {
 		type: "usage-state",
+		version: 1,
 		updatedAt: new Date().toISOString(),
 		logFile,
 		stats: toSerializableStats(stats),
@@ -204,6 +206,7 @@ function toPanelState(stats: UsageStats, recent: UsageRecord[], logFile: string)
 
 function registerPanel(ctx: ExtensionContext, stats: UsageStats, recent: UsageRecord[], logFile: string): void {
 	ctx.desktop.registerWebviewPanel(PANEL_ID, {
+		viewType: PANEL_VIEW_TYPE,
 		title: "Usage",
 		icon: "gauge",
 		order: 35,
@@ -257,7 +260,7 @@ function createUsageRecord(message: AssistantUsageMessage, usage: Usage): UsageR
 }
 
 function appendUsageLog(logFile: string, record: UsageRecord, usage: Usage): void {
-	mkdirSync(join(logFile, ".."), { recursive: true });
+	mkdirSync(dirname(logFile), { recursive: true });
 	appendFileSync(logFile, `${JSON.stringify({ ...record, usage })}\n`, "utf8");
 }
 
@@ -292,6 +295,18 @@ export default function tokenUsageExtension(pi: ExtensionAPI) {
 		updateUi(ctx, stats, recent, logFile);
 	});
 
+	pi.on("desktop_panel_restore", (event, ctx) => {
+		if (event.viewType !== PANEL_VIEW_TYPE && event.panelId !== PANEL_ID) return;
+		if (!logFile) logFile = getLogFile(ctx);
+		registerPanel(ctx, stats, recent, logFile);
+	});
+
+	pi.on("desktop_panel_view_state_changed", (event, ctx) => {
+		if (event.panelId !== PANEL_ID || !event.visible) return;
+		if (!logFile) logFile = getLogFile(ctx);
+		postPanelState(ctx, stats, recent, logFile);
+	});
+
 	pi.on("message_end", (event, ctx) => {
 		if (event.message.role !== "assistant") return;
 
@@ -321,15 +336,27 @@ export default function tokenUsageExtension(pi: ExtensionAPI) {
 	pi.on("desktop_panel_message", (event, ctx) => {
 		if (event.panelId !== PANEL_ID) return;
 		const message = event.message as { type?: string };
+		if (!logFile) logFile = getLogFile(ctx);
+
+		if (message.type === "ready" || message.type === "refresh") {
+			postPanelState(ctx, stats, recent, logFile);
+			return;
+		}
+
+		if (message.type === "show-log") {
+			ctx.ui.notify(logFile, "info");
+			postPanelState(ctx, stats, recent, logFile);
+			return;
+		}
+
 		if (message.type === "reset") {
 			resetStats(stats);
 			recent.length = 0;
-			if (!logFile) logFile = getLogFile(ctx);
 			updateUi(ctx, stats, recent, logFile);
 			ctx.ui.notify("Token usage counters reset", "info");
 			return;
 		}
-		if (!logFile) logFile = getLogFile(ctx);
+
 		postPanelState(ctx, stats, recent, logFile);
 	});
 

@@ -614,7 +614,7 @@ function handle<TArgs extends unknown[], TResult>(
     try {
       return ok(await callback(...args))
     } catch (error) {
-      writeDiagnostic(manager, error)
+      writeDiagnostic(manager, error, channel)
       return fail(error)
     }
   })
@@ -950,13 +950,18 @@ async function createPromptImageAttachment(
  * 尽力写入 diagnostics。
  * @param manager - thread manager。
  * @param error - 错误。
+ * @param channel - IPC channel。
  */
-function writeDiagnostic(manager: CodingThreadManager, error: unknown): void {
+function writeDiagnostic(manager: CodingThreadManager, error: unknown, channel?: string): void {
   try {
     manager.getStore()?.recordDiagnostic({
       source: 'ipc',
       severity: 'error',
-      message: error instanceof Error ? error.message : String(error)
+      message: error instanceof Error ? error.message : String(error),
+      details: {
+        channel,
+        stack: error instanceof Error ? error.stack : undefined
+      }
     })
   } catch {
     // diagnostics 写入失败不能阻塞 IPC 错误返回。

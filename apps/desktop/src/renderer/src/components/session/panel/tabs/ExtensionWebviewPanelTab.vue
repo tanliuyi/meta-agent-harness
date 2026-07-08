@@ -242,8 +242,8 @@ onBeforeUnmount(() => {
         v-show="!navigationBlocked"
         ref="frameRef"
         class="extension-webview-panel__frame"
-        :src="urlSource"
         :sandbox="iframeSandbox"
+        :src="urlSource"
         :title="panel.title"
         @load="handleFrameLoad"
       />
@@ -252,8 +252,8 @@ onBeforeUnmount(() => {
         v-show="!navigationBlocked"
         ref="frameRef"
         class="extension-webview-panel__frame"
-        :srcdoc="htmlSource"
         :sandbox="iframeSandbox"
+        :srcdoc="htmlSource"
         :title="panel.title"
         @load="handleFrameLoad"
       />

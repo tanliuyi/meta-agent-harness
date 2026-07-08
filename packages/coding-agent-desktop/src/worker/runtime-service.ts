@@ -76,8 +76,8 @@ export class RuntimeDesktopWorkerService implements DesktopWorkerService {
 		}
 		this.threadId = input.threadId;
 		this.approvalBridge = new ApprovalBridge(input.threadId, (event) => this.eventSink?.(event));
-		this.runtime = await this.createRuntime(input, { approvalBridge: this.approvalBridge, hasUI: true });
 		this.uiBridge = new ExtensionUiBridge(input.threadId, (event) => this.eventSink?.(event), input.cwd);
+		this.runtime = await this.createRuntime(input, { approvalBridge: this.approvalBridge, hasUI: true });
 		this.runtime.setRebindSession(async () => {
 			await this.bindRuntimeSession();
 		});
@@ -173,16 +173,15 @@ export class RuntimeDesktopWorkerService implements DesktopWorkerService {
 		}
 		if (envelope.command.type === "desktop.panelLifecycle") {
 			const event = envelope.command.event;
-			const emit = this.runtime.session.extensionRunner.emit as (event: unknown) => Promise<unknown>;
 			if (event.type === "viewStateChanged") {
-				await emit({
+				await this.runtime.session.extensionRunner.emit({
 					type: "desktop_panel_view_state_changed",
 					panelId: event.panelId,
 					visible: event.visible,
 					active: event.active,
 				});
 			} else {
-				await emit({
+				await this.runtime.session.extensionRunner.emit({
 					type: "desktop_panel_disposed",
 					panelId: event.panelId,
 					reason: event.reason,
@@ -191,8 +190,7 @@ export class RuntimeDesktopWorkerService implements DesktopWorkerService {
 			return createWorkerResponse(envelope.id, envelope.command.type, { ok: true });
 		}
 		if (envelope.command.type === "desktop.panelRestore") {
-			const emit = this.runtime.session.extensionRunner.emit as (event: unknown) => Promise<unknown>;
-			await emit({
+			await this.runtime.session.extensionRunner.emit({
 				type: "desktop_panel_restore",
 				panelId: envelope.command.restore.panelId,
 				viewType: envelope.command.restore.viewType,

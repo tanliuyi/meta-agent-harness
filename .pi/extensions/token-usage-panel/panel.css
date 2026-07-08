@@ -1,16 +1,17 @@
 :root {
-  color-scheme: light;
-  --bg: #f7f8fa;
-  --surface: #ffffff;
-  --surface-muted: #f1f3f5;
-  --border: #d7dce2;
-  --border-strong: #b8c0cc;
-  --text: #1f2328;
-  --muted: #68717d;
-  --accent: #1b6f5f;
-  --accent-soft: #d9eee9;
-  --blue: #315fba;
-  --amber: #9a5b00;
+  color-scheme: light dark;
+  --bg: var(--pi-panel-bg, #ffffff);
+  --surface: var(--pi-panel-surface, var(--pi-panel-code-bg, #f7f8fa));
+  --surface-muted: var(--pi-panel-surface-muted, var(--pi-panel-code-bg, #eef1f4));
+  --border: var(--pi-panel-border, rgb(32 31 27 / 11%));
+  --border-strong: var(--pi-panel-border-strong, #b8c0cc);
+  --text: var(--pi-panel-fg, #1f2328);
+  --muted: var(--pi-panel-muted, #68717d);
+  --accent: var(--pi-panel-accent, #1b6f5f);
+  --accent-soft: var(--pi-panel-accent-soft, var(--pi-panel-code-bg, #d9eee9));
+  --blue: #3f7bdc;
+  --amber: #b86e00;
+  --danger: var(--pi-panel-danger, #8d2e2e);
 }
 * { box-sizing: border-box; }
 body {
@@ -24,6 +25,27 @@ body {
 h1 { margin: 0; font-size: 16px; font-weight: 650; letter-spacing: 0; }
 .subtle { color: var(--muted); }
 .actions { display: flex; gap: 8px; align-items: center; }
+.status {
+  display: inline-flex;
+  align-items: center;
+  min-height: 22px;
+  padding: 0 7px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--muted);
+  background: var(--surface);
+  font-size: 12px;
+  white-space: nowrap;
+}
+.status[data-state="ready"] {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+.status[data-state="error"] {
+  border-color: var(--danger);
+  color: var(--danger);
+}
 button {
   height: 30px;
   border: 1px solid var(--border-strong);
@@ -35,6 +57,9 @@ button {
   cursor: pointer;
 }
 button:hover { background: var(--surface-muted); }
+button:focus-visible { outline: 2px solid var(--pi-panel-focus-border, var(--accent)); outline-offset: 2px; }
+button:disabled { cursor: not-allowed; opacity: 0.55; }
+button#reset { border-color: var(--danger); color: var(--danger); }
 .grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
 .metric, .panel { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; }
 .metric { padding: 12px; min-height: 86px; display: flex; flex-direction: column; justify-content: space-between; }
