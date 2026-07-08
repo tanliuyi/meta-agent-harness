@@ -77,7 +77,7 @@ export class RuntimeDesktopWorkerService implements DesktopWorkerService {
 		this.threadId = input.threadId;
 		this.approvalBridge = new ApprovalBridge(input.threadId, (event) => this.eventSink?.(event));
 		this.runtime = await this.createRuntime(input, { approvalBridge: this.approvalBridge, hasUI: true });
-		this.uiBridge = new ExtensionUiBridge(input.threadId, (event) => this.eventSink?.(event));
+		this.uiBridge = new ExtensionUiBridge(input.threadId, (event) => this.eventSink?.(event), input.cwd);
 		this.runtime.setRebindSession(async () => {
 			await this.bindRuntimeSession();
 		});
@@ -162,6 +162,43 @@ export class RuntimeDesktopWorkerService implements DesktopWorkerService {
 				envelope.command.type,
 				createDesktopError("invalid_state", "worker runtime is missing", false),
 			);
+		}
+		if (envelope.command.type === "desktop.panelMessage") {
+			await this.runtime.session.extensionRunner.emit({
+				type: "desktop_panel_message",
+				panelId: envelope.command.panelId,
+				message: envelope.command.message,
+			});
+			return createWorkerResponse(envelope.id, envelope.command.type, { ok: true });
+		}
+		if (envelope.command.type === "desktop.panelLifecycle") {
+			const event = envelope.command.event;
+			const emit = this.runtime.session.extensionRunner.emit as (event: unknown) => Promise<unknown>;
+			if (event.type === "viewStateChanged") {
+				await emit({
+					type: "desktop_panel_view_state_changed",
+					panelId: event.panelId,
+					visible: event.visible,
+					active: event.active,
+				});
+			} else {
+				await emit({
+					type: "desktop_panel_disposed",
+					panelId: event.panelId,
+					reason: event.reason,
+				});
+			}
+			return createWorkerResponse(envelope.id, envelope.command.type, { ok: true });
+		}
+		if (envelope.command.type === "desktop.panelRestore") {
+			const emit = this.runtime.session.extensionRunner.emit as (event: unknown) => Promise<unknown>;
+			await emit({
+				type: "desktop_panel_restore",
+				panelId: envelope.command.restore.panelId,
+				viewType: envelope.command.restore.viewType,
+				state: envelope.command.restore.state,
+			});
+			return createWorkerResponse(envelope.id, envelope.command.type, { ok: true });
 		}
 		if (envelope.command.type === "shortcut.dispatch") {
 			const handled = await this.runtime.session.extensionRunner.executeShortcut(
@@ -291,8 +328,10 @@ export class RuntimeDesktopWorkerService implements DesktopWorkerService {
 		if (!uiBridge) {
 			throw new Error("extension UI bridge is missing");
 		}
+		uiBridge.syncCwd(runtime.session.sessionManager.getCwd());
 		await runtime.session.bindExtensions({
 			uiContext: uiBridge.createContext(),
+			desktopContext: uiBridge.createDesktopContext(),
 			mode: "rpc",
 			commandContextActions: this.createCommandContextActions(),
 			shutdownHandler: () => {

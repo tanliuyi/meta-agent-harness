@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, watch } from 'vue'
+import { computed, defineAsyncComponent, watch } from 'vue'
 import ScrollArea from '@renderer/components/ui/scroll-area/ScrollArea.vue'
 import { useSessionContext } from '@renderer/composables/useSessionContext'
 import useWorkspaceSessionStore from '@renderer/stores/workspace-session'
@@ -11,6 +11,7 @@ import {
   getSessionPanelTabRegistrations
 } from './state/sessionPanelTabRegistry'
 import { useSessionPanelTabsState } from './state/useSessionPanelTabsState'
+import { shouldRetainExtensionPanelContext } from './tabs/display/extensionPanelDisplay'
 
 defineProps<{
   collapsed?: boolean
@@ -19,7 +20,26 @@ defineProps<{
 const workspaceSession = useWorkspaceSessionStore()
 const { panelTabRequest } = useSessionContext()
 
-const sessionPanelTabs = getSessionPanelTabRegistrations()
+const extensionPanelTabPrefix = 'extension:'
+const ExtensionWebviewPanelTab = defineAsyncComponent(
+  () => import('./tabs/ExtensionWebviewPanelTab.vue')
+)
+
+const sessionPanelTabs = computed(() => {
+  const builtInTabs = getSessionPanelTabRegistrations()
+  const extensionTabs = Object.values(workspaceSession.activeExtensionPanels)
+    .slice()
+    .sort(
+      (left, right) =>
+        (left.order ?? 0) - (right.order ?? 0) || left.title.localeCompare(right.title)
+    )
+    .map((panel) => ({
+      id: `${extensionPanelTabPrefix}${panel.id}` as const,
+      label: panel.title,
+      allowMultiple: false
+    }))
+  return [...builtInTabs, ...extensionTabs]
+})
 
 const {
   activeTabInstanceId,
@@ -58,7 +78,6 @@ const tabCounts = computed<SessionPanelTabCountMap>((previous) =>
       extensionNotifications: workspaceSession.activeExtensionNotifications.length,
       extensionTitle: workspaceSession.activeExtensionTitle,
       extensionUiRequests: workspaceSession.activeExtensionUiRequests,
-      extensionWidgets: workspaceSession.activeExtensionWidgets,
       extensionWorking:
         Boolean(workspaceSession.activeExtensionWorkingMessage) ||
         workspaceSession.activeExtensionWorkingVisible === false ||
@@ -69,7 +88,25 @@ const tabCounts = computed<SessionPanelTabCountMap>((previous) =>
   )
 )
 
+const activeExtensionPanelId = computed(() => {
+  const tabId = activeTabId.value
+  return tabId?.startsWith(extensionPanelTabPrefix)
+    ? tabId.slice(extensionPanelTabPrefix.length)
+    : undefined
+})
+const activeExtensionPanel = computed(() =>
+  activeExtensionPanelId.value
+    ? workspaceSession.activeExtensionPanels[activeExtensionPanelId.value]
+    : undefined
+)
+const shouldKeepActiveTabAlive = computed(
+  () => !activeExtensionPanelId.value || shouldRetainExtensionPanelContext(activeExtensionPanel.value)
+)
+
 const activeTabComponent = computed(() => {
+  if (activeExtensionPanelId.value) {
+    return ExtensionWebviewPanelTab
+  }
   return activeTabId.value ? getSessionPanelTabComponent(activeTabId.value) : undefined
 })
 
@@ -114,6 +151,18 @@ watch(extensionUiRequestCount, (count, previousCount) => {
     markTabAttention('extensions')
   }
 })
+
+function handleCloseTab(tabInstanceId: string): void {
+  const tab = openTabs.value.find((item) => item.instanceId === tabInstanceId)
+  closeTab(tabInstanceId)
+  if (!tab?.id.startsWith(extensionPanelTabPrefix) || !workspaceSession.activeSessionId) {
+    return
+  }
+  workspaceSession.disposeExtensionPanel(
+    workspaceSession.activeSessionId,
+    tab.id.slice(extensionPanelTabPrefix.length)
+  )
+}
 </script>
 
 <template>
@@ -125,7 +174,7 @@ watch(extensionUiRequestCount, (count, previousCount) => {
       :counts="tabCounts"
       :is-add-panel-active="isAddPanelActive"
       :open-tabs="openTabs"
-      @close="closeTab"
+      @close="handleCloseTab"
       @open-add-panel="openAddPanel"
       @select="selectOpenTab"
     />
@@ -146,9 +195,19 @@ watch(extensionUiRequestCount, (count, previousCount) => {
           <small v-if="tabCounts[tab.id]">{{ tabCounts[tab.id] }}</small>
         </button>
       </div>
-      <KeepAlive v-else-if="activeTabComponent">
-        <component :is="activeTabComponent" :key="activeTabKey" />
+      <KeepAlive v-if="!isAddPanelActive && activeTabComponent && shouldKeepActiveTabAlive">
+        <component
+          :is="activeTabComponent"
+          :key="activeTabKey"
+          :panel-id="activeExtensionPanelId"
+        />
       </KeepAlive>
+      <component
+        v-else-if="!isAddPanelActive && activeTabComponent"
+        :is="activeTabComponent"
+        :key="activeTabKey"
+        :panel-id="activeExtensionPanelId"
+      />
     </ScrollArea>
   </div>
 </template>

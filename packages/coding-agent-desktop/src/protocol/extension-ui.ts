@@ -73,18 +73,6 @@ export type ExtensionUiRequest =
 			statusText?: string;
 	  }
 	| {
-			/** 请求类型：设置小组件。 */
-			type: "setWidget";
-			/** 请求 ID。 */
-			id: string;
-			/** 组件键。 */
-			widgetKey: string;
-			/** 组件文本行。 */
-			widgetLines?: string[];
-			/** 组件位置。 */
-			widgetPlacement?: "aboveEditor" | "belowEditor";
-	  }
-	| {
 			/** 请求类型：设置标题。 */
 			type: "setTitle";
 			/** 请求 ID。 */

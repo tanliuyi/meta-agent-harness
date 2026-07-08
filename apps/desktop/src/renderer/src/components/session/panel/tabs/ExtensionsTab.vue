@@ -13,7 +13,6 @@ import {
 import useWorkspaceSessionStore from '@renderer/stores/workspace-session'
 import type { ExtensionUiRequest } from '@shared/coding-agent/types'
 import {
-  getExtensionDisplayLines,
   getExtensionDisplayText,
   getExtensionInitialDraft,
   getExtensionRequestDescription,
@@ -37,7 +36,6 @@ const activeExtensionRequest = computed(() =>
 const extensionStatuses = computed(() =>
   Object.entries(workspaceSession.activeExtensionStatuses).filter(([, value]) => value)
 )
-const extensionWidgets = computed(() => Object.entries(workspaceSession.activeExtensionWidgets))
 const notificationLines = computed(() =>
   workspaceSession.activeExtensionNotifications.length > 0
     ? workspaceSession.activeExtensionNotifications
@@ -53,7 +51,6 @@ const hasExtensionActivity = computed(
   () =>
     hasExtensionUiRequests.value ||
     extensionStatuses.value.length > 0 ||
-    extensionWidgets.value.length > 0 ||
     workspaceSession.activeExtensionNotifications.length > 0 ||
     Boolean(workspaceSession.activeExtensionTitle) ||
     hasExtensionWorkingState.value
@@ -214,10 +211,7 @@ function clearNotifications(): void {
         </article>
       </section>
 
-      <section
-        v-if="extensionStatuses.length || notificationLines || extensionWidgets.length"
-        class="extension-panel-group"
-      >
+      <section v-if="extensionStatuses.length || notificationLines" class="extension-panel-group">
         <header class="extension-panel-group__header">
           <span>活动</span>
         </header>
@@ -239,14 +233,6 @@ function clearNotifications(): void {
             <BaseButton size="sm" variant="ghost" @click="clearNotifications">清除</BaseButton>
           </template>
         </ExtensionWidget>
-
-        <ExtensionWidget
-          v-for="[key, widget] in extensionWidgets"
-          :key="key"
-          :title="getExtensionDisplayText(key)"
-          :lines="getExtensionDisplayLines(widget.lines)"
-          variant="detail"
-        />
       </section>
     </div>
 

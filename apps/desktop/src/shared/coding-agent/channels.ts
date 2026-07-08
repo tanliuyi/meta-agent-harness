@@ -109,6 +109,16 @@ export const codingAgentChannels = {
   dispatchExtensionShortcut: 'coding-agent:dispatch-extension-shortcut',
   /** 响应 UI 扩展的请求。 */
   respondUi: 'coding-agent:respond-ui',
+  /** 向扩展派发 desktop panel 消息。 */
+  sendExtensionPanelMessage: 'coding-agent:send-extension-panel-message',
+  /** 向扩展派发 desktop panel 生命周期事件。 */
+  sendExtensionPanelLifecycleEvent: 'coding-agent:send-extension-panel-lifecycle-event',
+  /** 缓存 desktop panel state，用于 renderer reload 后恢复。 */
+  saveExtensionPanelState: 'coding-agent:save-extension-panel-state',
+  /** 销毁 desktop extension panel。 */
+  disposeExtensionPanel: 'coding-agent:dispose-extension-panel',
+  /** 受控打开外部 URL。 */
+  openExternalUrl: 'coding-agent:open-external-url',
   /** 响应审批请求。 */
   respondApproval: 'coding-agent:respond-approval',
   /** 获取 debug diagnostics。 */

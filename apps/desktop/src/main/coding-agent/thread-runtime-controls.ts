@@ -7,6 +7,8 @@ import type {
   CompactInput,
   CompactionResult,
   ExtensionEditorTextInput,
+  ExtensionPanelLifecycleInput,
+  ExtensionPanelMessageInput,
   ExtensionShortcutInput,
   ExtensionShortcutResult,
   ExtensionUiResponseInput,
@@ -116,6 +118,37 @@ export async function respondUi(
   input: ExtensionUiResponseInput
 ): Promise<void> {
   await core.sendOk(input.threadId, { type: 'ui.respond', response: input.response })
+}
+
+/**
+ * 向扩展派发 desktop panel 消息。
+ * @param core - thread 管理核心。
+ * @param input - panel 消息输入。
+ */
+export async function sendExtensionPanelMessage(
+  core: ThreadManagerCore,
+  input: ExtensionPanelMessageInput
+): Promise<void> {
+  await core.sendOk(input.threadId, {
+    type: 'desktop.panelMessage',
+    panelId: input.panelId,
+    message: input.message
+  })
+}
+
+/**
+ * 向扩展派发 desktop panel 生命周期事件。
+ * @param core - thread 管理核心。
+ * @param input - panel 生命周期输入。
+ */
+export async function sendExtensionPanelLifecycleEvent(
+  core: ThreadManagerCore,
+  input: ExtensionPanelLifecycleInput
+): Promise<void> {
+  await core.sendOk(input.threadId, {
+    type: 'desktop.panelLifecycle',
+    event: input.event
+  })
 }
 
 /**

@@ -28,6 +28,8 @@ import type {
   CodingAgentIpcEvent,
   CommandInfo,
   CreateThreadInput,
+  DesktopExtensionWebviewPanel,
+  ExtensionPanelProjection,
   ExtensionUiRequest,
   ExtensionUiResponseInput,
   ExportSessionResult,
@@ -126,10 +128,14 @@ export type WorkspaceSessionRuntime = {
   extensionUiRequests: Record<string, ExtensionUiRequest>
   /** extension 设置的状态文本。 */
   extensionStatuses: Record<string, string | undefined>
-  /** extension 设置的小组件文本。 */
-  extensionWidgets: Record<string, { lines: string[]; placement: 'aboveEditor' | 'belowEditor' }>
   /** extension notify 的完整消息列表。 */
   extensionNotifications: string[]
+  /** desktop extension 注册的 webview panels。 */
+  extensionPanels: Record<string, DesktopExtensionWebviewPanel>
+  /** extension 发给 desktop panel 的最近消息。 */
+  extensionPanelMessages: Record<string, { sequence: number; message: unknown }>
+  /** desktop webview panel 内容通过 piPanel.setState 保存的状态。 */
+  extensionPanelStates: Record<string, unknown>
   /** extension 设置的会话标题提示。 */
   extensionTitle?: string
   /** extension 设置的工作中文案。 */
@@ -229,6 +235,9 @@ const defaultSessionContextId = 'main'
 /** 当前窗口会话中活跃 thread 的 sessionStorage key 前缀。 */
 const activeThreadSessionStoragePrefix = 'meta-agent.workspace-session.active-thread.'
 
+/** 当前窗口会话中 panel UI 状态 localStorage key 前缀。 */
+const sessionPanelUiStoragePrefix = 'meta-agent.workspace-session.panel-ui.v1.'
+
 /** 后端真实 agent session 事件类型集合。 */
 const agentSessionEventTypes = new Set<AgentSessionIpcEvent['type']>([
   'agent_start',
@@ -259,6 +268,13 @@ const createUiState = (): SessionUiState => ({
   panelOpen: false,
   panelWidth: 420
 })
+
+function cloneUiState(state: SessionUiState): SessionUiState {
+  return {
+    panelOpen: state.panelOpen,
+    panelWidth: state.panelWidth
+  }
+}
 
 /**
  * Composer 文本缓存，避免频繁从同一份 Tiptap JSON 递归取文本。
@@ -331,6 +347,9 @@ export default defineStore('workspace-session', () => {
     Record<string, RunCommandResult['details'] | undefined>
   >({})
 
+  /** 每个 thread 当前正在导航到的 session tree entry。 */
+  const navigatingTreeEntryByThreadId = shallowReactive<Record<string, string | undefined>>({})
+
   /** 每个视图上下文当前是否正在提交 Composer。 */
   const sendingPromptByContextId = shallowReactive<Record<string, boolean>>({})
 
@@ -390,9 +409,11 @@ export default defineStore('workspace-session', () => {
   function getSessionPanelState(contextId = defaultSessionContextId): SessionUiState {
     const context = ensureSessionContext(contextId)
     if (!context.activeThreadId) {
+      context.panel = readStoredSessionPanelState(contextId, undefined) ?? context.panel
       return context.panel
     }
-    context.sessionPanels[context.activeThreadId] ??= createUiState()
+    context.sessionPanels[context.activeThreadId] ??=
+      readStoredSessionPanelState(contextId, context.activeThreadId) ?? createUiState()
     return context.sessionPanels[context.activeThreadId]
   }
 
@@ -430,8 +451,10 @@ export default defineStore('workspace-session', () => {
       approvals: {},
       extensionUiRequests: {},
       extensionStatuses: {},
-      extensionWidgets: {},
       extensionNotifications: [],
+      extensionPanels: {},
+      extensionPanelMessages: {},
+      extensionPanelStates: {},
       events: [],
       renderState: {},
       loadingSnapshot: false
@@ -617,6 +640,50 @@ export default defineStore('workspace-session', () => {
     }
   }
 
+  function readStoredSessionPanelState(
+    contextId = defaultSessionContextId,
+    threadId: string | undefined
+  ): SessionUiState | undefined {
+    try {
+      const value = window.localStorage?.getItem(getSessionPanelUiStorageKey(contextId, threadId))
+      if (!value) {
+        return undefined
+      }
+      const parsed = JSON.parse(value) as Partial<SessionUiState>
+      if (typeof parsed.panelOpen !== 'boolean' || typeof parsed.panelWidth !== 'number') {
+        return undefined
+      }
+      return {
+        panelOpen: parsed.panelOpen,
+        panelWidth: Math.min(maxSessionPanelWidth, Math.max(minSessionPanelWidth, parsed.panelWidth))
+      }
+    } catch {
+      return undefined
+    }
+  }
+
+  function writeStoredSessionPanelState(
+    contextId: string,
+    state: SessionUiState,
+    threadId = ensureSessionContext(contextId).activeThreadId
+  ): void {
+    try {
+      window.localStorage?.setItem(
+        getSessionPanelUiStorageKey(contextId, threadId),
+        JSON.stringify(cloneUiState(state))
+      )
+    } catch {
+      // localStorage 不可用时降级为内存态，不阻塞主流程。
+    }
+  }
+
+  function getSessionPanelUiStorageKey(
+    contextId = defaultSessionContextId,
+    threadId: string | undefined
+  ): string {
+    return `${sessionPanelUiStoragePrefix}${contextId}.${threadId ?? '__orphan__'}`
+  }
+
   /**
    * 设置上下文选中的 thread ID。
    * @param threadId - thread ID。
@@ -630,7 +697,7 @@ export default defineStore('workspace-session', () => {
     context.activeThreadId = threadId
     writeSessionActiveThreadId(threadId, contextId)
     if (threadId) {
-      context.sessionPanels[threadId] ??= createUiState()
+      context.sessionPanels[threadId] ??= readStoredSessionPanelState(contextId, threadId) ?? createUiState()
       initializeThreadComposerState(context, threadId)
       context.selectedProjectId = sessions[threadId]?.projectId ?? context.selectedProjectId
       if (context.selectedProjectId) {
@@ -958,13 +1025,21 @@ export default defineStore('workspace-session', () => {
   /** 当前活跃会话的 extension 状态文本。 */
   const activeExtensionStatuses = computed(() => activeRuntime.value?.extensionStatuses ?? {})
 
-  /** 当前活跃会话的 extension 小组件。 */
-  const activeExtensionWidgets = computed(() => activeRuntime.value?.extensionWidgets ?? {})
-
   /** 当前活跃会话的 extension notify 完整内容。 */
   const activeExtensionNotifications = computed(
     () => activeRuntime.value?.extensionNotifications ?? []
   )
+
+  /** 当前活跃会话的 desktop extension panels。 */
+  const activeExtensionPanels = computed(() => activeRuntime.value?.extensionPanels ?? {})
+
+  /** 当前活跃会话的 desktop extension panel 消息。 */
+  const activeExtensionPanelMessages = computed(
+    () => activeRuntime.value?.extensionPanelMessages ?? {}
+  )
+
+  /** 当前活跃会话的 desktop extension panel 持久状态。 */
+  const activeExtensionPanelStates = computed(() => activeRuntime.value?.extensionPanelStates ?? {})
 
   /** 当前活跃会话的 extension 标题。 */
   const activeExtensionTitle = computed(() => activeRuntime.value?.extensionTitle)
@@ -1062,6 +1137,19 @@ export default defineStore('workspace-session', () => {
   const activeSessionActionDetails = computed(() =>
     activeSessionId.value ? sessionActionDetailsByThreadId[activeSessionId.value] : undefined
   )
+  const activeNavigatingTreeEntryId = computed(() =>
+    activeSessionId.value ? navigatingTreeEntryByThreadId[activeSessionId.value] : undefined
+  )
+
+  /** 清除当前活跃会话的 session action 提示。 */
+  const clearActiveSessionAction = (): void => {
+    const threadId = activeSessionId.value
+    if (!threadId) {
+      return
+    }
+    delete sessionActionMessageByThreadId[threadId]
+    delete sessionActionDetailsByThreadId[threadId]
+  }
 
   /** 新会话草稿模型。 */
   const orphanModel = computed(() => mainContext.value.orphanModel)
@@ -1634,18 +1722,6 @@ export default defineStore('workspace-session', () => {
   ): Promise<void> => {
     await window.api.codingAgent.respondUi({ threadId, response })
     delete ensureRuntime(threadId).extensionUiRequests[response.id]
-  }
-
-  /**
-   * 清理 renderer 侧 extension widget 投影。
-   * @param widgetKey - widget key。
-   * @param threadId - 所属 thread ID，默认当前活跃会话。
-   */
-  const clearExtensionWidget = (widgetKey: string, threadId = activeSessionId.value): void => {
-    if (!threadId) {
-      return
-    }
-    delete ensureRuntime(threadId).extensionWidgets[widgetKey]
   }
 
   /**
@@ -2280,6 +2356,12 @@ export default defineStore('workspace-session', () => {
       return
     }
     const previousLeafEntryId = activeSnapshot.value?.currentEntryId
+    if (previousLeafEntryId === entryId) {
+      sessionActionMessageByThreadId[threadId] = '已经在选中消息位置'
+      return
+    }
+    navigatingTreeEntryByThreadId[threadId] = entryId
+    sessionActionMessageByThreadId[threadId] = '正在从这里继续'
     try {
       const result = await window.api.codingAgent.navigateTree({
         threadId,
@@ -2310,6 +2392,9 @@ export default defineStore('workspace-session', () => {
         : '已移动到选中节点'
     } catch (error) {
       ensureRuntime(threadId).errorMessage = error instanceof Error ? error.message : String(error)
+      sessionActionMessageByThreadId[threadId] = '从这里继续失败'
+    } finally {
+      delete navigatingTreeEntryByThreadId[threadId]
     }
   }
 
@@ -2492,7 +2577,9 @@ export default defineStore('workspace-session', () => {
    * @param open - 是否展开。
    */
   const setActiveSessionPanelOpen = (open: boolean, contextId = defaultSessionContextId): void => {
-    getSessionPanelState(contextId).panelOpen = open
+    const state = getSessionPanelState(contextId)
+    state.panelOpen = open
+    writeStoredSessionPanelState(contextId, state)
   }
 
   /**
@@ -2500,10 +2587,9 @@ export default defineStore('workspace-session', () => {
    * @param width - 目标宽度。
    */
   const setActiveSessionPanelWidth = (width: number, contextId = defaultSessionContextId): void => {
-    getSessionPanelState(contextId).panelWidth = Math.min(
-      maxSessionPanelWidth,
-      Math.max(minSessionPanelWidth, width)
-    )
+    const state = getSessionPanelState(contextId)
+    state.panelWidth = Math.min(maxSessionPanelWidth, Math.max(minSessionPanelWidth, width))
+    writeStoredSessionPanelState(contextId, state)
   }
 
   /**
@@ -2687,16 +2773,6 @@ export default defineStore('workspace-session', () => {
       case 'setStatus':
         runtime.extensionStatuses[request.statusKey] = request.statusText
         return
-      case 'setWidget':
-        if (request.widgetLines && request.widgetLines.length > 0) {
-          runtime.extensionWidgets[request.widgetKey] = {
-            lines: [...request.widgetLines],
-            placement: request.widgetPlacement ?? 'aboveEditor'
-          }
-          return
-        }
-        delete runtime.extensionWidgets[request.widgetKey]
-        return
       case 'setTitle':
         runtime.extensionTitle = request.title
         return
@@ -2746,6 +2822,82 @@ export default defineStore('workspace-session', () => {
           toast.info('扩展', message)
       }
     }
+  }
+
+  /**
+   * 应用 desktop extension panel projection。
+   * @param threadId - 所属 thread ID。
+   * @param event - panel projection。
+   */
+  function applyExtensionPanelProjection(threadId: string, event: ExtensionPanelProjection): void {
+    const runtime = ensureRuntime(threadId)
+    switch (event.type) {
+      case 'extensionPanel.registered':
+        runtime.extensionPanels[event.panel.id] = event.panel
+        return
+      case 'extensionPanel.updated': {
+        const current = runtime.extensionPanels[event.panelId]
+        if (!current) {
+          return
+        }
+        runtime.extensionPanels[event.panelId] = { ...current, ...event.patch }
+        return
+      }
+      case 'extensionPanel.message': {
+        const current = runtime.extensionPanelMessages[event.panelId]
+        runtime.extensionPanelMessages[event.panelId] = {
+          sequence: (current?.sequence ?? 0) + 1,
+          message: event.message
+        }
+        return
+      }
+      case 'extensionPanel.removed':
+        delete runtime.extensionPanelMessages[event.panelId]
+        delete runtime.extensionPanelStates[event.panelId]
+        delete runtime.extensionPanels[event.panelId]
+        return
+      case 'extensionPanel.stateUpdated':
+        if (!runtime.extensionPanels[event.panelId]) {
+          return
+        }
+        runtime.extensionPanelStates[event.panelId] = event.state
+        return
+    }
+  }
+
+  /**
+   * 保存 desktop webview panel 内容通过 piPanel.setState 提交的状态。
+   * @param threadId - 所属 thread ID。
+   * @param panelId - Panel ID。
+   * @param state - JSON 可序列化状态；类型由扩展自定义。
+   */
+  function setExtensionPanelState(threadId: string, panelId: string, state: unknown): void {
+    const runtime = ensureRuntime(threadId)
+    if (!runtime.extensionPanels[panelId]) {
+      return
+    }
+    runtime.extensionPanelStates[panelId] = state
+    void window.api.codingAgent.saveExtensionPanelState({ threadId, panelId, state })
+  }
+
+  /**
+   * 销毁 desktop extension panel，并清理 renderer 本地投影。
+   * @param threadId - 所属 thread ID。
+   * @param panelId - Panel ID。
+   */
+  function disposeExtensionPanel(threadId: string, panelId: string): void {
+    const runtime = ensureRuntime(threadId)
+    if (!runtime.extensionPanels[panelId]) {
+      return
+    }
+    delete runtime.extensionPanelMessages[panelId]
+    delete runtime.extensionPanelStates[panelId]
+    delete runtime.extensionPanels[panelId]
+    void window.api.codingAgent.disposeExtensionPanel({
+      threadId,
+      panelId,
+      reason: 'userClosed'
+    })
   }
 
   /**
@@ -2834,6 +2986,15 @@ export default defineStore('workspace-session', () => {
         if (event.event.type === 'extensionUi.requested') {
           applyExtensionUiRequest(event.threadId, event.event.request)
         }
+        if (
+          event.event.type === 'extensionPanel.registered' ||
+          event.event.type === 'extensionPanel.updated' ||
+          event.event.type === 'extensionPanel.message' ||
+          event.event.type === 'extensionPanel.removed' ||
+          event.event.type === 'extensionPanel.stateUpdated'
+        ) {
+          applyExtensionPanelProjection(event.threadId, event.event)
+        }
         break
     }
     applyEventToSessions(sessions, event, (messageId, renderState) => {
@@ -2875,15 +3036,18 @@ export default defineStore('workspace-session', () => {
     activeExtensionStatuses,
     activeExtensionHiddenThinkingLabel,
     activeExtensionNotifications,
+    activeExtensionPanelMessages,
+    activeExtensionPanels,
+    activeExtensionPanelStates,
     activeExtensionTitle,
     activeExtensionToolsExpanded,
     activeExtensionUiRequests,
-    activeExtensionWidgets,
     activeExtensionWorkingIndicator,
     activeExtensionWorkingMessage,
     activeExtensionWorkingVisible,
     activeModelOptions,
     activeModelOptionsLoading,
+    activeNavigatingTreeEntryId,
     activePendingApprovals,
     activePreviousLeafEntryId,
     activePreviousSessionFile,
@@ -2903,7 +3067,6 @@ export default defineStore('workspace-session', () => {
     activeToolCallsById,
     activeToolCallStructures,
     addComposerFiles,
-    clearExtensionWidget,
     clearExtensionNotifications,
     contexts,
     createThread,
@@ -2911,6 +3074,7 @@ export default defineStore('workspace-session', () => {
     clearComposerDraft,
     clearComposerImages,
     cloneActiveSession,
+    clearActiveSessionAction,
     compactActive,
     defaultSessionContextId,
     draftFiles,
@@ -2952,6 +3116,7 @@ export default defineStore('workspace-session', () => {
     revealActiveExport,
     respondApproval,
     respondExtensionUi,
+    disposeExtensionPanel,
     reloadSessionResources,
     runtimeByThreadId,
     runCommand,
@@ -2979,6 +3144,7 @@ export default defineStore('workspace-session', () => {
     setActiveSessionId,
     setActiveSessionPanelOpen,
     setActiveSessionPanelWidth,
+    setExtensionPanelState,
     switchActivePreviousSession,
     switchActiveSessionPath,
     startNewSession,

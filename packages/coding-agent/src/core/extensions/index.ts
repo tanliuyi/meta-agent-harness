@@ -19,6 +19,7 @@ export type {
 	SwitchSessionHandler,
 } from "./runner.ts";
 export { ExtensionRunner } from "./runner.ts";
+export { desktopWebviewHostStylesheetPath } from "./types.ts";
 export type {
 	AfterProviderResponseEvent,
 	AgentEndEvent,
@@ -47,6 +48,11 @@ export type {
 	CustomToolCallEvent,
 	CustomToolResultEvent,
 	EditToolCallEvent,
+	DesktopPanelDisposedEvent,
+	DesktopPanelMessageEvent,
+	DesktopPanelRestoreEvent,
+	DesktopPanelViewStateChangedEvent,
+	DesktopWebviewUriOptions,
 	EditToolResultEvent,
 	ExecOptions,
 	ExecResult,
@@ -56,8 +62,11 @@ export type {
 	ExtensionAPI,
 	ExtensionCommandContext,
 	ExtensionCommandContextActions,
+	DesktopWebviewPanelOptions,
+	DesktopWebviewPanelSource,
 	ExtensionContext,
 	ExtensionContextActions,
+	ExtensionDesktopContext,
 	// Errors
 	ExtensionError,
 	ExtensionEvent,

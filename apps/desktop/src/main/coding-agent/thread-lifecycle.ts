@@ -84,6 +84,7 @@ export async function restartThread(
   threadId: string
 ): Promise<ThreadSnapshot> {
   const thread = core.requireThread(threadId)
+  const extensionPanelRestoreRequests = core.getExtensionPanelRestoreRequests(threadId)
   if (
     core
       .getWorkers()
@@ -92,6 +93,7 @@ export async function restartThread(
   ) {
     await core.getWorkers().releaseThreadWorker(threadId, 'stop')
   }
+  core.clearExtensionPanelRuntime(threadId)
   core.updateThread(threadId, { status: 'starting' })
   const cwd = thread.sessionFile
     ? await resolveSessionCwdLazy(thread.sessionFile, core.getThreadCwd(thread))
@@ -104,6 +106,7 @@ export async function restartThread(
     projectTrustOverride: core.getProjectTrustOverride(cwd)
   })
   core.updateThread(threadId, { status: 'idle' })
+  await core.requestExtensionPanelRestoreRuntime(threadId, extensionPanelRestoreRequests)
   return await core.getSnapshot(threadId)
 }
 

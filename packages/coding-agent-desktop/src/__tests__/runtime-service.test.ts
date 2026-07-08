@@ -297,6 +297,86 @@ describe("RuntimeDesktopWorkerService", () => {
 		expect(shortcutRuns).toEqual(["shift+ctrl+k"]);
 	});
 
+	it("向 extension 派发 desktop panel message", async () => {
+		const panelMessages: unknown[] = [];
+		const service = new RuntimeDesktopWorkerService(async () =>
+			createRuntime({
+				session: {
+					extensionRunner: {
+						emit: async (event: unknown) => {
+							panelMessages.push(event);
+						},
+					},
+				},
+			}),
+		);
+		await service.startThread({ threadId: "thread-1", cwd: "H:/repo" });
+
+		const response = await service.handle({
+			kind: "command",
+			id: "panel-message",
+			command: { type: "desktop.panelMessage", panelId: "deploy", message: { type: "cancel" } },
+		});
+
+		expect(response.success).toBe(true);
+		expect(panelMessages).toEqual([{ type: "desktop_panel_message", panelId: "deploy", message: { type: "cancel" } }]);
+	});
+
+	it("向 extension 派发 desktop panel lifecycle", async () => {
+		const panelEvents: unknown[] = [];
+		const service = new RuntimeDesktopWorkerService(async () =>
+			createRuntime({
+				session: {
+					extensionRunner: {
+						emit: async (event: unknown) => {
+							panelEvents.push(event);
+						},
+					},
+				},
+			}),
+		);
+		await service.startThread({ threadId: "thread-1", cwd: "H:/repo" });
+
+		const viewStateResponse = await service.handle({
+			kind: "command",
+			id: "panel-visible",
+			command: {
+				type: "desktop.panelLifecycle",
+				event: { type: "viewStateChanged", panelId: "deploy", visible: true, active: true },
+			},
+		});
+		const disposedResponse = await service.handle({
+			kind: "command",
+			id: "panel-disposed",
+			command: {
+				type: "desktop.panelLifecycle",
+				event: { type: "disposed", panelId: "deploy", reason: "removed" },
+			},
+		});
+		const restoreResponse = await service.handle({
+			kind: "command",
+			id: "panel-restore",
+			command: {
+				type: "desktop.panelRestore",
+				restore: { panelId: "deploy", viewType: "demo.deploy", state: { selectedDeploymentId: "prod" } },
+			},
+		});
+
+		expect(viewStateResponse.success).toBe(true);
+		expect(disposedResponse.success).toBe(true);
+		expect(restoreResponse.success).toBe(true);
+		expect(panelEvents).toEqual([
+			{ type: "desktop_panel_view_state_changed", panelId: "deploy", visible: true, active: true },
+			{ type: "desktop_panel_disposed", panelId: "deploy", reason: "removed" },
+			{
+				type: "desktop_panel_restore",
+				panelId: "deploy",
+				viewType: "demo.deploy",
+				state: { selectedDeploymentId: "prod" },
+			},
+		]);
+	});
+
 	it("未注册 extension shortcut 返回未处理而不是错误", async () => {
 		const service = new RuntimeDesktopWorkerService(async () =>
 			createRuntime({
@@ -321,11 +401,17 @@ describe("RuntimeDesktopWorkerService", () => {
 });
 
 function createRuntime(overrides: Partial<AgentSessionRuntime> = {}): AgentSessionRuntime {
+	const overrideSession = (overrides.session as Record<string, unknown> | undefined) ?? {};
+	const overrideSessionManager = (overrideSession.sessionManager as Record<string, unknown> | undefined) ?? {};
 	const session = {
 		subscribe: () => () => {},
 		bindExtensions: async () => {},
 		agent: { waitForIdle: async () => {} },
-		...((overrides.session as Record<string, unknown> | undefined) ?? {}),
+		...overrideSession,
+		sessionManager: {
+			getCwd: () => "H:/repo",
+			...overrideSessionManager,
+		},
 	};
 	const { session: _session, ...rest } = overrides;
 	return {

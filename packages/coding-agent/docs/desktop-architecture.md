@@ -183,6 +183,71 @@ Extensions：
 - 保持 extension hooks、自定义工具、自定义命令、context transform、provider request hooks。
 - Desktop 将 extension UI request 映射为桌面弹窗、通知、状态和输入能力。
 - 不应把 extension API 拆成 Pi API 和 Desktop API 两套互不兼容的接口。
+- Desktop webview panel 参考 VS Code webview 的分层：extension 只能声明 HTML、URL、
+  file 或 bundle source；本地资源由 host/worker 读取和校验；renderer 只消费已经
+  投影好的 `html` 或 `url`，不读取文件系统。
+- `localResourceRoots` 是 webview 本地资源能力边界。默认只允许 panel 所在目录或
+  bundle root；显式传 `[]` 表示禁用本地资源；校验必须按真实路径处理 symlink。
+- extension 访问本地资源应通过 `ctx.desktop.asWebviewUri()`。该 API 返回值是不透明
+  URI；当前 desktop 使用 `pi-webview-resource:`，由 worker 注册 token、main 进程按
+  token 读取资源，renderer 只持有不可解析的 URI。
+- file/bundle 中的相对 CSS、script、图片、字体等资源由 worker 校验
+  `localResourceRoots` 后注册为 `pi-webview-resource:` token，并把 HTML/CSS 引用重写
+  到这些 URI；CSS/JS 中的 `sourceMappingURL` 也按同一边界重写，便于 devtools 调试。
+  renderer 只看到 sandboxed HTML 和不可解析的 resource token。后续如果需要支持缓存或
+  运行时 lazy load，应继续扩展 `pi-webview-resource:` handler 的缓存、流式响应和调试
+  能力，而不是让 renderer 直接访问 `file:`。
+- `pi-webview-resource:` 只接受 `GET` / `HEAD`，按扩展名返回 MIME，并设置
+  `Cache-Control: no-store` 与 `X-Content-Type-Options: nosniff`。非法 URL、未知 token、
+  缺失文件和非法 method 都应返回明确 HTTP 状态，不向 renderer 暴露本地文件路径。
+  resource token 是 thread runtime 级授权；thread restart 会清理旧 panel replay 和
+  该 thread 注册过的 resource token，避免旧 webview 能力跨运行实例继续有效。
+  资源失败会写入 `source: webview_resource` diagnostics，但 details 只能包含 status、
+  method、reason、opaque token 和 thread id，不能包含本地文件路径。
+- Webview source 支持 VS Code 风格 `portMapping`，用于 localhost 开发服务器入口。
+  `webviewPort` 是 panel URL 使用的稳定端口，`extensionHostPort` 是实际服务端口；
+  当前 renderer 对 URL panel 入口地址和 origin 校验应用映射。后续如果要对 srcdoc
+  内部任意运行时请求做透明映射，应通过受控资源/proxy 层实现，不应让 renderer 直接
+  访问本地文件或做无边界字符串重写。
+- URL panel 的导航边界是 resolved entry origin。renderer 向 URL panel 发送消息时使用
+  该 origin 作为 `targetOrigin`，接收消息时同时校验 iframe window identity 和 origin；
+  如果同源可读的 iframe location 已离开 entry origin，则本地标记 blocked 并停止发送
+  lifecycle、theme、state 和业务消息。跨域 iframe 导航无法被父文档可靠读取，因此不能
+  把 URL panel 当完整 browser view 使用；需要更强导航管控时应单独设计受控 proxy 或
+  明确升级到独立 guest webContents 的安全评审。
+- Webview panel 通信只通过 `postMessage` 和 desktop extension event；消息类型保持
+  `unknown`，extension 自己定义 envelope。URL panel 必须按 origin 校验，HTML/srcdoc
+  panel 必须按 iframe window identity 校验。
+- Webview script 能力默认关闭；只有显式 `permissions.enableScripts` 才能获得
+  `allow-scripts`、`window.piPanel` helper 和 nonce-based CSP。HTML/srcdoc panel 的
+  host 注入必须给脚本补 nonce，不应依赖裸 inline script。
+- Webview 外链打开必须走 host-reserved `pi:webview.openExternal` / `window.piPanel.openExternal()`。
+  main 只允许 `http:`、`https:` 和 `mailto:`，明确拒绝 `file:`、`command:`、
+  `javascript:` 等协议；host-reserved 消息不转发给 extension 普通 message handler。
+- Webview iframe context 默认在隐藏时销毁。只有显式 `retainContextWhenHidden` 才能
+  通过 renderer `KeepAlive` 保留 iframe；host 应向 panel 发送 `pi:webview.visibility`
+  lifecycle message，便于扩展同步 UI 状态。
+- 用户关闭 extension panel tab 时，desktop 应按 VS Code 的 `onDidDispose` 语义销毁
+  panel projection：renderer 清理本地 panel/message/state，main 清理 replay cache，
+  并向已绑定的 extension runtime 派发 `desktop_panel_disposed`，但不为了 dispose 旧
+  panel 启动新 worker。普通 tab 切换/隐藏只产生 view state/visibility，不等同 dispose。
+- 可恢复的 webview panel 使用稳定 `viewType` 表示 serializer key。thread worker restart
+  时，main 先记录 panelId/viewType/state，随后清理旧 panel replay 和 resource token；
+  新 worker 启动后收到 `desktop_panel_restore`，由 extension handler 重新注册 panel
+  和重新生成 `asWebviewUri()` 资源，避免旧本地资源能力跨 runtime 复用。
+- Webview panel 内容应优先用 `window.piPanel.getState()` / `setState(state)` 保存可
+  JSON 序列化的 UI 状态。renderer 按 thread + panel 在 runtime 中保存该状态，并在
+  iframe 重建时把 state 注入 helper，让扩展脚本可同步 `getState()`；同时通过
+  `pi:webview.restoreState` 发送 lifecycle/兜底通知。这对应 VS Code `acquireVsCodeApi`
+  的低成本持久状态模型，避免为了普通 UI 状态滥用 `retainContextWhenHidden`。host
+  只接受 JSON 可序列化且大小受限的 state，`pi:webview.*` 消息属于 host-reserved
+  lifecycle/state 协议，不转发给 extension handler。
+- HTML、file 和 bundle webview 由 host 注入 desktop theme token 和默认滚动条样式。
+  token 以 `--pi-panel-*` 为稳定前缀，同时提供常用 `--vscode-*` alias，方便迁移 VS
+  Code webview UI。主题变化通过 `pi:webview.theme` lifecycle message 投递；启用脚本
+  的 panel 会由注入 helper 自动刷新 CSS variables。URL panel 不做注入，必须由被服务
+  页面自行加载共享样式。扩展可通过 `ctx.desktop.asWebviewUri("pi:host/webview.css")`
+  获取 host 内置 stylesheet；它仍走 `pi-webview-resource:` token，不暴露本地路径。
 
 Tools：
 

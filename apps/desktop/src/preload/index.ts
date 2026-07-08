@@ -128,6 +128,15 @@ const codingAgent: CodingAgentApi = {
   dispatchExtensionShortcut: (input) =>
     invokeCodingAgent(codingAgentChannels.dispatchExtensionShortcut, input),
   respondUi: (input) => invokeCodingAgent(codingAgentChannels.respondUi, input),
+  sendExtensionPanelMessage: (input) =>
+    invokeCodingAgent(codingAgentChannels.sendExtensionPanelMessage, input),
+  sendExtensionPanelLifecycleEvent: (input) =>
+    invokeCodingAgent(codingAgentChannels.sendExtensionPanelLifecycleEvent, input),
+  saveExtensionPanelState: (input) =>
+    invokeCodingAgent(codingAgentChannels.saveExtensionPanelState, input),
+  disposeExtensionPanel: (input) =>
+    invokeCodingAgent(codingAgentChannels.disposeExtensionPanel, input),
+  openExternalUrl: (input) => invokeCodingAgent(codingAgentChannels.openExternalUrl, input),
   respondApproval: (input) => invokeCodingAgent(codingAgentChannels.respondApproval, input),
   listDiagnostics: (input) => invokeCodingAgent(codingAgentChannels.listDiagnostics, input),
   getModelSettings: () => invokeCodingAgent(codingAgentChannels.getModelSettings),

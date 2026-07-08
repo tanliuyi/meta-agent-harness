@@ -6,7 +6,7 @@ import { describe, expect, it } from 'vitest'
 import { createStableSessionPanelTabCounts } from '../state/sessionPanelCounts'
 
 describe('createStableSessionPanelTabCounts', () => {
-  it('Extensions count 覆盖请求、状态、widget、标题和 working 状态', () => {
+  it('Extensions count 覆盖请求、状态、通知、标题和 working 状态', () => {
     const counts = createStableSessionPanelTabCounts({
       approvals: 0,
       changes: 0,
@@ -20,13 +20,10 @@ describe('createStableSessionPanelTabCounts', () => {
       extensionUiRequests: {
         requestA: {}
       },
-      extensionWidgets: {
-        notes: {}
-      },
       extensionWorking: true,
       tree: 0
     })
 
-    expect(counts.extensions).toBe(6)
+    expect(counts.extensions).toBe(5)
   })
 })

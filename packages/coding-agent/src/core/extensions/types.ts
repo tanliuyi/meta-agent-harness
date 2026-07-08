@@ -214,6 +214,110 @@ export interface ExtensionUIContext {
 	setToolsExpanded(expanded: boolean): void;
 }
 
+/** Source for a desktop webview panel. */
+export interface DesktopWebviewPanelPermissions {
+	/** Allow scripts inside the panel iframe. Defaults to false. */
+	enableScripts?: boolean;
+	/** Allow form submission inside the panel iframe. */
+	forms?: boolean;
+	/** Allow popups from the panel iframe. */
+	popups?: boolean;
+	/** Allow downloads from the panel iframe. */
+	downloads?: boolean;
+	/** Allow same-origin iframe behavior. Only honored for URL panels. */
+	sameOrigin?: boolean;
+}
+
+/** Localhost port mapping for desktop webview panels, matching VS Code's webview model. */
+export interface DesktopWebviewPortMapping {
+	/** Localhost port used by webview content. */
+	webviewPort: number;
+	/** Destination localhost port on the extension host side. */
+	extensionHostPort: number;
+}
+
+/** Options for converting local files into host-mediated webview resource URIs. */
+export interface DesktopWebviewUriOptions {
+	/** Optional base directory for relative resource path and localResourceRoots. */
+	basePath?: string;
+	/** Local roots allowed for the resource. Defaults to the session cwd. Pass [] to disable local resources. */
+	localResourceRoots?: string[];
+}
+
+/** Built-in host stylesheet URI key for desktop webview panels. */
+export const desktopWebviewHostStylesheetPath = "pi:host/webview.css";
+
+export type DesktopWebviewPanelSource =
+	| {
+			type: "url";
+			url: string;
+			permissions?: DesktopWebviewPanelPermissions;
+			portMapping?: DesktopWebviewPortMapping[];
+	  }
+	| {
+			type: "html";
+			html: string;
+			baseUrl?: string;
+			permissions?: DesktopWebviewPanelPermissions;
+			portMapping?: DesktopWebviewPortMapping[];
+	  }
+	| {
+			type: "file";
+			/** HTML file path. Relative paths resolve against basePath or the session cwd. */
+			path: string;
+			/** Optional base directory for relative path and localResourceRoots. */
+			basePath?: string;
+			/** Local roots allowed for referenced assets. Defaults to the HTML file directory. */
+			localResourceRoots?: string[];
+			permissions?: DesktopWebviewPanelPermissions;
+			portMapping?: DesktopWebviewPortMapping[];
+	  }
+	| {
+			type: "bundle";
+			/** Directory containing the built webview app. Relative paths resolve against basePath or the session cwd. */
+			root: string;
+			/** HTML entry inside root. Defaults to index.html. */
+			html?: string;
+			/** Optional base directory for relative root and localResourceRoots. */
+			basePath?: string;
+			/** Local roots allowed for referenced assets. Defaults to root. */
+			localResourceRoots?: string[];
+			permissions?: DesktopWebviewPanelPermissions;
+			portMapping?: DesktopWebviewPortMapping[];
+	  };
+
+/** Desktop-only webview panel registration. */
+export interface DesktopWebviewPanelOptions {
+	/** Stable view type used for serializer-like restore flows. Defaults to the panel id. */
+	viewType?: string;
+	/** User-visible tab title. */
+	title: string;
+	/** Optional icon name understood by the desktop host. */
+	icon?: string;
+	/** Optional order among extension-provided panels. */
+	order?: number;
+	/** Keep the iframe alive when the panel tab is hidden. Defaults to false, matching VS Code webviews. */
+	retainContextWhenHidden?: boolean;
+	/** Web content to render inside the panel. */
+	source: DesktopWebviewPanelSource;
+}
+
+/** Desktop-only host APIs. Non-desktop hosts provide no-op implementations. */
+export interface ExtensionDesktopContext {
+	/** CSP source expression for desktop webview resources. Mirrors VS Code webview.cspSource. */
+	readonly cspSource: string;
+	/** Register or replace a webview panel in the desktop session panel. */
+	registerWebviewPanel(id: string, options: DesktopWebviewPanelOptions): void;
+	/** Update an existing webview panel. Unknown panels are ignored by the host. */
+	updateWebviewPanel(id: string, patch: Partial<DesktopWebviewPanelOptions>): void;
+	/** Convert a local file path into a URI that can be used from desktop webview HTML. */
+	asWebviewUri(resourcePath: string, options?: DesktopWebviewUriOptions): string;
+	/** Post a JSON-serializable message to a registered desktop webview panel. */
+	postPanelMessage(panelId: string, message: unknown): void;
+	/** Remove a desktop extension panel. */
+	removePanel(id: string): void;
+}
+
 // ============================================================================
 // Extension Context
 // ============================================================================
@@ -240,6 +344,8 @@ export type ExtensionMode = "desktop" | "rpc" | "json" | "print";
 export interface ExtensionContext {
 	/** UI methods for user interaction */
 	ui: ExtensionUIContext;
+	/** Desktop-only host APIs. No-op outside desktop hosts. */
+	desktop: ExtensionDesktopContext;
 	/** Current run mode. */
 	mode: ExtensionMode;
 	/** Whether dialog-capable UI is available. */
@@ -879,6 +985,32 @@ export function isToolCallEventType(toolName: string, event: ToolCallEvent): boo
 	return event.toolName === toolName;
 }
 
+export interface DesktopPanelMessageEvent {
+	type: "desktop_panel_message";
+	panelId: string;
+	message: unknown;
+}
+
+export interface DesktopPanelViewStateChangedEvent {
+	type: "desktop_panel_view_state_changed";
+	panelId: string;
+	visible: boolean;
+	active: boolean;
+}
+
+export interface DesktopPanelDisposedEvent {
+	type: "desktop_panel_disposed";
+	panelId: string;
+	reason: "removed" | "rendererUnmount" | "threadRestart" | "userClosed";
+}
+
+export interface DesktopPanelRestoreEvent {
+	type: "desktop_panel_restore";
+	panelId: string;
+	viewType: string;
+	state: unknown;
+}
+
 /** Union of all event types */
 export type ExtensionEvent =
 	| ProjectTrustEvent
@@ -903,7 +1035,11 @@ export type ExtensionEvent =
 	| UserBashEvent
 	| InputEvent
 	| ToolCallEvent
-	| ToolResultEvent;
+	| ToolResultEvent
+	| DesktopPanelMessageEvent
+	| DesktopPanelViewStateChangedEvent
+	| DesktopPanelDisposedEvent
+	| DesktopPanelRestoreEvent;
 
 // ============================================================================
 // Event Results
@@ -1057,6 +1193,10 @@ export interface ExtensionAPI {
 	on(event: "tool_result", handler: ExtensionHandler<ToolResultEvent, ToolResultEventResult>): void;
 	on(event: "user_bash", handler: ExtensionHandler<UserBashEvent, UserBashEventResult>): void;
 	on(event: "input", handler: ExtensionHandler<InputEvent, InputEventResult>): void;
+	on(event: "desktop_panel_message", handler: ExtensionHandler<DesktopPanelMessageEvent>): void;
+	on(event: "desktop_panel_view_state_changed", handler: ExtensionHandler<DesktopPanelViewStateChangedEvent>): void;
+	on(event: "desktop_panel_disposed", handler: ExtensionHandler<DesktopPanelDisposedEvent>): void;
+	on(event: "desktop_panel_restore", handler: ExtensionHandler<DesktopPanelRestoreEvent>): void;
 
 	// =========================================================================
 	// Tool Registration

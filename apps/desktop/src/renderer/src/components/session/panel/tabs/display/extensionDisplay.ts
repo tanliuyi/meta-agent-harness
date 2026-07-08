@@ -7,7 +7,6 @@ export const extensionRequestTypeLabels: Record<ExtensionUiRequest['type'], stri
   editor: '编辑请求',
   notify: '通知',
   setStatus: '状态更新',
-  setWidget: '组件更新',
   setTitle: '标题更新',
   setEditorText: '编辑器文本更新',
   getEditorText: '读取编辑器文本',
@@ -70,8 +69,4 @@ export function getExtensionDisplayText(text: string | undefined): string {
     return ''
   }
   return legacyExtensionDisplayText[text] ?? text
-}
-
-export function getExtensionDisplayLines(lines: string[]): string[] {
-  return lines.map(getExtensionDisplayText)
 }

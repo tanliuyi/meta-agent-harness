@@ -7,6 +7,11 @@ import type {
   ApprovalResponse as PackageApprovalResponse
 } from '@coding-agent-desktop-src/protocol/approval'
 import type { AgentSessionEvent as PackageAgentSessionEvent } from '@coding-agent-src/core/agent-session'
+import type {
+  DesktopExtensionPanelLifecycle as PackageDesktopExtensionPanelLifecycle,
+  DesktopExtensionWebviewPanel as PackageDesktopExtensionWebviewPanel,
+  ExtensionPanelProjection as PackageExtensionPanelProjection
+} from '@coding-agent-desktop-src/protocol/extension-panel'
 import type { DesktopProjectionEvent as PackageDesktopProjectionEvent } from '@coding-agent-desktop-src/protocol/events/projection'
 import type { WorkerLifecycleEvent as PackageWorkerLifecycleEvent } from '@coding-agent-desktop-src/protocol/events/worker'
 import type {
@@ -1200,8 +1205,50 @@ export interface ExtensionUiResponseInput {
   response: PackageExtensionUiResponse
 }
 
+/** Desktop extension panel 消息输入。 */
+export interface ExtensionPanelMessageInput extends ThreadIdInput {
+  /** Panel ID。 */
+  panelId: string
+  /** 消息内容。 */
+  message: unknown
+}
+
+/** Desktop extension panel 生命周期事件输入。 */
+export interface ExtensionPanelLifecycleInput extends ThreadIdInput {
+  /** 生命周期事件。 */
+  event: PackageDesktopExtensionPanelLifecycle
+}
+
+/** Desktop extension panel state 缓存输入。 */
+export interface ExtensionPanelStateInput extends ThreadIdInput {
+  /** Panel ID。 */
+  panelId: string
+  /** JSON 可序列化 panel state。 */
+  state: unknown
+}
+
+/** Desktop extension panel dispose 输入。 */
+export interface ExtensionPanelDisposeInput extends ThreadIdInput {
+  /** Panel ID。 */
+  panelId: string
+  /** Dispose 原因。 */
+  reason: 'removed' | 'rendererUnmount' | 'threadRestart' | 'userClosed'
+}
+
+/** 外部 URL 打开输入。 */
+export interface OpenExternalUrlInput {
+  /** 要交给系统浏览器/应用打开的 URI。 */
+  uri: string
+}
+
 /** 扩展 UI 请求。 */
 export type ExtensionUiRequest = PackageExtensionUiRequest
+
+/** Desktop extension panel projection. */
+export type ExtensionPanelProjection = PackageExtensionPanelProjection
+
+/** Desktop extension webview panel. */
+export type DesktopExtensionWebviewPanel = PackageDesktopExtensionWebviewPanel
 
 /** 审批响应输入。 */
 export interface ApprovalResponseInput {
@@ -1423,6 +1470,16 @@ export interface CodingAgentApi {
   dispatchExtensionShortcut(input: ExtensionShortcutInput): Promise<boolean>
   /** 响应 UI 扩展请求。 */
   respondUi(input: ExtensionUiResponseInput): Promise<void>
+  /** 向扩展派发 desktop panel 消息。 */
+  sendExtensionPanelMessage(input: ExtensionPanelMessageInput): Promise<void>
+  /** 向扩展派发 desktop panel 生命周期事件。 */
+  sendExtensionPanelLifecycleEvent(input: ExtensionPanelLifecycleInput): Promise<void>
+  /** 缓存 desktop panel state，用于 renderer reload 后恢复。 */
+  saveExtensionPanelState(input: ExtensionPanelStateInput): Promise<void>
+  /** 销毁 desktop extension panel。 */
+  disposeExtensionPanel(input: ExtensionPanelDisposeInput): Promise<void>
+  /** 受控打开外部 URL。 */
+  openExternalUrl(input: OpenExternalUrlInput): Promise<void>
   /** 响应审批请求。 */
   respondApproval(input: ApprovalResponseInput): Promise<void>
   /** 获取 debug diagnostics。 */

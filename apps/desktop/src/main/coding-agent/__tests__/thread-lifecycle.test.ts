@@ -80,12 +80,54 @@ describe('CodingThreadManager lifecycle', () => {
     ])
 
     await manager.stopThread('thread-a')
+    manager.cacheExtensionPanelProjection({
+      kind: 'event',
+      eventType: 'projection',
+      threadId: 'thread-a',
+      event: {
+        type: 'extensionPanel.registered',
+        threadId: 'thread-a',
+        panel: {
+          id: 'deploy',
+          viewType: 'demo.deploy',
+          title: 'Deploy',
+          source: { type: 'html', html: '<h1>Deploy</h1>' }
+        }
+      }
+    })
+    manager.cacheExtensionPanelProjection({
+      kind: 'event',
+      eventType: 'projection',
+      threadId: 'thread-a',
+      event: {
+        type: 'extensionPanel.resourceRegistered',
+        threadId: 'thread-a',
+        resource: { token: 'resource-token', path: '/tmp/icon.svg', threadId: 'thread-a' }
+      }
+    })
+    manager.cacheExtensionPanelState('thread-a', 'deploy', { selectedDeploymentId: 'prod' })
+    expect(manager.getExtensionPanelReplayEvents()).toHaveLength(2)
+    expect(manager.resolveExtensionWebviewResource('resource-token')).toBeDefined()
+
     await manager.restartThread('thread-a')
 
     expect(registry.acquires[1]).toMatchObject({
       threadId: 'thread-a',
       cwd: projectPath,
       title: 'Thread A'
+    })
+    expect(manager.getExtensionPanelReplayEvents()).toEqual([])
+    expect(manager.resolveExtensionWebviewResource('resource-token')).toBeUndefined()
+    expect(registry.sentCommands).toContainEqual({
+      threadId: 'thread-a',
+      command: {
+        type: 'desktop.panelRestore',
+        restore: {
+          panelId: 'deploy',
+          viewType: 'demo.deploy',
+          state: { selectedDeploymentId: 'prod' }
+        }
+      }
     })
 
     const resumedSnapshot = await manager.createThread({
@@ -453,6 +495,7 @@ function createRecordingRegistry(): {
   liveStates: Map<string, Record<string, unknown>>
   liveMessages: Map<string, AgentMessage[]>
   failedCommands: Map<string, NonNullable<WorkerResponseEnvelope['error']>>
+  sentCommands: Array<{ threadId: string; command: { type: string } }>
   acquireThreadWorker(input: StartThreadInput): Promise<WorkerLease>
   releaseThreadWorker(threadId: string): Promise<void>
   send(threadId: string, command: { type: string }): Promise<WorkerResponseEnvelope>
@@ -463,12 +506,14 @@ function createRecordingRegistry(): {
   const liveStates = new Map<string, Record<string, unknown>>()
   const liveMessages = new Map<string, AgentMessage[]>()
   const failedCommands = new Map<string, NonNullable<WorkerResponseEnvelope['error']>>()
+  const sentCommands: Array<{ threadId: string; command: { type: string } }> = []
   const leases = new Map<string, WorkerLease>()
   return {
     acquires,
     liveStates,
     liveMessages,
     failedCommands,
+    sentCommands,
     async acquireThreadWorker(input) {
       acquires.push(input)
       if (!input.threadId) {
@@ -491,6 +536,7 @@ function createRecordingRegistry(): {
       leases.delete(threadId)
     },
     async send(threadId, command) {
+      sentCommands.push({ threadId, command })
       const error = failedCommands.get(command.type)
       if (error) {
         return {

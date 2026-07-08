@@ -49,6 +49,8 @@ cp permission-gate.ts ~/.pi/agent/extensions/
 | `send-user-message.ts` | Demonstrates `pi.sendUserMessage()` for sending user messages from extensions |
 | `timed-confirm.ts` | Demonstrates AbortSignal for auto-dismissing `ctx.ui.confirm()` and `ctx.ui.select()` dialogs |
 | `rpc-demo.ts` | Exercises all RPC-supported extension UI methods; pair with [`examples/rpc-extension-ui.ts`](../rpc-extension-ui.ts) |
+| `desktop-webview-panel.ts` | Desktop-only custom tab panel rendered in a sandboxed iframe with bidirectional messages |
+| `desktop-webview-file-panel.ts` | Desktop-only webview panel backed by normal HTML/CSS/JS files |
 | `notify.ts` | Desktop notifications via OSC 777 when agent finishes (Ghostty, iTerm2, WezTerm) |
 | `titlebar-spinner.ts` | Braille spinner animation in terminal title while the agent is working |
 | `shutdown-command.ts` | Adds `/quit` command demonstrating `ctx.shutdown()` |

@@ -4,6 +4,7 @@
 
 import type { ApprovalRequest } from "../approval.ts";
 import type { DesktopDiagnostic } from "../diagnostic.ts";
+import type { ExtensionPanelProjection } from "../extension-panel.ts";
 import type { ExtensionUiRequest } from "../extension-ui.ts";
 import type { ThreadId } from "../identity.ts";
 import type { DesktopFileChange } from "../tool.ts";
@@ -50,4 +51,8 @@ export type DesktopProjectionEvent =
 			threadId: ThreadId;
 			/** 扩展 UI 请求。 */
 			request: ExtensionUiRequest;
-	  };
+	  }
+	| (ExtensionPanelProjection & {
+			/** 线程 ID。 */
+			threadId: ThreadId;
+	  });

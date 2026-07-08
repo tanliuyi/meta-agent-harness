@@ -23,6 +23,7 @@ import type {
 	ExtensionCommandContextActions,
 	ExtensionContext,
 	ExtensionContextActions,
+	ExtensionDesktopContext,
 	ExtensionError,
 	ExtensionEvent,
 	ExtensionFlag,
@@ -251,6 +252,15 @@ const noOpTheme = {
 	getBashModeColor: () => (text: string) => text,
 };
 
+const noOpDesktopContext: ExtensionDesktopContext = {
+	cspSource: "",
+	registerWebviewPanel: () => {},
+	updateWebviewPanel: () => {},
+	asWebviewUri: (resourcePath) => resourcePath,
+	postPanelMessage: () => {},
+	removePanel: () => {},
+};
+
 const noOpUIContext: ExtensionUIContext = {
 	select: async () => undefined,
 	confirm: async () => false,
@@ -315,6 +325,7 @@ export class ExtensionRunner {
 	private extensions: Extension[];
 	private runtime: ExtensionRuntime;
 	private uiContext: ExtensionUIContext;
+	private desktopContext: ExtensionDesktopContext;
 	private mode: ExtensionMode = "print";
 	private cwd: string;
 	private sessionManager: SessionManager;
@@ -351,6 +362,7 @@ export class ExtensionRunner {
 		this.extensions = extensions;
 		this.runtime = runtime;
 		this.uiContext = noOpUIContext;
+		this.desktopContext = noOpDesktopContext;
 		this.cwd = cwd;
 		this.sessionManager = sessionManager;
 		this.modelRegistry = modelRegistry;
@@ -452,6 +464,10 @@ export class ExtensionRunner {
 	setUIContext(uiContext?: ExtensionUIContext, mode: ExtensionMode = "print"): void {
 		this.uiContext = uiContext ?? noOpUIContext;
 		this.mode = mode;
+	}
+
+	setDesktopContext(desktopContext?: ExtensionDesktopContext): void {
+		this.desktopContext = desktopContext ?? noOpDesktopContext;
 	}
 
 	getUIContext(): ExtensionUIContext {
@@ -683,6 +699,10 @@ export class ExtensionRunner {
 			get ui() {
 				runner.assertActive();
 				return runner.uiContext;
+			},
+			get desktop() {
+				runner.assertActive();
+				return runner.desktopContext;
 			},
 			get mode() {
 				runner.assertActive();

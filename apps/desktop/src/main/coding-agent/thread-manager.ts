@@ -10,6 +10,10 @@ import type {
   CreateThreadInput,
   DiagnosticsInput,
   ExtensionEditorTextInput,
+  ExtensionPanelDisposeInput,
+  ExtensionPanelLifecycleInput,
+  ExtensionPanelMessageInput,
+  ExtensionPanelStateInput,
   ExtensionShortcutInput,
   ExportSessionInput,
   ExportSessionResult,
@@ -89,6 +93,8 @@ import {
   getCommands,
   respondApproval,
   respondUi,
+  sendExtensionPanelLifecycleEvent,
+  sendExtensionPanelMessage,
   syncExtensionEditorText,
   setAutoCompaction,
   setAutoRetry
@@ -493,6 +499,38 @@ export class CodingThreadManager extends ThreadManagerCore {
    */
   respondUi(input: ExtensionUiResponseInput): Promise<void> {
     return respondUi(this, input)
+  }
+
+  /**
+   * 向扩展派发 desktop panel 消息。
+   * @param input - panel 消息输入。
+   */
+  sendExtensionPanelMessage(input: ExtensionPanelMessageInput): Promise<void> {
+    return sendExtensionPanelMessage(this, input)
+  }
+
+  /**
+   * 向扩展派发 desktop panel 生命周期事件。
+   * @param input - panel 生命周期输入。
+   */
+  sendExtensionPanelLifecycleEvent(input: ExtensionPanelLifecycleInput): Promise<void> {
+    return sendExtensionPanelLifecycleEvent(this, input)
+  }
+
+  /**
+   * 缓存 desktop panel state。
+   * @param input - panel state 输入。
+   */
+  saveExtensionPanelState(input: ExtensionPanelStateInput): void {
+    this.cacheExtensionPanelState(input.threadId, input.panelId, input.state)
+  }
+
+  /**
+   * 销毁 desktop extension panel。
+   * @param input - panel dispose 输入。
+   */
+  async disposeExtensionPanel(input: ExtensionPanelDisposeInput): Promise<void> {
+    await this.disposeExtensionPanelRuntime(input.threadId, input.panelId, input.reason)
   }
 
   /**

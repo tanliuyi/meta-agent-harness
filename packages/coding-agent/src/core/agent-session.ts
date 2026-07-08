@@ -56,6 +56,7 @@ import { getExportThemeByName } from "./export-theme.ts";
 import {
 	type ContextUsage,
 	type ExtensionCommandContextActions,
+	type ExtensionDesktopContext,
 	type ExtensionErrorListener,
 	type ExtensionMode,
 	ExtensionRunner,
@@ -195,6 +196,7 @@ export interface AgentSessionConfig {
 
 export interface ExtensionBindings {
 	uiContext?: ExtensionUIContext;
+	desktopContext?: ExtensionDesktopContext;
 	mode?: ExtensionMode;
 	commandContextActions?: ExtensionCommandContextActions;
 	abortHandler?: () => void;
@@ -317,6 +319,7 @@ export class AgentSession {
 	private _baseToolsOverride?: Record<string, AgentTool>;
 	private _sessionStartEvent: SessionStartEvent;
 	private _extensionUIContext?: ExtensionUIContext;
+	private _extensionDesktopContext?: ExtensionDesktopContext;
 	private _extensionMode: ExtensionMode = "print";
 	private _extensionCommandContextActions?: ExtensionCommandContextActions;
 	private _extensionAbortHandler?: () => void;
@@ -2102,6 +2105,9 @@ export class AgentSession {
 		if (bindings.uiContext !== undefined) {
 			this._extensionUIContext = bindings.uiContext;
 		}
+		if (bindings.desktopContext !== undefined) {
+			this._extensionDesktopContext = bindings.desktopContext;
+		}
 		if (bindings.mode !== undefined) {
 			this._extensionMode = bindings.mode;
 		}
@@ -2178,6 +2184,7 @@ export class AgentSession {
 
 	private _applyExtensionBindings(runner: ExtensionRunner): void {
 		runner.setUIContext(this._extensionUIContext, this._extensionMode);
+		runner.setDesktopContext(this._extensionDesktopContext);
 		runner.bindCommandContext(this._extensionCommandContextActions);
 
 		this._extensionErrorUnsubscriber?.();

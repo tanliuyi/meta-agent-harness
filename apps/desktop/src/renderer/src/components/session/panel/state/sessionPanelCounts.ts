@@ -8,7 +8,6 @@ export interface SessionPanelTabCountInput {
   extensionNotifications?: number
   extensionTitle?: string
   extensionUiRequests: Record<string, unknown>
-  extensionWidgets: Record<string, unknown>
   extensionWorking?: boolean
   tree: number
 }
@@ -24,7 +23,6 @@ export function createStableSessionPanelTabCounts(
     extensions:
       countRecordKeys(input.extensionUiRequests) +
       countTruthyRecordValues(input.extensionStatuses) +
-      countRecordKeys(input.extensionWidgets) +
       countNumericActivity(input.extensionNotifications) +
       countOptionalActivity(input.extensionTitle) +
       countBooleanActivity(input.extensionWorking),

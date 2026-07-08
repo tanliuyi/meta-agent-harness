@@ -3,9 +3,18 @@
  */
 
 import type { ExtensionTheme, ExtensionUIContext, ExtensionUIDialogOptions } from "@earendil-works/pi-coding-agent";
+import type { DesktopProjectionEvent } from "../protocol/events/projection.ts";
 import type { ExtensionUiRequest, ExtensionUiResponse } from "../protocol/extension-ui.ts";
 import type { ThreadId } from "../protocol/identity.ts";
 import type { WorkerEventEnvelope } from "../protocol/envelope.ts";
+import {
+	asDesktopWebviewUri,
+	resolveDesktopWebviewPanelOptions,
+	resolveDesktopWebviewPanelPatch,
+	type DesktopWebviewPanelOptions,
+	type DesktopWebviewResourceReference,
+	type DesktopWebviewUriOptions,
+} from "./extension-webview-source.ts";
 
 /** 等待中的 UI 请求。 */
 interface PendingUiRequest<T> {
@@ -17,6 +26,15 @@ interface PendingUiRequest<T> {
 interface DesktopThemeDefinition {
 	name: string;
 	colors: Record<string, string>;
+}
+
+interface ExtensionDesktopContext {
+	readonly cspSource: string;
+	registerWebviewPanel(id: string, options: DesktopWebviewPanelOptions): void;
+	updateWebviewPanel(id: string, patch: Partial<DesktopWebviewPanelOptions>): void;
+	asWebviewUri(resourcePath: string, options?: DesktopWebviewUriOptions): string;
+	postPanelMessage(panelId: string, message: unknown): void;
+	removePanel(id: string): void;
 }
 
 const desktopThemes: DesktopThemeDefinition[] = [
@@ -59,13 +77,6 @@ function getDesktopTheme(name: string): DesktopThemeDefinition | undefined {
 	return desktopThemes.find((theme) => theme.name === name);
 }
 
-function describeFactory(factory: unknown, label: string): string[] | undefined {
-	if (factory === undefined) {
-		return undefined;
-	}
-	return [typeof factory === "function" ? `${label}已注册` : `${label}值已注册`];
-}
-
 type DesktopExtensionUIContext = Omit<
 	ExtensionUIContext,
 	"setWidget" | "custom" | "getEditorComponent" | "getAllThemes" | "getTheme" | "setTheme"
@@ -92,9 +103,8 @@ export class ExtensionUiBridge {
 	private readonly emit: (event: WorkerEventEnvelope) => void;
 	private readonly pending = new Map<string, PendingUiRequest<unknown>>();
 	private readonly terminalInputHandlers = new Set<(data: string) => unknown>();
-	private readonly autocompleteProviders: unknown[] = [];
-	private editorComponent: unknown;
 	private activeTheme = desktopThemes[0];
+	private cwd: string;
 	private editorText = "";
 	private toolsExpanded = false;
 
@@ -102,16 +112,80 @@ export class ExtensionUiBridge {
 	 * 创建 ExtensionUiBridge 实例。
 	 * @param threadId - 关联的 thread ID。
 	 * @param emit - 发送事件 envelope 的函数。
+	 * @param cwd - 用于解析 desktop webview 相对路径的当前工作目录。
 	 */
-	constructor(threadId: ThreadId, emit: (event: WorkerEventEnvelope) => void) {
+	constructor(threadId: ThreadId, emit: (event: WorkerEventEnvelope) => void, cwd = process.cwd()) {
 		this.threadId = threadId;
 		this.emit = emit;
+		this.cwd = cwd;
 	}
 
 	/**
 	 * 创建 Pi ExtensionUIContext 实例。
 	 * @returns ExtensionUIContext 对象。
 	 */
+	createDesktopContext(): ExtensionDesktopContext {
+		return {
+			cspSource: "pi-webview-resource:",
+			registerWebviewPanel: (id, options) => {
+					const resolvedOptions = resolveDesktopWebviewPanelOptions(options, this.cwd, (resource) => this.registerWebviewResource(resource));
+					this.emitUiProjection({
+						type: "extensionPanel.registered",
+						threadId: this.threadId,
+					panel: { id, viewType: resolvedOptions.viewType ?? id, ...resolvedOptions },
+				});
+				},
+				updateWebviewPanel: (panelId, patch) => {
+					const resolvedPatch = resolveDesktopWebviewPanelPatch(patch, this.cwd, (resource) => this.registerWebviewResource(resource));
+					this.emitUiProjection({
+						type: "extensionPanel.updated",
+						threadId: this.threadId,
+					panelId,
+					patch: resolvedPatch,
+				});
+			},
+			asWebviewUri: (resourcePath, options) => {
+				const token = crypto.randomUUID();
+				const resource = asDesktopWebviewUri(resourcePath, options, this.cwd, token);
+				this.emitUiProjection({
+					type: "extensionPanel.resourceRegistered",
+					threadId: this.threadId,
+					resource: { ...resource, threadId: this.threadId },
+				});
+				return `pi-webview-resource://${token}`;
+			},
+			postPanelMessage: (panelId, message) => {
+				this.emitUiProjection({
+					type: "extensionPanel.message",
+					threadId: this.threadId,
+					panelId,
+					message,
+				});
+			},
+			removePanel: (panelId) => {
+				this.emitUiProjection({
+					type: "extensionPanel.removed",
+					threadId: this.threadId,
+					panelId,
+				});
+			},
+			};
+		}
+
+	private registerWebviewResource(resource: DesktopWebviewResourceReference): string {
+		const token = crypto.randomUUID();
+		this.emitUiProjection({
+			type: "extensionPanel.resourceRegistered",
+			threadId: this.threadId,
+			resource: { ...resource, token, threadId: this.threadId },
+		});
+		return `pi-webview-resource://${token}`;
+	}
+
+	syncCwd(cwd: string): void {
+		this.cwd = cwd;
+	}
+
 	createContext(): ExtensionUIContext {
 		const bridge = this;
 		const context: DesktopExtensionUIContext = {
@@ -162,31 +236,9 @@ export class ExtensionUiBridge {
 				this.emitUi({ type: "setWorkingIndicator", id: crypto.randomUUID(), options }),
 			setHiddenThinkingLabel: (label) =>
 				this.emitUi({ type: "setHiddenThinkingLabel", id: crypto.randomUUID(), label }),
-			setWidget: (widgetKey, widgetLines, options) => {
-				this.emitUi({
-					type: "setWidget",
-					id: crypto.randomUUID(),
-					widgetKey,
-					widgetLines: Array.isArray(widgetLines) ? widgetLines : describeFactory(widgetLines, "组件工厂"),
-					widgetPlacement: options?.placement,
-				});
-			},
-			setFooter: (factory) => {
-				this.emitUi({
-					type: "setStatus",
-					id: crypto.randomUUID(),
-					statusKey: "extensionFooter",
-					statusText: describeFactory(factory, "页脚组件")?.[0],
-				});
-			},
-			setHeader: (factory) => {
-				this.emitUi({
-					type: "setStatus",
-					id: crypto.randomUUID(),
-					statusKey: "extensionHeader",
-					statusText: describeFactory(factory, "页头组件")?.[0],
-				});
-			},
+			setWidget: () => {},
+			setFooter: () => {},
+			setHeader: () => {},
 			setTitle: (title) => this.emitUi({ type: "setTitle", id: crypto.randomUUID(), title }),
 			pasteToEditor: (text) => {
 				this.editorText = text;
@@ -204,34 +256,10 @@ export class ExtensionUiBridge {
 					(response) =>
 						"cancelled" in response ? undefined : "value" in response && typeof response.value === "string" ? response.value : undefined,
 				),
-			custom: async (factory, options) => {
-				this.emitUi({
-					type: "setStatus",
-					id: crypto.randomUUID(),
-					statusKey: "extensionCustom",
-					statusText: describeFactory(factory, options ? `自定义组件 ${JSON.stringify(options)}` : "自定义组件")?.[0],
-				});
-				return undefined;
-			},
-			addAutocompleteProvider: (factory) => {
-				this.autocompleteProviders.push(factory);
-				this.emitUi({
-					type: "setStatus",
-					id: crypto.randomUUID(),
-					statusKey: "autocomplete",
-					statusText: `${this.autocompleteProviders.length} provider(s)`,
-				});
-			},
-			setEditorComponent: (factory) => {
-				this.editorComponent = factory;
-				this.emitUi({
-					type: "setStatus",
-					id: crypto.randomUUID(),
-					statusKey: "extensionEditorComponent",
-					statusText: describeFactory(factory, "编辑器组件")?.[0],
-				});
-			},
-			getEditorComponent: () => this.editorComponent,
+			custom: async () => undefined,
+			addAutocompleteProvider: () => {},
+			setEditorComponent: () => {},
+			getEditorComponent: () => undefined,
 			get theme() {
 				return createDesktopTheme(bridge.activeTheme);
 			},
@@ -320,11 +348,15 @@ export class ExtensionUiBridge {
 	}
 
 	private emitUi(request: ExtensionUiRequest): void {
+		this.emitUiProjection({ type: "extensionUi.requested", threadId: this.threadId, request });
+	}
+
+	private emitUiProjection(event: DesktopProjectionEvent): void {
 		this.emit({
 			kind: "event",
 			eventType: "projection",
 			threadId: this.threadId,
-			event: { type: "extensionUi.requested", threadId: this.threadId, request },
+			event,
 		});
 	}
 }

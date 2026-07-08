@@ -3,6 +3,7 @@
  */
 
 import type { ApprovalResponse } from "../approval.ts";
+import type { DesktopExtensionPanelLifecycle, DesktopExtensionPanelRestore } from "../extension-panel.ts";
 import type { ExtensionUiResponse } from "../extension-ui.ts";
 import type { StartThreadInput } from "../thread.ts";
 import type { KeyId } from "@earendil-works/pi-coding-agent";
@@ -60,6 +61,26 @@ export type DesktopControlCommand =
 			expanded: boolean;
 	  }
 	| {
+			/** 命令类型：向扩展派发 desktop panel 消息。 */
+			type: "desktop.panelMessage";
+			/** Panel ID。 */
+			panelId: string;
+			/** 消息内容。 */
+			message: unknown;
+	  }
+	| {
+			/** 命令类型：向扩展派发 desktop panel 生命周期事件。 */
+			type: "desktop.panelLifecycle";
+			/** 生命周期事件。 */
+			event: DesktopExtensionPanelLifecycle;
+	  }
+	| {
+			/** 命令类型：请求扩展恢复 desktop panel。 */
+			type: "desktop.panelRestore";
+			/** Restore 请求。 */
+			restore: DesktopExtensionPanelRestore;
+	  }
+	| {
 			/** 命令类型：触发扩展快捷键。 */
 			type: "shortcut.dispatch";
 			/** 快捷键 ID。 */
@@ -86,5 +107,8 @@ const controlCommandTypes = new Set<string>([
 	"approval.respond",
 	"ui.editorTextChanged",
 	"ui.toolsExpandedChanged",
+	"desktop.panelMessage",
+	"desktop.panelLifecycle",
+	"desktop.panelRestore",
 	"shortcut.dispatch",
 ]);

@@ -236,6 +236,7 @@
 }
 
 .session-panel__body {
+  flex: 1;
   display: grid;
   grid-template-rows: minmax(0, 1fr);
   gap: var(--space-3);
@@ -246,14 +247,19 @@
 }
 
 .session-panel__scroll {
+  height: 100%;
   min-width: 0;
   min-height: 0;
 }
 
 .session-panel__scroll [data-slot='scroll-area-viewport'] {
-  display: grid;
-  gap: var(--space-3);
-  align-content: start;
+  height: 100%;
+  min-height: 0;
+}
+
+.session-panel__scroll [data-slot='scroll-area-viewport'] > div {
+  height: 100%;
+  min-height: 100%;
 }
 
 .session-panel__empty-tabs {

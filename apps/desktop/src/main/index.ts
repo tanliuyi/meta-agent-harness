@@ -8,7 +8,14 @@ import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import windowStateKeeper from 'electron-window-state'
 import icon from '../../resources/icon.png?asset'
 import { installCodingAgentPackageDirEnv } from './coding-agent/coding-agent-package-dir'
-import { registerDeferredCodingAgentIpc } from './coding-agent/deferred-ipc'
+import {
+  getLoadedCodingAgentManager,
+  registerDeferredCodingAgentIpc
+} from './coding-agent/deferred-ipc'
+import {
+  registerWebviewResourceProtocol,
+  registerWebviewResourceScheme
+} from './coding-agent/webview-resource-protocol'
 // import { installIpcLogger } from 'electron-ipc-logger'
 
 const defaultWindowBounds = {
@@ -16,6 +23,8 @@ const defaultWindowBounds = {
   height: 1080
 }
 const initialRendererHash = '/new'
+
+registerWebviewResourceScheme()
 
 /**
  * 为当前平台生成无边框窗口的 BrowserWindow 选项。
@@ -135,6 +144,7 @@ app.whenReady().then(async () => {
 
   ipcMain.on('ping', () => console.log('pong'))
   registerWindowControlIpc()
+  registerWebviewResourceProtocol(getLoadedCodingAgentManager)
 
   createWindow()
   registerDeferredCodingAgentIpc()

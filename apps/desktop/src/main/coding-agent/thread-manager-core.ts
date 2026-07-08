@@ -2,8 +2,15 @@
  * 本文件提供 CodingThreadManager 共享的 thread registry 与 worker send 能力。
  */
 
-import type { ListThreadsInput, ThreadSnapshot, ThreadSummary } from '@shared/coding-agent/types'
-import type { WorkerCommand, WorkerResponseEnvelope } from './worker-types'
+import type {
+  CodingAgentIpcEvent,
+  DesktopExtensionWebviewPanel,
+  ListThreadsInput,
+  ThreadSnapshot,
+  ThreadSummary
+} from '@shared/coding-agent/types'
+import type { WorkerCommand, WorkerResponseEnvelope, WorkerEnvelope } from './worker-types'
+import type { DesktopExtensionWebviewResource } from '@coding-agent-desktop-src/protocol/extension-panel'
 import type {
   ThreadLiveState,
   ThreadMessagesResponse
@@ -22,6 +29,12 @@ type MaybePromise<T> = T | Promise<T>
 type ServiceProvider<T> = T | (() => MaybePromise<T>)
 type SessionSnapshotModule = typeof import('./session-snapshot')
 
+export interface ExtensionPanelRestoreRequest {
+  panelId: string
+  viewType: string
+  state: unknown
+}
+
 let sessionSnapshotModulePromise: Promise<SessionSnapshotModule> | undefined
 
 function loadSessionSnapshotModule(): Promise<SessionSnapshotModule> {
@@ -35,6 +48,15 @@ function loadSessionSnapshotModule(): Promise<SessionSnapshotModule> {
 export class ThreadManagerCore {
   /** 内存中的线程摘要映射。 */
   protected readonly threads = new Map<string, ThreadSummary>()
+  /** Renderer reload 后可重放的 desktop extension panel snapshot。 */
+  private readonly extensionPanelSnapshots = new Map<
+    string,
+    Map<string, DesktopExtensionWebviewPanel>
+  >()
+  /** Renderer reload 后可重放的 desktop extension panel state。 */
+  private readonly extensionPanelStateSnapshots = new Map<string, Map<string, unknown>>()
+  /** Webview resource token registry. Tokens are opaque to renderer. */
+  private readonly extensionWebviewResources = new Map<string, DesktopExtensionWebviewResource>()
   /** Thread worker registry 实例。 */
   protected readonly workers: ThreadWorkerRegistry
   /** 可选的持久化线程 store。 */
@@ -130,6 +152,214 @@ export class ThreadManagerCore {
   }
 
   /**
+   * 更新 desktop extension panel snapshot，供 renderer reload 后重放。
+   * @param event - worker event envelope。
+   */
+  cacheExtensionPanelProjection(event: WorkerEnvelope): void {
+    if (
+      event.kind !== 'event' ||
+      event.eventType !== 'projection' ||
+      typeof event.threadId !== 'string'
+    ) {
+      return
+    }
+    switch (event.event.type) {
+      case 'extensionPanel.registered':
+        this.ensureExtensionPanelSnapshot(event.threadId).set(event.event.panel.id, event.event.panel)
+        return
+      case 'extensionPanel.updated': {
+        const panels = this.extensionPanelSnapshots.get(event.threadId)
+        const current = panels?.get(event.event.panelId)
+        if (!current) {
+          return
+        }
+        panels?.set(event.event.panelId, { ...current, ...event.event.patch })
+        return
+      }
+      case 'extensionPanel.removed':
+        this.extensionPanelSnapshots.get(event.threadId)?.delete(event.event.panelId)
+        this.extensionPanelStateSnapshots.get(event.threadId)?.delete(event.event.panelId)
+        return
+      case 'extensionPanel.stateUpdated':
+        this.cacheExtensionPanelState(event.threadId, event.event.panelId, event.event.state)
+        return
+      case 'extensionPanel.resourceRegistered':
+        this.extensionWebviewResources.set(event.event.resource.token, event.event.resource)
+        return
+      default:
+        return
+    }
+  }
+
+  /**
+   * Resolve a previously registered desktop webview resource token.
+   * @param token - Opaque token from pi-webview-resource:// URLs.
+   * @returns Registered resource metadata, if present.
+   */
+  resolveExtensionWebviewResource(token: string): DesktopExtensionWebviewResource | undefined {
+    return this.extensionWebviewResources.get(token)
+  }
+
+  /**
+   * 缓存 desktop extension panel state，供 renderer reload 后恢复。
+   * @param threadId - Thread ID。
+   * @param panelId - Panel ID。
+   * @param state - JSON 可序列化 panel state。
+   */
+  cacheExtensionPanelState(threadId: string, panelId: string, state: unknown): void {
+    const panels = this.extensionPanelSnapshots.get(threadId)
+    if (!panels?.has(panelId)) {
+      return
+    }
+    let states = this.extensionPanelStateSnapshots.get(threadId)
+    if (!states) {
+      states = new Map<string, unknown>()
+      this.extensionPanelStateSnapshots.set(threadId, states)
+    }
+    states.set(panelId, state)
+  }
+
+  /**
+   * 移除 desktop extension panel replay 与 state cache。
+   * @param threadId - Thread ID。
+   * @param panelId - Panel ID。
+   * @returns 是否存在并移除了 panel。
+   */
+  removeExtensionPanelRuntime(threadId: string, panelId: string): boolean {
+    const removed = this.extensionPanelSnapshots.get(threadId)?.delete(panelId) ?? false
+    this.extensionPanelStateSnapshots.get(threadId)?.delete(panelId)
+    return removed
+  }
+
+  /**
+   * 获取指定 thread 当前可恢复的 desktop extension panel。
+   * @param threadId - Thread ID。
+   * @returns restore 请求列表。
+   */
+  getExtensionPanelRestoreRequests(threadId: string): ExtensionPanelRestoreRequest[] {
+    const panels = this.extensionPanelSnapshots.get(threadId)
+    if (!panels) {
+      return []
+    }
+    const states = this.extensionPanelStateSnapshots.get(threadId)
+    return [...panels.values()].map((panel) => ({
+      panelId: panel.id,
+      viewType: panel.viewType ?? panel.id,
+      state: states?.get(panel.id)
+    }))
+  }
+
+  /**
+   * 请求已绑定 worker 恢复 desktop extension panel。
+   * @param threadId - Thread ID。
+   * @param requests - Restore 请求列表。
+   */
+  async requestExtensionPanelRestoreRuntime(
+    threadId: string,
+    requests: ExtensionPanelRestoreRequest[]
+  ): Promise<void> {
+    if (!requests.length || !this.hasWorker(threadId)) {
+      return
+    }
+    for (const restore of requests) {
+      const response = await this.workers.send(threadId, {
+        type: 'desktop.panelRestore',
+        restore
+      })
+      if (!response.success) {
+        throwResponseError(response)
+      }
+    }
+  }
+
+  /**
+   * 销毁 desktop extension panel 并通知已绑定的 extension runtime。
+   * 不会为了 dispose 一个 panel 启动新 worker。
+   * @param threadId - Thread ID。
+   * @param panelId - Panel ID。
+   * @param reason - Dispose 原因。
+   */
+  async disposeExtensionPanelRuntime(
+    threadId: string,
+    panelId: string,
+    reason: 'removed' | 'rendererUnmount' | 'threadRestart' | 'userClosed'
+  ): Promise<void> {
+    const removed = this.removeExtensionPanelRuntime(threadId, panelId)
+    if (!removed || !this.hasWorker(threadId)) {
+      return
+    }
+    const response = await this.workers.send(threadId, {
+      type: 'desktop.panelLifecycle',
+      event: { type: 'disposed', panelId, reason }
+    })
+    if (!response.success) {
+      throwResponseError(response)
+    }
+  }
+
+  /**
+   * 清除指定 thread 的 desktop extension panel replay 与 webview resource token。
+   * @param threadId - thread ID。
+   */
+  clearExtensionPanelRuntime(threadId: string): void {
+    this.extensionPanelSnapshots.delete(threadId)
+    this.extensionPanelStateSnapshots.delete(threadId)
+    for (const [token, resource] of this.extensionWebviewResources.entries()) {
+      if (resource.threadId === threadId) {
+        this.extensionWebviewResources.delete(token)
+      }
+    }
+  }
+
+  /**
+   * 获取当前可重放的 desktop extension panel projection events。
+   * @returns renderer IPC events。
+   */
+  getExtensionPanelReplayEvents(): CodingAgentIpcEvent[] {
+    return [...this.extensionPanelSnapshots.entries()].flatMap(([threadId, panels]) =>
+      [...panels.values()].flatMap((panel) => {
+        const registeredEvent = {
+          type: 'projection' as const,
+          threadId,
+          event: {
+            type: 'extensionPanel.registered' as const,
+            threadId,
+            panel
+          }
+        }
+        const state = this.extensionPanelStateSnapshots.get(threadId)?.get(panel.id)
+        if (state === undefined) {
+          return [registeredEvent]
+        }
+        return [
+          registeredEvent,
+          {
+            type: 'projection' as const,
+            threadId,
+            event: {
+              type: 'extensionPanel.stateUpdated' as const,
+              threadId,
+              panelId: panel.id,
+              state
+            }
+          }
+        ]
+      })
+    )
+  }
+
+  private ensureExtensionPanelSnapshot(
+    threadId: string
+  ): Map<string, DesktopExtensionWebviewPanel> {
+    let panels = this.extensionPanelSnapshots.get(threadId)
+    if (!panels) {
+      panels = new Map<string, DesktopExtensionWebviewPanel>()
+      this.extensionPanelSnapshots.set(threadId, panels)
+    }
+    return panels
+  }
+
+  /**
    * 获取持久化 store。
    * @returns store 或 undefined。
    */
@@ -183,14 +413,18 @@ export class ThreadManagerCore {
       this.syncThreadMetadataFromLiveState(thread, liveState)
       const currentThread = this.requireThread(threadId)
       const liveProjection = await this.getLiveProjection(threadId)
-      const persistedProjection = await this.getPersistedProjectionFallback(
+      const persistedProjection = await this.getPersistedProjection(
         currentThread,
-        liveProjection
+        liveState.currentEntryId
       )
+      const renderableProjection = selectRenderableProjection({
+        liveProjection,
+        persistedProjection,
+        liveState
+      })
       const snapshot = this.buildSnapshot(currentThread, {
-        ...(persistedProjection ?? {}),
-        ...liveState,
-        ...(hasRenderableMessages(liveProjection) ? liveProjection : {})
+        ...(renderableProjection ?? {}),
+        ...liveState
       })
       return snapshot
     }
@@ -377,7 +611,8 @@ export class ThreadManagerCore {
    * @returns snapshot 或 undefined。
    */
   private async buildSnapshotFromSessionFile(
-    thread: ThreadSummary
+    thread: ThreadSummary,
+    currentEntryId?: string | null
   ): Promise<ThreadSnapshot | undefined> {
     if (!thread.sessionFile) {
       return undefined
@@ -387,7 +622,8 @@ export class ThreadManagerCore {
       const snapshot = buildSnapshotFromSession({
         thread,
         cwd: this.getThreadCwd(thread),
-        sessionFile: thread.sessionFile
+        sessionFile: thread.sessionFile,
+        currentEntryId
       })
       return {
         ...snapshot,
@@ -400,14 +636,13 @@ export class ThreadManagerCore {
   }
 
   /**
-   * live worker 偶发返回空 projection 时，从 JSONL session 补回历史消息与 tree。
+   * 从 JSONL session 读取 renderer 使用的持久化 timeline projection。
    * @param thread - 当前线程摘要。
-   * @param liveProjection - worker 返回的 live projection。
-   * @returns 持久化 projection 兜底。
+   * @returns 持久化 projection。
    */
-  private async getPersistedProjectionFallback(
+  private async getPersistedProjection(
     thread: ThreadSummary,
-    liveProjection: Pick<ThreadSnapshot, 'messages' | 'toolCalls' | 'fileChanges'> | undefined
+    currentEntryId?: string | null
   ): Promise<
     | Pick<
         ThreadSnapshot,
@@ -415,10 +650,7 @@ export class ThreadManagerCore {
       >
     | undefined
   > {
-    if (hasRenderableMessages(liveProjection)) {
-      return undefined
-    }
-    const persistedSnapshot = await this.buildSnapshotFromSessionFile(thread)
+    const persistedSnapshot = await this.buildSnapshotFromSessionFile(thread, currentEntryId)
     if (!persistedSnapshot || persistedSnapshot.messages.length === 0) {
       return undefined
     }
@@ -685,8 +917,36 @@ function buildContextUsage(usage: ContextUsage | undefined): ThreadSnapshot['con
   }
 }
 
-function hasRenderableMessages(
-  projection: Pick<ThreadSnapshot, 'messages'> | undefined
-): projection is Pick<ThreadSnapshot, 'messages'> {
+type RenderableProjection = Pick<
+  ThreadSnapshot,
+  'messages' | 'toolCalls' | 'fileChanges' | 'sessionTree' | 'currentEntryId'
+>
+
+type LiveRenderableProjection = Pick<ThreadSnapshot, 'messages' | 'toolCalls' | 'fileChanges'>
+
+function selectRenderableProjection(input: {
+  liveProjection: LiveRenderableProjection | undefined
+  persistedProjection: RenderableProjection | undefined
+  liveState: Partial<ThreadLiveState>
+}): RenderableProjection | LiveRenderableProjection | undefined {
+  if (input.liveState.isStreaming || input.liveState.isCompacting) {
+    return hasRenderableMessages(input.liveProjection)
+      ? input.liveProjection
+      : input.persistedProjection
+  }
+  if (!hasRenderableMessages(input.persistedProjection)) {
+    return hasRenderableMessages(input.liveProjection) ? input.liveProjection : undefined
+  }
+  if (!hasRenderableMessages(input.liveProjection)) {
+    return input.persistedProjection
+  }
+  return input.persistedProjection.messages.length >= input.liveProjection.messages.length
+    ? input.persistedProjection
+    : input.liveProjection
+}
+
+function hasRenderableMessages<T extends Pick<ThreadSnapshot, 'messages'>>(
+  projection: T | undefined
+): projection is T {
   return Boolean(projection?.messages.length)
 }

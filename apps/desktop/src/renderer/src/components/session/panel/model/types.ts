@@ -3,8 +3,10 @@ import type { SessionTreeViewMode } from '@shared/coding-agent/types'
 
 export type OnOffValue = 'on' | 'off'
 export type SessionTreeFilter = 'all' | 'user' | 'labeled' | 'no-tools'
-export type SessionPanelTabId =
+export type BuiltInSessionPanelTabId =
   'session' | 'changes' | 'tree' | 'commands' | 'extensions' | 'approvals'
+export type ExtensionSessionPanelTabId = `extension:${string}`
+export type SessionPanelTabId = BuiltInSessionPanelTabId | ExtensionSessionPanelTabId
 
 export interface SessionPanelTab {
   id: SessionPanelTabId
@@ -20,14 +22,7 @@ export interface SessionPanelOpenTab extends SessionPanelTab {
   instanceId: string
 }
 
-export interface SessionPanelTabCountMap {
-  session?: number
-  changes?: number
-  tree?: number
-  commands?: number
-  extensions?: number
-  approvals?: number
-}
+export type SessionPanelTabCountMap = Partial<Record<SessionPanelTabId, number>>
 
 export interface SessionTreeEntryView {
   id: string

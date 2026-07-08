@@ -6,13 +6,23 @@ import { describe, expect, it, vi } from 'vitest'
 import { codingAgentChannels } from '@shared/coding-agent/channels'
 import {
   publishCodingAgentEvent,
+  normalizeAllowedExternalUrl,
   syncThreadStatusFromWorkerEvent,
   syncThreadStatusFromWorkerLifecycle,
   toCodingAgentIpcEvent
 } from '../ipc'
 import type { CodingAgentIpcEvent } from '@shared/coding-agent/types'
+import { ThreadManagerCore } from '../thread-manager-core'
 
 describe('coding agent IPC events', () => {
+  it('只允许安全外部 URL 协议', () => {
+    expect(normalizeAllowedExternalUrl(' https://example.com/docs ')).toBe('https://example.com/docs')
+    expect(normalizeAllowedExternalUrl('mailto:hello@example.com')).toBe('mailto:hello@example.com')
+    expect(() => normalizeAllowedExternalUrl('file:///tmp/secret')).toThrow('not allowed')
+    expect(() => normalizeAllowedExternalUrl('command:workbench.action.reloadWindow')).toThrow('not allowed')
+    expect(() => normalizeAllowedExternalUrl('javascript:alert(1)')).toThrow('not allowed')
+  })
+
   it('将 worker agent/projection envelope 转成 renderer IPC event', () => {
     expect(
       toCodingAgentIpcEvent({
@@ -110,6 +120,25 @@ describe('coding agent IPC events', () => {
         }
       }
     })
+  })
+
+  it('不把 desktop webview resource 注册事件转发给 renderer', () => {
+    expect(
+      toCodingAgentIpcEvent({
+        kind: 'event',
+        eventType: 'projection',
+        threadId: 'thread-a',
+        event: {
+          type: 'extensionPanel.resourceRegistered',
+          threadId: 'thread-a',
+          resource: {
+            token: 'resource-token',
+            path: '/tmp/secret.svg',
+            threadId: 'thread-a'
+          }
+        }
+      })
+    ).toBeUndefined()
   })
 
   it('只向未销毁的订阅窗口发布事件', () => {
@@ -213,6 +242,134 @@ describe('coding agent IPC events', () => {
     expect(manager.updateThread).toHaveBeenNthCalledWith(2, 'thread-a', { status: 'idle' })
     expect(manager.updateThread).toHaveBeenNthCalledWith(3, 'thread-a', { status: 'idle' })
     expect(manager.updateThread).toHaveBeenCalledTimes(3)
+  })
+
+  it('缓存 desktop extension panel projection，用于 renderer reload 后重放', () => {
+    const manager = new ThreadManagerCore({} as never)
+
+    manager.cacheExtensionPanelProjection({
+      kind: 'event',
+      eventType: 'projection',
+      threadId: 'thread-a',
+      event: {
+        type: 'extensionPanel.registered',
+        threadId: 'thread-a',
+        panel: {
+          id: 'deploy',
+          title: 'Deploy',
+          source: { type: 'html', html: '<h1>Deploy</h1>' }
+        }
+      }
+    })
+    manager.cacheExtensionPanelProjection({
+      kind: 'event',
+      eventType: 'projection',
+      threadId: 'thread-a',
+      event: {
+        type: 'extensionPanel.updated',
+        threadId: 'thread-a',
+        panelId: 'deploy',
+        patch: { title: 'Deployments', order: 10 }
+      }
+    })
+    manager.cacheExtensionPanelState('thread-a', 'deploy', { selectedDeploymentId: 'prod' })
+
+    expect(manager.getExtensionPanelReplayEvents()).toEqual([
+      {
+        type: 'projection',
+        threadId: 'thread-a',
+        event: {
+          type: 'extensionPanel.registered',
+          threadId: 'thread-a',
+          panel: {
+            id: 'deploy',
+            title: 'Deployments',
+            order: 10,
+            source: { type: 'html', html: '<h1>Deploy</h1>' }
+          }
+        }
+      },
+      {
+        type: 'projection',
+        threadId: 'thread-a',
+        event: {
+          type: 'extensionPanel.stateUpdated',
+          threadId: 'thread-a',
+          panelId: 'deploy',
+          state: { selectedDeploymentId: 'prod' }
+        }
+      }
+    ])
+
+    manager.cacheExtensionPanelProjection({
+      kind: 'event',
+      eventType: 'projection',
+      threadId: 'thread-a',
+      event: {
+        type: 'extensionPanel.removed',
+        threadId: 'thread-a',
+        panelId: 'deploy'
+      }
+    })
+
+    manager.cacheExtensionPanelProjection({
+      kind: 'event',
+      eventType: 'projection',
+      threadId: 'thread-a',
+      event: {
+        type: 'extensionPanel.resourceRegistered',
+        threadId: 'thread-a',
+        resource: {
+          token: 'resource-token',
+          path: '/tmp/icon.svg',
+          threadId: 'thread-a'
+        }
+      }
+    })
+
+    expect(manager.getExtensionPanelReplayEvents()).toEqual([])
+    expect(manager.resolveExtensionWebviewResource('resource-token')).toEqual({
+      token: 'resource-token',
+      path: '/tmp/icon.svg',
+      threadId: 'thread-a'
+    })
+
+    manager.clearExtensionPanelRuntime('thread-a')
+
+    expect(manager.getExtensionPanelReplayEvents()).toEqual([])
+    expect(manager.resolveExtensionWebviewResource('resource-token')).toBeUndefined()
+  })
+
+  it('dispose desktop extension panel 会清 replay cache 并通知已绑定 worker', async () => {
+    const send = vi.fn().mockResolvedValue({ success: true })
+    const manager = new ThreadManagerCore({
+      listLeases: () => [{ threadId: 'thread-a' }],
+      send
+    } as never)
+
+    manager.cacheExtensionPanelProjection({
+      kind: 'event',
+      eventType: 'projection',
+      threadId: 'thread-a',
+      event: {
+        type: 'extensionPanel.registered',
+        threadId: 'thread-a',
+        panel: {
+          id: 'deploy',
+          title: 'Deploy',
+          source: { type: 'html', html: '<h1>Deploy</h1>' }
+        }
+      }
+    })
+    manager.cacheExtensionPanelState('thread-a', 'deploy', { selectedDeploymentId: 'prod' })
+
+    await manager.disposeExtensionPanelRuntime('thread-a', 'deploy', 'userClosed')
+
+    expect(manager.getExtensionPanelReplayEvents()).toEqual([])
+    expect(send).toHaveBeenCalledWith('thread-a', {
+      type: 'desktop.panelLifecycle',
+      event: { type: 'disposed', panelId: 'deploy', reason: 'userClosed' }
+    })
   })
 
   it('从 worker 结束 lifecycle 同步 thread metadata 状态', () => {

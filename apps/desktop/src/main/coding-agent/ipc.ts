@@ -26,6 +26,10 @@ import type {
   CreateThreadInput,
   DiagnosticsInput,
   ExtensionEditorTextInput,
+  ExtensionPanelDisposeInput,
+  ExtensionPanelLifecycleInput,
+  ExtensionPanelMessageInput,
+  ExtensionPanelStateInput,
   ExtensionShortcutInput,
   ExportSessionInput,
   FileReferenceCompletionInput,
@@ -43,6 +47,7 @@ import type {
   ModelOAuthPromptResponseInput,
   NavigateTreeInput,
   NewSessionInput,
+  OpenExternalUrlInput,
   PromptImageDraft,
   PromptImageAttachment,
   PromptInput,
@@ -121,6 +126,7 @@ export function registerCodingAgentIpc(options: CodingAgentIpcOptions = {}): Cod
         createWorker: options.createWorker ?? createConfiguredWorkerClient,
         onEvent: (event) => {
           cacheWorkerProjectionEvent(store, event)
+          manager.cacheExtensionPanelProjection(event)
           syncThreadStatusFromWorkerEvent(manager, event)
           if (isThreadActivityEvent(event)) {
             manager.touchThreadActivity(event.threadId)
@@ -336,6 +342,23 @@ export function registerCodingAgentIpc(options: CodingAgentIpcOptions = {}): Cod
   handle(manager, codingAgentChannels.respondUi, (input: ExtensionUiResponseInput) =>
     manager.respondUi(input)
   )
+  handle(manager, codingAgentChannels.sendExtensionPanelMessage, (input: ExtensionPanelMessageInput) =>
+    manager.sendExtensionPanelMessage(input)
+  )
+  handle(
+    manager,
+    codingAgentChannels.sendExtensionPanelLifecycleEvent,
+    (input: ExtensionPanelLifecycleInput) => manager.sendExtensionPanelLifecycleEvent(input)
+  )
+  handle(manager, codingAgentChannels.saveExtensionPanelState, (input: ExtensionPanelStateInput) =>
+    manager.saveExtensionPanelState(input)
+  )
+  handle(manager, codingAgentChannels.disposeExtensionPanel, (input: ExtensionPanelDisposeInput) =>
+    manager.disposeExtensionPanel(input)
+  )
+  handle(manager, codingAgentChannels.openExternalUrl, (input: OpenExternalUrlInput) =>
+    openExternalUrl(input)
+  )
   handle(manager, codingAgentChannels.respondApproval, (input: ApprovalResponseInput) =>
     manager.respondApproval(input)
   )
@@ -411,6 +434,7 @@ export function registerCodingAgentIpc(options: CodingAgentIpcOptions = {}): Cod
       if (action === 'subscribe') {
         subscribers.add(event.sender)
         event.sender.once('destroyed', () => subscribers.delete(event.sender))
+        publishCodingAgentEvents(new Set([event.sender]), manager.getExtensionPanelReplayEvents())
         return
       }
       subscribers.delete(event.sender)
@@ -605,8 +629,26 @@ export function publishCodingAgentEvent(
   subscribers: Set<Pick<WebContents, 'isDestroyed' | 'send'>>,
   event: CodingAgentIpcEvent
 ): void {
+  publishCodingAgentEvents(subscribers, [event])
+}
+
+/**
+ * 向订阅窗口发布多个事件。
+ * @param subscribers - 订阅窗口集合。
+ * @param events - IPC events。
+ */
+export function publishCodingAgentEvents(
+  subscribers: Set<Pick<WebContents, 'isDestroyed' | 'send'>>,
+  events: CodingAgentIpcEvent[]
+): void {
+  if (events.length === 0) {
+    return
+  }
   for (const webContents of subscribers) {
-    if (!webContents.isDestroyed()) {
+    if (webContents.isDestroyed()) {
+      continue
+    }
+    for (const event of events) {
       webContents.send(codingAgentChannels.event, event)
     }
   }
@@ -810,6 +852,36 @@ async function revealResourcePath(input: RevealResourcePathInput): Promise<void>
 }
 
 /**
+ * 受控打开外部 URL。禁止 file/command/javascript 等高风险协议。
+ * @param input - URL 输入。
+ */
+export async function openExternalUrl(input: OpenExternalUrlInput): Promise<void> {
+  await shell.openExternal(normalizeAllowedExternalUrl(input.uri))
+}
+
+/**
+ * 规范化并校验允许交给系统处理的外部 URL。
+ * @param uriInput - 原始 URI。
+ * @returns 规范化后的 URL。
+ */
+export function normalizeAllowedExternalUrl(uriInput: string): string {
+  const uri = uriInput.trim()
+  if (!uri) {
+    throw new Error('Invalid external URL')
+  }
+  let url: URL
+  try {
+    url = new URL(uri)
+  } catch {
+    throw new Error('Invalid external URL')
+  }
+  if (!['http:', 'https:', 'mailto:'].includes(url.protocol)) {
+    throw new Error(`External URL protocol is not allowed: ${url.protocol}`)
+  }
+  return url.toString()
+}
+
+/**
  * 暂存 renderer 传入的 prompt 图片，再按文件图片链路处理。
  * @param manager - thread manager。
  * @param images - renderer 图片草稿。
@@ -904,6 +976,9 @@ export function toCodingAgentIpcEvent(event: WorkerEnvelope): CodingAgentIpcEven
     return { ...event.event, threadId: event.threadId }
   }
   if (event.eventType === 'projection' && typeof event.threadId === 'string') {
+    if (event.event.type === 'extensionPanel.resourceRegistered') {
+      return undefined
+    }
     return { type: 'projection', threadId: event.threadId, event: event.event }
   }
   if (event.eventType === 'worker') {

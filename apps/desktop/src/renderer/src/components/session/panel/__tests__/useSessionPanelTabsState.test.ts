@@ -25,7 +25,7 @@ beforeEach(() => {
 describe('useSessionPanelTabsState', () => {
   it('默认只打开 Session，其他 tab 通过可添加列表进入', () => {
     const sessionKey = ref<string | undefined>('thread-a')
-    const state = useSessionPanelTabsState(tabs, sessionKey)
+    const state = useSessionPanelTabsState(ref(tabs), sessionKey)
 
     expect(state.activeTabId.value).toBe('session')
     expect(state.openTabs.value.map((tab) => tab.id)).toEqual(['session'])
@@ -34,7 +34,7 @@ describe('useSessionPanelTabsState', () => {
 
   it('按 session key 隔离 active tab 与 opened tabs', () => {
     const sessionKey = ref<string | undefined>('thread-a')
-    const state = useSessionPanelTabsState(tabs, sessionKey)
+    const state = useSessionPanelTabsState(ref(tabs), sessionKey)
 
     state.openTab('tree')
     const threadATreeInstanceId = state.activeTabInstanceId.value
@@ -65,7 +65,7 @@ describe('useSessionPanelTabsState', () => {
 
   it('允许声明支持多开的 tab 同时存在多个实例，并且关闭单个实例', () => {
     const sessionKey = ref<string | undefined>('thread-a')
-    const state = useSessionPanelTabsState(tabs, sessionKey)
+    const state = useSessionPanelTabsState(ref(tabs), sessionKey)
 
     state.openTab('tree')
     const firstTreeInstanceId = state.activeTabInstanceId.value
@@ -84,7 +84,7 @@ describe('useSessionPanelTabsState', () => {
 
   it('不支持多开的 tab 已打开时再次打开会选中已有实例', () => {
     const sessionKey = ref<string | undefined>('thread-a')
-    const state = useSessionPanelTabsState(singleSessionTabs, sessionKey)
+    const state = useSessionPanelTabsState(ref(singleSessionTabs), sessionKey)
 
     const sessionInstanceId = state.activeTabInstanceId.value
     state.openTab('session')
@@ -92,6 +92,52 @@ describe('useSessionPanelTabsState', () => {
     expect(state.activeTabInstanceId.value).toBe(sessionInstanceId)
     expect(state.openTabs.value.map((tab) => tab.id)).toEqual(['session'])
     expect(state.availableTabs.value.map((tab) => tab.id)).not.toContain('session')
+  })
+
+  it('支持运行时加入 extension tab', () => {
+    const sessionKey = ref<string | undefined>('thread-a')
+    const dynamicTabs = ref<SessionPanelTab[]>([...singleSessionTabs])
+    const state = useSessionPanelTabsState(dynamicTabs, sessionKey)
+
+    dynamicTabs.value = [
+      ...dynamicTabs.value,
+      { id: 'extension:deploy', label: 'Deploy', allowMultiple: false }
+    ]
+
+    expect(state.availableTabs.value.map((tab) => tab.id)).toContain('extension:deploy')
+    state.openTab('extension:deploy')
+
+    expect(state.activeTabId.value).toBe('extension:deploy')
+    expect(state.openTabs.value.map((tab) => tab.label)).toContain('Deploy')
+  })
+
+  it('reload 后保留尚未重新注册的 extension tab，并在注册后刷新 label', () => {
+    const sessionKey = ref<string | undefined>('thread-a')
+    const initialTabs = ref<SessionPanelTab[]>([
+      ...singleSessionTabs,
+      { id: 'extension:deploy', label: 'Deploy', allowMultiple: false }
+    ])
+    const firstState = useSessionPanelTabsState(initialTabs, sessionKey)
+    firstState.openTab('extension:deploy')
+
+    const reloadedTabs = ref<SessionPanelTab[]>([...singleSessionTabs])
+    const reloadedState = useSessionPanelTabsState(reloadedTabs, sessionKey)
+
+    expect(reloadedState.activeTabId.value).toBe('extension:deploy')
+    expect(reloadedState.openTabs.value.map((tab) => tab.id)).toEqual(['session', 'extension:deploy'])
+    expect(reloadedState.openTabs.value.find((tab) => tab.id === 'extension:deploy')?.label).toBe(
+      'deploy'
+    )
+
+    reloadedTabs.value = [
+      ...reloadedTabs.value,
+      { id: 'extension:deploy', label: 'Deployments', allowMultiple: false }
+    ]
+
+    expect(reloadedState.activeTabId.value).toBe('extension:deploy')
+    expect(reloadedState.openTabs.value.find((tab) => tab.id === 'extension:deploy')?.label).toBe(
+      'Deployments'
+    )
   })
 })
 
