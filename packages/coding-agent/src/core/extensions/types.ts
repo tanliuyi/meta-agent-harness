@@ -97,6 +97,25 @@ export interface WorkingIndicatorOptions {
 	intervalMs?: number;
 }
 
+/** Raw terminal input listener for extensions. */
+export type TerminalInputHandler = (data: string) => { consume?: boolean; data?: string } | undefined;
+
+/** Minimal theme formatter surface available to extension code across UI modes. */
+export interface ExtensionTheme {
+	fg(color: string, text: string): string;
+	bg(color: string, text: string): string;
+	bold(text: string): string;
+	italic(text: string): string;
+	underline(text: string): string;
+	inverse(text: string): string;
+	strikethrough(text: string): string;
+	getFgAnsi(color: string): string;
+	getBgAnsi(color: string): string;
+	getColorMode(): string;
+	getThinkingBorderColor(level: string): (text: string) => string;
+	getBashModeColor(): (text: string) => string;
+}
+
 /**
  * UI context for extensions to request desktop UI.
  * The renderer owns visual components; core only exposes structured requests.
@@ -113,6 +132,9 @@ export interface ExtensionUIContext {
 
 	/** Show a notification to the user. */
 	notify(message: string, type?: "info" | "warning" | "error"): void;
+
+	/** Listen to raw terminal input when the host supports it. Returns an unsubscribe function. */
+	onTerminalInput(handler: TerminalInputHandler): () => void;
 
 	/** Set status text in the footer/status bar. Pass undefined to clear. */
 	setStatus(key: string, text: string | undefined): void;
@@ -138,6 +160,13 @@ export interface ExtensionUIContext {
 
 	/** Set a widget to display above or below the editor. */
 	setWidget(key: string, content: string[] | undefined, options?: ExtensionWidgetOptions): void;
+	setWidget(key: string, content: ((...args: unknown[]) => unknown) | undefined, options?: ExtensionWidgetOptions): void;
+
+	/** Set a custom footer component when the host supports component factories. */
+	setFooter(factory: ((...args: unknown[]) => unknown) | undefined): void;
+
+	/** Set a custom header component when the host supports component factories. */
+	setHeader(factory: ((...args: unknown[]) => unknown) | undefined): void;
 
 	/** Set the terminal window/tab title. */
 	setTitle(title: string): void;
@@ -153,6 +182,30 @@ export interface ExtensionUIContext {
 
 	/** Show a multi-line editor for text editing. */
 	editor(title: string, prefill?: string): Promise<string | undefined>;
+
+	/** Show a custom component when the host supports component factories. */
+	custom<T>(factory: (...args: unknown[]) => unknown, options?: unknown): Promise<T>;
+
+	/** Stack additional autocomplete behavior when the host supports autocomplete composition. */
+	addAutocompleteProvider(factory: unknown): void;
+
+	/** Set a custom editor component when the host supports editor component factories. */
+	setEditorComponent(factory: unknown): void;
+
+	/** Get the currently configured custom editor component factory, if supported. */
+	getEditorComponent(): unknown;
+
+	/** Formatting theme available to extension code. */
+	readonly theme: ExtensionTheme;
+
+	/** Get all themes known to the host. */
+	getAllThemes(): Array<{ name?: string; path?: string }>;
+
+	/** Get a theme by name when the host supports theme lookup. */
+	getTheme(name: string): unknown;
+
+	/** Set the active theme when the host supports theme switching. */
+	setTheme(theme: string | unknown): { success: boolean; error?: string };
 
 	/** Get current tool output expansion state. */
 	getToolsExpanded(): boolean;

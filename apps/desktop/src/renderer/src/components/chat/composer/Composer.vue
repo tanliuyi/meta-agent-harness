@@ -5,6 +5,7 @@
 
 import type { JSONContent } from '@tiptap/vue-3'
 import { computed, defineAsyncComponent, nextTick, ref, watch } from 'vue'
+import { autoUpdate, offset, size, useFloating } from '@floating-ui/vue'
 import { onClickOutside } from '@vueuse/core'
 import { BaseButton, BaseIconButton } from '@renderer/components/base'
 import ExtensionWidget from '@renderer/components/extension/ExtensionWidget.vue'
@@ -258,6 +259,7 @@ const commandPaletteScrollRef = ref<ScrollAreaInstance | null>(null)
 const composerShellRef = ref<HTMLElement>()
 const commandSearchInputRef = ref<HTMLInputElement>()
 const commandPaletteRef = ref<HTMLElement>()
+const composerPopupRef = ref<HTMLElement>()
 const isEditorFocused = ref(false)
 const commandPaletteOpen = ref(false)
 const commandPaletteMode = ref<'button' | 'slash'>('button')
@@ -305,6 +307,30 @@ const widgetsBelowEditor = computed(() =>
 )
 const extensionRequestEntries = computed(() => Object.values(props.extensionRequests))
 const isDropTargetActive = computed(() => isDraggingFiles.value && !props.selectingImages)
+const hasOpenComposerPopup = computed(
+  () =>
+    skillReferenceCompletion.value.candidates.length > 0 ||
+    fileReferenceCompletion.value.candidates.length > 0 ||
+    commandPaletteOpen.value
+)
+const { floatingStyles: composerPopupStyle, update: updateComposerPopupPosition } = useFloating(
+  composerShellRef,
+  composerPopupRef,
+  {
+    placement: 'top',
+    whileElementsMounted: autoUpdate,
+    middleware: [
+      offset(8),
+      size({
+        apply({ rects, elements }) {
+          Object.assign(elements.floating.style, {
+            width: `${rects.reference.width}px`
+          })
+        }
+      })
+    ]
+  }
+)
 
 /** 当前模型选择器值。 */
 const currentModelValue = computed(() =>
@@ -398,6 +424,12 @@ const activeCommandQuery = computed(() =>
 const hasSkillCommands = computed(() =>
   props.commands.some((command) => command.source === 'skill' && command.name.startsWith('skill:'))
 )
+
+watch(hasOpenComposerPopup, (isOpen) => {
+  if (isOpen) {
+    void nextTick(updateComposerPopupPosition)
+  }
+})
 
 watch(
   () => [
@@ -693,9 +725,7 @@ function handleSkillReferenceKeyDown(event: KeyboardEvent): void {
  */
 function scrollSelectedFileReferenceIntoView(): void {
   const viewport = fileCompletionScrollRef.value?.getViewport()
-  const selectedItem = composerShellRef.value?.querySelector(
-    '.composer__file-completion-item.is-selected'
-  )
+  const selectedItem = viewport?.querySelector('.composer__file-completion-item.is-selected')
   if (!viewport || !(selectedItem instanceof HTMLElement)) {
     return
   }
@@ -715,9 +745,7 @@ function scrollSelectedFileReferenceIntoView(): void {
  */
 function scrollSelectedSkillReferenceIntoView(): void {
   const viewport = fileCompletionScrollRef.value?.getViewport()
-  const selectedItem = composerShellRef.value?.querySelector(
-    '.composer__skill-completion-item.is-selected'
-  )
+  const selectedItem = viewport?.querySelector('.composer__skill-completion-item.is-selected')
   if (!viewport || !(selectedItem instanceof HTMLElement)) {
     return
   }
@@ -737,7 +765,7 @@ function scrollSelectedSkillReferenceIntoView(): void {
  */
 function scrollSelectedCommandIntoView(): void {
   const viewport = commandPaletteScrollRef.value?.getViewport()
-  const selectedItem = commandPaletteRef.value?.querySelector('.composer__command-item.is-selected')
+  const selectedItem = viewport?.querySelector('.composer__command-item.is-selected')
   if (!viewport || !(selectedItem instanceof HTMLElement)) {
     return
   }
@@ -1301,95 +1329,111 @@ function clearExtensionDraft(id: string): void {
     @dragleave="handleDragLeave"
     @drop="handleDrop"
   >
-    <Command
-      v-if="skillReferenceCompletion.candidates.length > 0"
-      class="composer__file-completion composer__skill-completion"
-    >
-      <ScrollArea ref="fileCompletionScrollRef" class="composer__file-completion-scroll">
-        <div class="composer__file-completion-list" role="listbox">
-          <button
-            v-for="(candidate, index) in skillReferenceCompletion.candidates"
-            :key="candidate.name"
-            type="button"
-            tabindex="-1"
-            class="composer__file-completion-item composer__skill-completion-item"
-            :class="{ 'is-selected': index === skillReferenceCompletion.selectedIndex }"
-            role="option"
-            :aria-selected="index === skillReferenceCompletion.selectedIndex"
-            @mousedown.prevent="selectSkillReferenceCandidate(candidate)"
-            @mouseenter="highlightSkillReferenceCandidate(index)"
-          >
-            <span class="composer__skill-completion-row">
-              <span class="composer__skill-completion-name">
-                {{ getSkillReferenceDisplayName(candidate.label) }}
-              </span>
-              <small v-if="candidate.description" class="composer__skill-completion-description">
-                {{ candidate.description }}
-              </small>
-            </span>
-          </button>
+    <Teleport to="body">
+      <div
+        v-if="hasOpenComposerPopup"
+        ref="composerPopupRef"
+        class="composer__floating-popup"
+        :style="composerPopupStyle"
+      >
+        <Command
+          v-if="skillReferenceCompletion.candidates.length > 0"
+          class="composer__file-completion composer__skill-completion"
+        >
+          <ScrollArea ref="fileCompletionScrollRef" class="composer__file-completion-scroll">
+            <div class="composer__file-completion-list" role="listbox">
+              <button
+                v-for="(candidate, index) in skillReferenceCompletion.candidates"
+                :key="candidate.name"
+                type="button"
+                tabindex="-1"
+                class="composer__file-completion-item composer__skill-completion-item"
+                :class="{ 'is-selected': index === skillReferenceCompletion.selectedIndex }"
+                role="option"
+                :aria-selected="index === skillReferenceCompletion.selectedIndex"
+                @mousedown.prevent="selectSkillReferenceCandidate(candidate)"
+                @mouseenter="highlightSkillReferenceCandidate(index)"
+              >
+                <span class="composer__skill-completion-row">
+                  <span class="composer__skill-completion-name">
+                    {{ getSkillReferenceDisplayName(candidate.label) }}
+                  </span>
+                  <small
+                    v-if="candidate.description"
+                    class="composer__skill-completion-description"
+                  >
+                    {{ candidate.description }}
+                  </small>
+                </span>
+              </button>
+            </div>
+          </ScrollArea>
+        </Command>
+        <Command
+          v-else-if="fileReferenceCompletion.candidates.length > 0"
+          class="composer__file-completion"
+        >
+          <ScrollArea ref="fileCompletionScrollRef" class="composer__file-completion-scroll">
+            <div class="composer__file-completion-list" role="listbox">
+              <button
+                v-for="(candidate, index) in fileReferenceCompletion.candidates"
+                :key="candidate.absolutePath"
+                type="button"
+                tabindex="-1"
+                class="composer__file-completion-item"
+                :class="{ 'is-selected': index === fileReferenceCompletion.selectedIndex }"
+                role="option"
+                :aria-selected="index === fileReferenceCompletion.selectedIndex"
+                @mousedown.prevent="selectFileReferenceCandidate(candidate)"
+                @mouseenter="highlightFileReferenceCandidate(index)"
+              >
+                <span class="composer__file-completion-label">{{ candidate.label }}</span>
+              </button>
+            </div>
+          </ScrollArea>
+        </Command>
+        <div
+          v-else-if="commandPaletteOpen"
+          ref="commandPaletteRef"
+          class="composer__command-palette"
+        >
+          <header class="composer__command-palette-header">
+            <CommandIcon :size="14" />
+            <input
+              v-if="commandPaletteMode === 'button'"
+              ref="commandSearchInputRef"
+              v-model="commandSearch"
+              type="search"
+              placeholder="Search commands"
+              @keydown="handleCommandPaletteKeyDown"
+            />
+            <div v-else class="composer__command-query">
+              {{ activeCommandQuery || '/' }}
+            </div>
+          </header>
+          <ScrollArea ref="commandPaletteScrollRef" class="composer__command-palette-scroll">
+            <div v-if="loadingCommands" class="composer__command-empty">Loading commands...</div>
+            <div v-else-if="filteredCommands.length === 0" class="composer__command-empty">
+              No commands
+            </div>
+            <div v-else class="composer__command-list">
+              <button
+                v-for="(command, index) in filteredCommands"
+                :key="`${command.source}:${command.name}`"
+                type="button"
+                class="composer__command-item"
+                :class="{ 'is-selected': index === selectedCommandIndex }"
+                @mouseenter="highlightPaletteCommand(index)"
+                @click="runPaletteCommand(command.name)"
+              >
+                <span>/{{ command.name }}</span>
+                <small>{{ command.description || command.source }}</small>
+              </button>
+            </div>
+          </ScrollArea>
         </div>
-      </ScrollArea>
-    </Command>
-    <Command
-      v-else-if="fileReferenceCompletion.candidates.length > 0"
-      class="composer__file-completion"
-    >
-      <ScrollArea ref="fileCompletionScrollRef" class="composer__file-completion-scroll">
-        <div class="composer__file-completion-list" role="listbox">
-          <button
-            v-for="(candidate, index) in fileReferenceCompletion.candidates"
-            :key="candidate.absolutePath"
-            type="button"
-            tabindex="-1"
-            class="composer__file-completion-item"
-            :class="{ 'is-selected': index === fileReferenceCompletion.selectedIndex }"
-            role="option"
-            :aria-selected="index === fileReferenceCompletion.selectedIndex"
-            @mousedown.prevent="selectFileReferenceCandidate(candidate)"
-            @mouseenter="highlightFileReferenceCandidate(index)"
-          >
-            <span class="composer__file-completion-label">{{ candidate.label }}</span>
-          </button>
-        </div>
-      </ScrollArea>
-    </Command>
-    <div v-if="commandPaletteOpen" ref="commandPaletteRef" class="composer__command-palette">
-      <header class="composer__command-palette-header">
-        <CommandIcon :size="14" />
-        <input
-          v-if="commandPaletteMode === 'button'"
-          ref="commandSearchInputRef"
-          v-model="commandSearch"
-          type="search"
-          placeholder="Search commands"
-          @keydown="handleCommandPaletteKeyDown"
-        />
-        <div v-else class="composer__command-query">
-          {{ activeCommandQuery || '/' }}
-        </div>
-      </header>
-      <ScrollArea ref="commandPaletteScrollRef" class="composer__command-palette-scroll">
-        <div v-if="loadingCommands" class="composer__command-empty">Loading commands...</div>
-        <div v-else-if="filteredCommands.length === 0" class="composer__command-empty">
-          No commands
-        </div>
-        <div v-else class="composer__command-list">
-          <button
-            v-for="(command, index) in filteredCommands"
-            :key="`${command.source}:${command.name}`"
-            type="button"
-            class="composer__command-item"
-            :class="{ 'is-selected': index === selectedCommandIndex }"
-            @mouseenter="highlightPaletteCommand(index)"
-            @click="runPaletteCommand(command.name)"
-          >
-            <span>/{{ command.name }}</span>
-            <small>{{ command.description || command.source }}</small>
-          </button>
-        </div>
-      </ScrollArea>
-    </div>
+      </div>
+    </Teleport>
     <div v-if="extensionRequestEntries.length > 0" class="composer__extension-requests">
       <article
         v-for="request in extensionRequestEntries"
@@ -1825,12 +1869,13 @@ function clearExtensionDraft(id: string): void {
   }
 }
 
+.composer__floating-popup {
+  z-index: 1000;
+  min-width: 0;
+}
+
 .composer__file-completion {
-  position: absolute;
-  right: 0;
-  bottom: calc(100% + var(--space-2));
-  left: 0;
-  z-index: 12;
+  width: 100%;
   height: 112px;
   padding: 6px;
   background: var(--color-surface);
@@ -1932,13 +1977,9 @@ function clearExtensionDraft(id: string): void {
 }
 
 .composer__command-palette {
-  position: absolute;
-  right: 0;
-  bottom: calc(100% + var(--space-2));
-  left: 0;
-  z-index: 13;
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
+  width: 100%;
   height: 240px;
   min-width: 0;
   overflow: hidden;

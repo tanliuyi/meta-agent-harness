@@ -236,22 +236,77 @@ export async function emitProjectTrustEvent(
 	return { errors };
 }
 
+const noOpTheme = {
+	fg: (_color: string, text: string) => text,
+	bg: (_color: string, text: string) => text,
+	bold: (text: string) => text,
+	italic: (text: string) => text,
+	underline: (text: string) => text,
+	inverse: (text: string) => text,
+	strikethrough: (text: string) => text,
+	getFgAnsi: () => "",
+	getBgAnsi: () => "",
+	getColorMode: () => "dark",
+	getThinkingBorderColor: () => (text: string) => text,
+	getBashModeColor: () => (text: string) => text,
+};
+
 const noOpUIContext: ExtensionUIContext = {
 	select: async () => undefined,
 	confirm: async () => false,
 	input: async () => undefined,
 	notify: () => {},
+	onTerminalInput: () => {
+		// TODO: Add host support for extension raw terminal input listeners outside TUI mode.
+		return () => {};
+	},
 	setStatus: () => {},
 	setWorkingMessage: () => {},
 	setWorkingVisible: () => {},
 	setWorkingIndicator: () => {},
 	setHiddenThinkingLabel: () => {},
 	setWidget: () => {},
+	setFooter: () => {
+		// TODO: Add host support for extension footer component factories outside TUI mode.
+	},
+	setHeader: () => {
+		// TODO: Add host support for extension header component factories outside TUI mode.
+	},
 	setTitle: () => {},
 	pasteToEditor: () => {},
 	setEditorText: () => {},
 	getEditorText: () => "",
 	editor: async () => undefined,
+	custom: async () => {
+		// TODO: Add host support for extension custom component overlays outside TUI mode.
+		return undefined as never;
+	},
+	addAutocompleteProvider: () => {
+		// TODO: Add host support for extension autocomplete provider composition outside TUI mode.
+	},
+	setEditorComponent: () => {
+		// TODO: Add host support for extension custom editor components outside TUI mode.
+	},
+	getEditorComponent: () => {
+		// TODO: Add host support for extension custom editor components outside TUI mode.
+		return undefined;
+	},
+	get theme() {
+		// TODO: Add host support for extension theme access outside TUI mode.
+		return noOpTheme;
+	},
+	getAllThemes: () => {
+		// TODO: Add host support for extension theme discovery outside TUI mode.
+		return [];
+	},
+	getTheme: () => {
+		// TODO: Add host support for extension theme lookup outside TUI mode.
+		return undefined;
+	},
+	setTheme: () => {
+		// TODO: Add host support for extension theme switching outside TUI mode.
+		return { success: false, error: "UI not available" };
+	},
 	getToolsExpanded: () => false,
 	setToolsExpanded: () => {},
 };

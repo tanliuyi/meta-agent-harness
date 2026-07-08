@@ -14,7 +14,7 @@ import {
   resolveSessionCwd,
   SessionManager
 } from '@coding-agent-src/core/session-manager'
-import type { StartThreadInput, WorkerLease } from '../worker-types'
+import type { StartThreadInput, WorkerLease, WorkerResponseEnvelope } from '../worker-types'
 import type { ThreadWorkerRegistry } from '../thread-worker-registry'
 import type { AgentMessage } from '@earendil-works/pi-agent-core'
 
@@ -375,6 +375,46 @@ describe('CodingThreadManager lifecycle', () => {
     rmSync(root, { recursive: true, force: true })
   })
 
+  it('worker 已退出但 lease 尚未释放时，snapshot 回退到离线状态', async () => {
+    const root = createTempDir()
+    const projectPath = join(root, 'repo')
+    mkdirSync(projectPath, { recursive: true })
+    const projectStore = new ProjectStore(':memory:')
+    const threadStore = new CodingThreadStore(':memory:')
+    const registry = createRecordingRegistry()
+    const manager = new CodingThreadManager(
+      registry as unknown as ThreadWorkerRegistry,
+      threadStore,
+      projectStore,
+      new ProjectTrustService(join(root, 'agent'))
+    )
+    const project = manager.createProject({ path: projectPath })
+
+    await manager.createThread({
+      threadId: 'thread-a',
+      projectId: project.projectId,
+      title: 'Thread A'
+    })
+    manager.updateThread('thread-a', { status: 'running' })
+    registry.failedCommands.set('get_state', {
+      code: 'worker_exited',
+      message: 'worker is stopped',
+      recoverable: true
+    })
+
+    const snapshot = await manager.getSnapshot('thread-a')
+
+    expect(snapshot).toMatchObject({
+      threadId: 'thread-a',
+      title: 'Thread A',
+      status: 'idle'
+    })
+
+    threadStore.close()
+    projectStore.close()
+    rmSync(root, { recursive: true, force: true })
+  })
+
   it('project 路径不可用时拒绝 createThread', async () => {
     const projectStore = new ProjectStore(':memory:')
     const threadStore = new CodingThreadStore(':memory:')
@@ -412,29 +452,23 @@ function createRecordingRegistry(): {
   acquires: StartThreadInput[]
   liveStates: Map<string, Record<string, unknown>>
   liveMessages: Map<string, AgentMessage[]>
+  failedCommands: Map<string, NonNullable<WorkerResponseEnvelope['error']>>
   acquireThreadWorker(input: StartThreadInput): Promise<WorkerLease>
   releaseThreadWorker(threadId: string): Promise<void>
-  send(
-    threadId: string,
-    command: { type: string }
-  ): Promise<{
-    kind: 'response'
-    id: string
-    command: string
-    success: true
-    data?: unknown
-  }>
+  send(threadId: string, command: { type: string }): Promise<WorkerResponseEnvelope>
   listLeases(): WorkerLease[]
   shutdown(): Promise<void>
 } {
   const acquires: StartThreadInput[] = []
   const liveStates = new Map<string, Record<string, unknown>>()
   const liveMessages = new Map<string, AgentMessage[]>()
+  const failedCommands = new Map<string, NonNullable<WorkerResponseEnvelope['error']>>()
   const leases = new Map<string, WorkerLease>()
   return {
     acquires,
     liveStates,
     liveMessages,
+    failedCommands,
     async acquireThreadWorker(input) {
       acquires.push(input)
       if (!input.threadId) {
@@ -457,6 +491,16 @@ function createRecordingRegistry(): {
       leases.delete(threadId)
     },
     async send(threadId, command) {
+      const error = failedCommands.get(command.type)
+      if (error) {
+        return {
+          kind: 'response',
+          id: 'response-a',
+          command: command.type,
+          success: false,
+          error
+        }
+      }
       return {
         kind: 'response',
         id: 'response-a',

@@ -259,13 +259,58 @@ describe('ThreadWorkerRegistry', () => {
     ])
   })
 
-  it('worker hang 时释放租约并记录 crash 生命周期', async () => {
-    let hangListener: ((info: WorkerHangInfo) => void) | undefined
+  it('worker 返回 worker_exited 时释放租约并记录 crash 生命周期', async () => {
     let now = 0
     const events: ThreadWorkerLifecycleEvent[] = []
     const stopReasons: string[] = []
     const registry = new ThreadWorkerRegistry({
       now: () => now,
+      onLifecycle: (event) => events.push(event),
+      createWorker: async () => ({
+        ...createFakeWorker('worker-a'),
+        send: async (command: WorkerCommand): Promise<WorkerResponseEnvelope> => ({
+          kind: 'response',
+          id: 'fake',
+          command: command.type,
+          success: false,
+          error: {
+            code: 'worker_exited',
+            message: 'worker is stopped',
+            recoverable: true
+          }
+        }),
+        stop: async (reason: string) => {
+          stopReasons.push(reason)
+        }
+      })
+    })
+
+    await registry.acquireThreadWorker({ threadId: 'thread-a', cwd: '/tmp/project-a' })
+    now = 200
+    const response = await registry.send('thread-a', { type: 'get_state' })
+
+    expect(response).toMatchObject({
+      success: false,
+      error: { code: 'worker_exited' }
+    })
+    expect(registry.listLeases()).toHaveLength(0)
+    expect(stopReasons).toEqual(['crash'])
+    expect(events.at(-1)).toMatchObject({
+      type: 'worker.run.finished',
+      workerId: 'worker-a',
+      threadId: 'thread-a',
+      reason: 'crash',
+      startedAt: 0,
+      exitedAt: 200,
+      message: 'worker is stopped'
+    })
+  })
+
+  it('idle worker hang 会释放租约但不记录 crash', async () => {
+    let hangListener: ((info: WorkerHangInfo) => void) | undefined
+    const events: ThreadWorkerLifecycleEvent[] = []
+    const stopReasons: string[] = []
+    const registry = new ThreadWorkerRegistry({
       onLifecycle: (event) => events.push(event),
       createWorker: async () => ({
         ...createFakeWorker('worker-a'),
@@ -282,18 +327,70 @@ describe('ThreadWorkerRegistry', () => {
     })
 
     await registry.acquireThreadWorker({ threadId: 'thread-a', cwd: '/tmp/project-a' })
+    hangListener?.({ workerId: 'worker-a', threadId: 'thread-a', silentMs: 217137 })
+    await waitMs(0)
+
+    expect(registry.listLeases()).toHaveLength(0)
+    expect(stopReasons).toEqual(['idle'])
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: 'worker.run.finished',
+        workerId: 'worker-a',
+        threadId: 'thread-a',
+        reason: 'idle'
+      })
+    )
+  })
+
+  it('running worker hang 时释放租约并记录 crash 生命周期', async () => {
+    let hangListener: ((info: WorkerHangInfo) => void) | undefined
+    let eventListener: ((event: WorkerEnvelope) => void) | undefined
+    let now = 0
+    const events: ThreadWorkerLifecycleEvent[] = []
+    const stopReasons: string[] = []
+    const registry = new ThreadWorkerRegistry({
+      now: () => now,
+      onLifecycle: (event) => events.push(event),
+      createWorker: async () => ({
+        ...createFakeWorker('worker-a'),
+        onEvent: (listener) => {
+          eventListener = listener
+          return () => {
+            eventListener = undefined
+          }
+        },
+        onHang: (listener) => {
+          hangListener = listener
+          return () => {
+            hangListener = undefined
+          }
+        },
+        stop: async (reason: string) => {
+          stopReasons.push(reason)
+        }
+      })
+    })
+
+    await registry.acquireThreadWorker({ threadId: 'thread-a', cwd: '/tmp/project-a' })
+    eventListener?.({
+      kind: 'event',
+      eventType: 'projection',
+      threadId: 'thread-a',
+      event: { type: 'thread.stateChanged', threadId: 'thread-a', status: 'running' }
+    })
     now = 200
     hangListener?.({ workerId: 'worker-a', threadId: 'thread-a', silentMs: 1000 })
     await waitUntil(() => registry.listLeases().length === 0)
 
     expect(stopReasons).toEqual(['crash'])
-    expect(events).toContainEqual({
+    expect(events.at(-1)).toMatchObject({
       type: 'worker.run.finished',
       workerId: 'worker-a',
       threadId: 'thread-a',
       reason: 'crash',
       startedAt: 0,
-      exitedAt: 200
+      exitedAt: 200,
+      message: 'worker hang: no message for 1000ms'
     })
   })
 })

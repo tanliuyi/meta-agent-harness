@@ -460,6 +460,91 @@ describe('applyEventToSessions', () => {
     expect(sessions['thread-a']?.snapshot).toBeUndefined()
   })
 
+  it('worker crash lifecycle 会终止 running tool calls 并标记 session error', () => {
+    const sessions = createSessions()
+    sessions['thread-a']!.status = 'running'
+    sessions['thread-a']!.snapshot!.status = 'running'
+    sessions['thread-a']!.snapshot!.toolCalls = [
+      {
+        threadId: 'thread-a',
+        toolCallId: 'tool-a',
+        toolName: 'subagent',
+        status: 'running',
+        args: { agent: 'reviewer' }
+      }
+    ]
+
+    applyEventToSessions(sessions, {
+      type: 'threadWorker',
+      threadId: 'thread-a',
+      event: {
+        type: 'worker.run.finished',
+        workerId: 'worker-a',
+        threadId: 'thread-a',
+        reason: 'crash',
+        startedAt: 100,
+        exitedAt: 200,
+        message: 'node sidecar exited: code=1 signal=null'
+      }
+    })
+
+    expect(sessions['thread-a']?.status).toBe('error')
+    expect(sessions['thread-a']?.snapshot?.status).toBe('error')
+    expect(sessions['thread-a']?.snapshot?.toolCalls).toMatchObject([
+      {
+        toolCallId: 'tool-a',
+        status: 'failed',
+        resultSummary: 'node sidecar exited: code=1 signal=null'
+      }
+    ])
+  })
+
+  it('worker crash lifecycle 会覆盖先到达的泛化 projection tool 失败摘要', () => {
+    const sessions = createSessions()
+    sessions['thread-a']!.status = 'running'
+    sessions['thread-a']!.snapshot!.status = 'running'
+    sessions['thread-a']!.snapshot!.toolCalls = [
+      {
+        threadId: 'thread-a',
+        toolCallId: 'tool-a',
+        toolName: 'subagent',
+        status: 'running',
+        args: { agent: 'reviewer' }
+      }
+    ]
+
+    applyEventToSessions(sessions, {
+      type: 'projection',
+      threadId: 'thread-a',
+      event: {
+        type: 'thread.stateChanged',
+        threadId: 'thread-a',
+        status: 'error'
+      }
+    })
+    applyEventToSessions(sessions, {
+      type: 'threadWorker',
+      threadId: 'thread-a',
+      event: {
+        type: 'worker.run.finished',
+        workerId: 'worker-a',
+        threadId: 'thread-a',
+        reason: 'crash',
+        startedAt: 100,
+        exitedAt: 200,
+        message: 'node sidecar exited: code=1 signal=null'
+      }
+    })
+
+    expect(sessions['thread-a']?.snapshot?.toolCalls).toMatchObject([
+      {
+        toolCallId: 'tool-a',
+        status: 'failed',
+        resultSummary: 'node sidecar exited: code=1 signal=null'
+      }
+    ])
+  })
+
   it('没有加载 snapshot 的后台 session 也会消费 thread.stateChanged 状态', () => {
     const sessions = createSessions()
     delete sessions['thread-a']!.snapshot
@@ -741,6 +826,28 @@ describe('workspace-session Project-first actions', () => {
     expect(store.activeSessionId).toBe('thread-a')
     expect(store.activeProjectId).toBe('project-a')
     expect(getSnapshot).toHaveBeenCalledWith('thread-a')
+  })
+
+  it('启动路径可禁止恢复旧 active thread，避免未点开旧会话就刷新 snapshot', async () => {
+    const thread = {
+      threadId: 'thread-a',
+      projectId: 'project-a',
+      status: 'idle',
+      createdAt: '2026-07-01T00:00:00.000Z',
+      updatedAt: '2026-07-01T00:00:00.000Z'
+    }
+    const sessionStorage = createMemorySessionStorage()
+    sessionStorage.setItem('meta-agent.workspace-session.active-thread.main', 'thread-a')
+    const listThreads = vi.fn().mockResolvedValue([thread])
+    const getSnapshot = vi.fn()
+    installCodingAgentApi({ listThreads, getSnapshot }, sessionStorage)
+    const store = useWorkspaceSessionStore()
+
+    await store.loadThreads(undefined, { deferActiveSnapshot: true, restoreActiveThread: false })
+
+    expect(store.activeSessionId).toBeUndefined()
+    expect(store.activeProjectId).toBeUndefined()
+    expect(getSnapshot).not.toHaveBeenCalled()
   })
 
   it('deferActiveSnapshot 启动路径延后恢复 thread 的 snapshot 刷新', async () => {
@@ -1349,7 +1456,7 @@ describe('workspace-session Project-first actions', () => {
     expect(store.activeExtensionHiddenThinkingLabel).toBe('Hidden reasoning')
     expect(store.activeExtensionToolsExpanded).toBe(true)
     expect(store.draftMessage).toEqual(createComposerContentWithHardBreak('hello', 'world'))
-    expect(toastMock.warning).toHaveBeenCalledWith('Extension', 'Extension finished')
+    expect(toastMock.warning).toHaveBeenCalledWith('扩展', 'Extension finished')
 
     await store.respondExtensionUi('thread-a', { id: 'ui-input', value: 'Meta Agent' })
 
@@ -1368,7 +1475,7 @@ describe('workspace-session Project-first actions', () => {
     const longMessage = [
       '同步完成，但有 3 个文件需要人工确认',
       'src/alpha.ts: 这一行包含很长的扩展输出，不能直接撑开 toast 或遮挡主界面。',
-      'src/beta.ts: 保留完整内容给 Extensions 面板查看。'
+      'src/beta.ts: 保留完整内容给扩展面板查看。'
     ].join('\n')
 
     capturedEventListener?.(
@@ -1382,7 +1489,7 @@ describe('workspace-session Project-first actions', () => {
 
     expect(store.activeExtensionNotifications).toEqual([longMessage])
     expect(store.activeExtensionWidgets.Notifications).toBeUndefined()
-    expect(toastMock.info).toHaveBeenCalledWith('Extension', '通知内容较长，已放入 Extensions 面板')
+    expect(toastMock.info).toHaveBeenCalledWith('扩展', '通知内容较长，已放入扩展面板')
     expect(store.activeSessionActionMessage).toBe('同步完成，但有 3 个文件需要人工确认')
 
     store.clearExtensionNotifications()

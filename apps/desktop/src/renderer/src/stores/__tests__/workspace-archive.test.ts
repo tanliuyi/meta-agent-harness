@@ -7,6 +7,14 @@ import { createPinia, setActivePinia } from 'pinia'
 import useWorkspaceArchiveStore from '../workspace-archive'
 import useWorkspaceProjectStore from '../workspace-project'
 
+const routerMock = vi.hoisted(() => ({
+  push: vi.fn()
+}))
+
+vi.mock('@renderer/router', () => ({
+  default: routerMock
+}))
+
 beforeEach(() => {
   setActivePinia(createPinia())
 })

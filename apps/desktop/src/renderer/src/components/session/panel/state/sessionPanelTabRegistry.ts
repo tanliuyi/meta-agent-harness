@@ -46,7 +46,7 @@ registerSessionPanelTab({
 
 registerSessionPanelTab({
   id: 'extensions',
-  label: 'Extensions',
+  label: '扩展',
   allowMultiple: false,
   component: defineAsyncComponent(() => import('../tabs/ExtensionsTab.vue'))
 })

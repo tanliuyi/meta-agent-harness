@@ -68,6 +68,7 @@ export type {
 	// Runtime
 	ExtensionRuntime,
 	ExtensionShortcut,
+	ExtensionTheme,
 	ExtensionUIContext,
 	ExtensionUIDialogOptions,
 	ExtensionWidgetOptions,
@@ -145,6 +146,7 @@ export type {
 	ToolInfo,
 	ToolResultEvent,
 	ToolResultEventResult,
+	TerminalInputHandler,
 	TreePreparation,
 	TurnEndEvent,
 	TurnStartEvent,

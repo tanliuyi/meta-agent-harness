@@ -7,6 +7,7 @@ import type {
   WorkerClient,
   WorkerCommand,
   WorkerEnvelope,
+  WorkerExitInfo,
   WorkerHangInfo,
   WorkerLease,
   WorkerResponseEnvelope
@@ -48,6 +49,8 @@ export type ThreadWorkerLifecycleEvent =
       reason: 'idle' | 'stop' | 'archive' | 'crash' | 'shutdown'
       startedAt: number
       exitedAt: number
+      message?: string
+      details?: unknown
     }
   | { type: 'worker.run.failed'; threadId?: string; message: string; createdAt: number }
 
@@ -166,6 +169,9 @@ export class ThreadWorkerRegistry {
       worker.onHang?.((info) => {
         void this.releaseHungWorker(info)
       })
+      worker.onExit?.((info) => {
+        void this.releaseExitedWorker(info)
+      })
       const time = this.now()
       const lease: WorkerLease = {
         workerId: worker.workerId,
@@ -218,7 +224,8 @@ export class ThreadWorkerRegistry {
    */
   async releaseThreadWorker(
     threadId: string,
-    reason: 'idle' | 'stop' | 'archive' | 'crash'
+    reason: 'idle' | 'stop' | 'archive' | 'crash',
+    diagnostic?: { message?: string; details?: unknown }
   ): Promise<void> {
     const lease = this.leases.get(threadId)
     if (!lease) {
@@ -239,7 +246,9 @@ export class ThreadWorkerRegistry {
       threadId,
       reason,
       startedAt: lease.acquiredAt,
-      exitedAt: this.now()
+      exitedAt: this.now(),
+      message: diagnostic?.message,
+      details: diagnostic?.details
     })
   }
 
@@ -279,7 +288,14 @@ export class ThreadWorkerRegistry {
       }
     }
     lease.lastActiveAt = this.now()
-    return worker.send(command)
+    const response = await worker.send(command)
+    if (response.error?.code === 'worker_exited' && this.leases.has(threadId)) {
+      await this.releaseThreadWorker(threadId, 'crash', {
+        message: response.error.message,
+        details: response.error.details
+      })
+    }
+    return response
   }
 
   /**
@@ -343,10 +359,38 @@ export class ThreadWorkerRegistry {
    */
   private async releaseHungWorker(info: WorkerHangInfo): Promise<void> {
     const threadId = info.threadId
-    if (!threadId || !this.leases.has(threadId)) {
+    if (!threadId) {
       return
     }
-    await this.releaseThreadWorker(threadId, 'crash')
+    const lease = this.leases.get(threadId)
+    if (!lease) {
+      return
+    }
+    if (lease.status === 'running' || lease.status === 'starting') {
+      await this.releaseThreadWorker(threadId, 'crash', {
+        message: `worker hang: no message for ${info.silentMs}ms`,
+        details: { silentMs: info.silentMs, workerId: info.workerId, leaseStatus: lease.status }
+      })
+      return
+    }
+    await this.releaseThreadWorker(threadId, 'idle')
+  }
+
+  /**
+   * 释放已退出 worker 的租约。
+   * @param info - exit 信息。
+   */
+  private async releaseExitedWorker(info: WorkerExitInfo): Promise<void> {
+    const lease = info.threadId
+      ? this.leases.get(info.threadId)
+      : Array.from(this.leases.values()).find((candidate) => candidate.workerId === info.workerId)
+    if (!lease || !this.leases.has(lease.threadId)) {
+      return
+    }
+    await this.releaseThreadWorker(lease.threadId, 'crash', {
+      message: info.reason,
+      details: { workerId: info.workerId, transportReason: info.reason }
+    })
   }
 
   /**

@@ -18,3 +18,5 @@ coverage/
 Thumbs.db
 .codex/
 tmp/electron-extension-dev/
+.pi-subagents/
+vendor/pi/

@@ -5,6 +5,7 @@
 type LoadThreadsOptions = {
   deferActiveSnapshot?: boolean
   selectLatestActiveProjectThread?: boolean
+  restoreActiveThread?: boolean
 }
 
 interface WorkspaceStartupLoaders {
@@ -19,6 +20,6 @@ interface WorkspaceStartupLoaders {
 export async function loadWorkspaceStartupData(loaders: WorkspaceStartupLoaders): Promise<void> {
   await Promise.all([
     loaders.loadProjects(),
-    loaders.loadThreads(undefined, { deferActiveSnapshot: true })
+    loaders.loadThreads(undefined, { deferActiveSnapshot: true, restoreActiveThread: false })
   ])
 }

@@ -150,7 +150,7 @@ describe('CodingThreadStore', () => {
     rmSync(root, { recursive: true, force: true })
   })
 
-  it('应用重启后不会把持久化的 running 状态恢复成活跃运行态', async () => {
+  it('应用重启后不会把持久化的 transient/error 状态恢复成活跃运行态', async () => {
     const root = createTempDir()
     const projectFile = join(root, 'projects.json')
     const threadFile = join(root, 'threads.json')
@@ -167,6 +167,13 @@ describe('CodingThreadStore', () => {
       createdAt: '2026-07-01T00:00:00.000Z',
       updatedAt: '2026-07-01T00:00:00.000Z'
     })
+    threadStore.saveThread({
+      threadId: 'thread-error-before-restart',
+      projectId: project.projectId,
+      status: 'error',
+      createdAt: '2026-07-01T00:00:01.000Z',
+      updatedAt: '2026-07-01T00:00:01.000Z'
+    })
     projectStore.close()
     threadStore.close()
 
@@ -179,7 +186,20 @@ describe('CodingThreadStore', () => {
     )
     const snapshot = await manager.getSnapshot('thread-running-before-restart')
 
-    expect(manager.listThreads()[0]?.status).toBe('idle')
+    expect(
+      manager.listThreads().map((thread) => ({ threadId: thread.threadId, status: thread.status }))
+    ).toEqual([
+      { threadId: 'thread-error-before-restart', status: 'idle' },
+      { threadId: 'thread-running-before-restart', status: 'idle' }
+    ])
+    expect(
+      reopenedThreadStore
+        .listThreads()
+        .map((thread) => ({ threadId: thread.threadId, status: thread.status }))
+    ).toEqual([
+      { threadId: 'thread-error-before-restart', status: 'idle' },
+      { threadId: 'thread-running-before-restart', status: 'idle' }
+    ])
     expect(snapshot.status).toBe('idle')
     reopenedProjectStore.close()
     reopenedThreadStore.close()

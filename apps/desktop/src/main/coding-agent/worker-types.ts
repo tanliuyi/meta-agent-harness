@@ -39,6 +39,16 @@ export interface WorkerHangInfo {
   silentMs: number
 }
 
+/** worker 退出信息。 */
+export interface WorkerExitInfo {
+  /** worker ID。 */
+  workerId: string
+  /** 线程 ID，若未绑定则为 undefined。 */
+  threadId?: string
+  /** 底层 transport 关闭原因。 */
+  reason: string
+}
+
 /**
  * worker 客户端抽象接口。
  */
@@ -70,6 +80,12 @@ export interface WorkerClient {
    * @returns 取消订阅函数。
    */
   onHang?(listener: (info: WorkerHangInfo) => void): () => void
+  /**
+   * 注册退出监听器。
+   * @param listener - 退出监听器。
+   * @returns 取消订阅函数。
+   */
+  onExit?(listener: (info: WorkerExitInfo) => void): () => void
   /**
    * 获取 worker 快照。
    * @returns worker 快照。

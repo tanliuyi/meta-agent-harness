@@ -70,6 +70,37 @@ describe('createNodeSidecarWorkerClient', () => {
     expect(child.kill).toHaveBeenCalled()
   })
 
+  it('主动 stop 后 child SIGTERM exit 不会触发 crash exit 事件', async () => {
+    const workerEntry = join(mkdtempSync(join(tmpdir(), 'meta-agent-sidecar-')), 'worker.js')
+    writeFileSync(workerEntry, '')
+    const child = createFakeChildProcess()
+    const exits: Array<{ reason: string }> = []
+    forkMock.mockReturnValue(child)
+
+    const client = await createNodeSidecarWorkerClient({ workerEntry })
+    client.onExit?.((info) => exits.push({ reason: info.reason }))
+    await client.stop('idle')
+    child.emit('exit', null, 'SIGTERM')
+
+    expect(exits).toEqual([])
+  })
+
+  it('过滤 node SQLite experimental warning 诊断噪声', async () => {
+    const workerEntry = join(mkdtempSync(join(tmpdir(), 'meta-agent-sidecar-')), 'worker.js')
+    writeFileSync(workerEntry, '')
+    const child = createFakeChildProcess()
+    const exits: Array<{ reason: string }> = []
+    forkMock.mockReturnValue(child)
+
+    const client = await createNodeSidecarWorkerClient({ workerEntry })
+    client.onExit?.((info) => exits.push({ reason: info.reason }))
+    child.stderr.write('(node:31008) ExperimentalWarning: SQLite is an experimental feature and might change at any time\n')
+    child.stderr.write('(Use `node --trace-warnings ...` to show where the warning was created)\n')
+    child.emit('exit', 1, null)
+
+    expect(exits).toEqual([{ reason: 'node sidecar exited: code=1 signal=null' }])
+  })
+
   it('默认 worker 入口兼容 electron-vite chunks 目录', async () => {
     const distDir = mkdtempSync(join(tmpdir(), 'meta-agent-dist-'))
     const chunksDir = join(distDir, 'chunks')

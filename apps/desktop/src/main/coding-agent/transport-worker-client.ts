@@ -8,6 +8,7 @@ import type {
   WorkerCommand,
   WorkerCommandEnvelope,
   WorkerEnvelope,
+  WorkerExitInfo,
   WorkerHangInfo,
   WorkerResponseEnvelope,
   WorkerSnapshot,
@@ -68,8 +69,14 @@ export class TransportWorkerClient implements WorkerClient {
   private readonly eventListeners: Array<(event: WorkerEnvelope) => void> = []
   /** hang 监听器集合。 */
   private readonly hangListeners: Array<(info: WorkerHangInfo) => void> = []
+  /** exit 监听器集合。 */
+  private readonly exitListeners: Array<(info: WorkerExitInfo) => void> = []
   /** 是否已停止。 */
   private stopped = false
+  /** 停止原因。 */
+  private stoppedReason: string | undefined
+  /** 是否抑制下一次 close exit 通知。 */
+  private suppressNextCloseExit = false
   /** 无消息超时毫秒数。 */
   private readonly inactivityTimeoutMs: number | undefined
   /** 启动线程超时毫秒数。 */
@@ -133,6 +140,7 @@ export class TransportWorkerClient implements WorkerClient {
    */
   send(command: WorkerCommand): Promise<WorkerResponseEnvelope> {
     if (this.stopped) {
+      const reason = this.stoppedReason
       return Promise.resolve({
         kind: 'response',
         id: 'stopped',
@@ -140,8 +148,9 @@ export class TransportWorkerClient implements WorkerClient {
         success: false,
         error: {
           code: 'worker_exited',
-          message: 'worker is stopped',
-          recoverable: true
+          message: reason ? `worker is stopped: ${reason}` : 'worker is stopped',
+          recoverable: true,
+          details: reason ? { reason } : undefined
         }
       })
     }
@@ -207,6 +216,21 @@ export class TransportWorkerClient implements WorkerClient {
   }
 
   /**
+   * 注册 exit 监听器。
+   * @param listener - exit 监听器。
+   * @returns 取消订阅函数。
+   */
+  onExit(listener: (info: WorkerExitInfo) => void): () => void {
+    this.exitListeners.push(listener)
+    return () => {
+      const index = this.exitListeners.indexOf(listener)
+      if (index >= 0) {
+        this.exitListeners.splice(index, 1)
+      }
+    }
+  }
+
+  /**
    * 停止 worker 并清理所有待处理请求。
    * @param reason - 停止原因。
    */
@@ -215,6 +239,8 @@ export class TransportWorkerClient implements WorkerClient {
       return
     }
     this.stopped = true
+    this.stoppedReason = reason
+    this.suppressNextCloseExit = true
     this.clearInactivityTimer()
     this.rejectAll(new Error(reason))
     this.transport.close()
@@ -296,8 +322,19 @@ export class TransportWorkerClient implements WorkerClient {
    * @param reason - 关闭原因。
    */
   private handleClose(reason: string): void {
+    const shouldNotifyExit = !this.suppressNextCloseExit
+    this.suppressNextCloseExit = false
     this.stopped = true
+    this.stoppedReason = reason
     this.rejectAll(new Error(reason))
+    if (shouldNotifyExit) {
+      const info: WorkerExitInfo = {
+        workerId: this.workerId,
+        threadId: this.threadId,
+        reason
+      }
+      this.exitListeners.forEach((listener) => listener(info))
+    }
   }
 
   /**

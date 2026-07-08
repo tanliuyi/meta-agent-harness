@@ -86,7 +86,15 @@ export class ThreadManagerCore {
       ...(store?.listThreads({ archived: true }) ?? [])
     ]
     for (const thread of persistedThreads) {
-      this.threads.set(thread.threadId, normalizePersistedThread(thread))
+      const normalizedThread = normalizePersistedThread(thread)
+      this.threads.set(thread.threadId, normalizedThread)
+      if (normalizedThread.status !== thread.status) {
+        try {
+          store?.saveThread(stripDerivedThreadFields(normalizedThread))
+        } catch {
+          // 启动期状态归一化失败不能阻塞 thread registry 初始化。
+        }
+      }
     }
   }
 
@@ -190,7 +198,13 @@ export class ThreadManagerCore {
       isMissingWorkerResponse(response) ||
       (thread.status !== 'idle' && thread.status !== 'running')
     ) {
-      return (await this.buildSnapshotFromSessionFile(thread)) ?? this.buildSnapshot(thread)
+      const fallbackThread = isMissingWorkerResponse(response)
+        ? normalizeInactiveThread(this.requireThread(threadId))
+        : thread
+      return (
+        (await this.buildSnapshotFromSessionFile(fallbackThread)) ??
+        this.buildSnapshot(fallbackThread)
+      )
     }
     throwResponseError(response)
   }
@@ -611,7 +625,11 @@ export function throwResponseError(response: WorkerResponseEnvelope): never {
  * @returns 是否为缺失响应。
  */
 function isMissingWorkerResponse(response: WorkerResponseEnvelope): boolean {
-  return response.error?.code === 'thread_not_found' || response.error?.code === 'worker_not_found'
+  return (
+    response.error?.code === 'thread_not_found' ||
+    response.error?.code === 'worker_not_found' ||
+    response.error?.code === 'worker_exited'
+  )
 }
 
 function getThreadStatusFromLiveState(
@@ -631,7 +649,12 @@ function normalizePersistedThread(thread: ThreadSummary): ThreadSummary {
 }
 
 function normalizeInactiveThread(thread: ThreadSummary): ThreadSummary {
-  if (thread.status === 'running' || thread.status === 'starting' || thread.status === 'stopping') {
+  if (
+    thread.status === 'running' ||
+    thread.status === 'starting' ||
+    thread.status === 'stopping' ||
+    thread.status === 'error'
+  ) {
     return { ...thread, status: 'idle' }
   }
   return thread

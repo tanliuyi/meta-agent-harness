@@ -27,7 +27,10 @@ describe('loadWorkspaceStartupData', () => {
     await Promise.resolve()
 
     expect(events).toEqual(['projects:start', 'threads:start'])
-    expect(loadThreads).toHaveBeenCalledWith(undefined, { deferActiveSnapshot: true })
+    expect(loadThreads).toHaveBeenCalledWith(undefined, {
+      deferActiveSnapshot: true,
+      restoreActiveThread: false
+    })
 
     threads.resolve()
     await Promise.resolve()

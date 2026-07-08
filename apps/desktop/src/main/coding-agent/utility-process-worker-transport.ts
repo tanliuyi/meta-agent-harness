@@ -14,6 +14,7 @@ export class UtilityProcessWorkerTransport implements WorkerTransport {
   private readonly closeListeners = new Set<(reason: string) => void>()
   private diagnosticTail = ''
   private closed = false
+  private closingIntentionally = false
 
   /**
    * 创建 UtilityProcessWorkerTransport 实例。
@@ -34,10 +35,16 @@ export class UtilityProcessWorkerTransport implements WorkerTransport {
       this.diagnosticTail = `${this.diagnosticTail}${chunk.toString()}`.slice(-4000)
     })
     child.once('exit', (code) => {
+      if (this.closingIntentionally) {
+        return
+      }
       this.closed = true
       this.emitClose(withDiagnosticTail(`worker exited: code=${code}`, this.diagnosticTail))
     })
     child.once('error', (type, location, report) => {
+      if (this.closingIntentionally) {
+        return
+      }
       this.closed = true
       this.emitClose(
         withDiagnosticTail(
@@ -88,6 +95,7 @@ export class UtilityProcessWorkerTransport implements WorkerTransport {
       return
     }
     this.closed = true
+    this.closingIntentionally = true
     this.child.kill()
     this.emitClose(withDiagnosticTail('worker transport closed', this.diagnosticTail))
   }
@@ -120,6 +128,15 @@ export class UtilityProcessWorkerTransport implements WorkerTransport {
  * @returns 拼接后的原因字符串。
  */
 function withDiagnosticTail(reason: string, diagnosticTail: string): string {
-  const tail = diagnosticTail.trim()
+  const tail = filterDiagnosticTail(diagnosticTail)
   return tail ? `${reason}; diagnostics: ${tail}` : reason
+}
+
+function filterDiagnosticTail(diagnosticTail: string): string {
+  return diagnosticTail
+    .split(/\r?\n/)
+    .filter((line) => !line.includes('ExperimentalWarning: SQLite is an experimental feature'))
+    .filter((line) => !line.includes('Use `node --trace-warnings ...` to show where the warning was created'))
+    .join('\n')
+    .trim()
 }

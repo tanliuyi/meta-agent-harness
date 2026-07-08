@@ -5,7 +5,7 @@
 import { existsSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 
-const generatedPackageRelativePath = join('.generated', 'pi-coding-agent')
+const resourcePackageRelativePath = join('resources', 'pi-coding-agent')
 const packagedPackageRelativePath = 'pi-coding-agent'
 
 export function resolveCodingAgentPackageDir(): string {
@@ -19,7 +19,7 @@ export function resolveCodingAgentPackageDir(): string {
     }
   }
 
-  return resolve(process.cwd(), generatedPackageRelativePath)
+  return resolve(process.cwd(), resourcePackageRelativePath)
 }
 
 export function getCodingAgentWorkerEnv(): NodeJS.ProcessEnv {
@@ -40,9 +40,9 @@ function getCodingAgentPackageDirCandidates(): string[] {
     candidates.push(join(process.resourcesPath, packagedPackageRelativePath))
   }
 
-  candidates.push(resolve(process.cwd(), generatedPackageRelativePath))
-  candidates.push(resolve(__dirname, '..', '..', generatedPackageRelativePath))
-  candidates.push(resolve(__dirname, '..', '..', '..', generatedPackageRelativePath))
+  candidates.push(resolve(process.cwd(), resourcePackageRelativePath))
+  candidates.push(resolve(__dirname, '..', '..', resourcePackageRelativePath))
+  candidates.push(resolve(__dirname, '..', '..', '..', resourcePackageRelativePath))
   candidates.push(resolve(__dirname, '..', '..', '..', '..', 'packages', 'coding-agent'))
   candidates.push(resolve(__dirname, '..', '..', '..', '..', '..', 'packages', 'coding-agent'))
 

@@ -247,7 +247,18 @@ export type RpcExtensionUIRequest =
 			widgetPlacement?: "aboveEditor" | "belowEditor";
 	  }
 	| { type: "extension_ui_request"; id: string; method: "setTitle"; title: string }
-	| { type: "extension_ui_request"; id: string; method: "set_editor_text"; text: string };
+	| { type: "extension_ui_request"; id: string; method: "set_editor_text"; text: string }
+	| { type: "extension_ui_request"; id: string; method: "setWorkingMessage"; message?: string }
+	| { type: "extension_ui_request"; id: string; method: "setWorkingVisible"; visible: boolean }
+	| { type: "extension_ui_request"; id: string; method: "setWorkingIndicator"; options?: unknown }
+	| { type: "extension_ui_request"; id: string; method: "setHiddenThinkingLabel"; label?: string }
+	| { type: "extension_ui_request"; id: string; method: "setFooter"; registered: boolean }
+	| { type: "extension_ui_request"; id: string; method: "setHeader"; registered: boolean }
+	| { type: "extension_ui_request"; id: string; method: "custom"; registered: boolean; options?: unknown }
+	| { type: "extension_ui_request"; id: string; method: "addAutocompleteProvider"; providerCount: number }
+	| { type: "extension_ui_request"; id: string; method: "setEditorComponent"; registered: boolean }
+	| { type: "extension_ui_request"; id: string; method: "setTheme"; theme: string }
+	| { type: "extension_ui_request"; id: string; method: "setToolsExpanded"; expanded: boolean };
 
 // ============================================================================
 // Extension UI Commands (stdin)

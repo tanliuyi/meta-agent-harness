@@ -3,19 +3,21 @@ productName: Meta Agent
 directories:
   buildResources: build
 files:
-  - '!**/.vscode/*'
-  - '!src/*'
-  - '!electron.vite.config.{js,ts,mjs,cjs}'
-  - '!{.eslintcache,eslint.config.mjs,.prettierignore,.prettierrc.yaml,dev-app-update.yml,CHANGELOG.md,README.md}'
-  - '!{.env,.env.*,.npmrc,pnpm-lock.yaml}'
-  - '!{tsconfig.json,tsconfig.node.json,tsconfig.web.json}'
+  - out/**
+  - package.json
+  - resources/icon.*
+  - resources/*.svg
+  - node_modules/@mariozechner/clipboard/**
+  - node_modules/@mariozechner/clipboard-*/**
+  - '!resources/pi-coding-agent/**'
 asarUnpack:
-  - node_modules/**
+  - node_modules/@mariozechner/clipboard-*/**
   - out/main/coding-agent-node-sidecar-worker.js
   - out/main/chunks/**
-  - resources/**
+  - resources/icon.*
+  - resources/*.svg
 extraResources:
-  - from: .generated/pi-coding-agent
+  - from: resources/pi-coding-agent
     to: pi-coding-agent
 win:
   executableName: Meta Agent

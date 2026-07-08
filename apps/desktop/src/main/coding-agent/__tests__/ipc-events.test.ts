@@ -7,6 +7,7 @@ import { codingAgentChannels } from '@shared/coding-agent/channels'
 import {
   publishCodingAgentEvent,
   syncThreadStatusFromWorkerEvent,
+  syncThreadStatusFromWorkerLifecycle,
   toCodingAgentIpcEvent
 } from '../ipc'
 import type { CodingAgentIpcEvent } from '@shared/coding-agent/types'
@@ -212,5 +213,41 @@ describe('coding agent IPC events', () => {
     expect(manager.updateThread).toHaveBeenNthCalledWith(2, 'thread-a', { status: 'idle' })
     expect(manager.updateThread).toHaveBeenNthCalledWith(3, 'thread-a', { status: 'idle' })
     expect(manager.updateThread).toHaveBeenCalledTimes(3)
+  })
+
+  it('从 worker 结束 lifecycle 同步 thread metadata 状态', () => {
+    const manager = {
+      hasThread: vi.fn((threadId: string) => threadId === 'thread-a'),
+      updateThread: vi.fn()
+    }
+
+    syncThreadStatusFromWorkerLifecycle(manager, {
+      type: 'worker.run.finished',
+      workerId: 'worker-a',
+      threadId: 'thread-a',
+      reason: 'stop',
+      startedAt: 100,
+      exitedAt: 200
+    })
+    syncThreadStatusFromWorkerLifecycle(manager, {
+      type: 'worker.run.finished',
+      workerId: 'worker-b',
+      threadId: 'thread-a',
+      reason: 'crash',
+      startedAt: 300,
+      exitedAt: 400
+    })
+    syncThreadStatusFromWorkerLifecycle(manager, {
+      type: 'worker.run.finished',
+      workerId: 'worker-c',
+      threadId: 'thread-missing',
+      reason: 'stop',
+      startedAt: 500,
+      exitedAt: 600
+    })
+
+    expect(manager.updateThread).toHaveBeenNthCalledWith(1, 'thread-a', { status: 'stopped' })
+    expect(manager.updateThread).toHaveBeenNthCalledWith(2, 'thread-a', { status: 'error' })
+    expect(manager.updateThread).toHaveBeenCalledTimes(2)
   })
 })

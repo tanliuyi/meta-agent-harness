@@ -81,6 +81,55 @@ describe('TransportWorkerClient', () => {
     })
   })
 
+  it('传输层主动关闭时通知 exit reason', async () => {
+    const transport = createFakeTransport()
+    const exits: Array<{ workerId: string; threadId?: string; reason: string }> = []
+    const client = new TransportWorkerClient({
+      workerId: 'worker-1',
+      transport,
+      requestTimeoutMs: 1000,
+      now: () => 0
+    })
+    client.onExit((info) => exits.push(info))
+    transport.respondTo('worker.startThread', { success: true })
+    await client.startThread({ threadId: 'thread-a', cwd: '/tmp' })
+
+    transport.emitClose('node sidecar exited: code=1 signal=null; diagnostics: boom')
+
+    expect(exits).toEqual([
+      {
+        workerId: 'worker-1',
+        threadId: 'thread-a',
+        reason: 'node sidecar exited: code=1 signal=null; diagnostics: boom'
+      }
+    ])
+    await expect(client.send({ type: 'worker.ping' })).resolves.toMatchObject({
+      success: false,
+      error: {
+        code: 'worker_exited',
+        message: 'worker is stopped: node sidecar exited: code=1 signal=null; diagnostics: boom'
+      }
+    })
+  })
+
+  it('主动 stop 不会通知 exit reason', async () => {
+    const transport = createFakeTransport()
+    const exits: Array<{ workerId: string; threadId?: string; reason: string }> = []
+    const client = new TransportWorkerClient({
+      workerId: 'worker-1',
+      transport,
+      requestTimeoutMs: 1000,
+      now: () => 0
+    })
+    client.onExit((info) => exits.push(info))
+    transport.respondTo('worker.startThread', { success: true })
+    await client.startThread({ threadId: 'thread-a', cwd: '/tmp' })
+
+    await client.stop('stop')
+
+    expect(exits).toEqual([])
+  })
+
   it('启动线程超时时 reject', async () => {
     const transport = createFakeTransport()
     const client = new TransportWorkerClient({
@@ -209,6 +258,11 @@ function createFakeTransport(): FakeTransport {
       closed = true
       closeListeners.forEach((listener) => listener('transport closed'))
     },
+    emitClose(reason: string) {
+      if (closed) return
+      closed = true
+      closeListeners.forEach((listener) => listener(reason))
+    },
     isClosed() {
       return closed
     },
@@ -228,6 +282,7 @@ type FakeTransport = WorkerTransport & {
   isClosed(): boolean
   respondTo(command: string, response: Partial<WorkerResponseEnvelope>): void
   emitEvent(event: WorkerEnvelope): void
+  emitClose(reason: string): void
 }
 
 async function waitMs(ms: number): Promise<void> {

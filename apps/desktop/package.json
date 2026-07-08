@@ -24,6 +24,9 @@
     "build:linux": "npm run build && electron-builder --linux"
   },
   "dependencies": {
+    "@mariozechner/clipboard": "0.3.9"
+  },
+  "devDependencies": {
     "@chenglou/pretext": "0.0.8",
     "@earendil-works/pi-coding-agent-desktop": "workspace:*",
     "@electron-toolkit/preload": "^3.0.2",
@@ -47,9 +50,7 @@
     "reka-ui": "^2.10.1",
     "shiki": "^4.3.0",
     "typebox": "1.1.38",
-    "vue-router": "^5.1.0"
-  },
-  "devDependencies": {
+    "vue-router": "^5.1.0",
     "@electron-toolkit/eslint-config-prettier": "3.0.0",
     "@electron-toolkit/eslint-config-ts": "^3.1.0",
     "@electron-toolkit/tsconfig": "^2.0.0",

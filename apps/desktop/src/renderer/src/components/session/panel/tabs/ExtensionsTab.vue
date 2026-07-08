@@ -13,12 +13,15 @@ import {
 import useWorkspaceSessionStore from '@renderer/stores/workspace-session'
 import type { ExtensionUiRequest } from '@shared/coding-agent/types'
 import {
+  getExtensionDisplayLines,
+  getExtensionDisplayText,
   getExtensionInitialDraft,
   getExtensionRequestDescription,
-  getExtensionRequestTitle
+  getExtensionRequestTitle,
+  getExtensionRequestTypeLabel
 } from './display/extensionDisplay'
 
-const NOTIFICATIONS_WIDGET_KEY = 'Notifications'
+const NOTIFICATIONS_WIDGET_KEY = '通知'
 const workspaceSession = useWorkspaceSessionStore()
 const extensionDrafts = ref<Record<string, string>>({})
 const activeExtensionRequestId = ref<string>()
@@ -57,9 +60,9 @@ const hasExtensionActivity = computed(
 )
 const workingStateText = computed(() => {
   if (workspaceSession.activeExtensionWorkingVisible === false) {
-    return 'Working row hidden'
+    return '工作行已隐藏'
   }
-  return workspaceSession.activeExtensionWorkingMessage || 'Using default working row'
+  return workspaceSession.activeExtensionWorkingMessage || '使用默认工作行'
 })
 const workingIndicatorText = computed(() => {
   const indicator = workspaceSession.activeExtensionWorkingIndicator
@@ -67,12 +70,12 @@ const workingIndicatorText = computed(() => {
     return undefined
   }
   if (indicator.frames && indicator.frames.length === 0) {
-    return 'Indicator hidden'
+    return '指示器已隐藏'
   }
   if (indicator.frames?.length) {
-    return `${indicator.frames.length} custom frames`
+    return `${indicator.frames.length} 个自定义帧`
   }
-  return 'Default indicator'
+  return '默认指示器'
 })
 
 function getExtensionDraft(request: ExtensionUiRequest): string {
@@ -156,7 +159,7 @@ function clearNotifications(): void {
   <section class="session-section" role="tabpanel">
     <header class="session-section__header">
       <div class="session-section__title">
-        <h3>Extensions</h3>
+        <h3>扩展</h3>
         <span v-if="extensionUiRequests.length" class="session-panel-count">
           {{ extensionUiRequests.length }}
         </span>
@@ -164,7 +167,7 @@ function clearNotifications(): void {
     </header>
 
     <div v-if="!hasExtensionActivity" class="session-empty">
-      No extension activity
+      暂无扩展活动
     </div>
 
     <div v-if="hasExtensionActivity" class="extension-panel-stack">
@@ -173,18 +176,18 @@ function clearNotifications(): void {
         class="extension-panel-group"
       >
         <header class="extension-panel-group__header">
-          <span>Active</span>
+          <span>当前状态</span>
         </header>
         <p v-if="workspaceSession.activeExtensionTitle" class="extension-title">
           {{ workspaceSession.activeExtensionTitle }}
         </p>
         <div v-if="hasExtensionWorkingState" class="extension-kv-list">
           <div>
-            <span>working</span>
+            <span>工作状态</span>
             <strong>{{ workingStateText }}</strong>
           </div>
           <div v-if="workingIndicatorText">
-            <span>indicator</span>
+            <span>指示器</span>
             <strong>{{ workingIndicatorText }}</strong>
           </div>
         </div>
@@ -192,7 +195,7 @@ function clearNotifications(): void {
 
       <section v-if="hasExtensionUiRequests" class="extension-panel-group">
         <header class="extension-panel-group__header">
-          <span>Requests</span>
+          <span>请求</span>
           <strong>{{ extensionUiRequests.length }}</strong>
         </header>
         <article
@@ -204,9 +207,9 @@ function clearNotifications(): void {
             <strong>{{ getExtensionRequestTitle(request) }}</strong>
             <span>{{ getExtensionRequestDescription(request) }}</span>
           </div>
-          <span class="extension-request-row__type">{{ request.type }}</span>
+          <span class="extension-request-row__type">{{ getExtensionRequestTypeLabel(request) }}</span>
           <BaseButton size="sm" variant="secondary" @click="openExtensionRequestDialog(request)">
-            Respond
+            响应
           </BaseButton>
         </article>
       </section>
@@ -216,13 +219,13 @@ function clearNotifications(): void {
         class="extension-panel-group"
       >
         <header class="extension-panel-group__header">
-          <span>Activity</span>
+          <span>活动</span>
         </header>
 
         <div v-if="extensionStatuses.length" class="extension-kv-list">
           <div v-for="[key, value] in extensionStatuses" :key="key">
-            <span>{{ key }}</span>
-            <strong>{{ value }}</strong>
+            <span>{{ getExtensionDisplayText(key) }}</span>
+            <strong>{{ getExtensionDisplayText(value) }}</strong>
           </div>
         </div>
 
@@ -233,15 +236,15 @@ function clearNotifications(): void {
           variant="detail"
         >
           <template #actions>
-            <BaseButton size="sm" variant="ghost" @click="clearNotifications">Clear</BaseButton>
+            <BaseButton size="sm" variant="ghost" @click="clearNotifications">清除</BaseButton>
           </template>
         </ExtensionWidget>
 
         <ExtensionWidget
           v-for="[key, widget] in extensionWidgets"
           :key="key"
-          :title="key"
-          :lines="widget.lines"
+          :title="getExtensionDisplayText(key)"
+          :lines="getExtensionDisplayLines(widget.lines)"
           variant="detail"
         />
       </section>
@@ -306,7 +309,7 @@ function clearNotifications(): void {
               variant="ghost"
               @click="cancelExtensionRequest(activeExtensionRequest)"
             >
-              Cancel
+              取消
             </BaseButton>
             <BaseButton
               v-if="activeExtensionRequest.type === 'confirm'"
@@ -315,7 +318,7 @@ function clearNotifications(): void {
               variant="primary"
               @click="respondExtensionRequest(activeExtensionRequest, true)"
             >
-              Confirm
+              确认
             </BaseButton>
             <BaseButton
               v-else-if="activeExtensionRequest.type !== 'select'"
@@ -324,7 +327,7 @@ function clearNotifications(): void {
               variant="primary"
               @click="respondExtensionRequest(activeExtensionRequest)"
             >
-              Submit
+              提交
             </BaseButton>
           </DialogFooter>
         </template>

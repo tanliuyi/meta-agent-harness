@@ -1277,6 +1277,8 @@ export type ThreadWorkerLifecycleIpcEvent =
       reason: 'idle' | 'stop' | 'archive' | 'crash' | 'shutdown'
       startedAt: number
       exitedAt: number
+      message?: string
+      details?: unknown
     }
   | { type: 'worker.run.failed'; threadId?: string; message: string; createdAt: number }
 

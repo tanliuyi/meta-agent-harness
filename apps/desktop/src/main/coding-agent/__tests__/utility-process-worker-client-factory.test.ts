@@ -68,6 +68,37 @@ describe('createUtilityProcessWorkerClient', () => {
     expect(child.kill).toHaveBeenCalled()
   })
 
+  it('主动 stop 后 utility process exit 不会触发 crash exit 事件', async () => {
+    const workerEntry = join(mkdtempSync(join(tmpdir(), 'meta-agent-worker-')), 'worker.js')
+    writeFileSync(workerEntry, '')
+    const child = createFakeUtilityProcess()
+    const exits: Array<{ reason: string }> = []
+    forkMock.mockReturnValue(child)
+
+    const client = await createUtilityProcessWorkerClient({ workerEntry })
+    client.onExit?.((info) => exits.push({ reason: info.reason }))
+    await client.stop('idle')
+    child.emit('exit', null)
+
+    expect(exits).toEqual([])
+  })
+
+  it('过滤 utility worker SQLite experimental warning 诊断噪声', async () => {
+    const workerEntry = join(mkdtempSync(join(tmpdir(), 'meta-agent-worker-')), 'worker.js')
+    writeFileSync(workerEntry, '')
+    const child = createFakeUtilityProcess()
+    const exits: Array<{ reason: string }> = []
+    forkMock.mockReturnValue(child)
+
+    const client = await createUtilityProcessWorkerClient({ workerEntry })
+    client.onExit?.((info) => exits.push({ reason: info.reason }))
+    child.stderr.write('(node:31008) ExperimentalWarning: SQLite is an experimental feature and might change at any time\n')
+    child.stderr.write('(Use `node --trace-warnings ...` to show where the warning was created)\n')
+    child.emit('exit', 1)
+
+    expect(exits).toEqual([{ reason: 'worker exited: code=1' }])
+  })
+
   it('默认 worker 入口兼容 electron-vite chunks 目录', async () => {
     const distDir = mkdtempSync(join(tmpdir(), 'meta-agent-dist-'))
     const chunksDir = join(distDir, 'chunks')

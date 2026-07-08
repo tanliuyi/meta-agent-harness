@@ -133,6 +133,11 @@ export function registerCodingAgentIpc(options: CodingAgentIpcOptions = {}): Cod
         },
         onLifecycle: (event) => {
           indexWorkerLifecycle(store, event)
+          syncThreadStatusFromWorkerLifecycle(manager, event)
+          const statusEvent = toThreadStatusProjectionFromLifecycle(event)
+          if (statusEvent) {
+            publishCodingAgentEvent(subscribers, statusEvent)
+          }
           publishCodingAgentEvent(subscribers, {
             type: 'threadWorker',
             threadId: event.threadId,
@@ -523,11 +528,29 @@ function indexWorkerLifecycle(store: CodingThreadStore, event: ThreadWorkerLifec
       return
     }
     if (event.type === 'worker.run.finished') {
+      const threadStatus = getThreadStatusFromWorkerLifecycle(event) ?? 'stopped'
       store.finishWorkerRun({
         workerId: event.workerId,
         startedAt: new Date(event.startedAt).toISOString(),
         status: event.reason === 'crash' ? 'crashed' : 'stopped',
         exitedAt: new Date(event.exitedAt).toISOString()
+      })
+      const message = event.message
+        ? `worker finished: reason=${event.reason}, thread status=${threadStatus}; ${event.message}`
+        : `worker finished: reason=${event.reason}, thread status=${threadStatus}`
+      store.recordDiagnostic({
+        threadId: event.threadId,
+        source: 'thread_worker_registry',
+        severity: event.reason === 'crash' ? 'error' : 'info',
+        message,
+        details: {
+          workerId: event.workerId,
+          reason: event.reason,
+          threadStatus,
+          workerMessage: event.message,
+          workerDetails: event.details
+        },
+        createdAt: new Date(event.exitedAt).toISOString()
       })
       return
     }
@@ -606,6 +629,63 @@ export function syncThreadStatusFromWorkerEvent(
     return
   }
   manager.updateThread(event.threadId, { status })
+}
+
+/**
+ * 从 worker lifecycle 同步 thread metadata 状态，覆盖 worker 退出但没有最终 runtime event 的情况。
+ * @param manager - thread manager。
+ * @param event - worker lifecycle event。
+ */
+export function syncThreadStatusFromWorkerLifecycle(
+  manager: Pick<CodingThreadManager, 'hasThread' | 'updateThread'>,
+  event: ThreadWorkerLifecycleEvent
+): void {
+  const status = getThreadStatusFromWorkerLifecycle(event)
+  if (!status || !event.threadId || !manager.hasThread(event.threadId)) {
+    return
+  }
+  manager.updateThread(event.threadId, { status })
+}
+
+function toThreadStatusProjectionFromLifecycle(
+  event: ThreadWorkerLifecycleEvent
+): CodingAgentIpcEvent | undefined {
+  const status = getThreadStatusFromWorkerLifecycle(event)
+  if (!status || !event.threadId) {
+    return undefined
+  }
+  return {
+    type: 'projection',
+    threadId: event.threadId,
+    event: {
+      type: 'thread.stateChanged',
+      threadId: event.threadId,
+      status
+    }
+  }
+}
+
+function getThreadStatusFromWorkerLifecycle(
+  event: ThreadWorkerLifecycleEvent
+): ThreadStatus | undefined {
+  if (event.type === 'worker.run.failed') {
+    return 'error'
+  }
+  if (event.type !== 'worker.run.finished') {
+    return undefined
+  }
+  switch (event.reason) {
+    case 'idle':
+      return 'idle'
+    case 'crash':
+      return 'error'
+    case 'stop':
+    case 'archive':
+    case 'shutdown':
+      return 'stopped'
+    default:
+      return undefined
+  }
 }
 
 function getThreadStatusFromWorkerEvent(event: WorkerEnvelope): ThreadStatus | undefined {

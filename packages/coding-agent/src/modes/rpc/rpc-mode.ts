@@ -85,6 +85,43 @@ export async function runRpcMode(runtimeHost: AgentSessionRuntime): Promise<neve
 	let shuttingDown = false;
 	const signalCleanupHandlers: Array<() => void> = [];
 
+	const rpcThemes = [
+		{
+			name: "default",
+			colors: {
+				accent: "#7dd3fc",
+				error: "#fca5a5",
+				warning: "#fde68a",
+				success: "#86efac",
+				text: "#f4f4f5",
+				muted: "#a1a1aa",
+			},
+		},
+	];
+	let activeRpcTheme = rpcThemes[0];
+	let rpcToolsExpanded = false;
+	let rpcEditorComponent: unknown;
+	const rpcTerminalInputHandlers = new Set<unknown>();
+	const rpcAutocompleteProviders: unknown[] = [];
+
+	const createRpcTheme = () => ({
+		fg: (_color: string, text: string) => text,
+		bg: (_color: string, text: string) => text,
+		bold: (text: string) => text,
+		italic: (text: string) => text,
+		underline: (text: string) => text,
+		inverse: (text: string) => text,
+		strikethrough: (text: string) => text,
+		getFgAnsi: (color: string) => activeRpcTheme.colors[color as keyof typeof activeRpcTheme.colors] ?? "",
+		getBgAnsi: (color: string) => activeRpcTheme.colors[color as keyof typeof activeRpcTheme.colors] ?? "",
+		getColorMode: () => "dark",
+		getThinkingBorderColor: () => (text: string) => text,
+		getBashModeColor: () => (text: string) => text,
+	});
+
+	const describeFactory = (factory: unknown, label: string): string[] | undefined =>
+		factory === undefined ? undefined : [typeof factory === "function" ? `${label}已注册` : `${label}值已注册`];
+
 	/** Helper for dialog methods with signal/timeout support */
 	function createDialogPromise<T>(
 		opts: ExtensionUIDialogOptions | undefined,
@@ -158,6 +195,15 @@ export async function runRpcMode(runtimeHost: AgentSessionRuntime): Promise<neve
 			} as RpcExtensionUIRequest);
 		},
 
+		onTerminalInput(handler: unknown): () => void {
+			rpcTerminalInputHandlers.add(handler);
+			output({ type: "extension_ui_request", id: crypto.randomUUID(), method: "setStatus", statusKey: "terminalInput", statusText: `${rpcTerminalInputHandlers.size} listener(s)` } as RpcExtensionUIRequest);
+			return () => {
+				rpcTerminalInputHandlers.delete(handler);
+				output({ type: "extension_ui_request", id: crypto.randomUUID(), method: "setStatus", statusKey: "terminalInput", statusText: rpcTerminalInputHandlers.size ? `${rpcTerminalInputHandlers.size} listener(s)` : undefined } as RpcExtensionUIRequest);
+			};
+		},
+
 		setStatus(key: string, text: string | undefined): void {
 			// Fire and forget - no response needed
 			output({
@@ -169,35 +215,41 @@ export async function runRpcMode(runtimeHost: AgentSessionRuntime): Promise<neve
 			} as RpcExtensionUIRequest);
 		},
 
-		setWorkingMessage(_message?: string): void {
-			// Working message is host-rendered in RPC mode.
+		setWorkingMessage(message?: string): void {
+			output({ type: "extension_ui_request", id: crypto.randomUUID(), method: "setWorkingMessage", message } as RpcExtensionUIRequest);
 		},
 
-		setWorkingVisible(_visible: boolean): void {
-			// Working visibility is host-rendered in RPC mode.
+		setWorkingVisible(visible: boolean): void {
+			output({ type: "extension_ui_request", id: crypto.randomUUID(), method: "setWorkingVisible", visible } as RpcExtensionUIRequest);
 		},
 
-		setWorkingIndicator(_options?: WorkingIndicatorOptions): void {
-			// Working indicator customization is host-rendered in RPC mode.
+		setWorkingIndicator(options?: WorkingIndicatorOptions): void {
+			output({ type: "extension_ui_request", id: crypto.randomUUID(), method: "setWorkingIndicator", options } as RpcExtensionUIRequest);
 		},
 
-		setHiddenThinkingLabel(_label?: string): void {
-			// Hidden thinking label is host-rendered in RPC mode.
+		setHiddenThinkingLabel(label?: string): void {
+			output({ type: "extension_ui_request", id: crypto.randomUUID(), method: "setHiddenThinkingLabel", label } as RpcExtensionUIRequest);
 		},
 
 		setWidget(key: string, content: unknown, options?: ExtensionWidgetOptions): void {
-			// Only support string arrays in RPC mode - factory functions are ignored
-			if (content === undefined || Array.isArray(content)) {
-				output({
-					type: "extension_ui_request",
-					id: crypto.randomUUID(),
-					method: "setWidget",
-					widgetKey: key,
-					widgetLines: content as string[] | undefined,
-					widgetPlacement: options?.placement,
-				} as RpcExtensionUIRequest);
-			}
-			// Component factories are not part of the desktop-only extension UI surface.
+			output({
+				type: "extension_ui_request",
+				id: crypto.randomUUID(),
+				method: "setWidget",
+				widgetKey: key,
+				widgetLines: Array.isArray(content) ? content : describeFactory(content, "组件工厂"),
+				widgetPlacement: options?.placement,
+			} as RpcExtensionUIRequest);
+		},
+
+		setFooter(factory: unknown): void {
+			output({ type: "extension_ui_request", id: crypto.randomUUID(), method: "setFooter", registered: factory !== undefined } as RpcExtensionUIRequest);
+			output({ type: "extension_ui_request", id: crypto.randomUUID(), method: "setStatus", statusKey: "extensionFooter", statusText: describeFactory(factory, "页脚组件")?.[0] } as RpcExtensionUIRequest);
+		},
+
+		setHeader(factory: unknown): void {
+			output({ type: "extension_ui_request", id: crypto.randomUUID(), method: "setHeader", registered: factory !== undefined } as RpcExtensionUIRequest);
+			output({ type: "extension_ui_request", id: crypto.randomUUID(), method: "setStatus", statusKey: "extensionHeader", statusText: describeFactory(factory, "页头组件")?.[0] } as RpcExtensionUIRequest);
 		},
 
 		setTitle(title: string): void {
@@ -250,13 +302,58 @@ export async function runRpcMode(runtimeHost: AgentSessionRuntime): Promise<neve
 			});
 		},
 
-		getToolsExpanded() {
-			// Tool expansion is tracked by the host.
-			return false;
+		async custom(factory: unknown, options?: unknown) {
+			output({ type: "extension_ui_request", id: crypto.randomUUID(), method: "custom", registered: factory !== undefined, options } as RpcExtensionUIRequest);
+			output({ type: "extension_ui_request", id: crypto.randomUUID(), method: "setStatus", statusKey: "extensionCustom", statusText: describeFactory(factory, "自定义组件")?.[0] } as RpcExtensionUIRequest);
+			return undefined as never;
 		},
 
-		setToolsExpanded(_expanded: boolean) {
-			// Tool expansion is tracked by the host.
+		addAutocompleteProvider(factory: unknown): void {
+			rpcAutocompleteProviders.push(factory);
+			output({ type: "extension_ui_request", id: crypto.randomUUID(), method: "addAutocompleteProvider", providerCount: rpcAutocompleteProviders.length } as RpcExtensionUIRequest);
+			output({ type: "extension_ui_request", id: crypto.randomUUID(), method: "setStatus", statusKey: "autocomplete", statusText: `${rpcAutocompleteProviders.length} provider(s)` } as RpcExtensionUIRequest);
+		},
+
+		setEditorComponent(factory: unknown): void {
+			rpcEditorComponent = factory;
+			output({ type: "extension_ui_request", id: crypto.randomUUID(), method: "setEditorComponent", registered: factory !== undefined } as RpcExtensionUIRequest);
+			output({ type: "extension_ui_request", id: crypto.randomUUID(), method: "setStatus", statusKey: "extensionEditorComponent", statusText: describeFactory(factory, "编辑器组件")?.[0] } as RpcExtensionUIRequest);
+		},
+
+		getEditorComponent() {
+			return rpcEditorComponent;
+		},
+
+		get theme() {
+			return createRpcTheme();
+		},
+
+		getAllThemes() {
+			return rpcThemes.map((theme) => ({ name: theme.name }));
+		},
+
+		getTheme(name: string) {
+			return rpcThemes.find((theme) => theme.name === name);
+		},
+
+		setTheme(theme: unknown) {
+			const themeName = typeof theme === "string" ? theme : typeof theme === "object" && theme !== null && "name" in theme ? String(theme.name) : undefined;
+			const nextTheme = themeName ? rpcThemes.find((item) => item.name === themeName) : undefined;
+			if (!themeName) return { success: false, error: "Theme name is required" };
+			if (!nextTheme) return { success: false, error: `Theme not found: ${themeName}` };
+			activeRpcTheme = nextTheme;
+			output({ type: "extension_ui_request", id: crypto.randomUUID(), method: "setTheme", theme: nextTheme.name } as RpcExtensionUIRequest);
+			output({ type: "extension_ui_request", id: crypto.randomUUID(), method: "setStatus", statusKey: "theme", statusText: nextTheme.name } as RpcExtensionUIRequest);
+			return { success: true };
+		},
+
+		getToolsExpanded() {
+			return rpcToolsExpanded;
+		},
+
+		setToolsExpanded(expanded: boolean) {
+			rpcToolsExpanded = expanded;
+			output({ type: "extension_ui_request", id: crypto.randomUUID(), method: "setToolsExpanded", expanded } as RpcExtensionUIRequest);
 		},
 	});
 

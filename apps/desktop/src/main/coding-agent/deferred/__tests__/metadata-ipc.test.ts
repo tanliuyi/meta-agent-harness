@@ -181,7 +181,7 @@ describe('lightweight metadata readers', () => {
         { threadId: 'thread-running', status: 'idle' },
         { threadId: 'thread-starting', status: 'idle' },
         { threadId: 'thread-stopping', status: 'idle' },
-        { threadId: 'thread-error', status: 'error' }
+        { threadId: 'thread-error', status: 'idle' }
       ])
     } finally {
       rmSync(root, { recursive: true, force: true })

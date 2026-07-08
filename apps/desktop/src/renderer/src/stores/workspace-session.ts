@@ -976,7 +976,9 @@ export default defineStore('workspace-session', () => {
   const activeExtensionWorkingVisible = computed(() => activeRuntime.value?.extensionWorkingVisible)
 
   /** 当前活跃会话的 extension 工作指示器。 */
-  const activeExtensionWorkingIndicator = computed(() => activeRuntime.value?.extensionWorkingIndicator)
+  const activeExtensionWorkingIndicator = computed(
+    () => activeRuntime.value?.extensionWorkingIndicator
+  )
 
   /** 当前活跃会话的 extension 隐藏 thinking 标签。 */
   const activeExtensionHiddenThinkingLabel = computed(
@@ -1142,7 +1144,11 @@ export default defineStore('workspace-session', () => {
    */
   const loadThreads = async (
     contextId = defaultSessionContextId,
-    options: { deferActiveSnapshot?: boolean; selectLatestActiveProjectThread?: boolean } = {}
+    options: {
+      deferActiveSnapshot?: boolean
+      selectLatestActiveProjectThread?: boolean
+      restoreActiveThread?: boolean
+    } = {}
   ): Promise<void> => {
     loadingThreads.value = true
     globalErrorMessage.value = undefined
@@ -1157,6 +1163,7 @@ export default defineStore('workspace-session', () => {
       const context = ensureSessionContext(contextId)
       const storedActiveThreadId = readSessionActiveThreadId(contextId)
       if (
+        options.restoreActiveThread !== false &&
         !context.activeThreadId &&
         storedActiveThreadId &&
         threads.some((thread) => thread.threadId === storedActiveThreadId)
@@ -1504,7 +1511,9 @@ export default defineStore('workspace-session', () => {
       ...files.map((file) => file.path)
     ])
     const message =
-      text || (images.length > 0 ? '请分析这些图片' : '') || (files.length > 0 ? '请处理这些文件' : '')
+      text ||
+      (images.length > 0 ? '请分析这些图片' : '') ||
+      (files.length > 0 ? '请处理这些文件' : '')
     if (!message) {
       return
     }
@@ -1632,10 +1641,7 @@ export default defineStore('workspace-session', () => {
    * @param widgetKey - widget key。
    * @param threadId - 所属 thread ID，默认当前活跃会话。
    */
-  const clearExtensionWidget = (
-    widgetKey: string,
-    threadId = activeSessionId.value
-  ): void => {
+  const clearExtensionWidget = (widgetKey: string, threadId = activeSessionId.value): void => {
     if (!threadId) {
       return
     }
@@ -2726,18 +2732,18 @@ export default defineStore('workspace-session', () => {
      */
     function showExtensionToast(request: Extract<ExtensionUiRequest, { type: 'notify' }>): void {
       const message = shouldShowExtensionNotifyInPanel(request.message)
-        ? '通知内容较长，已放入 Extensions 面板'
+        ? '通知内容较长，已放入扩展面板'
         : request.message
       switch (request.notifyType) {
         case 'error':
-          toast.error('Extension', message)
+          toast.error('扩展', message)
           return
         case 'warning':
-          toast.warning('Extension', message)
+          toast.warning('扩展', message)
           return
         case 'info':
         default:
-          toast.info('Extension', message)
+          toast.info('扩展', message)
       }
     }
   }
@@ -2813,6 +2819,9 @@ export default defineStore('workspace-session', () => {
         break
       case 'project':
         workspaceProject.projects[event.event.project.projectId] = event.event.project
+        break
+      case 'threadWorker':
+        applyThreadWorkerEventToRuntime(sessions, runtimeByThreadId, event)
         break
       case 'projection':
         if (event.event.type === 'thread.stateChanged' && sessions[event.threadId]) {
@@ -2909,8 +2918,8 @@ export default defineStore('workspace-session', () => {
     draftMessage,
     errorMessage,
     events: activeEvents,
-      ensureCommandsLoaded,
-      dispatchExtensionShortcut,
+    ensureCommandsLoaded,
+    dispatchExtensionShortcut,
     getContextActiveThreadId,
     getContextComposerDrafts,
     getComposerDraft,
@@ -3369,6 +3378,14 @@ export function applyEventToSessions(
     session.status = session.snapshot.status
     return
   }
+  if (event.type === 'threadWorker') {
+    const session = event.threadId ? sessions[event.threadId] : undefined
+    if (!session) {
+      return
+    }
+    applyThreadWorkerEventToSession(session, event.event)
+    return
+  }
   if (isAgentSessionEventType(event)) {
     const session = sessions[event.threadId]
     if (!session) {
@@ -3410,6 +3427,7 @@ function getStatusFromAgentSessionEvent(
 }
 
 type ProjectionIpcEvent = Extract<CodingAgentIpcEvent, { type: 'projection' }>['event']
+type ThreadWorkerEvent = Extract<CodingAgentIpcEvent, { type: 'threadWorker' }>['event']
 type AgentMessageIpcEvent = Extract<
   AgentSessionIpcEvent,
   { type: 'message_start' | 'message_end' | 'message_update' }
@@ -3423,6 +3441,71 @@ type ToolUpdateIpcEvent = Extract<AgentSessionIpcEvent, { type: 'tool_execution_
  */
 function getToolUpdateEventKey(event: ToolUpdateIpcEvent): string {
   return `${event.threadId}:${event.toolCallId}`
+}
+
+function applyThreadWorkerEventToRuntime(
+  sessions: Record<string, WorkspaceSession>,
+  runtimes: Record<string, WorkspaceSessionRuntime>,
+  event: Extract<CodingAgentIpcEvent, { type: 'threadWorker' }>
+): void {
+  if (!event.threadId) {
+    return
+  }
+  const session = sessions[event.threadId]
+  if (session) {
+    applyThreadWorkerEventToSession(session, event.event)
+  }
+  if (event.event.type !== 'worker.run.finished' || event.event.reason !== 'crash') {
+    return
+  }
+  const runtime = runtimes[event.threadId]
+  if (!runtime) {
+    return
+  }
+  for (const key of Object.keys(runtime.renderState)) {
+    if (runtime.renderState[key]?.renderState === 'streaming') {
+      runtime.renderState[key] = {
+        revision: runtime.renderState[key].revision + 1,
+        renderState: 'complete'
+      }
+    }
+  }
+  runtime.errorMessage = event.event.message ?? 'worker crashed'
+}
+
+function applyThreadWorkerEventToSession(
+  session: WorkspaceSession,
+  event: ThreadWorkerEvent
+): void {
+  if (event.type !== 'worker.run.finished') {
+    return
+  }
+  const status = getStatusFromWorkerFinishedReason(event.reason)
+  session.status = status
+  if (!session.snapshot) {
+    return
+  }
+  session.snapshot.status = status
+  if (event.reason !== 'crash') {
+    return
+  }
+  const finishedAt = new Date(event.exitedAt).toISOString()
+  failPendingToolCalls(session.snapshot, event.message ?? 'worker crashed', finishedAt, {
+    overwriteSummary: true
+  })
+  session.snapshot.queue = { steering: [], followUp: [] }
+}
+
+function getStatusFromWorkerFinishedReason(
+  reason: Extract<ThreadWorkerEvent, { type: 'worker.run.finished' }>['reason']
+): WorkspaceSession['status'] {
+  if (reason === 'crash') {
+    return 'error'
+  }
+  if (reason === 'idle') {
+    return 'idle'
+  }
+  return 'stopped'
 }
 
 /**
@@ -3747,6 +3830,9 @@ function applyProjectionEvent(snapshot: ThreadSnapshot, event: ProjectionIpcEven
   switch (event.type) {
     case 'thread.stateChanged':
       snapshot.status = event.status
+      if (event.status === 'error' || event.status === 'stopped') {
+        failPendingToolCalls(snapshot, `thread ${event.status}`)
+      }
       return
     case 'approval.requested':
       upsertUnknown(snapshot.approvals, event.approval, 'approvalId')
@@ -3767,6 +3853,26 @@ function applyProjectionEvent(snapshot: ThreadSnapshot, event: ProjectionIpcEven
  * @param result - 原始工具结果。
  * @returns 结果摘要。
  */
+function failPendingToolCalls(
+  snapshot: ThreadSnapshot,
+  resultSummary: string,
+  finishedAt = new Date().toISOString(),
+  options: { overwriteSummary?: boolean } = {}
+): void {
+  for (const toolCall of snapshot.toolCalls) {
+    const canFailToolCall = toolCall.status === 'running' || toolCall.status === 'queued'
+    const canRefineFailedSummary = options.overwriteSummary && toolCall.status === 'failed'
+    if (canFailToolCall || canRefineFailedSummary) {
+      toolCall.status = 'failed'
+      toolCall.finishedAt = toolCall.finishedAt ?? finishedAt
+      toolCall.resultSummary =
+        options.overwriteSummary || !toolCall.resultSummary
+          ? resultSummary
+          : toolCall.resultSummary
+    }
+  }
+}
+
 function summarizeToolResult(result: unknown): string | undefined {
   if (typeof result === 'string') {
     return result
