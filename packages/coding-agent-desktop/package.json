@@ -42,11 +42,15 @@
   },
   "files": [
     "dist",
+    "docs",
+    "examples",
+    "CHANGELOG.md",
     "README.md"
   ],
   "scripts": {
     "clean": "shx rm -rf dist",
-    "build": "tsgo -p tsconfig.build.json",
+    "build": "tsgo -p tsconfig.build.json && npm run copy-assets",
+    "copy-assets": "shx mkdir -p dist/themes && shx cp src/agent-runtime/themes/*.json dist/themes/ && shx mkdir -p dist/core/export-html/vendor && shx cp src/agent-runtime/core/export-html/template.html src/agent-runtime/core/export-html/template.css src/agent-runtime/core/export-html/template.js dist/core/export-html/ && shx cp src/agent-runtime/core/export-html/vendor/*.js dist/core/export-html/vendor/",
     "test": "vitest --run",
     "prepublishOnly": "npm run clean && npm run build"
   },

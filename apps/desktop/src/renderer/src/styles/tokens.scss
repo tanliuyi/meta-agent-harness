@@ -42,7 +42,7 @@
   --markdown-code-line-height: 1.55;
   --markdown-inline-code-line-height: 1.45;
   --markdown-text-weight: 500;
-  --markdown-strong-weight: 700;
+  --markdown-strong-weight: 600;
   --markdown-inline-code-text: color-mix(in srgb, var(--color-text) 84%, transparent);
   --markdown-inline-code-bg: color-mix(in srgb, var(--color-surface-raised) 82%, transparent);
   --markdown-table-header-bg: color-mix(in srgb, var(--color-surface-raised) 80%, transparent);
@@ -61,7 +61,11 @@
   --file-reference-icon-bg: color-mix(in srgb, var(--color-primary) 14%, transparent);
   --user-message-bg: color-mix(in srgb, var(--color-primary) 6%, var(--color-surface));
   --user-message-border: color-mix(in srgb, var(--color-primary) 14%, var(--color-border-muted));
-  --user-message-media-border: color-mix(in srgb, var(--color-primary) 16%, var(--color-border-muted));
+  --user-message-media-border: color-mix(
+    in srgb,
+    var(--color-primary) 16%,
+    var(--color-border-muted)
+  );
   --user-message-attachment-bg: color-mix(in srgb, var(--color-surface) 88%, transparent);
   --user-message-attachment-border: color-mix(
     in srgb,
