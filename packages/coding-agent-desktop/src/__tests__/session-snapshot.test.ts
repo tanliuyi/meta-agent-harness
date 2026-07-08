@@ -130,6 +130,39 @@ describe("buildSnapshotFromSession", () => {
 		]);
 	});
 
+	it("可用 currentEntryId override 从指定 leaf 重建 timeline", () => {
+		const root = mkdtempSync(join(tmpdir(), "desktop-session-"));
+		roots.push(root);
+		const cwd = join(root, "repo");
+		const sessionDir = join(root, "sessions");
+		const manager = SessionManager.create(cwd, sessionDir);
+		manager.appendMessage({ role: "user", content: "first", timestamp: 1 });
+		const targetEntryId = manager.appendMessage({ role: "assistant", content: "target", timestamp: 2 });
+		manager.appendMessage({ role: "user", content: "after target", timestamp: 3 });
+		const sessionFile = manager.getSessionFile();
+		if (!sessionFile) {
+			throw new Error("session file is required");
+		}
+
+		const snapshot = buildSnapshotFromSession({
+			thread: {
+				threadId: "thread-1",
+				cwd,
+				status: "stopped",
+				createdAt: "2026-07-01T00:00:00.000Z",
+				updatedAt: "2026-07-01T00:00:00.000Z",
+			},
+			sessionFile,
+			currentEntryId: targetEntryId,
+		});
+
+		expect(snapshot.currentEntryId).toBe(targetEntryId);
+		expect(snapshot.messages.map((message) => ({ role: message.role, text: message.text }))).toEqual([
+			{ role: "user", text: "first" },
+			{ role: "assistant", text: "target" },
+		]);
+	});
+
 	it("label 变更不推进当前 leaf，且 reload 后保持原 leaf", () => {
 		const root = mkdtempSync(join(tmpdir(), "desktop-session-"));
 		roots.push(root);
@@ -325,7 +358,12 @@ describe("buildSnapshotFromSession", () => {
 			sessionFile,
 		});
 
-		expect(snapshot.messages[0]).toMatchObject({
+		expect(snapshot.messages.map((message) => ({ role: message.role, text: message.text }))).toEqual([
+			{ role: "user", text: "first" },
+			{ role: "assistant", text: "answer" },
+			{ role: "system", text: "压缩后的上下文摘要" },
+		]);
+		expect(snapshot.messages[2]).toMatchObject({
 			role: "system",
 			text: "压缩后的上下文摘要",
 			systemEvent: {

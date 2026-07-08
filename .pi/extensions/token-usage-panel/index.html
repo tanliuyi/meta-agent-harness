@@ -1,0 +1,85 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link rel="stylesheet" href="./panel.css" />
+</head>
+<body>
+  <main class="page">
+    <div class="topbar">
+      <div>
+        <h1>Token Usage</h1>
+        <div id="log" class="subtle">Waiting for usage data</div>
+      </div>
+      <div class="actions">
+        <span id="updated" class="subtle"></span>
+        <button id="reset" type="button">Reset</button>
+      </div>
+    </div>
+
+    <section class="grid" aria-label="Usage metrics">
+      <div class="metric">
+        <div class="metric__label">Total tokens</div>
+        <div id="total" class="metric__value">0</div>
+        <div id="requests" class="metric__detail">0 requests</div>
+      </div>
+      <div class="metric">
+        <div class="metric__label">Prompt cache hit</div>
+        <div id="hitRate" class="metric__value">0%</div>
+        <div id="cache" class="metric__detail">0 read / 0 write</div>
+      </div>
+      <div class="metric">
+        <div class="metric__label">Input</div>
+        <div id="input" class="metric__value">0</div>
+        <div class="metric__detail">uncached prompt tokens</div>
+      </div>
+      <div class="metric">
+        <div class="metric__label">Output</div>
+        <div id="output" class="metric__value">0</div>
+        <div id="cost" class="metric__detail">$0</div>
+      </div>
+    </section>
+
+    <section class="content">
+      <div class="panel">
+        <div class="panel__header">
+          <span class="panel__title">By model</span>
+          <span id="modelCount" class="subtle">0 models</span>
+        </div>
+        <div class="panel__body">
+          <div id="modelBars" class="bars"><div class="empty">No model usage yet.</div></div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="panel__header">
+          <span class="panel__title">Cache mix</span>
+          <span id="cacheTotal" class="subtle">0 prompt tokens</span>
+        </div>
+        <div class="panel__body">
+          <div id="cacheBars" class="bars"></div>
+          <div class="split">
+            <div class="mini"><div class="mini__label">Cache read</div><div id="cacheReadMini" class="mini__value">0</div></div>
+            <div class="mini"><div class="mini__label">Cache write</div><div id="cacheWriteMini" class="mini__value">0</div></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel">
+      <div class="panel__header">
+        <span class="panel__title">Recent requests</span>
+        <span id="recentCount" class="subtle">0</span>
+      </div>
+      <div class="panel__table-wrap">
+        <table>
+          <thead><tr><th>Time</th><th>Model</th><th>Total</th><th>Input</th><th>Output</th><th>Cache</th><th>Cost</th></tr></thead>
+          <tbody id="recent"><tr><td colspan="7" class="empty">No requests recorded.</td></tr></tbody>
+        </table>
+      </div>
+    </section>
+  </main>
+  <script src="./panel.js"></script>
+</body>
+</html>

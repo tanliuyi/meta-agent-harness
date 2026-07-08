@@ -16,6 +16,8 @@ const props = defineProps<{
   isFinalReply?: boolean
   /** 消息更新是否已完成。 */
   isDone?: boolean
+  /** 是否正在从这条消息继续。 */
+  isNavigatingTree?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -76,11 +78,16 @@ function navigateTree(): void {
       <TooltipProvider>
         <Tooltip v-if="message.sessionEntryId">
           <TooltipTrigger as-child>
-            <BaseIconButton label="从这里继续" size="small" @click="navigateTree">
+            <BaseIconButton
+              :label="isNavigatingTree ? '正在从这里继续' : '从这里继续'"
+              size="small"
+              :disabled="isNavigatingTree"
+              @click="navigateTree"
+            >
               <CornerDownRight :size="14" />
             </BaseIconButton>
           </TooltipTrigger>
-          <TooltipContent>从这里继续</TooltipContent>
+          <TooltipContent>{{ isNavigatingTree ? '正在从这里继续' : '从这里继续' }}</TooltipContent>
         </Tooltip>
         <Tooltip v-if="message.sessionEntryId">
           <TooltipTrigger as-child>

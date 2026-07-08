@@ -7,7 +7,11 @@ import { createPinia, setActivePinia } from 'pinia'
 import { applyEventToSessions, type WorkspaceSession } from '../workspace-session'
 import useWorkspaceProjectStore from '../workspace-project'
 import useWorkspaceSessionStore from '../workspace-session'
-import type { ExtensionUiRequest, ThreadSnapshot } from '@shared/coding-agent/types'
+import type {
+  DesktopExtensionWebviewPanel,
+  ExtensionUiRequest,
+  ThreadSnapshot
+} from '@shared/coding-agent/types'
 import type { AgentMessage } from '../../../../../../../packages/agent/src/types'
 
 const toastMock = vi.hoisted(() => ({
@@ -1286,6 +1290,27 @@ describe('workspace-session Project-first actions', () => {
     expect(store.activeSessionPanel).toEqual({ panelOpen: false, panelWidth: 520 })
   })
 
+  it('renderer reload 后通过 localStorage 恢复会话面板宽度与开启状态', async () => {
+    const snapshot = createSnapshot()
+    const localStorage = createMemorySessionStorage()
+    installCodingAgentApi({}, createMemorySessionStorage(), localStorage)
+    let store = useWorkspaceSessionStore()
+    store.sessions['thread-a'] = snapshotToWorkspaceSession(snapshot)
+
+    await store.setActiveSessionId('thread-a')
+    store.setActiveSessionPanelWidth(560)
+    store.setActiveSessionPanelOpen(true)
+
+    setActivePinia(createPinia())
+    installCodingAgentApi({}, createMemorySessionStorage(), localStorage)
+    store = useWorkspaceSessionStore()
+    store.sessions['thread-a'] = snapshotToWorkspaceSession(snapshot)
+
+    await store.setActiveSessionId('thread-a')
+
+    expect(store.activeSessionPanel).toEqual({ panelOpen: true, panelWidth: 560 })
+  })
+
   it('右侧栏运行态只暴露 active thread 的审批与事件', async () => {
     const snapshotA = createSnapshot()
     const snapshotB = {
@@ -1343,7 +1368,9 @@ describe('workspace-session Project-first actions', () => {
 
   it('右侧栏运行态处理 active thread 的 extension UI 请求和状态投影', async () => {
     const respondUi = vi.fn().mockResolvedValue(undefined)
-    installCodingAgentApi({ respondUi })
+    const saveExtensionPanelState = vi.fn().mockResolvedValue(undefined)
+    const disposeExtensionPanel = vi.fn().mockResolvedValue(undefined)
+    installCodingAgentApi({ respondUi, saveExtensionPanelState, disposeExtensionPanel })
     const store = useWorkspaceSessionStore()
     store.sessions['thread-a'] = snapshotToWorkspaceSession(createSnapshot())
     store.sessions['thread-b'] = snapshotToWorkspaceSession({
@@ -1366,23 +1393,6 @@ describe('workspace-session Project-first actions', () => {
         id: 'ui-status',
         statusKey: 'sync',
         statusText: 'Ready'
-      })
-    )
-    capturedEventListener?.(
-      createExtensionUiRequestedEvent('thread-a', {
-        type: 'setWidget',
-        id: 'ui-widget',
-        widgetKey: 'notes',
-        widgetLines: ['one', 'two']
-      })
-    )
-    capturedEventListener?.(
-      createExtensionUiRequestedEvent('thread-a', {
-        type: 'setWidget',
-        id: 'ui-widget-below',
-        widgetKey: 'details',
-        widgetLines: ['three'],
-        widgetPlacement: 'belowEditor'
       })
     )
     capturedEventListener?.(
@@ -1446,15 +1456,103 @@ describe('workspace-session Project-first actions', () => {
 
     expect(Object.keys(store.activeExtensionUiRequests)).toEqual(['ui-input'])
     expect(store.activeExtensionStatuses).toEqual({ sync: 'Ready' })
-    expect(store.activeExtensionWidgets).toEqual({
-      notes: { lines: ['one', 'two'], placement: 'aboveEditor' },
-      details: { lines: ['three'], placement: 'belowEditor' }
-    })
     expect(store.activeExtensionWorkingMessage).toBe('Indexing')
     expect(store.activeExtensionWorkingVisible).toBe(false)
     expect(store.activeExtensionWorkingIndicator).toEqual({ frames: ['-', '+'], intervalMs: 100 })
     expect(store.activeExtensionHiddenThinkingLabel).toBe('Hidden reasoning')
     expect(store.activeExtensionToolsExpanded).toBe(true)
+
+    capturedEventListener?.(
+      createExtensionPanelRegisteredEvent('thread-a', {
+        id: 'deploy',
+        title: 'Deploy',
+        source: { type: 'html', html: '<h1>Deploy</h1>' }
+      })
+    )
+    expect(store.activeExtensionPanels.deploy).toEqual({
+      id: 'deploy',
+      title: 'Deploy',
+      source: { type: 'html', html: '<h1>Deploy</h1>' }
+    })
+
+    capturedEventListener?.({
+      type: 'projection',
+      threadId: 'thread-a',
+      event: {
+        type: 'extensionPanel.message',
+        threadId: 'thread-a',
+        panelId: 'deploy',
+        message: { type: 'state', status: 'running' }
+      }
+    })
+    expect(store.activeExtensionPanelMessages.deploy).toEqual({
+      sequence: 1,
+      message: { type: 'state', status: 'running' }
+    })
+
+    store.setExtensionPanelState('thread-a', 'deploy', { selectedDeploymentId: 'prod' })
+    expect(store.activeExtensionPanelStates.deploy).toEqual({ selectedDeploymentId: 'prod' })
+    expect(saveExtensionPanelState).toHaveBeenCalledWith({
+      threadId: 'thread-a',
+      panelId: 'deploy',
+      state: { selectedDeploymentId: 'prod' }
+    })
+
+    capturedEventListener?.({
+      type: 'projection',
+      threadId: 'thread-a',
+      event: {
+        type: 'extensionPanel.stateUpdated',
+        threadId: 'thread-a',
+        panelId: 'deploy',
+        state: { selectedDeploymentId: 'staging' }
+      }
+    })
+    expect(store.activeExtensionPanelStates.deploy).toEqual({ selectedDeploymentId: 'staging' })
+
+    store.disposeExtensionPanel('thread-a', 'deploy')
+    expect(disposeExtensionPanel).toHaveBeenCalledWith({
+      threadId: 'thread-a',
+      panelId: 'deploy',
+      reason: 'userClosed'
+    })
+    expect(store.activeExtensionPanels.deploy).toBeUndefined()
+    expect(store.activeExtensionPanelMessages.deploy).toBeUndefined()
+    expect(store.activeExtensionPanelStates.deploy).toBeUndefined()
+
+    capturedEventListener?.(
+      createExtensionPanelRegisteredEvent('thread-a', {
+        id: 'deploy',
+        title: 'Deploy',
+        source: { type: 'html', html: '<h1>Deploy</h1>' }
+      })
+    )
+
+    capturedEventListener?.({
+      type: 'projection',
+      threadId: 'thread-a',
+      event: {
+        type: 'extensionPanel.updated',
+        threadId: 'thread-a',
+        panelId: 'deploy',
+        patch: { title: 'Deployments' }
+      }
+    })
+    expect(store.activeExtensionPanels.deploy.title).toBe('Deployments')
+
+    capturedEventListener?.({
+      type: 'projection',
+      threadId: 'thread-a',
+      event: {
+        type: 'extensionPanel.removed',
+        threadId: 'thread-a',
+        panelId: 'deploy'
+      }
+    })
+    expect(store.activeExtensionPanels.deploy).toBeUndefined()
+    expect(store.activeExtensionPanelMessages.deploy).toBeUndefined()
+    expect(store.activeExtensionPanelStates.deploy).toBeUndefined()
+
     expect(store.draftMessage).toEqual(createComposerContentWithHardBreak('hello', 'world'))
     expect(toastMock.warning).toHaveBeenCalledWith('扩展', 'Extension finished')
 
@@ -1488,44 +1586,12 @@ describe('workspace-session Project-first actions', () => {
     )
 
     expect(store.activeExtensionNotifications).toEqual([longMessage])
-    expect(store.activeExtensionWidgets.Notifications).toBeUndefined()
     expect(toastMock.info).toHaveBeenCalledWith('扩展', '通知内容较长，已放入扩展面板')
     expect(store.activeSessionActionMessage).toBe('同步完成，但有 3 个文件需要人工确认')
 
     store.clearExtensionNotifications()
 
     expect(store.activeExtensionNotifications).toEqual([])
-  })
-
-  it('extension setWidget 空内容会清除对应 widget', async () => {
-    installCodingAgentApi({})
-    const store = useWorkspaceSessionStore()
-    store.sessions['thread-a'] = snapshotToWorkspaceSession(createSnapshot())
-    await store.setActiveSessionId('thread-a')
-
-    capturedEventListener?.(
-      createExtensionUiRequestedEvent('thread-a', {
-        type: 'setWidget',
-        id: 'ui-widget',
-        widgetKey: 'notes',
-        widgetLines: ['one']
-      })
-    )
-    expect(store.activeExtensionWidgets.notes).toEqual({
-      lines: ['one'],
-      placement: 'aboveEditor'
-    })
-
-    capturedEventListener?.(
-      createExtensionUiRequestedEvent('thread-a', {
-        type: 'setWidget',
-        id: 'ui-widget-clear',
-        widgetKey: 'notes',
-        widgetLines: []
-      })
-    )
-
-    expect(store.activeExtensionWidgets.notes).toBeUndefined()
   })
 
   it('加载 command 后不再通过 runCommand 执行 skill', async () => {
@@ -3460,6 +3526,21 @@ function createExtensionUiRequestedEvent(
   }
 }
 
+function createExtensionPanelRegisteredEvent(
+  threadId: string,
+  panel: DesktopExtensionWebviewPanel
+): Parameters<Parameters<typeof window.api.codingAgent.onEvent>[0]>[0] {
+  return {
+    type: 'projection',
+    threadId,
+    event: {
+      type: 'extensionPanel.registered',
+      threadId,
+      panel
+    }
+  }
+}
+
 /**
  * 从 snapshot 创建测试 WorkspaceSession。
  * @param snapshot - snapshot。
@@ -3484,10 +3565,12 @@ function snapshotToWorkspaceSession(snapshot: ThreadSnapshot): WorkspaceSession 
  */
 function installCodingAgentApi(
   overrides: Record<string, unknown>,
-  sessionStorage = createMemorySessionStorage()
+  sessionStorage = createMemorySessionStorage(),
+  localStorage = createMemorySessionStorage()
 ): void {
   capturedEventListener = undefined
   vi.stubGlobal('window', {
+    localStorage,
     sessionStorage,
     api: {
       codingAgent: {
@@ -3496,6 +3579,8 @@ function installCodingAgentApi(
         restoreThread: vi.fn().mockResolvedValue(undefined),
         createThread: vi.fn(),
         getSnapshot: vi.fn().mockResolvedValue(createSnapshot()),
+        saveExtensionPanelState: vi.fn().mockResolvedValue(undefined),
+        disposeExtensionPanel: vi.fn().mockResolvedValue(undefined),
         setThreadTitle: vi.fn(async (input: { threadId: string; title: string }) => ({
           ...snapshotToWorkspaceSession(createSnapshot()),
           threadId: input.threadId,

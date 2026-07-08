@@ -39,6 +39,8 @@ const ImagePreviewDialog = defineAsyncComponent({
 
 const props = defineProps<{
   message: ThreadMessage
+  /** 是否正在导航到这条消息。 */
+  isNavigatingTree?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -556,11 +558,16 @@ function toggleExpand(): void {
       <TooltipProvider>
         <Tooltip v-if="message.sessionEntryId">
           <TooltipTrigger as-child>
-            <BaseIconButton label="从这里编辑" size="small" @click="navigateTree">
+            <BaseIconButton
+              :label="isNavigatingTree ? '正在从这里编辑' : '从这里编辑'"
+              size="small"
+              :disabled="isNavigatingTree"
+              @click="navigateTree"
+            >
               <Pencil :size="14" />
             </BaseIconButton>
           </TooltipTrigger>
-          <TooltipContent>从这里编辑</TooltipContent>
+          <TooltipContent>{{ isNavigatingTree ? '正在从这里编辑' : '从这里编辑' }}</TooltipContent>
         </Tooltip>
         <Tooltip v-if="message.sessionEntryId">
           <TooltipTrigger as-child>

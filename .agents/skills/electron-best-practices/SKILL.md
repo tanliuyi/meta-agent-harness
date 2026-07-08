@@ -1,6 +1,6 @@
 ---
 name: electron-best-practices
-description: "Guide AI agents through Electron app development including security patterns, type-safe IPC, packaging with code signing, and testing. Keywords: electron, electron-vite, electron-forge, contextBridge, IPC, security, packaging, code signing, notarization, playwright, desktop app."
+description: "Guide AI agents through Electron app development including security patterns, type-safe IPC, desktop extension webviews, packaging with code signing, and testing. Keywords: electron, electron-vite, electron-forge, contextBridge, IPC, webview, iframe sandbox, localResourceRoots, VS Code webview, security, packaging, code signing, notarization, playwright, desktop app."
 license: MIT
 compatibility: Requires Deno for analysis scripts. Applicable to any Electron project using TypeScript.
 metadata:
@@ -22,6 +22,7 @@ Use this skill when:
 - Configuring electron-vite or Electron Forge
 - Setting up IPC communication between processes
 - Implementing security patterns (contextBridge, sandbox, CSP)
+- Building extension/webview-style desktop UI, iframe panels, or host-mediated local resource loading
 - Packaging, signing, and notarizing desktop applications
 - Testing Electron apps with Playwright
 - Designing multi-window architectures
@@ -99,6 +100,7 @@ src/
 | Security | `contextBridge.exposeInMainWorld()` | `nodeIntegration: true` |
 | IPC | `invoke/handle` pattern | `send/on` for request-response |
 | Preload | Typed function wrappers | Exposing raw `ipcRenderer` |
+| Extension webviews | Host-mediated source resolution + sandboxed iframe | Renderer reading files or Electron `<webview>` by default |
 | Build tool | electron-vite | webpack-based toolchains |
 | Packaging | Electron Forge | Manual packaging |
 | State | Main process + electron-store | Framework-specific state libraries |
@@ -145,6 +147,20 @@ export function registerFileHandlers(): void {
 
 Group related handlers into modules. Use the result type pattern for all return values. Validate all arguments received from the renderer process.
 
+### Desktop Extension Webview Panels
+
+For VS Code-like extension panels, keep the same trust boundary:
+
+- Extension/core API may declare `url`, `html`, `file`, or `bundle` sources.
+- A host-side resolver in main/worker should turn `file` and `bundle` into renderer-safe projected sources, usually `html` or a host-mediated resource URI.
+- Renderer should only render sandboxed iframes and route messages; it must not read the filesystem or resolve arbitrary local paths.
+- Prefer sandboxed `<iframe>` for extension panels. Use Electron `<webview>` only when the product explicitly needs a separate guest webContents and the security review accepts that larger surface.
+- `localResourceRoots` is the local resource capability boundary. Defaults should be narrow; `[]` should disable local resource loading; checks must resolve real paths to prevent symlink escape.
+- URL panels should allow only `http:` and `https:` and validate `postMessage` by origin. HTML/srcdoc panels should validate `postMessage` by iframe `contentWindow` identity.
+- Mirror VS Code's `asWebviewUri` architecture for larger assets: map allowed local files to a host-owned custom URI/protocol instead of exposing `file:` or giving renderer filesystem access.
+- For a small first step, inlining CSS/JS/media into sandboxed HTML is acceptable, but keep it behind a separate source resolver module so it can evolve into resource URI serving later.
+- Keep the extension message payload type as `unknown`; extensions should define their own `{ type, id, payload }` envelope for request/response semantics.
+
 ## Common Anti-Patterns
 
 Avoid these patterns when generating Electron code:
@@ -161,6 +177,8 @@ Avoid these patterns when generating Electron code:
 | Missing CSP headers | Script injection vectors | Set strict CSP via HTTP headers |
 | No IPC error serialization | Lost error context across boundary | Use Result type pattern |
 | Spectron for testing | Deprecated, Electron 13 max | Use Playwright |
+| Renderer resolves extension files | Local file disclosure / path traversal | Resolve in main/worker and enforce `localResourceRoots` |
+| Trusting declared paths without realpath | Symlink escape | Compare canonical real paths |
 
 See `references/security/security-checklist.md` for the full security audit checklist.
 

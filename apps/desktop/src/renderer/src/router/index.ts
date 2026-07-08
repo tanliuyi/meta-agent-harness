@@ -100,8 +100,7 @@ const router = createRouter({
             },
             {
               path: 'thinking',
-              name: 'SettingsModelsThinking',
-              component: () => import('../views/settings/models/ThinkingView.vue')
+              redirect: '/settings/models/default'
             },
             {
               path: 'registry',

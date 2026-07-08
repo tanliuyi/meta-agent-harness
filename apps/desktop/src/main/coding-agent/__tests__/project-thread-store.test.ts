@@ -529,6 +529,66 @@ describe('CodingThreadStore', () => {
     rmSync(root, { recursive: true, force: true })
   })
 
+  it('running worker snapshot 使用 live currentEntryId 重建当前 branch timeline', async () => {
+    const root = createTempDir()
+    const cwd = join(root, 'repo')
+    const sessionDir = join(root, 'sessions')
+    mkdirSync(cwd, { recursive: true })
+    const sessionManager = SessionManager.create(cwd, sessionDir)
+    sessionManager.appendMessage({ role: 'user', content: 'first', timestamp: 1 })
+    const targetEntryId = sessionManager.appendMessage({
+      role: 'assistant',
+      content: [{ type: 'text', text: 'target' }],
+      api: 'openai-responses',
+      provider: 'openai',
+      model: 'gpt-test',
+      usage: {
+        input: 0,
+        output: 0,
+        cacheRead: 0,
+        cacheWrite: 0,
+        totalTokens: 0,
+        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 }
+      },
+      stopReason: 'stop',
+      timestamp: 2
+    })
+    sessionManager.appendMessage({ role: 'user', content: 'after target', timestamp: 3 })
+    const sessionFile = sessionManager.getSessionFile()
+    if (!sessionFile) {
+      throw new Error('session file is required')
+    }
+    const projectStore = new ProjectStore(':memory:')
+    const store = new CodingThreadStore(':memory:')
+    const project = projectStore.createProject({ path: cwd })
+    store.saveThread({
+      threadId: 'thread-live-current-entry',
+      projectId: project.projectId,
+      sessionFile,
+      status: 'running',
+      createdAt: '2026-07-01T00:00:00.000Z',
+      updatedAt: '2026-07-01T00:00:00.000Z'
+    })
+    const manager = new ThreadManagerCore(
+      createLiveSessionStateRegistry('thread-live-current-entry', sessionFile, cwd, targetEntryId),
+      store,
+      projectStore
+    )
+
+    const snapshot = await manager.getSnapshot('thread-live-current-entry')
+
+    expect(snapshot.currentEntryId).toBe(targetEntryId)
+    expect(
+      snapshot.messages.map((message) => ({ role: message.role, text: message.text }))
+    ).toEqual([
+      { role: 'user', text: 'first' },
+      { role: 'assistant', text: 'target' }
+    ])
+    store.close()
+    projectStore.close()
+    rmSync(root, { recursive: true, force: true })
+  })
+
   it('running worker 返回空 messages 时从 sessionFile 保留历史消息', async () => {
     const root = createTempDir()
     const cwd = join(root, 'repo')
@@ -582,6 +642,70 @@ describe('CodingThreadStore', () => {
     ).toEqual([
       { role: 'user', text: 'history user' },
       { role: 'assistant', text: 'history assistant' }
+    ])
+    store.close()
+    projectStore.close()
+    rmSync(root, { recursive: true, force: true })
+  })
+
+  it('compact 后 running worker snapshot 保留 JSONL 完整 timeline', async () => {
+    const root = createTempDir()
+    const cwd = join(root, 'repo')
+    const sessionDir = join(root, 'sessions')
+    mkdirSync(cwd, { recursive: true })
+    const sessionManager = SessionManager.create(cwd, sessionDir)
+    const firstMessageId = sessionManager.appendMessage({
+      role: 'user',
+      content: 'history user',
+      timestamp: 1
+    })
+    sessionManager.appendMessage({
+      role: 'assistant',
+      content: [{ type: 'text', text: 'history assistant' }],
+      api: 'openai-responses',
+      provider: 'openai',
+      model: 'gpt-test',
+      usage: {
+        input: 0,
+        output: 0,
+        cacheRead: 0,
+        cacheWrite: 0,
+        totalTokens: 0,
+        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 }
+      },
+      stopReason: 'stop',
+      timestamp: 2
+    })
+    sessionManager.appendCompaction('compressed summary', firstMessageId, 120000)
+    const sessionFile = sessionManager.getSessionFile()
+    if (!sessionFile) {
+      throw new Error('session file is required')
+    }
+    const projectStore = new ProjectStore(':memory:')
+    const store = new CodingThreadStore(':memory:')
+    const project = projectStore.createProject({ path: cwd })
+    store.saveThread({
+      threadId: 'thread-live-compacted',
+      projectId: project.projectId,
+      sessionFile,
+      status: 'running',
+      createdAt: '2026-07-01T00:00:00.000Z',
+      updatedAt: '2026-07-01T00:00:00.000Z'
+    })
+    const manager = new ThreadManagerCore(
+      createCompactedLiveProjectionRegistry('thread-live-compacted', sessionFile, cwd),
+      store,
+      projectStore
+    )
+
+    const snapshot = await manager.getSnapshot('thread-live-compacted')
+
+    expect(
+      snapshot.messages.map((message) => ({ role: message.role, text: message.text }))
+    ).toEqual([
+      { role: 'user', text: 'history user' },
+      { role: 'assistant', text: 'history assistant' },
+      { role: 'system', text: 'compressed summary' }
     ])
     store.close()
     projectStore.close()
@@ -1160,6 +1284,14 @@ function createLiveSessionStateRegistry(
           }
         }
       }
+      if (command.type === 'get_messages') {
+        return {
+          success: true,
+          data: {
+            messages: []
+          }
+        }
+      }
       return {
         success: false,
         command: command.type,
@@ -1189,6 +1321,50 @@ function createEmptyLiveProjectionRegistry(threadId: string, cwd: string): Threa
           success: true,
           data: {
             messages: []
+          }
+        }
+      }
+      return {
+        success: false,
+        command: command.type,
+        error: { code: 'invalid_command', message: command.type, recoverable: true }
+      }
+    }
+  } as unknown as ThreadWorkerRegistry
+}
+
+function createCompactedLiveProjectionRegistry(
+  threadId: string,
+  sessionFile: string,
+  cwd: string
+): ThreadWorkerRegistry {
+  return {
+    listLeases: () => [{ threadId }],
+    send: async (_threadId: string, command: { type: string }) => {
+      if (command.type === 'get_state') {
+        return {
+          success: true,
+          data: {
+            sessionFile,
+            cwd,
+            thinkingLevel: 'medium',
+            isStreaming: false,
+            isCompacting: false
+          }
+        }
+      }
+      if (command.type === 'get_messages') {
+        return {
+          success: true,
+          data: {
+            messages: [
+              {
+                role: 'compactionSummary',
+                summary: 'compressed summary',
+                tokensBefore: 120000,
+                timestamp: 3
+              }
+            ]
           }
         }
       }

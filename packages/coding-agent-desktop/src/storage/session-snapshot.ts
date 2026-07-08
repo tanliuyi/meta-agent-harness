@@ -30,6 +30,8 @@ export interface BuildSnapshotFromSessionInput {
 	sessionFile: string;
 	/** 可选的工作目录覆盖。 */
 	cwdOverride?: string;
+	/** 可选当前 leaf 覆盖；用于 live runtime 尚未写回 JSONL leaf 的场景。 */
+	currentEntryId?: string | null;
 }
 
 /**
@@ -42,6 +44,9 @@ export function buildSnapshotFromSession(input: BuildSnapshotFromSessionInput): 
 	const header = manager.getHeader();
 	const context = manager.buildSessionContext();
 	const entries = manager.getEntries();
+	const currentEntryId = input.currentEntryId !== undefined ? input.currentEntryId : manager.getLeafId();
+	const branchEntries = manager.getBranch(currentEntryId ?? undefined);
+	const timelineMessages = buildTimelineMessages(branchEntries);
 	const title = findLastEntry(entries, isSessionInfoEntry)?.name ?? input.thread.title;
 	const modelEntry = findLastEntry(entries, isModelChangeEntry);
 	const thinkingEntry = findLastEntry(entries, isThinkingLevelChangeEntry);
@@ -53,15 +58,63 @@ export function buildSnapshotFromSession(input: BuildSnapshotFromSessionInput): 
 		status: input.thread.status,
 		model: modelEntry ? { provider: modelEntry.provider, id: modelEntry.modelId } : undefined,
 		thinkingLevel: normalizeThinkingLevel(thinkingEntry?.thinkingLevel ?? context.thinkingLevel),
-		messages: attachSessionEntryIds(toDesktopMessages(context.messages), manager.getBranch()),
+		messages: attachSessionEntryIds(toDesktopMessages(timelineMessages), branchEntries),
 		sessionTree: toDesktopSessionTree(manager.getTree()),
-		currentEntryId: manager.getLeafId(),
-		toolCalls: toDesktopToolCalls(context.messages, input.thread.threadId),
-		fileChanges: toDesktopFileChanges(context.messages, input.thread.threadId),
+		currentEntryId,
+		toolCalls: toDesktopToolCalls(timelineMessages, input.thread.threadId),
+		fileChanges: toDesktopFileChanges(timelineMessages, input.thread.threadId),
 		approvals: [],
 		queue: { steering: [], followUp: [] },
 		diagnostics: [],
 	};
+}
+
+/**
+ * 从当前 branch 构建 UI timeline 消息。不同于 buildSessionContext()，这里保留
+ * compaction 前的可渲染历史，只把 compaction entry 插入为系统分割线。
+ */
+function buildTimelineMessages(branchEntries: SessionEntry[]): Parameters<typeof toDesktopMessages>[0] {
+	return branchEntries.flatMap((entry) => {
+		switch (entry.type) {
+			case "message":
+				return [entry.message];
+			case "compaction":
+				return [
+					{
+						role: "compactionSummary",
+						summary: entry.summary,
+						tokensBefore: entry.tokensBefore,
+						timestamp: new Date(entry.timestamp).getTime(),
+					},
+				];
+			case "branch_summary":
+				return entry.summary
+					? [
+							{
+								role: "branchSummary",
+								summary: entry.summary,
+								fromId: entry.fromId,
+								timestamp: new Date(entry.timestamp).getTime(),
+							},
+						]
+					: [];
+			case "custom_message":
+				return entry.display
+					? [
+							{
+								role: "custom",
+								customType: entry.customType,
+								content: entry.content,
+								display: entry.display,
+								details: entry.details,
+								timestamp: new Date(entry.timestamp).getTime(),
+							},
+						]
+					: [];
+			default:
+				return [];
+		}
+	});
 }
 
 /**

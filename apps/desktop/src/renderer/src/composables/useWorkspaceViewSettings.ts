@@ -14,8 +14,8 @@ const threadSortModeStorageKey = 'meta-agent.workspace.thread-sort-mode'
 
 /** 可选的 thread 排序模式。 */
 export const threadSortModeOptions: Array<{ label: string; value: ThreadSortMode }> = [
-  { label: 'Recent', value: 'recent' },
-  { label: 'Threaded', value: 'threaded' }
+  { label: '最近活动', value: 'recent' },
+  { label: 'Fork 层级', value: 'threaded' }
 ]
 
 /** 当前 thread 排序模式。 */

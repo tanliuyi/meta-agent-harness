@@ -153,7 +153,7 @@ describe('chatTimelineDisplay', () => {
     expect(appendedResult.contexts[0]?.key).toBe('thread-a:user-a')
   })
 
-  it('压缩分割线前的处理段会渲染折叠入口', () => {
+  it('压缩分割线不会让之前消息折叠为处理段', () => {
     const timelineItems = createTimelineItems({
       messages: [
         userMessage('user-a', 'hello'),
@@ -179,19 +179,12 @@ describe('chatTimelineDisplay', () => {
       isCollapsedHistoryOpen: () => false
     })
 
-    expect(collapseResult.contexts).toHaveLength(1)
-    expect(collapseResult.contexts[0]).toMatchObject({
-      boundaryIndex: 1,
-      processEndIndex: 2,
-      hiddenCount: 1
-    })
+    expect(collapseResult.contexts).toHaveLength(0)
     expect(displayItems.map((item) => item.type)).toEqual([
       'message',
-      'collapsed-history',
       'compaction-divider',
       'message'
     ])
-    expect(displayItems[1]).toMatchObject({ type: 'collapsed-history' })
   })
 
   it('将压缩系统消息转换为分割线 timeline item', () => {

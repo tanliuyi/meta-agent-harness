@@ -8,7 +8,6 @@ import { computed, defineAsyncComponent, nextTick, ref, watch } from 'vue'
 import { autoUpdate, offset, size, useFloating } from '@floating-ui/vue'
 import { onClickOutside } from '@vueuse/core'
 import { BaseButton, BaseIconButton } from '@renderer/components/base'
-import ExtensionWidget from '@renderer/components/extension/ExtensionWidget.vue'
 import SendIcon from '@renderer/components/icons/SendIcon.vue'
 import { Command } from '@renderer/components/ui/command'
 import ScrollArea from '@renderer/components/ui/scroll-area/ScrollArea.vue'
@@ -73,11 +72,6 @@ type RunningMessageDelivery = 'steer' | 'followUp'
 
 type ComposerImagePreview = ComposerImageAttachment & {
   previewSrc: string
-}
-
-type ComposerExtensionWidget = {
-  lines: string[]
-  placement: 'aboveEditor' | 'belowEditor'
 }
 
 type DroppedFile = File & {
@@ -164,8 +158,6 @@ const props = withDefaults(
     commands?: CommandInfo[]
     /** 是否正在加载 commands。 */
     loadingCommands?: boolean
-    /** 扩展注入到 Composer 附近的小组件。 */
-    extensionWidgets?: Record<string, ComposerExtensionWidget>
     /** 待响应的 extension UI 请求。 */
     extensionRequests?: Record<string, ExtensionUiRequest>
     /** Agent 运行中提交消息时的交付方式。 */
@@ -192,7 +184,6 @@ const props = withDefaults(
     thinkingSelectDisabled: false,
     commands: () => [],
     loadingCommands: false,
-    extensionWidgets: () => ({}),
     extensionRequests: () => ({}),
     runningDelivery: 'steer',
     placeholder: ''
@@ -298,13 +289,6 @@ const imagePreviewItems = computed<ImagePreviewItem[]>(() =>
   }))
 )
 
-const extensionWidgetEntries = computed(() => Object.entries(props.extensionWidgets))
-const widgetsAboveEditor = computed(() =>
-  extensionWidgetEntries.value.filter(([, widget]) => widget.placement !== 'belowEditor')
-)
-const widgetsBelowEditor = computed(() =>
-  extensionWidgetEntries.value.filter(([, widget]) => widget.placement === 'belowEditor')
-)
 const extensionRequestEntries = computed(() => Object.values(props.extensionRequests))
 const isDropTargetActive = computed(() => isDraggingFiles.value && !props.selectingImages)
 const hasOpenComposerPopup = computed(
@@ -1516,26 +1500,6 @@ function clearExtensionDraft(id: string): void {
       </article>
     </div>
 
-    <div v-if="widgetsAboveEditor.length > 0" class="composer__extension-widgets is-above">
-      <ExtensionWidget
-        v-for="[key, widget] in widgetsAboveEditor"
-        :key="key"
-        :title="key"
-        :lines="widget.lines"
-        variant="compact"
-      />
-    </div>
-
-    <div v-if="widgetsBelowEditor.length > 0" class="composer__extension-widgets is-below">
-      <ExtensionWidget
-        v-for="[key, widget] in widgetsBelowEditor"
-        :key="key"
-        :title="key"
-        :lines="widget.lines"
-        variant="compact"
-      />
-    </div>
-
     <form class="composer" @submit.prevent="handleSubmit">
       <div
         v-if="imagePreviews.length > 0 || fileAttachments.length > 0 || selectingImages"
@@ -2533,12 +2497,6 @@ function clearExtensionDraft(id: string): void {
   line-height: 1.45;
 }
 
-.composer__extension-widgets {
-  display: grid;
-  gap: var(--space-1);
-  min-width: 0;
-}
-
 .composer__action {
   color: var(--color-primary-ink);
   background: var(--color-primary) !important;
@@ -2578,6 +2536,6 @@ function clearExtensionDraft(id: string): void {
   margin-top: -22px;
   padding-top: 10px;
   padding-bottom: 4px;
-  border-radius: 0 0 var(--radius-lg) var(--radius-lg);
+  border-radius: 0 0 18px 18px;
 }
 </style>

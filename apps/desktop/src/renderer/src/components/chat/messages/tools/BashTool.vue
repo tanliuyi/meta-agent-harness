@@ -120,7 +120,6 @@ async function revealFullOutput(mode: 'open' | 'reveal'): Promise<void> {
       </div>
       <dl v-if="isError" class="tool-message__error">
         <dt>error</dt>
-        <dd>true</dd>
       </dl>
     </template>
   </BaseTool>

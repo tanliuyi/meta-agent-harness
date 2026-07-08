@@ -121,11 +121,7 @@ const useModelSettingsStore = defineStore('model-settings', () => {
   })
 
   const apiUnavailableMessage = computed(() => '')
-  const canSave = computed(() => !saving.value)
-  const canSaveDefaultModel = computed(() => {
-    const { provider, modelId } = draft.value.defaultModel
-    return Boolean(provider && modelId && selectedModel.value && !saving.value)
-  })
+  const canSaveDefaultAndThinking = computed(() => !saving.value)
 
   async function load(): Promise<void> {
     loading.value = true
@@ -197,47 +193,27 @@ const useModelSettingsStore = defineStore('model-settings', () => {
     }
   }
 
-  async function saveDefaultModel(): Promise<void> {
+  async function saveDefaultModelAndThinking(): Promise<void> {
     saving.value = true
     error.value = null
 
     try {
+      const input: Parameters<typeof window.api.codingAgent.updateModelSettings>[0] = {
+        defaultThinkingLevel: draft.value.thinkingLevel
+      }
       const { provider, modelId } = draft.value.defaultModel
-      if (!provider || !modelId) {
-        throw new Error('请选择 provider 和 model 后再保存默认模型')
+      if (provider && modelId) {
+        if (!selectedModel.value) {
+          throw new Error('当前默认模型不在模型注册表中，请先选择一个可用模型')
+        }
+        input.defaultProvider = provider
+        input.defaultModel = modelId
       }
-      if (!selectedModel.value) {
-        throw new Error('当前默认模型不在模型注册表中，请先选择一个可用模型')
-      }
-      applySnapshot(
-        await window.api.codingAgent.updateModelSettings({
-          defaultProvider: provider,
-          defaultModel: modelId
-        })
-      )
-      toast.success('默认模型已保存')
+      applySnapshot(await window.api.codingAgent.updateModelSettings(input))
+      toast.success('默认模型与思考已保存')
     } catch (cause) {
-      error.value = cause instanceof Error ? cause.message : '默认模型保存失败'
-      toast.error('默认模型保存失败', error.value)
-    } finally {
-      saving.value = false
-    }
-  }
-
-  async function saveThinkingLevel(): Promise<void> {
-    saving.value = true
-    error.value = null
-
-    try {
-      applySnapshot(
-        await window.api.codingAgent.updateModelSettings({
-          defaultThinkingLevel: draft.value.thinkingLevel
-        })
-      )
-      toast.success('Thinking 已保存')
-    } catch (cause) {
-      error.value = cause instanceof Error ? cause.message : 'Thinking 保存失败'
-      toast.error('Thinking 保存失败', error.value)
+      error.value = cause instanceof Error ? cause.message : '默认模型与思考保存失败'
+      toast.error('默认模型与思考保存失败', error.value)
     } finally {
       saving.value = false
     }
@@ -452,13 +428,11 @@ const useModelSettingsStore = defineStore('model-settings', () => {
     providers,
     selectedModel,
     apiUnavailableMessage,
-    canSave,
-    canSaveDefaultModel,
+    canSaveDefaultAndThinking,
     load,
     refresh,
     save,
-    saveDefaultModel,
-    saveThinkingLevel,
+    saveDefaultModelAndThinking,
     saveEnabledModels,
     upsertCustomProvider,
     deleteCustomProvider,

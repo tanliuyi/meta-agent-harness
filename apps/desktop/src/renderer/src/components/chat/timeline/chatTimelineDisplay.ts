@@ -287,7 +287,7 @@ export function createProcessingCollapseResult(input: {
       continue
     }
     const boundaryIndex = index + 1
-    const segmentEndIndex = findNextUserMessageIndex(items, boundaryIndex)
+    const segmentEndIndex = findNextProcessingSegmentBoundaryIndex(items, boundaryIndex)
     const endIndex = segmentEndIndex < 0 ? items.length : segmentEndIndex
     const finalReplyIndex = findFinalReplyIndexInRange(items, boundaryIndex, endIndex)
     const hasFinalReply = finalReplyIndex >= boundaryIndex
@@ -512,9 +512,9 @@ function findFinalReplyIndexInRange(
   return candidateIndex
 }
 
-function findNextUserMessageIndex(items: TimelineItem[], startIndex: number): number {
+function findNextProcessingSegmentBoundaryIndex(items: TimelineItem[], startIndex: number): number {
   for (let index = startIndex; index < items.length; index += 1) {
-    if (isUserMessageItem(items[index])) {
+    if (isUserMessageItem(items[index]) || items[index]?.type === 'compaction-divider') {
       return index
     }
   }

@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { BaseBadge, BaseButton, BasePanel } from '@renderer/components/base'
+import { BaseBadge, BaseButton, BasePanel, BaseSegmentedControl } from '@renderer/components/base'
 import { SettingsSelectField } from '@renderer/views/settings/components/form'
 import useModelSettingsStore from '@renderer/stores/model-settings'
+import type { ThinkingLevel } from '@shared/coding-agent/types'
 import { Save } from 'lucide-vue-next'
 import { computed } from 'vue'
 
@@ -75,21 +76,70 @@ const modelOptions = computed(() =>
     .filter((item) => item.provider === modelSettings.draft.defaultModel.provider)
     .map((model) => ({ label: model.displayName ?? model.id, value: model.id }))
 )
+
+const thinkingLevelMeta: Array<{ label: string; value: ThinkingLevel; hint: string }> = [
+  { label: '关闭 Off', value: 'off', hint: '不请求 reasoning token' },
+  { label: '极简 Minimal', value: 'minimal', hint: '保留最小推理预算' },
+  { label: '低 Low', value: 'low', hint: '轻量分析与常规修复' },
+  { label: '中 Medium', value: 'medium', hint: '默认平衡档位' },
+  { label: '高 High', value: 'high', hint: '复杂修改和审查' },
+  { label: '超高 XHigh', value: 'xhigh', hint: '仅支持该档位的模型会生效' }
+]
+
+const thinkingOptions = computed(() =>
+  thinkingLevelMeta.map(({ label, value }) => ({ label, value }))
+)
+
+const selectedLevel = computed(() => modelSettings.draft.thinkingLevel)
+const supportedThinkingLevels = computed<ThinkingLevel[]>(
+  () => modelSettings.selectedModel?.thinkingLevels ?? []
+)
+const selectedLevelSupported = computed(() =>
+  supportedThinkingLevels.value.includes(selectedLevel.value)
+)
+const supportsReasoning = computed(() => Boolean(modelSettings.selectedModel?.supportsReasoning))
+const supportedThinkingLabel = computed(() =>
+  supportedThinkingLevels.value.length > 0
+    ? supportedThinkingLevels.value.join(', ')
+    : '等待模型能力'
+)
+
+const thinkingStatusLabel = computed(() => {
+  if (!modelSettings.selectedModel) {
+    return '等待默认模型'
+  }
+  if (!supportsReasoning.value && selectedLevel.value !== 'off') {
+    return '默认模型不支持 reasoning'
+  }
+  if (!selectedLevelSupported.value) {
+    return '运行时会按模型能力 clamp'
+  }
+  return '当前档位可直接使用'
+})
+
+const thinkingStatusTone = computed<'neutral' | 'success' | 'warning' | 'info'>(() => {
+  if (!modelSettings.selectedModel) return 'neutral'
+  if (!supportsReasoning.value && selectedLevel.value !== 'off') return 'warning'
+  if (!selectedLevelSupported.value) return 'warning'
+  return 'success'
+})
+
+const canSave = computed(() => !modelSettings.saving)
 </script>
 
 <template>
   <div class="models-page">
     <header class="models-page__header">
       <div>
-        <p class="models-page__eyebrow">Default</p>
-        <h1 class="models-page__title">默认模型</h1>
-        <p class="models-page__subtitle">只保存新建 thread 默认使用的 provider 和 model。</p>
+        <p class="models-page__eyebrow">Default & Reasoning</p>
+        <h1 class="models-page__title">默认模型与思考</h1>
+        <p class="models-page__subtitle">同时设置新建 thread 的默认模型和默认 thinking level。</p>
       </div>
       <BaseButton
         size="sm"
         variant="primary"
-        :disabled="!modelSettings.canSaveDefaultModel"
-        @click="modelSettings.saveDefaultModel"
+        :disabled="!canSave"
+        @click="modelSettings.saveDefaultModelAndThinking"
       >
         <template #icon>
           <Save :size="14" />
@@ -151,6 +201,64 @@ const modelOptions = computed(() =>
 
       <p v-if="selectedModelMissing" class="warning-copy">当前配置的模型不在可用模型列表中。</p>
       <p v-else class="muted-copy">保存后影响新建 thread；运行中 thread 不会被强制切换。</p>
+    </BasePanel>
+
+    <BasePanel title="思考强度" eyebrow="Global">
+      <div class="thinking-summary" aria-label="Thinking level summary">
+        <div>
+          <span>默认模型</span>
+          <strong>{{ defaultModelLabel }}</strong>
+        </div>
+        <div>
+          <span>状态</span>
+          <BaseBadge :tone="thinkingStatusTone">{{ thinkingStatusLabel }}</BaseBadge>
+        </div>
+        <div>
+          <span>支持档位</span>
+          <strong>{{ supportedThinkingLabel }}</strong>
+        </div>
+      </div>
+
+      <BaseSegmentedControl
+        label="思考强度 Thinking level"
+        :model-value="modelSettings.draft.thinkingLevel"
+        :options="thinkingOptions"
+        @update:model-value="modelSettings.updateThinkingLevel"
+      />
+      <ul class="thinking-level-list">
+        <li
+          v-for="level in thinkingLevelMeta"
+          :key="level.value"
+          :class="{
+            'is-selected': selectedLevel === level.value,
+            'is-unsupported':
+              supportedThinkingLevels.length > 0 && !supportedThinkingLevels.includes(level.value)
+          }"
+        >
+          <div>
+            <strong>{{ level.label }}</strong>
+            <span>{{ level.hint }}</span>
+          </div>
+          <BaseBadge
+            :tone="
+              selectedLevel === level.value
+                ? selectedLevelSupported
+                  ? 'success'
+                  : 'warning'
+                : supportedThinkingLevels.includes(level.value)
+                  ? 'info'
+                  : 'neutral'
+            "
+          >
+            <template v-if="selectedLevel === level.value">当前</template>
+            <template v-else-if="supportedThinkingLevels.includes(level.value)">支持</template>
+            <template v-else>可能 clamp</template>
+          </BaseBadge>
+        </li>
+      </ul>
+      <p class="muted-copy">
+        保存的是全局默认值；thread 运行时仍由 Pi core 按当前模型能力写入有效 thinking level。
+      </p>
     </BasePanel>
   </div>
 </template>

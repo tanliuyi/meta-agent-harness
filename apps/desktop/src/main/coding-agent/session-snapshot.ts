@@ -22,6 +22,8 @@ export interface BuildSnapshotFromSessionInput {
   sessionFile: string
   /** 可选 cwd 覆盖；未设置时使用 JSONL session header cwd。 */
   cwdOverride?: string
+  /** 可选当前 leaf 覆盖；用于 live runtime 尚未写回 JSONL leaf 的场景。 */
+  currentEntryId?: string | null
 }
 
 /**
@@ -41,7 +43,8 @@ export function buildSnapshotFromSession(input: BuildSnapshotFromSessionInput): 
       updatedAt: input.thread.updatedAt
     },
     sessionFile: input.sessionFile,
-    cwdOverride: input.cwdOverride
+    cwdOverride: input.cwdOverride,
+    currentEntryId: input.currentEntryId
   })
   return {
     ...snapshot,

@@ -7,8 +7,7 @@ import { RouterLink, RouterView } from 'vue-router'
 const modelSettings = useModelSettingsStore()
 
 const links = [
-  { to: '/settings/models/default', label: '默认模型' },
-  { to: '/settings/models/thinking', label: '思考' },
+  { to: '/settings/models/default', label: '默认与思考' },
   { to: '/settings/models/registry', label: '模型' },
   { to: '/settings/models/tasks', label: '任务模型' },
   { to: '/settings/models/providers', label: '自定义模型' },

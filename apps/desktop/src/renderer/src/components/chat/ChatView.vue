@@ -6,7 +6,7 @@
 import type { CSSProperties } from 'vue'
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useElementSize, useResizeObserver } from '@vueuse/core'
-import { ChevronDown } from 'lucide-vue-next'
+import { ChevronDown, MapPin, Undo2, X } from 'lucide-vue-next'
 import Composer from './composer/Composer.vue'
 import AssistantMessage from './messages/AssistantMessage.vue'
 import CompactionDivider from './messages/CompactionDivider.vue'
@@ -27,6 +27,8 @@ import useWorkspaceProjectStore from '@renderer/stores/workspace-project'
 import { useSessionContext } from '@renderer/composables/useSessionContext'
 import type { DesktopToolCall } from '@coding-agent-desktop-src/protocol/tool'
 import ScrollArea from '../ui/scroll-area/ScrollArea.vue'
+import BaseIconButton from '@/components/base/BaseIconButton.vue'
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import type {
   ComposerFileAttachment,
   ComposerImageAttachment,
@@ -61,6 +63,8 @@ const workspaceProject = useWorkspaceProjectStore()
 const agentSettings = useAgentSettingsStore()
 const modelSettings = useModelSettingsStore()
 let initialSettingsLoadSchedule: InitialSettingsLoadSchedule | undefined
+
+const SESSION_ACTION_AUTO_DISMISS_MS = 5000
 
 type TimelineScrollBehavior = 'auto' | 'smooth'
 type ScrollAreaInstance = InstanceType<typeof ScrollArea>
@@ -812,6 +816,14 @@ function locateMessageInTree(entryId: string): void {
   openPanelTab('tree', { entryId })
 }
 
+function locateCurrentLeafInTree(): void {
+  const entryId = workspaceSession.activeSnapshot?.currentEntryId
+  if (!entryId) {
+    return
+  }
+  openPanelTab('tree', { entryId })
+}
+
 async function navigateMessageTree(entryId: string): Promise<void> {
   await workspaceSession.navigateActiveSessionTree(entryId)
 }
@@ -993,6 +1005,7 @@ async function sendComposerPrompt(): Promise<void> {
     }
     await workspaceSession.setActiveThinkingLevel(activeThinkingLevel.value)
   }
+  workspaceSession.clearActiveSessionAction()
   await workspaceSession.sendPrompt(workspaceSession.defaultSessionContextId, runningDelivery.value)
 }
 
@@ -1127,6 +1140,24 @@ watch(
     }
   },
   { immediate: true }
+)
+
+watch(
+  [
+    () => workspaceSession.activeSessionActionMessage,
+    () => workspaceSession.activePreviousLeafEntryId,
+    () => workspaceSession.activeNavigatingTreeEntryId
+  ],
+  ([message, previousLeafEntryId, navigatingEntryId], _previous, onCleanup) => {
+    if (!message || previousLeafEntryId || navigatingEntryId) {
+      return
+    }
+    const timeout = window.setTimeout(
+      workspaceSession.clearActiveSessionAction,
+      SESSION_ACTION_AUTO_DISMISS_MS
+    )
+    onCleanup(() => window.clearTimeout(timeout))
+  }
 )
 
 watch(
@@ -1296,6 +1327,9 @@ function getTimelineItemRevision(item: TimelineItem | undefined): unknown[] {
             :is-streaming="viewItem.isStreaming"
             :is-final-reply="viewItem.isFinalReply"
             :is-done="viewItem.isDone"
+            :is-navigating-tree="
+              viewItem.message?.sessionEntryId === workspaceSession.activeNavigatingTreeEntryId
+            "
             :collapse-when-response-appears="viewItem.collapseWhenResponseAppears"
             :hidden-label="workspaceSession.activeExtensionHiddenThinkingLabel"
             :tool-call="viewItem.toolCall"
@@ -1337,6 +1371,47 @@ function getTimelineItemRevision(item: TimelineItem | undefined): unknown[] {
     </button>
 
     <div ref="composerRef" class="chat-view__composer">
+      <div v-if="workspaceSession.activeSessionActionMessage" class="chat-view__session-action">
+        <span class="chat-view__session-action-text">
+          {{ workspaceSession.activeSessionActionMessage }}
+        </span>
+        <TooltipProvider>
+          <div class="chat-view__session-action-buttons">
+            <Tooltip v-if="workspaceSession.activePreviousLeafEntryId">
+              <TooltipTrigger as-child>
+                <BaseIconButton
+                  label="返回之前位置"
+                  size="small"
+                  @click="workspaceSession.navigateBackToPreviousLeaf"
+                >
+                  <Undo2 :size="14" />
+                </BaseIconButton>
+              </TooltipTrigger>
+              <TooltipContent>返回之前位置</TooltipContent>
+            </Tooltip>
+            <Tooltip v-if="workspaceSession.activeSnapshot?.currentEntryId">
+              <TooltipTrigger as-child>
+                <BaseIconButton label="在 Tree 中定位" size="small" @click="locateCurrentLeafInTree">
+                  <MapPin :size="14" />
+                </BaseIconButton>
+              </TooltipTrigger>
+              <TooltipContent>在 Tree 中定位</TooltipContent>
+            </Tooltip>
+            <Tooltip>
+              <TooltipTrigger as-child>
+                <BaseIconButton
+                  label="关闭提示"
+                  size="small"
+                  @click="workspaceSession.clearActiveSessionAction"
+                >
+                  <X :size="14" />
+                </BaseIconButton>
+              </TooltipTrigger>
+              <TooltipContent>关闭提示</TooltipContent>
+            </Tooltip>
+          </div>
+        </TooltipProvider>
+      </div>
       <Composer
         v-model="workspaceSession.draftMessage"
         v-model:running-delivery="runningDelivery"
@@ -1356,7 +1431,6 @@ function getTimelineItemRevision(item: TimelineItem | undefined): unknown[] {
         :loading-model-options="loadingModelOptions"
         :commands="workspaceSession.activeCommands"
         :loading-commands="workspaceSession.activeCommandsLoading"
-        :extension-widgets="workspaceSession.activeExtensionWidgets"
         :extension-requests="workspaceSession.activeExtensionUiRequests"
         :model-select-disabled="
           isRunning || (!workspaceSession.activeSessionId && !workspaceSession.activeProjectId)
@@ -1415,6 +1489,36 @@ function getTimelineItemRevision(item: TimelineItem | undefined): unknown[] {
   min-height: 100%;
   margin: 0 auto;
   padding: var(--space-6) var(--space-8) var(--space-8);
+}
+
+.chat-view__session-action {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  width: calc(100% - 32px);
+  margin: 0 auto -12px;
+  padding: var(--space-1) var(--space-3) calc(var(--space-1) + 12px) var(--space-3);
+  color: var(--color-text-muted);
+  font-size: var(--font-size-ui-sm);
+  line-height: 1.4;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 12px 12px 0 0;
+}
+
+.chat-view__session-action-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chat-view__session-action-buttons {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: var(--space-1);
 }
 
 .chat-view__timeline--empty {
@@ -1597,6 +1701,7 @@ function getTimelineItemRevision(item: TimelineItem | undefined): unknown[] {
   max-width: 768px;
   padding: 0 var(--space-8) 24px;
   margin: 0 auto;
+  z-index: 9;
 }
 
 @keyframes pulse {
