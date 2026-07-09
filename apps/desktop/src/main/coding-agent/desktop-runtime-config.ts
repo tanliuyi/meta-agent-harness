@@ -7,7 +7,7 @@
 import { app } from 'electron'
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
-import type { AgentWorkerMode } from '@shared/coding-agent/types'
+import type { AgentWorkerMode, DesktopUiPreferences } from '@shared/coding-agent/types'
 
 /** Desktop runtime 配置。 */
 export interface DesktopRuntimeConfig {
@@ -15,6 +15,8 @@ export interface DesktopRuntimeConfig {
   workerMode: AgentWorkerMode
   /** Node sidecar 可执行文件路径。 */
   nodeSidecarExecPath?: string
+  /** Desktop renderer UI 偏好。 */
+  uiPreferences?: DesktopUiPreferences
 }
 
 /** Desktop runtime 配置更新输入。 */
@@ -37,7 +39,9 @@ export function getDesktopRuntimeConfigPath(): string {
  * @param configPath - 可选配置文件路径。
  * @returns Desktop runtime 配置。
  */
-export function readDesktopRuntimeConfig(configPath = getDesktopRuntimeConfigPath()): DesktopRuntimeConfig {
+export function readDesktopRuntimeConfig(
+  configPath = getDesktopRuntimeConfigPath()
+): DesktopRuntimeConfig {
   const fileConfig = readDesktopRuntimeConfigFile(configPath)
   return normalizeDesktopRuntimeConfig({
     ...defaultRuntimeConfig,
@@ -56,10 +60,27 @@ export function writeDesktopRuntimeConfig(
   input: DesktopRuntimeConfigInput,
   configPath = getDesktopRuntimeConfigPath()
 ): DesktopRuntimeConfig {
+  const current = readDesktopRuntimeConfigFile(configPath)
   const next = normalizeDesktopRuntimeConfig({
     ...defaultRuntimeConfig,
-    ...readDesktopRuntimeConfigFile(configPath),
-    ...input
+    ...current,
+    ...input,
+    ...(input.uiPreferences
+      ? {
+          uiPreferences: {
+            ...current.uiPreferences,
+            ...input.uiPreferences,
+            appearance: {
+              ...current.uiPreferences?.appearance,
+              ...input.uiPreferences.appearance
+            },
+            workspace: {
+              ...current.uiPreferences?.workspace,
+              ...input.uiPreferences.workspace
+            }
+          }
+        }
+      : {})
   })
   mkdirSync(dirname(configPath), { recursive: true })
   writeFileSync(configPath, `${JSON.stringify(next, null, 2)}\n`)
@@ -108,6 +129,33 @@ function normalizeDesktopRuntimeConfig(input: DesktopRuntimeConfigInput): Deskto
     workerMode,
     ...(input.nodeSidecarExecPath?.trim()
       ? { nodeSidecarExecPath: input.nodeSidecarExecPath.trim() }
+      : {}),
+    ...(input.uiPreferences
+      ? { uiPreferences: normalizeDesktopUiPreferences(input.uiPreferences) }
       : {})
   }
+}
+
+function normalizeDesktopUiPreferences(input: DesktopUiPreferences): DesktopUiPreferences {
+  const appearance = {
+    ...(isFiniteNumber(input.appearance?.uiFontSize)
+      ? { uiFontSize: input.appearance.uiFontSize }
+      : {}),
+    ...(isFiniteNumber(input.appearance?.codeFontSize)
+      ? { codeFontSize: input.appearance.codeFontSize }
+      : {})
+  }
+  const workspace = {
+    ...(isFiniteNumber(input.workspace?.sidebarWidth)
+      ? { sidebarWidth: input.workspace.sidebarWidth }
+      : {})
+  }
+  return {
+    ...(Object.keys(appearance).length > 0 ? { appearance } : {}),
+    ...(Object.keys(workspace).length > 0 ? { workspace } : {})
+  }
+}
+
+function isFiniteNumber(value: unknown): value is number {
+  return typeof value === 'number' && Number.isFinite(value)
 }

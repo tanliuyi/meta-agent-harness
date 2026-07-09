@@ -48,6 +48,33 @@ describe('desktop-runtime-config', () => {
     })
   })
 
+  it('持久化 desktop UI 偏好并深合并更新', () => {
+    const dir = createTempDir()
+    const configPath = join(dir, 'desktop-runtime.json')
+
+    expect(
+      writeDesktopRuntimeConfig(
+        { uiPreferences: { appearance: { uiFontSize: 15, codeFontSize: 16 } } },
+        configPath
+      )
+    ).toEqual({
+      workerMode: 'nodeSidecar',
+      uiPreferences: {
+        appearance: { uiFontSize: 15, codeFontSize: 16 }
+      }
+    })
+
+    expect(
+      writeDesktopRuntimeConfig({ uiPreferences: { workspace: { sidebarWidth: 260 } } }, configPath)
+    ).toEqual({
+      workerMode: 'nodeSidecar',
+      uiPreferences: {
+        appearance: { uiFontSize: 15, codeFontSize: 16 },
+        workspace: { sidebarWidth: 260 }
+      }
+    })
+  })
+
   it('环境变量可覆盖为 utilityProcess', () => {
     const dir = createTempDir()
     vi.stubEnv('CODING_AGENT_WORKER_MODE', 'utilityProcess')

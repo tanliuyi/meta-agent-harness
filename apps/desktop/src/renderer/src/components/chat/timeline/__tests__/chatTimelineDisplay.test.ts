@@ -282,6 +282,45 @@ describe('chatTimelineDisplay', () => {
     expect(items[0]).toMatchObject({ key: 'tool-group:tool-read', toolCallIds: ['tool-read'] })
     expect(items[2]).toMatchObject({ key: 'tool-group:tool-edit', toolCallIds: ['tool-edit'] })
   })
+
+  it('将 worker 异常作为 runtime system item 追加到 timeline', () => {
+    const items = createTimelineItems({
+      messages: [userMessage('user-a', 'hello')],
+      toolCallStructures: [],
+      runtimeEvents: [
+        {
+          id: 'worker-crash:worker-a:1000',
+          type: 'worker-error',
+          title: 'Worker 已崩溃',
+          message: 'worker exited unexpectedly',
+          createdAt: '2026-07-09T00:00:01.000Z',
+          meta: ['worker', 'crash']
+        }
+      ],
+      getMessageRenderState,
+      resolveTimelineToolCall: () => undefined,
+      getToolResultMessageToolCall: () => undefined,
+      hideThinkingBlock: false
+    })
+
+    expect(items).toMatchObject([
+      { type: 'message', key: 'user-a' },
+      {
+        type: 'runtime-event',
+        key: 'runtime-event:worker-crash:worker-a:1000',
+        message: {
+          role: 'system',
+          text: 'worker exited unexpectedly',
+          systemEvent: {
+            kind: 'agentEvent',
+            title: 'Worker 已崩溃',
+            description: 'worker exited unexpectedly',
+            meta: ['worker', 'crash']
+          }
+        }
+      }
+    ])
+  })
 })
 
 function userMessage(id: string, text: string): ThreadMessage {

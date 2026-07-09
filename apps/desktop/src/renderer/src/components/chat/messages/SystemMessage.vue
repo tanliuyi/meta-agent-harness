@@ -52,7 +52,7 @@ const canExpand = computed(() => messageText.value.length > 360)
 .system-message {
   display: grid;
   gap: 6px;
-  width: min(600px, 100%);
+  width: 100%;
   padding: var(--space-2) var(--space-3);
   color: var(--color-text-muted);
   background: var(--color-control-track);

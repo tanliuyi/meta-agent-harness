@@ -1,0 +1,137 @@
+:root {
+  color-scheme: light dark;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  color: var(--pi-panel-fg, #111827);
+  background: var(--pi-panel-bg, #ffffff);
+  font: 13px/1.45 system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+.goal-shell {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  min-height: 100vh;
+  padding: 16px;
+  gap: 16px;
+}
+
+.goal-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--pi-panel-border, #d1d5db);
+}
+
+h1 {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 650;
+}
+
+.goal-status,
+.commands,
+.empty-state p {
+  margin: 4px 0 0;
+  color: var(--pi-panel-muted, #6b7280);
+}
+
+.empty-state {
+  display: grid;
+  align-content: start;
+  gap: 12px;
+}
+
+.goal-details {
+  display: grid;
+  align-content: start;
+  gap: 14px;
+  min-width: 0;
+}
+
+.objective-block {
+  display: grid;
+  gap: 6px;
+}
+
+.label,
+dt {
+  color: var(--pi-panel-muted, #6b7280);
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
+#objective {
+  margin: 0;
+  max-height: 180px;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  padding: 10px;
+  border: 1px solid var(--pi-panel-border, #d1d5db);
+  border-radius: 6px;
+  background: var(--pi-panel-code-bg, #f3f4f6);
+}
+
+.metrics {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin: 0;
+}
+
+.metrics div {
+  min-width: 0;
+  padding: 10px;
+  border: 1px solid var(--pi-panel-border, #d1d5db);
+  border-radius: 6px;
+}
+
+dd {
+  margin: 2px 0 0;
+  overflow-wrap: anywhere;
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding-top: 12px;
+  border-top: 1px solid var(--pi-panel-border, #d1d5db);
+}
+
+button {
+  min-height: 30px;
+  padding: 5px 10px;
+  color: var(--pi-panel-fg, #111827);
+  border: 1px solid var(--pi-panel-border, #d1d5db);
+  border-radius: 6px;
+  background: var(--pi-panel-bg, #ffffff);
+  font: inherit;
+  cursor: pointer;
+}
+
+button:hover {
+  border-color: var(--pi-panel-accent, #2563eb);
+}
+
+button:disabled {
+  cursor: default;
+  opacity: 0.55;
+}
+
+button.danger {
+  color: var(--pi-panel-danger, #dc2626);
+}
+
+.icon-button {
+  flex: 0 0 auto;
+}

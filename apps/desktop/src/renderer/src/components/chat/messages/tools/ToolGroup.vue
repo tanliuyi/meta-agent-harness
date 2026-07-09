@@ -15,10 +15,12 @@ const props = defineProps<{
   status?: ToolGroupStatus
   defaultOpen?: boolean
   open?: boolean
+  toolOpenByKey?: Record<string, boolean>
 }>()
 
 const emit = defineEmits<{
   'update:open': [open: boolean]
+  updateToolOpen: [toolCallId: string, open: boolean]
 }>()
 
 const visibleIconCount = 4
@@ -37,6 +39,10 @@ const stackedToolIcons = computed(() => uniqueToolIcons.value.slice(0, visibleIc
 const hiddenToolIconCount = computed(() =>
   Math.max(0, uniqueToolIcons.value.length - visibleIconCount)
 )
+
+function getToolOpen(toolCall: ToolCall): boolean {
+  return props.toolOpenByKey?.[toolCall.toolCallId] ?? props.defaultOpen ?? false
+}
 
 function getToolIconComponent(toolName: string | undefined): Component {
   switch (toolName) {
@@ -84,13 +90,15 @@ function getToolIconComponent(toolName: string | undefined): Component {
       </span>
       <ToolGroupIcon v-else :size="14" />
     </template>
-    <template #default="{ open }">
-      <template v-if="open">
+    <template #default="{ open: groupOpen }">
+      <template v-if="groupOpen">
         <ToolMessage
           v-for="toolCall in props.toolCalls"
           :key="toolCall.toolCallId"
           :tool-call="toolCall"
           :default-open="props.defaultOpen"
+          :open="getToolOpen(toolCall)"
+          @update:open="emit('updateToolOpen', toolCall.toolCallId, $event)"
         />
       </template>
     </template>

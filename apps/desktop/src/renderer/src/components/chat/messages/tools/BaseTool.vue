@@ -15,6 +15,7 @@ const props = withDefaults(
     status?: ToolStatus
     isError?: boolean
     defaultOpen?: boolean
+    open?: boolean
     tone?: ToolTone
     compact?: boolean
     showStatus?: boolean
@@ -32,6 +33,7 @@ const props = withDefaults(
     status: undefined,
     isError: false,
     defaultOpen: false,
+    open: undefined,
     tone: 'default',
     compact: false,
     showStatus: false,
@@ -45,6 +47,10 @@ const props = withDefaults(
   }
 )
 
+const emit = defineEmits<{
+  'update:open': [open: boolean]
+}>()
+
 const slots = useSlots()
 const inferredHasContent = computed(() =>
   Boolean(
@@ -53,26 +59,33 @@ const inferredHasContent = computed(() =>
 )
 const hasContent = computed(() => props.contentAvailable ?? inferredHasContent.value)
 const contentStyle = computed(() => ({ maxHeight: props.maxContentHeight }))
-const open = ref(false)
+const localOpen = ref(props.defaultOpen)
 const collapsibleOpen = computed({
-  get: () => hasContent.value && open.value,
+  get: () => hasContent.value && (props.open ?? localOpen.value),
   set: (value: boolean) => {
-    open.value = hasContent.value && value
+    const nextOpen = hasContent.value && value
+    if (props.open === undefined) {
+      localOpen.value = nextOpen
+    }
+    emit('update:open', nextOpen)
   }
 })
 
 watch(
   [() => props.defaultOpen, hasContent],
   ([defaultOpen, contentReady]) => {
+    if (props.open !== undefined) {
+      return
+    }
     if (!contentReady) {
-      open.value = false
+      localOpen.value = false
       return
     }
     if (defaultOpen) {
-      open.value = true
+      localOpen.value = true
       return
     }
-    open.value = false
+    localOpen.value = false
   },
   { immediate: true }
 )
@@ -138,10 +151,10 @@ watch(
                 <pre><code>{{ result }}</code></pre>
               </slot>
             </div>
-            <dl v-if="isError || $slots.error" class="tool-message__error">
+            <dl v-if="$slots.error || (isError && !result)" class="tool-message__error">
               <slot name="error" :is-error="isError">
                 <dt>{{ errorLabel }}</dt>
-                <dd>{{ errorText }}</dd>
+                <dd v-if="errorText">{{ errorText }}</dd>
               </slot>
             </dl>
           </slot>
@@ -156,10 +169,10 @@ watch(
                 <pre><code>{{ result }}</code></pre>
               </slot>
             </div>
-            <dl v-if="isError || $slots.error" class="tool-message__error">
+            <dl v-if="$slots.error || (isError && !result)" class="tool-message__error">
               <slot name="error" :is-error="isError">
                 <dt>{{ errorLabel }}</dt>
-                <dd>{{ errorText }}</dd>
+                <dd v-if="errorText">{{ errorText }}</dd>
               </slot>
             </dl>
           </slot>
@@ -191,10 +204,17 @@ watch(
       font-family: var(--font-mono) !important;
       font-size: var(--font-size-code);
       font-weight: var(--font-weight-code);
+      line-height: var(--markdown-code-line-height);
       min-width: 100%;
       width: max-content;
       white-space: pre;
       word-break: normal;
+
+      code {
+        font-family: inherit;
+        font-size: inherit;
+        font-weight: inherit;
+      }
     }
   }
 
@@ -212,7 +232,8 @@ watch(
   min-height: 0;
 }
 
-:deep(.tool-message__scroll) {
+:deep(.tool-message__scroll),
+.tool-message__content-inner {
   display: flex;
   flex-direction: column;
   flex: 1 1 auto;

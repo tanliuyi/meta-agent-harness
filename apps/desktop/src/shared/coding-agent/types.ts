@@ -954,6 +954,25 @@ export interface ResourcePackageProgressEvent {
   message?: string
 }
 
+/** Desktop renderer UI 偏好。 */
+export interface DesktopUiPreferences {
+  /** 外观偏好。 */
+  appearance?: {
+    /** UI 字体大小。 */
+    uiFontSize?: number
+    /** 代码字体大小。 */
+    codeFontSize?: number
+  }
+  /** Workspace 布局偏好。 */
+  workspace?: {
+    /** 左侧 sidebar 宽度。 */
+    sidebarWidth?: number
+  }
+}
+
+/** 更新 Desktop renderer UI 偏好。 */
+export type UpdateDesktopUiPreferencesInput = Partial<DesktopUiPreferences>
+
 /** Pi-compatible agent 设置快照。 */
 export interface AgentSettingsSnapshot {
   /** 消息投递与连接设置。 */
@@ -1427,9 +1446,13 @@ export interface CodingAgentApi {
   /** 在当前 session tree 内导航。 */
   navigateTree(input: NavigateTreeInput): Promise<NavigateTreeResult>
   /** 加载 session tree 子节点。 */
-  loadSessionTreeChildren(input: LoadSessionTreeChildrenInput): Promise<NonNullable<ThreadSnapshot['sessionTree']>>
+  loadSessionTreeChildren(
+    input: LoadSessionTreeChildrenInput
+  ): Promise<NonNullable<ThreadSnapshot['sessionTree']>>
   /** 加载 main 派生的扁平 tree 视图。 */
-  loadSessionTreeBranches(input: LoadSessionTreeBranchesInput): Promise<LoadSessionTreeBranchesResult>
+  loadSessionTreeBranches(
+    input: LoadSessionTreeBranchesInput
+  ): Promise<LoadSessionTreeBranchesResult>
   /** 加载 root 到指定 entry 的路径。 */
   loadSessionTreePath(input: LoadSessionTreePathInput): Promise<string[]>
   /** 设置 session entry label。 */
@@ -1508,6 +1531,10 @@ export interface CodingAgentApi {
   respondModelOAuthPrompt(input: ModelOAuthPromptResponseInput): Promise<void>
   /** 刷新模型 registry。 */
   refreshModelRegistry(): Promise<ModelSettingsSnapshot>
+  /** 获取 Desktop UI 偏好。 */
+  getDesktopUiPreferences(): Promise<DesktopUiPreferences>
+  /** 更新 Desktop UI 偏好。 */
+  updateDesktopUiPreferences(input: UpdateDesktopUiPreferencesInput): Promise<DesktopUiPreferences>
   /** 获取 Pi-compatible agent 设置。 */
   getAgentSettings(): Promise<AgentSettingsSnapshot>
   /** 更新 Pi-compatible agent 设置。 */

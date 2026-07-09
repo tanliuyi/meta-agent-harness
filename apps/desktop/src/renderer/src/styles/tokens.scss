@@ -9,7 +9,7 @@
   --font-size-ui-xl: 21px;
   --font-size-ui-2xl: 23px;
   --font-size-code: 13px;
-  --font-weight-code: 500;
+  --font-weight-code: 400;
 
   --radius-xs: 3px;
   --radius-sm: 4px;
@@ -38,11 +38,11 @@
   --markdown-table-gap: var(--space-3);
   --markdown-table-cell-padding: calc(var(--space-2) / 2) var(--space-2);
   --markdown-code-gap: var(--space-3);
-  --markdown-line-height: 1.72;
-  --markdown-code-line-height: 1.55;
-  --markdown-inline-code-line-height: 1.45;
+  --markdown-line-height: 1.8;
+  --markdown-code-line-height: 1.8;
+  --markdown-inline-code-line-height: 1.72;
   --markdown-text-weight: 500;
-  --markdown-strong-weight: 700;
+  --markdown-strong-weight: 600;
   --markdown-inline-code-text: color-mix(in srgb, var(--color-text) 84%, transparent);
   --markdown-inline-code-bg: color-mix(in srgb, var(--color-surface-raised) 82%, transparent);
   --markdown-table-header-bg: color-mix(in srgb, var(--color-surface-raised) 80%, transparent);
@@ -61,7 +61,11 @@
   --file-reference-icon-bg: color-mix(in srgb, var(--color-primary) 14%, transparent);
   --user-message-bg: color-mix(in srgb, var(--color-primary) 6%, var(--color-surface));
   --user-message-border: color-mix(in srgb, var(--color-primary) 14%, var(--color-border-muted));
-  --user-message-media-border: color-mix(in srgb, var(--color-primary) 16%, var(--color-border-muted));
+  --user-message-media-border: color-mix(
+    in srgb,
+    var(--color-primary) 16%,
+    var(--color-border-muted)
+  );
   --user-message-attachment-bg: color-mix(in srgb, var(--color-surface) 88%, transparent);
   --user-message-attachment-border: color-mix(
     in srgb,
@@ -90,7 +94,7 @@
 }
 
 :root[data-platform='win32'] {
-  --markdown-text-weight: 450;
+  --markdown-text-weight: 400;
 }
 
 :root,

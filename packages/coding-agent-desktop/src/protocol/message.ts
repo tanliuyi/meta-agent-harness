@@ -36,7 +36,7 @@ export function toDesktopMessageContent(message: AgentMessage): DesktopMessageCo
 		role,
 		text,
 		raw: toDesktopMessageRaw(message),
-		toolCallIds: getAssistantToolCallIds(message),
+		toolCallIds: assistantErrorText ? undefined : getAssistantToolCallIds(message),
 		createdAt: hasTimestamp(message) ? normalizeTimestamp(message.timestamp) : undefined,
 	};
 	if (systemEvent) {
@@ -99,6 +99,9 @@ export function toDesktopMessages(messages: AgentMessage[], sessionEntryIds: str
 export function toDesktopToolCalls(messages: AgentMessage[], threadId: ThreadId): DesktopToolCall[] {
 	const toolCalls = new Map<string, DesktopToolCall>();
 	for (const message of messages) {
+		if (isAssistantErrorMessage(message)) {
+			continue;
+		}
 		if (message.role === "assistant" && hasContent(message) && Array.isArray(message.content)) {
 			for (const block of message.content) {
 				if (!isRecord(block) || block.type !== "toolCall" || typeof block.id !== "string") {
@@ -147,6 +150,9 @@ export function toDesktopFileChanges(messages: AgentMessage[], threadId: ThreadI
 	const toolCalls = new Map<string, { toolName: string; args: unknown }>();
 	const changes: DesktopFileChange[] = [];
 	for (const message of messages) {
+		if (isAssistantErrorMessage(message)) {
+			continue;
+		}
 		if (message.role === "assistant" && hasContent(message) && Array.isArray(message.content)) {
 			for (const block of message.content) {
 				if (!isRecord(block) || block.type !== "toolCall" || typeof block.id !== "string") {

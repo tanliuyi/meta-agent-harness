@@ -3,7 +3,28 @@
  */
 
 import { defineStore } from 'pinia'
-import { ref } from 'vue'
+import { ref, watch } from 'vue'
+
+/** 默认边栏宽度。 */
+const defaultSidebarWidth = 208
+
+/** 边栏最小宽度。 */
+const minSidebarWidth = 160
+
+/** 边栏最大宽度。 */
+const maxSidebarWidth = 420
+
+/**
+ * 限制边栏宽度在可用范围内。
+ * @param width - 原始宽度。
+ * @returns 合法宽度。
+ */
+function clampSidebarWidth(width: number): number {
+  if (!Number.isFinite(width)) {
+    return defaultSidebarWidth
+  }
+  return Math.min(maxSidebarWidth, Math.max(minSidebarWidth, Math.round(width)))
+}
 
 /**
  * 工作区 UI 状态 Store。
@@ -16,23 +37,20 @@ export default defineStore(
     const sidebarOpen = ref(true)
 
     /** 边栏当前宽度（像素）。 */
-    const sidebarWidth = ref(208)
+    const sidebarWidth = ref(defaultSidebarWidth)
 
     /** Project 展开状态，缺失时默认展开。 */
     const projectOpenState = ref<Record<string, boolean>>({})
 
-    /** 边栏最小宽度。 */
-    const minSidebarWidth = 160
-
-    /** 边栏最大宽度。 */
-    const maxSidebarWidth = 420
+    /** 是否已完成 desktop 配置读取。 */
+    let hasLoadedDesktopPreferences = false
 
     /**
      * 设置边栏宽度，并限制在最小/最大宽度范围内。
      * @param width - 目标宽度。
      */
     const setSidebarWidth = (width: number): void => {
-      sidebarWidth.value = Math.min(maxSidebarWidth, Math.max(minSidebarWidth, width))
+      sidebarWidth.value = clampSidebarWidth(width)
     }
 
     /**
@@ -54,6 +72,40 @@ export default defineStore(
         ...projectOpenState.value,
         [projectId]: open
       }
+    }
+
+    async function hydrateDesktopPreferences(): Promise<void> {
+      try {
+        const preferences = await window.api?.codingAgent.getDesktopUiPreferences?.()
+        const storedWidth = preferences?.workspace?.sidebarWidth
+        if (storedWidth !== undefined) {
+          setSidebarWidth(storedWidth)
+        } else {
+          setSidebarWidth(sidebarWidth.value)
+        }
+      } finally {
+        hasLoadedDesktopPreferences = true
+        persistSidebarWidth(sidebarWidth.value)
+      }
+    }
+
+    function persistSidebarWidth(width: number): void {
+      void window.api?.codingAgent.updateDesktopUiPreferences?.({
+        workspace: {
+          sidebarWidth: clampSidebarWidth(width)
+        }
+      })
+    }
+
+    if (typeof window !== 'undefined') {
+      void hydrateDesktopPreferences()
+
+      watch(sidebarWidth, (width) => {
+        if (!hasLoadedDesktopPreferences) {
+          return
+        }
+        persistSidebarWidth(width)
+      })
     }
 
     return {

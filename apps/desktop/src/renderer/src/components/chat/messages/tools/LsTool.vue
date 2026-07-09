@@ -14,6 +14,9 @@ import {
 } from './support/tool-message'
 
 const props = defineProps<ToolComponentProps>()
+const emit = defineEmits<{
+  'update:open': [open: boolean]
+}>()
 
 const args = computed(() => getToolArgs(props.toolCall))
 const target = computed(() => getFileName(getStringArg(args.value, 'path')) ?? '.')
@@ -26,8 +29,8 @@ const isError = computed(() => isToolError(props.message, props.toolCall))
 const status = computed(() => props.toolCall?.status)
 const name = computed(() =>
   getToolStatusLabel(status.value, {
-    queued: '列出',
-    running: '列出',
+    queued: '正在列出',
+    running: '正在列出',
     succeeded: '已列出',
     failed: '列出失败',
     cancelled: '取消列出'
@@ -43,6 +46,8 @@ const name = computed(() =>
     :status="status"
     :is-error="isError"
     :default-open="props.defaultOpen"
+    :open="props.open"
+    @update:open="emit('update:open', $event)"
   >
     <template #summary>
       <span class="ls-tool__target">{{ target }}</span>

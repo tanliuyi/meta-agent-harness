@@ -3,7 +3,7 @@
  */
 
 import { describe, expect, it, vi } from 'vitest'
-import { getCommands } from '../thread-runtime-controls'
+import { dispatchExtensionShortcut, getCommands } from '../thread-runtime-controls'
 import type { ThreadManagerCore } from '../thread-manager-core'
 
 describe('thread-runtime-controls', () => {
@@ -52,5 +52,19 @@ describe('thread-runtime-controls', () => {
       ])
     )
     expect(commands.find((command) => command.name === 'reload')?.source).toBe('builtin')
+  })
+
+  it('dispatchExtensionShortcut 在 desktop 端不向 worker 派发快捷键', async () => {
+    const core = {
+      sendData: vi.fn()
+    } as unknown as ThreadManagerCore
+
+    const handled = await dispatchExtensionShortcut(core, {
+      threadId: 'thread-a',
+      shortcut: 'ctrl+k'
+    })
+
+    expect(core.sendData).not.toHaveBeenCalled()
+    expect(handled).toBe(false)
   })
 })

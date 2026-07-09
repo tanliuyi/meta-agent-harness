@@ -15,6 +15,11 @@ const props = defineProps<{
   message?: ThreadMessage
   toolCall?: ThreadSnapshot['toolCalls'][number]
   defaultOpen?: boolean
+  open?: boolean
+}>()
+
+const emit = defineEmits<{
+  'update:open': [open: boolean]
 }>()
 
 const toolName = computed(() => {
@@ -55,5 +60,12 @@ function getToolComponent(name: string): Component {
 </script>
 
 <template>
-  <component :is="toolComponent" :message="message" :tool-call="toolCall" :default-open="defaultOpen" />
+  <component
+    :is="toolComponent"
+    :message="message"
+    :tool-call="toolCall"
+    :default-open="defaultOpen"
+    :open="open"
+    @update:open="emit('update:open', $event)"
+  />
 </template>

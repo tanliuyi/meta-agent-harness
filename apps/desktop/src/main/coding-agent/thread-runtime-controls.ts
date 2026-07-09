@@ -10,7 +10,6 @@ import type {
   ExtensionPanelLifecycleInput,
   ExtensionPanelMessageInput,
   ExtensionShortcutInput,
-  ExtensionShortcutResult,
   ExtensionUiResponseInput,
   ApprovalResponseInput,
   ToggleInput
@@ -98,14 +97,10 @@ export async function syncExtensionEditorText(
  * @param input - 快捷键输入。
  */
 export async function dispatchExtensionShortcut(
-  core: ThreadManagerCore,
-  input: ExtensionShortcutInput
+  _core: ThreadManagerCore,
+  _input: ExtensionShortcutInput
 ): Promise<boolean> {
-  const result = await core.sendData<ExtensionShortcutResult>(input.threadId, {
-    type: 'shortcut.dispatch',
-    shortcut: input.shortcut
-  })
-  return result.handled
+  return false
 }
 
 /**

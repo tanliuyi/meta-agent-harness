@@ -11,6 +11,9 @@ import {
 } from './support/tool-message'
 
 const props = defineProps<ToolComponentProps>()
+const emit = defineEmits<{
+  'update:open': [open: boolean]
+}>()
 
 const toolName = computed(() => {
   const rawToolName = props.message ? getMessageRawRecord(props.message).toolName : undefined
@@ -35,6 +38,8 @@ const status = computed(() => props.toolCall?.status)
     :status="status"
     :is-error="isError"
     :default-open="props.defaultOpen"
+    :open="props.open"
+    @update:open="emit('update:open', $event)"
   >
     <template #summary>
       <span v-if="summary" class="default-tool__summary">{{ summary }}</span>

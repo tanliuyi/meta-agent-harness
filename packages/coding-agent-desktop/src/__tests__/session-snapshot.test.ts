@@ -253,6 +253,60 @@ describe("buildSnapshotFromSession", () => {
 		expect(snapshot.toolCalls.some((toolCall) => toolCall.toolName === "tool")).toBe(false);
 	});
 
+	it("重建 snapshot 时忽略 assistant error 中未执行的 toolCall", () => {
+		const root = mkdtempSync(join(tmpdir(), "desktop-session-"));
+		roots.push(root);
+		const cwd = join(root, "repo");
+		const sessionDir = join(root, "sessions");
+		const manager = SessionManager.create(cwd, sessionDir);
+		manager.appendMessage({
+			role: "assistant",
+			content: [
+				{ type: "text", text: "准备编辑文件" },
+				{ type: "toolCall", id: "tool-edit", name: "edit", arguments: { path: "src/app.ts" } },
+			],
+			api: "responses",
+			provider: "openai",
+			model: "gpt-test",
+			usage: {
+				input: 1,
+				output: 1,
+				cacheRead: 0,
+				cacheWrite: 0,
+				totalTokens: 2,
+				cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+			},
+			stopReason: "error",
+			errorMessage: "stream_read_error",
+			timestamp: 1,
+		});
+		const sessionFile = manager.getSessionFile();
+		if (!sessionFile) {
+			throw new Error("session file is required");
+		}
+
+		const snapshot = buildSnapshotFromSession({
+			thread: {
+				threadId: "thread-1",
+				cwd,
+				status: "idle",
+				createdAt: "2026-07-01T00:00:00.000Z",
+				updatedAt: "2026-07-01T00:00:00.000Z",
+			},
+			sessionFile,
+		});
+
+		expect(snapshot.toolCalls).toEqual([]);
+		expect(snapshot.messages).toMatchObject([
+			{
+				role: "system",
+				text: "模型请求失败：stream_read_error",
+				raw: { role: "assistant", stopReason: "error" },
+			},
+		]);
+		expect(snapshot.messages[0]?.toolCallIds).toBeUndefined();
+	});
+
 	it("从 edit tool result 重建文件 diff/patch 变更", () => {
 		const root = mkdtempSync(join(tmpdir(), "desktop-session-"));
 		roots.push(root);

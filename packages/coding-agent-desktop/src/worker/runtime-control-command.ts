@@ -50,8 +50,14 @@ export async function handleRuntimeControlCommand(
 		case "set_follow_up_mode":
 			session.setFollowUpMode(command.mode);
 			return createWorkerResponse(envelope.id, command.type, undefined);
-		case "compact":
-			return createWorkerResponse(envelope.id, command.type, await session.compact(command.customInstructions));
+		case "compact": {
+			const result = await session.compact(command.customInstructions);
+			// fix: Desktop 手动压缩期间允许 steer/follow-up 入队；压缩结束后必须按 Pi 语义继续交付队列。
+			if (session.agent.hasQueuedMessages()) {
+				await session.agent.continue();
+			}
+			return createWorkerResponse(envelope.id, command.type, result);
+		}
 		case "set_auto_compaction":
 			session.setAutoCompactionEnabled(command.enabled);
 			return createWorkerResponse(envelope.id, command.type, undefined);

@@ -150,6 +150,96 @@ describe('ThreadWorkerRegistry', () => {
     ])
   })
 
+  it('startThread 挂起期间普通 runtime 命令等待 worker 绑定完成', async () => {
+    let resolveStart: (() => void) | undefined
+    const commands: WorkerCommand[] = []
+    const registry = new ThreadWorkerRegistry({
+      createWorker: async () => ({
+        ...createFakeWorker('worker-a'),
+        startThread: async () => {
+          await new Promise<void>((resolve) => {
+            resolveStart = resolve
+          })
+        },
+        send: async (command: WorkerCommand): Promise<WorkerResponseEnvelope> => {
+          commands.push(command)
+          return {
+            kind: 'response',
+            id: 'fake',
+            command: command.type,
+            success: true
+          }
+        }
+      })
+    })
+
+    const acquire = registry.acquireThreadWorker({
+      threadId: 'thread-a',
+      cwd: '/tmp/project-a'
+    })
+
+    await waitUntil(() => Boolean(resolveStart))
+    const send = registry.send('thread-a', { type: 'get_commands' })
+    await waitMs(0)
+    expect(commands).toEqual([])
+
+    resolveStart?.()
+    await expect(send).resolves.toMatchObject({
+      success: true,
+      command: 'get_commands'
+    })
+    await acquire
+    expect(commands).toEqual([{ type: 'get_commands' }])
+  })
+
+  it('startThread 挂起期间 worker hang 会释放等待中的普通 runtime 命令', async () => {
+    let started = false
+    let hangListener: ((info: WorkerHangInfo) => void) | undefined
+    const stopReasons: string[] = []
+    const registry = new ThreadWorkerRegistry({
+      createWorker: async () => ({
+        ...createFakeWorker('worker-a'),
+        startThread: async () => {
+          started = true
+          await new Promise<void>(() => {})
+        },
+        onHang: (listener) => {
+          hangListener = listener
+          return () => {
+            hangListener = undefined
+          }
+        },
+        stop: async (reason: string) => {
+          stopReasons.push(reason)
+        }
+      })
+    })
+
+    const acquire = registry
+      .acquireThreadWorker({
+        threadId: 'thread-a',
+        cwd: '/tmp/project-a'
+      })
+      .then(
+        () => undefined,
+        (error: unknown) => error
+      )
+
+    await waitUntil(() => started && Boolean(hangListener))
+    const send = registry.send('thread-a', { type: 'get_commands' })
+    await waitMs(0)
+
+    hangListener?.({ workerId: 'worker-a', threadId: 'thread-a', silentMs: 1000 })
+
+    await expect(send).resolves.toMatchObject({
+      success: false,
+      command: 'get_commands',
+      error: { code: 'thread_not_found' }
+    })
+    expect(await acquire).toBeInstanceOf(Error)
+    expect(stopReasons).toEqual(['crash'])
+  })
+
   it('idle 超时时自动释放 worker，reason 为 idle', async () => {
     let now = 0
     const events: ThreadWorkerLifecycleEvent[] = []

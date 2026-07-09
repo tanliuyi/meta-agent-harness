@@ -19,6 +19,7 @@ import { createConfiguredWorkerClient } from './worker-client-factory'
 import { ThreadWorkerRegistry } from './thread-worker-registry'
 import { cacheWorkerProjectionEvent } from './projection-cache'
 import { normalizeAllowedExternalUrl } from './external-url'
+import { readDesktopRuntimeConfig, writeDesktopRuntimeConfig } from './desktop-runtime-config'
 import type { WorkerClient, WorkerEnvelope } from './worker-types'
 import type { ThreadWorkerLifecycleEvent } from './thread-worker-registry'
 import type {
@@ -73,6 +74,7 @@ import type {
   TextInput,
   ToggleInput,
   UpdateAgentSettingsInput,
+  UpdateDesktopUiPreferencesInput,
   UpdateModelSettingsInput,
   UpdateProjectExtensionPathsInput,
   UpdateResourcePackageInput,
@@ -343,8 +345,10 @@ export function registerCodingAgentIpc(options: CodingAgentIpcOptions = {}): Cod
   handle(manager, codingAgentChannels.respondUi, (input: ExtensionUiResponseInput) =>
     manager.respondUi(input)
   )
-  handle(manager, codingAgentChannels.sendExtensionPanelMessage, (input: ExtensionPanelMessageInput) =>
-    manager.sendExtensionPanelMessage(input)
+  handle(
+    manager,
+    codingAgentChannels.sendExtensionPanelMessage,
+    (input: ExtensionPanelMessageInput) => manager.sendExtensionPanelMessage(input)
   )
   handle(
     manager,
@@ -396,6 +400,17 @@ export function registerCodingAgentIpc(options: CodingAgentIpcOptions = {}): Cod
     (input: ModelOAuthPromptResponseInput) => manager.respondModelOAuthPrompt(input)
   )
   handle(manager, codingAgentChannels.refreshModelRegistry, () => manager.refreshModelRegistry())
+  handle(
+    manager,
+    codingAgentChannels.getDesktopUiPreferences,
+    () => readDesktopRuntimeConfig().uiPreferences ?? {}
+  )
+  handle(
+    manager,
+    codingAgentChannels.updateDesktopUiPreferences,
+    (input: UpdateDesktopUiPreferencesInput) =>
+      writeDesktopRuntimeConfig({ uiPreferences: input }).uiPreferences ?? {}
+  )
   handle(manager, codingAgentChannels.getAgentSettings, () => manager.getAgentSettings())
   handle(manager, codingAgentChannels.updateAgentSettings, (input: UpdateAgentSettingsInput) =>
     manager.updateAgentSettings(input)

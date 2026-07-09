@@ -21,6 +21,7 @@ export interface ToolComponentProps {
   message?: ThreadMessage
   toolCall?: ToolCall
   defaultOpen?: boolean
+  open?: boolean
 }
 
 /**

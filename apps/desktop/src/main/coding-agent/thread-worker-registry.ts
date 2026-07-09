@@ -54,6 +54,19 @@ export type ThreadWorkerLifecycleEvent =
     }
   | { type: 'worker.run.failed'; threadId?: string; message: string; createdAt: number }
 
+interface StartingThreadWaiter {
+  promise: Promise<void>
+  resolve: () => void
+  reject: (error: unknown) => void
+}
+
+class ThreadStartReleasedError extends Error {
+  constructor(threadId: string) {
+    super(`thread worker was released while starting: ${threadId}`)
+    this.name = 'ThreadStartReleasedError'
+  }
+}
+
 /**
  * 管理 thread 与独立 utility worker 进程的绑定。
  */
@@ -70,6 +83,8 @@ export class ThreadWorkerRegistry {
   private readonly workers = new Map<string, WorkerClient>()
   /** threadId -> WorkerLease 映射。 */
   private readonly leases = new Map<string, WorkerLease>()
+  /** threadId -> 可取消启动等待器，用于启动期命令等待 runtime 绑定完成。 */
+  private readonly startingThreads = new Map<string, StartingThreadWaiter>()
   /** 正在创建 worker 的 threadId 集合。 */
   private readonly pendingThreads = new Set<string>()
   /** 是否已关闭。 */
@@ -186,8 +201,15 @@ export class ThreadWorkerRegistry {
       this.workers.set(worker.workerId, worker)
       this.leases.set(input.threadId, lease)
       this.startIdleCheck()
-      await worker.startThread(input)
-      lease.status = 'idle'
+      const startingThread = createStartingThreadWaiter()
+      this.startingThreads.set(input.threadId, startingThread)
+      void worker.startThread(input).then(startingThread.resolve, startingThread.reject)
+      await startingThread.promise
+      const activeLease = this.leases.get(input.threadId)
+      if (!activeLease || activeLease.workerId !== worker.workerId) {
+        throw new ThreadStartReleasedError(input.threadId)
+      }
+      activeLease.status = 'idle'
       this.onLifecycle?.({
         type: 'worker.run.started',
         workerId: worker.workerId,
@@ -200,18 +222,22 @@ export class ThreadWorkerRegistry {
       const lease = this.leases.get(input.threadId)
       if (lease) {
         this.leases.delete(input.threadId)
+        this.resolveStartingThread(input.threadId)
         const worker = this.workers.get(lease.workerId)
         this.workers.delete(lease.workerId)
         await worker?.stop('crash')
       }
-      this.onLifecycle?.({
-        type: 'worker.run.failed',
-        threadId: input.threadId,
-        message: error instanceof Error ? error.message : String(error),
-        createdAt: this.now()
-      })
+      if (!(error instanceof ThreadStartReleasedError)) {
+        this.onLifecycle?.({
+          type: 'worker.run.failed',
+          threadId: input.threadId,
+          message: error instanceof Error ? error.message : String(error),
+          createdAt: this.now()
+        })
+      }
       throw error instanceof Error ? error : new Error(String(error))
     } finally {
+      this.startingThreads.delete(input.threadId)
       this.pendingThreads.delete(input.threadId)
     }
   }
@@ -233,6 +259,8 @@ export class ThreadWorkerRegistry {
     }
     const worker = this.workers.get(lease.workerId)
     this.leases.delete(threadId)
+    this.resolveStartingThread(threadId)
+    this.startingThreads.delete(threadId)
     if (this.leases.size === 0) {
       this.stopIdleCheck()
     }
@@ -259,7 +287,7 @@ export class ThreadWorkerRegistry {
    * @returns worker 响应。
    */
   async send(threadId: string, command: WorkerCommand): Promise<WorkerResponseEnvelope> {
-    const lease = this.leases.get(threadId)
+    let lease = this.leases.get(threadId)
     if (!lease) {
       return {
         kind: 'response',
@@ -270,6 +298,40 @@ export class ThreadWorkerRegistry {
           code: 'thread_not_found',
           message: `thread has no worker: ${threadId}`,
           recoverable: true
+        }
+      }
+    }
+    if (lease.status === 'starting' && !canSendWhileStarting(command)) {
+      const startingThread = this.startingThreads.get(threadId)
+      if (startingThread) {
+        try {
+          await startingThread.promise
+        } catch (error) {
+          return {
+            kind: 'response',
+            id: 'worker-registry',
+            command: command.type,
+            success: false,
+            error: {
+              code: 'runtime_error',
+              message: error instanceof Error ? error.message : String(error),
+              recoverable: true
+            }
+          }
+        }
+      }
+      lease = this.leases.get(threadId)
+      if (!lease) {
+        return {
+          kind: 'response',
+          id: 'worker-registry',
+          command: command.type,
+          success: false,
+          error: {
+            code: 'thread_not_found',
+            message: `thread has no worker: ${threadId}`,
+            recoverable: true
+          }
         }
       }
     }
@@ -317,6 +379,8 @@ export class ThreadWorkerRegistry {
     this.workers.clear()
     this.leases.clear()
     this.pendingThreads.clear()
+    leases.forEach((lease) => this.resolveStartingThread(lease.threadId))
+    this.startingThreads.clear()
     await Promise.all(workers.map((worker) => worker.stop('shutdown')))
     const exitedAt = this.now()
     leases.forEach((lease) => {
@@ -402,4 +466,31 @@ export class ThreadWorkerRegistry {
       throw new Error('worker registry is closed')
     }
   }
+
+  /**
+   * 完成启动等待器，让等待 starting 状态的命令重新检查租约状态。
+   * @param threadId - 线程 ID。
+   */
+  private resolveStartingThread(threadId: string): void {
+    this.startingThreads.get(threadId)?.resolve()
+  }
+}
+
+function createStartingThreadWaiter(): StartingThreadWaiter {
+  let resolve!: () => void
+  let reject!: (error: unknown) => void
+  const promise = new Promise<void>((promiseResolve, promiseReject) => {
+    resolve = promiseResolve
+    reject = promiseReject
+  })
+  return { promise, resolve, reject }
+}
+
+function canSendWhileStarting(command: WorkerCommand): boolean {
+  return (
+    command.type === 'approval.respond' ||
+    command.type === 'ui.respond' ||
+    command.type === 'ui.editorTextChanged' ||
+    command.type === 'ui.toolsExpandedChanged'
+  )
 }

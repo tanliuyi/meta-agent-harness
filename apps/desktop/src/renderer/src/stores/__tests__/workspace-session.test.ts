@@ -204,6 +204,35 @@ describe('applyEventToSessions', () => {
     ])
   })
 
+  it('assistant error 中的 toolCall 不生成准备中的工具组', () => {
+    const sessions = createSessions()
+
+    applyEventToSessions(sessions, {
+      type: 'message_update',
+      threadId: 'thread-a',
+      message: createAssistantErrorToolMessage(fixtureTimestamp),
+      assistantMessageEvent: {
+        type: 'toolcall_start',
+        contentIndex: 1,
+        partial: createAssistantErrorToolMessage(fixtureTimestamp)
+      }
+    })
+
+    expect(sessions['thread-a']?.snapshot?.messages).toMatchObject([
+      {
+        role: 'system',
+        text: '模型请求失败：stream_read_error',
+        raw: {
+          role: 'assistant',
+          stopReason: 'error',
+          content: [{ type: 'text', text: '准备编辑文件。' }]
+        }
+      }
+    ])
+    expect(sessions['thread-a']?.snapshot?.messages[0]?.toolCallIds).toBeUndefined()
+    expect(sessions['thread-a']?.snapshot?.toolCalls).toEqual([])
+  })
+
   it('保留只有 toolCall 的 assistant message，但 raw content 不重复展示 toolCall', () => {
     const sessions = createSessions()
 
@@ -2475,10 +2504,24 @@ describe('workspace-session Project-first actions', () => {
   })
 
   it('消费 compaction 事件并刷新持久化后的 snapshot', async () => {
-    const getSnapshot = vi.fn().mockResolvedValue(createSnapshot())
+    const initialSnapshot = createSnapshot()
+    const compactedSnapshot: ThreadSnapshot = {
+      ...createSnapshot(),
+      messages: [
+        {
+          id: 'message-compaction',
+          role: 'system',
+          text: 'compressed summary',
+          raw: { role: 'compactionSummary', summary: 'compressed summary' } as never,
+          systemEvent: { kind: 'compaction', title: '上下文已压缩' }
+        }
+      ]
+    }
+    const getSnapshot = vi.fn().mockResolvedValue(compactedSnapshot)
     installCodingAgentApi({ getSnapshot })
     const store = useWorkspaceSessionStore()
-    store.sessions['thread-a'] = snapshotToWorkspaceSession(createSnapshot())
+    store.sessions['thread-a'] = snapshotToWorkspaceSession(initialSnapshot)
+    const beforeSession = store.sessions['thread-a']
     await store.setActiveSessionId('thread-a')
     getSnapshot.mockClear()
 
@@ -2492,6 +2535,8 @@ describe('workspace-session Project-first actions', () => {
       reason: 'manual',
       running: true
     })
+    expect(store.activeSession?.status).toBe('running')
+    expect(store.activeSnapshot?.status).toBe('running')
     expect(store.activeSessionActionMessage).toBe('正在压缩上下文')
 
     capturedEventListener?.({
@@ -2513,8 +2558,18 @@ describe('workspace-session Project-first actions', () => {
       running: false,
       aborted: false
     })
+    expect(store.activeSession?.status).toBe('idle')
+    expect(store.activeSnapshot?.status).toBe('idle')
     expect(store.activeSessionActionMessage).toBe('上下文已压缩')
     expect(getSnapshot).toHaveBeenCalledWith('thread-a')
+    expect(store.sessions['thread-a']).not.toBe(beforeSession)
+    expect(store.activeSnapshot?.messages).toMatchObject([
+      {
+        role: 'system',
+        text: 'compressed summary',
+        systemEvent: { kind: 'compaction' }
+      }
+    ])
   })
 
   it('暴露 new、import 和 switch session 操作', async () => {
@@ -2640,6 +2695,8 @@ describe('workspace-session Project-first actions', () => {
       delayMs: 1500,
       errorMessage: 'provider overloaded'
     })
+    expect(store.activeSession?.status).toBe('running')
+    expect(store.activeSnapshot?.status).toBe('running')
 
     capturedEventListener?.({
       type: 'auto_retry_end',
@@ -2650,7 +2707,67 @@ describe('workspace-session Project-first actions', () => {
     })
 
     expect(store.activeRetryState).toBeUndefined()
+    expect(store.activeSession?.status).toBe('idle')
+    expect(store.activeSnapshot?.status).toBe('idle')
     expect(store.activeSessionActionMessage).toBe('自动重试结束：cancelled')
+  })
+
+  it('自动重试等待后成功响应时保持 running 并在完成后回到 idle', async () => {
+    installCodingAgentApi({})
+    const store = useWorkspaceSessionStore()
+    store.sessions['thread-a'] = snapshotToWorkspaceSession(createSnapshot())
+    await store.setActiveSessionId('thread-a')
+
+    capturedEventListener?.({
+      type: 'auto_retry_start',
+      threadId: 'thread-a',
+      attempt: 1,
+      maxAttempts: 3,
+      delayMs: 2000,
+      errorMessage: 'OpenAI API error (502): upstream failed'
+    })
+
+    expect(store.activeRetryState).toMatchObject({ attempt: 1, maxAttempts: 3, delayMs: 2000 })
+    expect(store.activeSession?.status).toBe('running')
+    expect(store.activeSnapshot?.status).toBe('running')
+
+    capturedEventListener?.({
+      type: 'message_end',
+      threadId: 'thread-a',
+      message: createAssistantMessage('retry recovered', fixtureTimestamp)
+    })
+
+    expect(store.activeSession?.status).toBe('running')
+    expect(store.activeSnapshot?.status).toBe('running')
+    expect(store.activeSnapshot?.messages).toMatchObject([
+      {
+        role: 'assistant',
+        text: 'retry recovered',
+        raw: { stopReason: 'stop' }
+      }
+    ])
+
+    capturedEventListener?.({
+      type: 'agent_end',
+      threadId: 'thread-a',
+      messages: [],
+      willRetry: false
+    })
+    capturedEventListener?.({
+      type: 'auto_retry_end',
+      threadId: 'thread-a',
+      success: true,
+      attempt: 1
+    })
+
+    expect(store.activeRetryState).toBeUndefined()
+    expect(store.activeSession?.status).toBe('idle')
+    expect(store.activeSnapshot?.status).toBe('idle')
+    expect(store.activeSessionActionMessage).toBe('自动重试已恢复')
+    expect(store.activeSnapshot?.messages.at(-1)).toMatchObject({
+      role: 'assistant',
+      text: 'retry recovered'
+    })
   })
 
   it('发送成功后清空当前 thread 的 Composer JSON 草稿', async () => {
@@ -2764,6 +2881,38 @@ describe('workspace-session Project-first actions', () => {
     expect(steer).not.toHaveBeenCalled()
     expect(prompt).not.toHaveBeenCalled()
     expect(store.hasDraftMessage).toBe(false)
+  })
+
+  it('按 session 保留运行中消息交付方式', async () => {
+    const snapshotA = {
+      ...createSnapshot(),
+      status: 'running' as const
+    }
+    const snapshotB = {
+      ...createSnapshot(),
+      threadId: 'thread-b',
+      projectId: 'project-b',
+      cwd: '/tmp/project-b',
+      status: 'running' as const
+    }
+    const getSnapshot = vi.fn((threadId: string) =>
+      Promise.resolve(threadId === 'thread-b' ? snapshotB : snapshotA)
+    )
+    installCodingAgentApi({ getSnapshot })
+    const store = useWorkspaceSessionStore()
+    store.sessions['thread-a'] = snapshotToWorkspaceSession(snapshotA)
+    store.sessions['thread-b'] = snapshotToWorkspaceSession(snapshotB)
+
+    await store.setActiveSessionId('thread-a')
+    store.runningDelivery = 'followUp'
+    await store.setActiveSessionId('thread-b')
+
+    expect(store.runningDelivery).toBe('steer')
+
+    store.runningDelivery = 'steer'
+    await store.setActiveSessionId('thread-a')
+
+    expect(store.runningDelivery).toBe('followUp')
   })
 
   it('设置当前线程 thinking level 后刷新并使用后端真实值', async () => {
@@ -3381,6 +3530,20 @@ function createAssistantToolOnlyMessage(
     content: [
       { type: 'toolCall' as const, id: 'tool-a', name: 'read', arguments: { path: 'README.md' } }
     ]
+  }
+}
+
+function createAssistantErrorToolMessage(
+  timestamp: number
+): Extract<AgentMessage, { role: 'assistant' }> {
+  return {
+    ...createAssistantMessage('', timestamp),
+    content: [
+      { type: 'text' as const, text: '准备编辑文件。' },
+      { type: 'toolCall' as const, id: 'tool-edit', name: 'edit', arguments: { path: 'src/app.ts' } }
+    ],
+    stopReason: 'error' as const,
+    errorMessage: 'stream_read_error'
   }
 }
 

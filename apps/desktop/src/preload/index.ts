@@ -106,7 +106,8 @@ const codingAgent: CodingAgentApi = {
   loadSessionTreeBranches: (input) =>
     invokeCodingAgent(codingAgentChannels.loadSessionTreeBranches, input),
   loadSessionTreePath: (input) => invokeCodingAgent(codingAgentChannels.loadSessionTreePath, input),
-  setSessionEntryLabel: (input) => invokeCodingAgent(codingAgentChannels.setSessionEntryLabel, input),
+  setSessionEntryLabel: (input) =>
+    invokeCodingAgent(codingAgentChannels.setSessionEntryLabel, input),
   setThreadTitle: (input) => invokeCodingAgent(codingAgentChannels.setThreadTitle, input),
   renameThread: (input) => invokeCodingAgent(codingAgentChannels.renameThread, input),
   archiveThread: (threadId) => invokeCodingAgent(codingAgentChannels.archiveThread, threadId),
@@ -154,6 +155,9 @@ const codingAgent: CodingAgentApi = {
   respondModelOAuthPrompt: (input) =>
     invokeCodingAgent(codingAgentChannels.respondModelOAuthPrompt, input),
   refreshModelRegistry: () => invokeCodingAgent(codingAgentChannels.refreshModelRegistry),
+  getDesktopUiPreferences: () => invokeCodingAgent(codingAgentChannels.getDesktopUiPreferences),
+  updateDesktopUiPreferences: (input) =>
+    invokeCodingAgent(codingAgentChannels.updateDesktopUiPreferences, input),
   getAgentSettings: () => invokeCodingAgent(codingAgentChannels.getAgentSettings),
   updateAgentSettings: (input) => invokeCodingAgent(codingAgentChannels.updateAgentSettings, input),
   getResourceSnapshot: (input) => invokeCodingAgent(codingAgentChannels.getResourceSnapshot, input),

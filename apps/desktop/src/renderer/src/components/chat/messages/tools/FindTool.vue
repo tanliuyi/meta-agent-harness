@@ -15,6 +15,9 @@ import {
 } from './support/tool-message'
 
 const props = defineProps<ToolComponentProps>()
+const emit = defineEmits<{
+  'update:open': [open: boolean]
+}>()
 
 const args = computed(() => getToolArgs(props.toolCall))
 const pattern = computed(() => truncateSummary(getStringArg(args.value, 'pattern'), 64))
@@ -28,8 +31,8 @@ const isError = computed(() => isToolError(props.message, props.toolCall))
 const status = computed(() => props.toolCall?.status)
 const name = computed(() =>
   getToolStatusLabel(status.value, {
-    queued: '查找',
-    running: '查找',
+    queued: '正在查找',
+    running: '正在查找',
     succeeded: '已查找',
     failed: '查找失败',
     cancelled: '取消查找'
@@ -45,6 +48,8 @@ const name = computed(() =>
     :status="status"
     :is-error="isError"
     :default-open="props.defaultOpen"
+    :open="props.open"
+    @update:open="emit('update:open', $event)"
   >
     <template #summary>
       <span v-if="pattern" class="find-tool__pattern">{{ pattern }}</span>

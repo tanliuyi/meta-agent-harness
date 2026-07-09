@@ -1,10 +1,11 @@
 /**
  * useAppearanceSettings.ts - 管理 renderer 外观偏好。
  *
- * 字体大小仅作用于 renderer 本地 UI，通过 CSS 变量即时应用并持久化到 localStorage。
+ * 字体大小通过 CSS 变量即时应用，并持久化到 desktop 配置 JSON。
  */
 
 import { readonly, ref, watch } from 'vue'
+import type { WatchStopHandle } from 'vue'
 
 /** UI 字体大小配置范围。 */
 export const UI_FONT_SIZE_RANGE = {
@@ -22,10 +23,10 @@ export const CODE_FONT_SIZE_RANGE = {
   defaultValue: 13
 } as const
 
-/** localStorage 中存储 UI 字体大小的键名。 */
+/** 旧 localStorage 中存储 UI 字体大小的键名，用于迁移与降级。 */
 const uiFontSizeStorageKey = 'meta-agent.ui-font-size'
 
-/** localStorage 中存储代码字体大小的键名。 */
+/** 旧 localStorage 中存储代码字体大小的键名，用于迁移与降级。 */
 const codeFontSizeStorageKey = 'meta-agent.code-font-size'
 
 /** 当前 UI 字体大小。 */
@@ -36,6 +37,12 @@ const codeFontSize = ref(readStoredFontSize(codeFontSizeStorageKey, CODE_FONT_SI
 
 /** 是否已完成初始化。 */
 let isInitialized = false
+
+/** 是否已完成 desktop 配置读取。 */
+let hasLoadedDesktopPreferences = false
+
+/** 停止持久化 watcher。 */
+let stopPersistWatch: WatchStopHandle | undefined
 
 /**
  * 从 localStorage 读取字体大小。
@@ -115,6 +122,37 @@ function resetFontSizes(): void {
   codeFontSize.value = CODE_FONT_SIZE_RANGE.defaultValue
 }
 
+async function hydrateDesktopPreferences(): Promise<void> {
+  try {
+    const preferences = await window.api?.codingAgent.getDesktopUiPreferences?.()
+    const nextUiFontSize = normalizeFontSize(
+      preferences?.appearance?.uiFontSize ?? uiFontSize.value,
+      UI_FONT_SIZE_RANGE
+    )
+    const nextCodeFontSize = normalizeFontSize(
+      preferences?.appearance?.codeFontSize ?? codeFontSize.value,
+      CODE_FONT_SIZE_RANGE
+    )
+    uiFontSize.value = nextUiFontSize
+    codeFontSize.value = nextCodeFontSize
+  } finally {
+    hasLoadedDesktopPreferences = true
+    persistFontSizes(uiFontSize.value, codeFontSize.value)
+  }
+}
+
+function persistFontSizes(nextUiFontSize: number, nextCodeFontSize: number): void {
+  window.localStorage.setItem(uiFontSizeStorageKey, String(nextUiFontSize))
+  window.localStorage.setItem(codeFontSizeStorageKey, String(nextCodeFontSize))
+  applyFontSizes(nextUiFontSize, nextCodeFontSize)
+  void window.api?.codingAgent.updateDesktopUiPreferences?.({
+    appearance: {
+      uiFontSize: nextUiFontSize,
+      codeFontSize: nextCodeFontSize
+    }
+  })
+}
+
 /**
  * 组合式函数：提供外观偏好读取与更新能力。
  * @returns 外观偏好相关状态与方法。
@@ -130,16 +168,16 @@ export function useAppearanceSettings(): {
 } {
   if (!isInitialized && typeof window !== 'undefined') {
     isInitialized = true
+    applyFontSizes(uiFontSize.value, codeFontSize.value)
+    void hydrateDesktopPreferences()
 
-    watch(
-      [uiFontSize, codeFontSize],
-      ([nextUiFontSize, nextCodeFontSize]) => {
-        window.localStorage.setItem(uiFontSizeStorageKey, String(nextUiFontSize))
-        window.localStorage.setItem(codeFontSizeStorageKey, String(nextCodeFontSize))
+    stopPersistWatch = watch([uiFontSize, codeFontSize], ([nextUiFontSize, nextCodeFontSize]) => {
+      if (!hasLoadedDesktopPreferences) {
         applyFontSizes(nextUiFontSize, nextCodeFontSize)
-      },
-      { immediate: true }
-    )
+        return
+      }
+      persistFontSizes(nextUiFontSize, nextCodeFontSize)
+    })
   }
 
   return {
@@ -151,4 +189,13 @@ export function useAppearanceSettings(): {
     uiFontSize: readonly(uiFontSize),
     uiFontSizeRange: UI_FONT_SIZE_RANGE
   }
+}
+
+export function resetAppearanceSettingsForTest(): void {
+  stopPersistWatch?.()
+  stopPersistWatch = undefined
+  isInitialized = false
+  hasLoadedDesktopPreferences = false
+  uiFontSize.value = UI_FONT_SIZE_RANGE.defaultValue
+  codeFontSize.value = CODE_FONT_SIZE_RANGE.defaultValue
 }

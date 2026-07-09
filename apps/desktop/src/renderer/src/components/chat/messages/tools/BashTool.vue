@@ -24,6 +24,9 @@ import {
 } from './display/bashToolDisplay'
 
 const props = defineProps<ToolComponentProps>()
+const emit = defineEmits<{
+  'update:open': [open: boolean]
+}>()
 const actionError = ref<string>()
 
 const args = computed(() => getToolArgs(props.toolCall))
@@ -38,8 +41,8 @@ const isError = computed(() => isToolError(props.message, props.toolCall))
 const status = computed(() => props.toolCall?.status)
 const name = computed(() =>
   getToolStatusLabel(status.value, {
-    queued: '执行',
-    running: '执行',
+    queued: '正在执行',
+    running: '正在执行',
     succeeded: '已执行',
     failed: '执行失败',
     cancelled: '取消执行'
@@ -93,6 +96,8 @@ async function revealFullOutput(mode: 'open' | 'reveal'): Promise<void> {
     :is-error="isError"
     :content-available="hasContent"
     :default-open="props.defaultOpen"
+    :open="props.open"
+    @update:open="emit('update:open', $event)"
   >
     <template #icon>
       <TerminalIcon :size="14" />

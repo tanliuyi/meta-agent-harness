@@ -92,6 +92,8 @@ async function handlePromptControlCommand(
 			await session.followUp(command.message, command.images);
 			return createWorkerResponse(envelope.id, command.type, undefined);
 		case "abort":
+			// fix: Desktop 的 Escape/取消按钮应和 Pi 一样能中止正在进行的手动/自动压缩。
+			session.abortCompaction();
 			await session.abort();
 			return createWorkerResponse(envelope.id, command.type, undefined);
 		default:

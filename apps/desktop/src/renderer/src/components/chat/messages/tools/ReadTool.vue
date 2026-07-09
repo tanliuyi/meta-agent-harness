@@ -14,6 +14,9 @@ import {
 } from './support/tool-message'
 
 const props = defineProps<ToolComponentProps>()
+const emit = defineEmits<{
+  'update:open': [open: boolean]
+}>()
 
 const args = computed(() => getToolArgs(props.toolCall))
 const fileName = computed(() => getFileName(getStringArg(args.value, 'path')))
@@ -31,8 +34,8 @@ const isError = computed(() => isToolError(props.message, props.toolCall))
 const status = computed(() => props.toolCall?.status)
 const name = computed(() =>
   getToolStatusLabel(status.value, {
-    queued: '读取',
-    running: '读取',
+    queued: '正在读取',
+    running: '正在读取',
     succeeded: '已读取',
     failed: '读取失败',
     cancelled: '取消读取'
@@ -48,6 +51,8 @@ const name = computed(() =>
     :status="status"
     :is-error="isError"
     :default-open="props.defaultOpen"
+    :open="props.open"
+    @update:open="emit('update:open', $event)"
   >
     <template #summary>
       <span v-if="fileName" class="read-tool__path">{{ fileName }}</span>

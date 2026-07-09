@@ -147,6 +147,10 @@ export const codingAgentChannels = {
   respondModelOAuthPrompt: 'coding-agent:respond-model-oauth-prompt',
   /** 刷新模型 registry。 */
   refreshModelRegistry: 'coding-agent:refresh-model-registry',
+  /** 获取 Desktop UI 偏好。 */
+  getDesktopUiPreferences: 'coding-agent:get-desktop-ui-preferences',
+  /** 更新 Desktop UI 偏好。 */
+  updateDesktopUiPreferences: 'coding-agent:update-desktop-ui-preferences',
   /** 获取 Pi-compatible agent 设置快照。 */
   getAgentSettings: 'coding-agent:get-agent-settings',
   /** 更新 Pi-compatible agent 设置。 */

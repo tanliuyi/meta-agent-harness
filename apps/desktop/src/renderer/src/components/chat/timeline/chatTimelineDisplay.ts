@@ -1,6 +1,7 @@
 import type { DesktopToolCall } from '@coding-agent-desktop-src/protocol/tool'
 import type {
   MessageRenderState,
+  WorkspaceRuntimeTimelineEvent,
   WorkspaceToolCallStructure
 } from '@renderer/stores/workspace-session'
 import type { ThreadMessage } from '@shared/coding-agent/types'
@@ -50,6 +51,12 @@ export type TimelineItem =
       key: string
       message: ThreadMessage
     }
+  | {
+      type: 'runtime-event'
+      key: string
+      event: WorkspaceRuntimeTimelineEvent
+      message: ThreadMessage
+    }
   | ToolGroupTimelineItem
 
 export type UngroupedTimelineItem = Exclude<TimelineItem, ToolGroupTimelineItem>
@@ -80,6 +87,7 @@ export interface ProcessingCollapseResult {
 export interface CreateTimelineItemsInput {
   messages: ThreadMessage[]
   toolCallStructures: WorkspaceToolCallStructure[]
+  runtimeEvents?: WorkspaceRuntimeTimelineEvent[]
   getMessageRenderState: (message: ThreadMessage) => MessageRenderState
   resolveTimelineToolCall: (toolCallId: string) => DesktopToolCall | undefined
   getToolResultMessageToolCall: (message: ThreadMessage) => DesktopToolCall | undefined
@@ -166,7 +174,35 @@ export function createTimelineItems(input: CreateTimelineItemsInput): TimelineIt
     })
   }
 
+  for (const event of input.runtimeEvents ?? []) {
+    items.push({
+      type: 'runtime-event',
+      key: `runtime-event:${event.id}`,
+      event,
+      message: runtimeEventToSystemMessage(event)
+    })
+  }
+
   return groupTimelineTools(items)
+}
+
+function runtimeEventToSystemMessage(event: WorkspaceRuntimeTimelineEvent): ThreadMessage {
+  return {
+    id: `runtime-event:${event.id}`,
+    role: 'system',
+    text: event.message,
+    systemEvent: {
+      kind: 'agentEvent',
+      title: event.title,
+      description: event.message,
+      meta: event.meta
+    },
+    raw: {
+      role: 'system',
+      content: event.message
+    } as unknown as ThreadMessage['raw'],
+    createdAt: event.createdAt
+  }
 }
 
 function getStableToolGroupKey(toolCallIds: string[]): string | undefined {
@@ -430,6 +466,9 @@ export function getTimelineItemRevision(item: TimelineItem | undefined): unknown
   if (item.type === 'compaction-divider') {
     return [item.message.id, item.message.createdAt]
   }
+  if (item.type === 'runtime-event') {
+    return [item.event.id, item.event.title, item.event.message, item.event.createdAt]
+  }
   if (item.type === 'tool-group') {
     return [
       item.summary,
@@ -485,7 +524,7 @@ function appendVisibleItemsInCollapsedRange(
 ): void {
   for (let index = startIndex; index < endIndex; index += 1) {
     const item = source[index]
-    if (item?.type === 'compaction-divider') {
+    if (item?.type === 'compaction-divider' || item?.type === 'runtime-event') {
       target.push(item)
     }
   }
@@ -514,7 +553,11 @@ function findFinalReplyIndexInRange(
 
 function findNextProcessingSegmentBoundaryIndex(items: TimelineItem[], startIndex: number): number {
   for (let index = startIndex; index < items.length; index += 1) {
-    if (isUserMessageItem(items[index]) || items[index]?.type === 'compaction-divider') {
+    if (
+      isUserMessageItem(items[index]) ||
+      items[index]?.type === 'compaction-divider' ||
+      items[index]?.type === 'runtime-event'
+    ) {
       return index
     }
   }

@@ -236,6 +236,17 @@
   min-height: 0;
 }
 
+.archive-page-scroll,
+.diagnostics-page-scroll {
+  width: 100%;
+  height: 100%;
+}
+
+.archive-page-scroll [data-slot='scroll-area-viewport'],
+.diagnostics-page-scroll [data-slot='scroll-area-viewport'] {
+  height: 100%;
+}
+
 .state-strip,
 .archive-state {
   margin-bottom: var(--space-4);

@@ -203,6 +203,38 @@ describe("desktop message conversion", () => {
 		});
 	});
 
+	it("assistant error 不导出未执行 toolCall，避免错误消息渲染准备中的工具", () => {
+		const message: AgentMessage = {
+			role: "assistant",
+			content: [
+				{ type: "text", text: "准备编辑文件" },
+				{ type: "toolCall", id: "tool-edit", name: "edit", arguments: { path: "src/app.ts" } },
+			],
+			api: "responses",
+			provider: "openai",
+			model: "gpt-5",
+			usage: {
+				input: 1,
+				output: 1,
+				cacheRead: 0,
+				cacheWrite: 0,
+				totalTokens: 2,
+				cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+			},
+			stopReason: "error",
+			errorMessage: "stream_read_error",
+		};
+
+		expect(toDesktopMessageContent(message)).toMatchObject({
+			role: "system",
+			text: "模型请求失败：stream_read_error",
+			systemEvent: { title: "模型请求失败" },
+		});
+		expect(toDesktopMessageContent(message)?.toolCallIds).toBeUndefined();
+		expect(toDesktopToolCalls([message], "thread-1")).toEqual([]);
+		expect(toDesktopFileChanges([message], "thread-1")).toEqual([]);
+	});
+
 	it("从 assistant toolCall 建立工具投影，toolResult 只更新结果", () => {
 		const messages: AgentMessage[] = [
 			{

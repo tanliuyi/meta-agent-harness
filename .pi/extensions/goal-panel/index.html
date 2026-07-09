@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link rel="stylesheet" href="./panel.css" />
+    <title>Goal</title>
+  </head>
+  <body>
+    <main class="goal-shell">
+      <header class="goal-header">
+        <div>
+          <h1>Goal</h1>
+          <p id="status" class="goal-status">No active goal</p>
+        </div>
+        <button id="refresh" class="icon-button" type="button" title="Refresh" aria-label="Refresh">Refresh</button>
+      </header>
+
+      <section id="empty" class="empty-state">
+        <p>No active goal in this session.</p>
+        <button id="start-empty" type="button">Start Goal</button>
+      </section>
+
+      <section id="details" class="goal-details" hidden>
+        <div class="objective-block">
+          <span class="label">Objective</span>
+          <p id="objective"></p>
+        </div>
+
+        <dl class="metrics">
+          <div>
+            <dt>Status</dt>
+            <dd id="metric-status">-</dd>
+          </div>
+          <div>
+            <dt>Iteration</dt>
+            <dd id="metric-iteration">-</dd>
+          </div>
+          <div>
+            <dt>Elapsed</dt>
+            <dd id="metric-elapsed">-</dd>
+          </div>
+          <div>
+            <dt>Tokens</dt>
+            <dd id="metric-tokens">-</dd>
+          </div>
+        </dl>
+
+        <p id="commands" class="commands"></p>
+      </section>
+
+      <footer class="actions">
+        <button id="start" type="button">Start</button>
+        <button id="edit" type="button">Edit</button>
+        <button id="pause" type="button">Pause</button>
+        <button id="resume" type="button">Resume</button>
+        <button id="clear" class="danger" type="button">Clear</button>
+      </footer>
+    </main>
+    <script src="./panel.js"></script>
+  </body>
+</html>

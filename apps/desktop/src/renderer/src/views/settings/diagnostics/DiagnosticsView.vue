@@ -256,10 +256,6 @@ async function openDiagnosticTarget(item: DiagnosticsItem): Promise<void> {
 </template>
 
 <style lang="scss" scoped>
-&:deep(.diagnostics-page-scroll) {
-  height: 100%;
-}
-
 .diagnostics-page {
   display: grid;
   gap: var(--space-4);

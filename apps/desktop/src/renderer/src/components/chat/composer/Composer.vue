@@ -27,7 +27,13 @@ import {
 } from '@renderer/components/ui/select'
 import { useSelectContentWidth } from '@renderer/components/ui/select/composables/useSelectContentWidth'
 import StopIcon from '@renderer/components/icons/StopIcon.vue'
-import { Command as CommandIcon, File as FileIcon, LoaderCircle, X } from 'lucide-vue-next'
+import {
+  Command as CommandIcon,
+  File as FileIcon,
+  Folder as FolderIcon,
+  LoaderCircle,
+  X
+} from 'lucide-vue-next'
 import type { ImagePreviewItem } from '../ImagePreviewDialog.vue'
 import Usage from './Usage.vue'
 import type { TokenUsage } from './Usage.vue'
@@ -1743,12 +1749,15 @@ function clearExtensionDraft(id: string): void {
           class="composer__project-select"
           variant="borderless"
           size="sm"
+          :hide-icon="true"
           aria-label="选择 Project"
         >
-          <SelectValue v-if="currentProjectLabel" placeholder="选择 Project">
-            {{ currentProjectLabel }}
-          </SelectValue>
-          <SelectValue v-else placeholder="选择 Project" />
+          <span class="composer__project-label">
+            <FolderIcon :size="14" aria-hidden="true" />
+            <span class="composer__project-label-text">
+              {{ currentProjectLabel ?? '选择 Project' }}
+            </span>
+          </span>
         </SelectTrigger>
 
         <SelectContent
@@ -2067,7 +2076,8 @@ function clearExtensionDraft(id: string): void {
   gap: var(--space-1);
 }
 
-.composer__project-select {
+.composer__project-select,
+.composer__model-select {
   min-width: 0;
   flex: 0 1 auto;
 }
@@ -2077,6 +2087,7 @@ function clearExtensionDraft(id: string): void {
   flex: 0 0 auto;
 }
 
+.composer__project-select,
 .composer__model-select,
 .composer__thinking-select,
 .composer__delivery-select {
@@ -2087,10 +2098,7 @@ function clearExtensionDraft(id: string): void {
   line-height: 1;
 }
 
-.composer__model-select {
-  flex: 0 1 auto;
-}
-
+.composer__project-select:hover,
 .composer__model-select:hover,
 .composer__thinking-select:hover,
 .composer__delivery-select:hover {
@@ -2136,6 +2144,7 @@ function clearExtensionDraft(id: string): void {
   flex: 0 0 auto;
 }
 
+.composer__project-label,
 .composer__model-label,
 .composer__thinking-label {
   display: inline-flex;
@@ -2149,6 +2158,23 @@ function clearExtensionDraft(id: string): void {
   line-height: 1;
 }
 
+.composer__project-label {
+  gap: 6px;
+
+  svg {
+    flex: 0 0 auto;
+    color: var(--color-text-muted);
+  }
+}
+
+.composer__project-label-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.composer__project-select :deep([data-slot='select-value']),
 .composer__model-select :deep([data-slot='select-value']),
 .composer__thinking-select :deep([data-slot='select-value']),
 .composer__delivery-select :deep([data-slot='select-value']) {
@@ -2534,8 +2560,9 @@ function clearExtensionDraft(id: string): void {
 .composer-footer {
   background: var(--color-surface-raised);
   margin-top: -22px;
-  padding-top: 10px;
-  padding-bottom: 4px;
+  padding-top: 18px;
+  padding-bottom: var(--space-2);
+  padding-left: var(--space-4);
   border-radius: 0 0 18px 18px;
 }
 </style>

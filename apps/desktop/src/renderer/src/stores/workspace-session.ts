@@ -108,6 +108,10 @@ export type WorkspaceSessionContext = {
   orphanFileAttachments: ComposerFileAttachment[]
   /** 当前上下文内每个 thread 独立的文件路径附件草稿。 */
   composerFileAttachments: Record<string, ComposerFileAttachment[]>
+  /** 未选中会话时运行中消息交付方式。 */
+  orphanRunningDelivery: RunningMessageDelivery
+  /** 当前上下文内每个 thread 独立的运行中消息交付方式。 */
+  runningDeliveries: Record<string, RunningMessageDelivery>
   /** 当前上下文未绑定 thread 时的面板 UI 状态。 */
   panel: SessionUiState
   /** 当前上下文内每个 thread 独立的面板 UI 状态。 */
@@ -150,6 +154,8 @@ export type WorkspaceSessionRuntime = {
   extensionToolsExpanded?: boolean
   /** 最近接收到的 IPC 事件列表。 */
   events: CodingAgentIpcEvent[]
+  /** 仅用于 renderer timeline 展示的运行时事件，不写入 session 文件。 */
+  timelineEvents: WorkspaceRuntimeTimelineEvent[]
   /** 消息渲染状态，key 为 messageId。 */
   renderState: Record<string, MessageRenderState>
   /** 当前自动重试状态。 */
@@ -168,6 +174,22 @@ export type WorkspaceSessionRuntime = {
   loadingSnapshot: boolean
   /** 当前 thread 最近一次错误。 */
   errorMessage?: string
+}
+
+/** renderer timeline 展示用运行时事件。 */
+export interface WorkspaceRuntimeTimelineEvent {
+  /** 稳定事件 ID。 */
+  id: string
+  /** 事件类型。 */
+  type: 'worker-error'
+  /** 展示标题。 */
+  title: string
+  /** 展示描述。 */
+  message: string
+  /** 创建时间 ISO 字符串。 */
+  createdAt: string
+  /** 短元信息标签。 */
+  meta: string[]
 }
 
 /** 当前 thread 的自动重试状态。 */
@@ -388,6 +410,8 @@ export default defineStore('workspace-session', () => {
       composerImageAttachments: {},
       orphanFileAttachments: [],
       composerFileAttachments: {},
+      orphanRunningDelivery: 'steer',
+      runningDeliveries: {},
       panel: createUiState(),
       sessionPanels: {},
       orphanCommands: [],
@@ -439,6 +463,7 @@ export default defineStore('workspace-session', () => {
     context.composerDrafts[threadId] ??= createEmptyComposerContent()
     context.composerImageAttachments[threadId] ??= []
     context.composerFileAttachments[threadId] ??= []
+    context.runningDeliveries[threadId] ??= 'steer'
   }
 
   /**
@@ -456,6 +481,7 @@ export default defineStore('workspace-session', () => {
       extensionPanelMessages: {},
       extensionPanelStates: {},
       events: [],
+      timelineEvents: [],
       renderState: {},
       loadingSnapshot: false
     }) as WorkspaceSessionRuntime
@@ -697,7 +723,8 @@ export default defineStore('workspace-session', () => {
     context.activeThreadId = threadId
     writeSessionActiveThreadId(threadId, contextId)
     if (threadId) {
-      context.sessionPanels[threadId] ??= readStoredSessionPanelState(contextId, threadId) ?? createUiState()
+      context.sessionPanels[threadId] ??=
+        readStoredSessionPanelState(contextId, threadId) ?? createUiState()
       initializeThreadComposerState(context, threadId)
       context.selectedProjectId = sessions[threadId]?.projectId ?? context.selectedProjectId
       if (context.selectedProjectId) {
@@ -807,6 +834,11 @@ export default defineStore('workspace-session', () => {
       for (const threadId of Object.keys(context.composerFileAttachments)) {
         if (!existingThreadIds.has(threadId)) {
           delete context.composerFileAttachments[threadId]
+        }
+      }
+      for (const threadId of Object.keys(context.runningDeliveries)) {
+        if (!existingThreadIds.has(threadId)) {
+          delete context.runningDeliveries[threadId]
         }
       }
     }
@@ -1099,6 +1131,9 @@ export default defineStore('workspace-session', () => {
   /** 当前活跃会话的最近事件。 */
   const activeEvents = computed(() => activeRuntime.value?.events ?? [])
 
+  /** 当前活跃会话的 renderer-only timeline 事件。 */
+  const activeRuntimeTimelineEvents = computed(() => activeRuntime.value?.timelineEvents ?? [])
+
   /** 当前活跃会话的可用模型。 */
   const activeModelOptions = computed<ModelInfo[]>(() =>
     activeSessionId.value ? (modelOptionsByThreadId[activeSessionId.value] ?? []) : []
@@ -1193,6 +1228,26 @@ export default defineStore('workspace-session', () => {
     return threadId
       ? (context.composerFileAttachments[threadId] ?? emptyComposerFiles)
       : context.orphanFileAttachments
+  })
+
+  /** 当前活跃会话运行中消息交付方式，按 session 隔离。 */
+  const runningDelivery = computed({
+    get: (): RunningMessageDelivery => {
+      const threadId = activeSessionId.value
+      const context = mainContext.value
+      return threadId
+        ? (context.runningDeliveries[threadId] ?? 'steer')
+        : context.orphanRunningDelivery
+    },
+    set: (value: RunningMessageDelivery) => {
+      const threadId = activeSessionId.value
+      const context = mainContext.value
+      if (!threadId) {
+        context.orphanRunningDelivery = value
+        return
+      }
+      context.runningDeliveries[threadId] = value
+    }
   })
 
   /** 当前活跃会话是否有可发送草稿。 */
@@ -1656,11 +1711,9 @@ export default defineStore('workspace-session', () => {
       context.orphanFileAttachments = []
       context.orphanModel = undefined
       context.orphanThinkingLevel = undefined
-      if (session) {
-        session.status = 'running'
-      }
-      if (session?.snapshot) {
-        session.snapshot.status = 'running'
+      // sessions 是 shallowReactive，状态变化要替换根对象，避免 ChatView running computed 卡住。
+      if (sessions[targetThreadId]) {
+        sessions[targetThreadId] = applySessionStatus(sessions[targetThreadId], 'running')
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
@@ -1935,7 +1988,7 @@ export default defineStore('workspace-session', () => {
         }
         return { handled: true, message: '已打开 Session Tree' }
       }
-      case 'fork':
+      case 'fork': {
         if (trimmedArgs) {
           return { handled: false }
         }
@@ -1945,6 +1998,7 @@ export default defineStore('workspace-session', () => {
           focusActiveSessionTreeEntry(currentEntryId)
         }
         return { handled: true, message: '请在 Session Tree 中选择分叉位置' }
+      }
       case 'resume':
         if (trimmedArgs) {
           return { handled: false }
@@ -2035,6 +2089,10 @@ export default defineStore('workspace-session', () => {
       running: true,
       startedAt: new Date().toISOString()
     }
+    // fix: 手动压缩期间也属于 Pi 的 busy/running 状态，Composer 输入必须走 steer/follow-up 队列。
+    if (sessions[threadId]) {
+      sessions[threadId] = applySessionStatus(sessions[threadId], 'running')
+    }
     try {
       const result = await window.api.codingAgent.compact({ threadId, customInstructions })
       runtime.compaction = {
@@ -2044,6 +2102,10 @@ export default defineStore('workspace-session', () => {
         startedAt: runtime.compaction?.startedAt ?? new Date().toISOString(),
         finishedAt: new Date().toISOString(),
         aborted: Boolean(result.cancelled)
+      }
+      // fix: 压缩结束后才退出 running，避免压缩中排队消息被误判为 idle prompt。
+      if (sessions[threadId]) {
+        sessions[threadId] = applySessionStatus(sessions[threadId], 'idle')
       }
       sessionActionMessageByThreadId[threadId] = result.cancelled ? '压缩已取消' : '上下文已压缩'
       await refreshSnapshot(threadId)
@@ -2055,6 +2117,10 @@ export default defineStore('workspace-session', () => {
         startedAt: runtime.compaction?.startedAt ?? new Date().toISOString(),
         finishedAt: new Date().toISOString(),
         error: error instanceof Error ? error.message : String(error)
+      }
+      // fix: 压缩失败/取消后同步回 idle，避免 UI 残留运行态。
+      if (sessions[threadId]) {
+        sessions[threadId] = applySessionStatus(sessions[threadId], 'idle')
       }
       ensureRuntime(threadId).errorMessage = error instanceof Error ? error.message : String(error)
     }
@@ -2918,8 +2984,16 @@ export default defineStore('workspace-session', () => {
           delayMs: event.delayMs,
           errorMessage: event.errorMessage
         }
+        // 自动重试等待 delay 期间用户仍在等 agent，必须保持 running，避免 UI 提前退出工作态。
+        if (sessions[threadId]) {
+          sessions[threadId] = applySessionStatus(sessions[threadId], 'running')
+        }
       } else if (event.type === 'auto_retry_end') {
         runtime.retry = undefined
+        // retry 成功或耗尽后才结束工作态；失败详情由 timeline/system message 展示。
+        if (sessions[threadId]) {
+          sessions[threadId] = applySessionStatus(sessions[threadId], 'idle')
+        }
         sessionActionMessageByThreadId[threadId] = event.success
           ? '自动重试已恢复'
           : `自动重试结束${event.finalError ? `：${event.finalError}` : ''}`
@@ -2928,6 +3002,10 @@ export default defineStore('workspace-session', () => {
           reason: event.reason,
           running: true,
           startedAt: new Date().toISOString()
+        }
+        // fix: 压缩等待期间用户仍在与 agent 交互，状态必须保持 running 以复用 Pi 队列语义。
+        if (sessions[threadId]) {
+          sessions[threadId] = applySessionStatus(sessions[threadId], 'running')
         }
         sessionActionMessageByThreadId[threadId] = '正在压缩上下文'
       } else if (event.type === 'compaction_end') {
@@ -2940,6 +3018,10 @@ export default defineStore('workspace-session', () => {
           aborted: event.aborted,
           willRetry: event.willRetry,
           error: event.errorMessage
+        }
+        // fix: compaction_end 是退出工作态的唯一边界，不能在 delay/summary 生成期间提前 idle。
+        if (sessions[threadId]) {
+          sessions[threadId] = applySessionStatus(sessions[threadId], 'idle')
         }
         sessionActionMessageByThreadId[threadId] = event.aborted
           ? `压缩已中止${event.errorMessage ? `：${event.errorMessage}` : ''}`
@@ -2977,7 +3059,7 @@ export default defineStore('workspace-session', () => {
         break
       case 'projection':
         if (event.event.type === 'thread.stateChanged' && sessions[event.threadId]) {
-          sessions[event.threadId].status = event.event.status
+          sessions[event.threadId] = applySessionStatus(sessions[event.threadId], event.event.status)
         }
         if (event.event.type === 'approval.requested') {
           ensureRuntime(event.threadId).approvals[event.event.approval.approvalId] =
@@ -3054,6 +3136,7 @@ export default defineStore('workspace-session', () => {
     activeProjectId,
     activeRetryState,
     activeRuntime,
+    activeRuntimeTimelineEvents,
     activeSession,
     activeSessionActionMessage,
     activeSessionActionDetails,
@@ -3080,6 +3163,7 @@ export default defineStore('workspace-session', () => {
     draftFiles,
     draftImages,
     draftMessage,
+    runningDelivery,
     errorMessage,
     events: activeEvents,
     ensureCommandsLoaded,
@@ -3425,10 +3509,7 @@ function mergeSession(
     ...session,
     snapshot: mergeThreadSnapshot(existing?.snapshot, session.snapshot)
   }
-  if (existing) {
-    Object.assign(existing, merged)
-    return existing
-  }
+  // fix: sessions 是 shallowReactive，snapshot/messages 合并必须替换根对象，避免 live 压缩后 timeline 不重算分割线。
   sessions[session.threadId] = reactive(merged) as WorkspaceSession
   return sessions[session.threadId]
 }
@@ -3486,7 +3567,7 @@ function getModelLabel(model: { provider?: string; id?: string; displayName?: st
 }
 
 /**
- * 原地合并 snapshot，避免组件持有旧 snapshot 引用时失去响应式更新。
+ * 合并 snapshot。返回新 snapshot 触发 Vue3 依赖，同时复用未变化 message 对象让 keyed DOM 原子化更新。
  * @param existing - 已存在的 snapshot。
  * @param incoming - 新 snapshot。
  * @returns 合并后的 snapshot。
@@ -3501,8 +3582,70 @@ function mergeThreadSnapshot(
   if (!existing) {
     return incoming
   }
-  Object.assign(existing, incoming)
-  return existing
+  return {
+    ...existing,
+    ...incoming,
+    // mock/轻量 snapshot 可能省略这些可选字段；不能用 undefined 覆盖已有 tree 定位状态。
+    sessionFile: incoming.sessionFile ?? existing.sessionFile,
+    title: incoming.title ?? existing.title,
+    model: incoming.model ?? existing.model,
+    sessionTree: incoming.sessionTree ?? existing.sessionTree,
+    currentEntryId: incoming.currentEntryId ?? existing.currentEntryId,
+    context: incoming.context ?? existing.context,
+    cost: incoming.cost ?? existing.cost,
+    // fix: live 压缩会追加 compaction message；snapshot 必须换引用，但旧消息对象要尽量复用，避免整条 timeline DOM 重建。
+    messages: mergeSnapshotMessages(existing.messages, incoming.messages)
+  }
+}
+
+function mergeSnapshotMessages(
+  existingMessages: ThreadSnapshot['messages'],
+  incomingMessages: ThreadSnapshot['messages']
+): ThreadSnapshot['messages'] {
+  const existingById = new Map(existingMessages.map((message) => [message.id, message]))
+  return incomingMessages.map((incoming) => {
+    const existing = existingById.get(incoming.id)
+    return existing && isSameSnapshotMessage(existing, incoming) ? existing : incoming
+  })
+}
+
+function isSameSnapshotMessage(
+  left: ThreadSnapshot['messages'][number],
+  right: ThreadSnapshot['messages'][number]
+): boolean {
+  return (
+    left === right ||
+    (left.id === right.id &&
+      left.sessionEntryId === right.sessionEntryId &&
+      left.role === right.role &&
+      left.text === right.text &&
+      left.createdAt === right.createdAt &&
+      isSameStringArray(left.toolCallIds, right.toolCallIds) &&
+      isSameSystemEvent(left.systemEvent, right.systemEvent))
+  )
+}
+
+function isSameSystemEvent(
+  left: ThreadSnapshot['messages'][number]['systemEvent'],
+  right: ThreadSnapshot['messages'][number]['systemEvent']
+): boolean {
+  return (
+    left === right ||
+    (left?.kind === right?.kind &&
+      left?.title === right?.title &&
+      left?.description === right?.description &&
+      isSameStringArray(left?.meta, right?.meta))
+  )
+}
+
+function isSameStringArray(left: string[] | undefined, right: string[] | undefined): boolean {
+  if (left === right) {
+    return true
+  }
+  if (!left || !right || left.length !== right.length) {
+    return false
+  }
+  return left.every((value, index) => value === right[index])
 }
 
 /**
@@ -3535,21 +3678,26 @@ export function applyEventToSessions(
       return
     }
     if (event.event.type === 'thread.stateChanged') {
-      session.status = event.event.status
+      sessions[event.threadId] = applySessionStatus(session, event.event.status)
     }
-    if (!session.snapshot) {
+    if (!sessions[event.threadId].snapshot) {
       return
     }
-    applyProjectionEvent(session.snapshot, event.event)
-    session.status = session.snapshot.status
+    const nextSession = sessions[event.threadId]
+    if (!nextSession.snapshot) {
+      return
+    }
+    applyProjectionEvent(nextSession.snapshot, event.event)
+    sessions[event.threadId] = applySessionStatus(nextSession, nextSession.snapshot.status)
     return
   }
   if (event.type === 'threadWorker') {
-    const session = event.threadId ? sessions[event.threadId] : undefined
-    if (!session) {
+    const threadId = event.threadId
+    const session = threadId ? sessions[threadId] : undefined
+    if (!threadId || !session) {
       return
     }
-    applyThreadWorkerEventToSession(session, event.event)
+    sessions[threadId] = applyThreadWorkerEventToSession(session, event.event)
     return
   }
   if (isAgentSessionEventType(event)) {
@@ -3558,17 +3706,24 @@ export function applyEventToSessions(
       return
     }
     const status = getStatusFromAgentSessionEvent(event as AgentSessionIpcEvent)
+    let nextSession = session
     if (status) {
-      session.status = status
+      // sessions 是 shallowReactive，不能只改嵌套 status，否则 running/idle UI 可能不刷新。
+      nextSession = applySessionStatus(nextSession, status)
+      sessions[event.threadId] = nextSession
     }
-    if (!session.snapshot) {
+    if (!nextSession.snapshot) {
       return
     }
-    const messageId = applyAgentSessionEvent(session.snapshot, event as AgentSessionIpcEvent)
-    session.status = session.snapshot.status
+    const messageId = applyAgentSessionEvent(nextSession.snapshot, event as AgentSessionIpcEvent)
+    nextSession = applySessionStatus(nextSession, nextSession.snapshot.status)
+    sessions[event.threadId] = nextSession
     const updatedAt = getActivityUpdatedAt(event as AgentSessionIpcEvent)
     if (updatedAt) {
-      session.updatedAt = updatedAt
+      sessions[event.threadId] = {
+        ...sessions[event.threadId],
+        updatedAt
+      }
     }
     if (messageId && onMessageRevision) {
       onMessageRevision(messageId, event.type === 'message_end' ? 'complete' : 'streaming')
@@ -3619,7 +3774,24 @@ function applyThreadWorkerEventToRuntime(
   }
   const session = sessions[event.threadId]
   if (session) {
-    applyThreadWorkerEventToSession(session, event.event)
+    sessions[event.threadId] = applyThreadWorkerEventToSession(session, event.event)
+  }
+  if (event.event.type === 'worker.run.failed') {
+    const runtime = runtimes[event.threadId]
+    if (!runtime) {
+      return
+    }
+    const createdAt = new Date(event.event.createdAt).toISOString()
+    upsertRuntimeTimelineEvent(runtime, {
+      id: `worker-failed:${event.event.createdAt}`,
+      type: 'worker-error',
+      title: 'Worker 启动失败',
+      message: event.event.message,
+      createdAt,
+      meta: ['worker', 'failed']
+    })
+    runtime.errorMessage = event.event.message
+    return
   }
   if (event.event.type !== 'worker.run.finished' || event.event.reason !== 'crash') {
     return
@@ -3636,30 +3808,82 @@ function applyThreadWorkerEventToRuntime(
       }
     }
   }
-  runtime.errorMessage = event.event.message ?? 'worker crashed'
+  const message = event.event.message ?? 'worker crashed'
+  upsertRuntimeTimelineEvent(runtime, {
+    id: `worker-crash:${event.event.workerId}:${event.event.exitedAt}`,
+    type: 'worker-error',
+    title: 'Worker 已崩溃',
+    message,
+    createdAt: new Date(event.event.exitedAt).toISOString(),
+    meta: ['worker', 'crash']
+  })
+  runtime.errorMessage = message
+}
+
+function upsertRuntimeTimelineEvent(
+  runtime: WorkspaceSessionRuntime,
+  event: WorkspaceRuntimeTimelineEvent
+): void {
+  const index = runtime.timelineEvents.findIndex((item) => item.id === event.id)
+  if (index >= 0) {
+    runtime.timelineEvents[index] = event
+    return
+  }
+  runtime.timelineEvents.push(event)
 }
 
 function applyThreadWorkerEventToSession(
   session: WorkspaceSession,
   event: ThreadWorkerEvent
-): void {
+): WorkspaceSession {
+  if (event.type === 'worker.run.failed') {
+    return applySessionStatus(session, 'error', { steering: [], followUp: [] })
+  }
   if (event.type !== 'worker.run.finished') {
-    return
+    return session
   }
   const status = getStatusFromWorkerFinishedReason(event.reason)
-  session.status = status
-  if (!session.snapshot) {
-    return
+  if (event.reason !== 'crash' || !session.snapshot) {
+    return applySessionStatus(session, status)
   }
-  session.snapshot.status = status
-  if (event.reason !== 'crash') {
-    return
-  }
+  const snapshot = cloneSnapshotForRuntimeUpdate(session.snapshot)
+  snapshot.status = status
   const finishedAt = new Date(event.exitedAt).toISOString()
-  failPendingToolCalls(session.snapshot, event.message ?? 'worker crashed', finishedAt, {
+  failPendingToolCalls(snapshot, event.message ?? 'worker crashed', finishedAt, {
     overwriteSummary: true
   })
-  session.snapshot.queue = { steering: [], followUp: [] }
+  snapshot.queue = { steering: [], followUp: [] }
+  return {
+    ...session,
+    status,
+    snapshot
+  }
+}
+
+function applySessionStatus(
+  session: WorkspaceSession,
+  status: WorkspaceSession['status'],
+  queue?: ThreadSnapshot['queue']
+): WorkspaceSession {
+  return {
+    ...session,
+    status,
+    snapshot: session.snapshot
+      ? {
+          ...session.snapshot,
+          status,
+          ...(queue ? { queue } : {})
+        }
+      : undefined
+  }
+}
+
+function cloneSnapshotForRuntimeUpdate(snapshot: ThreadSnapshot): ThreadSnapshot {
+  return {
+    ...snapshot,
+    toolCalls: snapshot.toolCalls.map((toolCall) => ({ ...toolCall })),
+    queue: { ...snapshot.queue }
+  }
 }
 
 function getStatusFromWorkerFinishedReason(
@@ -3835,6 +4059,9 @@ function applyAssistantToolCallBlocks(
   snapshot: ThreadSnapshot,
   message: AgentMessageIpcEvent['message']
 ): void {
+  if (isAssistantErrorMessage(message)) {
+    return
+  }
   if (message.role !== 'assistant' || !('content' in message) || !Array.isArray(message.content)) {
     return
   }
@@ -3894,6 +4121,12 @@ function getNamedAssistantToolCallIds(message: AgentMessageIpcEvent['message']):
  */
 function hasDisplayToolName(value: unknown): value is string {
   return typeof value === 'string' && value.trim().length > 0
+}
+
+function isAssistantErrorMessage(
+  message: AgentMessageIpcEvent['message']
+): message is AgentMessageIpcEvent['message'] & Record<string, unknown> {
+  return message.role === 'assistant' && isRecord(message) && message.stopReason === 'error'
 }
 
 /**
@@ -4032,9 +4265,7 @@ function failPendingToolCalls(
       toolCall.status = 'failed'
       toolCall.finishedAt = toolCall.finishedAt ?? finishedAt
       toolCall.resultSummary =
-        options.overwriteSummary || !toolCall.resultSummary
-          ? resultSummary
-          : toolCall.resultSummary
+        options.overwriteSummary || !toolCall.resultSummary ? resultSummary : toolCall.resultSummary
     }
   }
 }

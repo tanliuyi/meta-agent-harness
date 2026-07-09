@@ -162,6 +162,75 @@ describe("handleRuntimeCommand", () => {
 		expect(response?.error?.message).toContain("Model not found");
 	});
 
+	/** 验证 abort 同时取消正在进行的压缩，保持 Desktop 与 Pi 交互语义一致。 */
+	it("abort 会取消正在进行的 compaction", async () => {
+		const calls: string[] = [];
+		const host = createHost(
+			createSession({
+				abortCompaction: () => {
+					calls.push("abortCompaction");
+				},
+				abort: async () => {
+					calls.push("abort");
+				},
+			}),
+		);
+
+		const response = await handleRuntimeCommand(host, command("1", { type: "abort" }));
+
+		expect(response?.success).toBe(true);
+		expect(calls).toEqual(["abortCompaction", "abort"]);
+	});
+
+	/** 验证手动压缩结束后继续交付压缩期间排队的消息。 */
+	it("manual compact 完成后继续执行已排队消息", async () => {
+		const calls: string[] = [];
+		const host = createHost(
+			createSession({
+				compact: async () => {
+					calls.push("compact");
+					return { summary: "done", firstKeptEntryId: "entry-a", tokensBefore: 100 };
+				},
+				agent: {
+					hasQueuedMessages: () => true,
+					continue: async () => {
+						calls.push("continue");
+					},
+				},
+			}),
+		);
+
+		const response = await handleRuntimeCommand(host, command("1", { type: "compact" }));
+
+		expect(response?.success).toBe(true);
+		expect(response?.data).toMatchObject({ summary: "done" });
+		expect(calls).toEqual(["compact", "continue"]);
+	});
+
+	/** 验证没有排队消息时手动压缩不会额外触发 agent continue。 */
+	it("manual compact 无排队消息时不继续 agent", async () => {
+		const calls: string[] = [];
+		const host = createHost(
+			createSession({
+				compact: async () => {
+					calls.push("compact");
+					return { summary: "done", firstKeptEntryId: "entry-a", tokensBefore: 100 };
+				},
+				agent: {
+					hasQueuedMessages: () => false,
+					continue: async () => {
+						calls.push("continue");
+					},
+				},
+			}),
+		);
+
+		const response = await handleRuntimeCommand(host, command("1", { type: "compact" }));
+
+		expect(response?.success).toBe(true);
+		expect(calls).toEqual(["compact"]);
+	});
+
 	/** 验证 reload 调用 session.reload，而不是走 prompt。 */
 	it("reload 重载当前 session 资源", async () => {
 		let reloaded = false;
@@ -431,9 +500,16 @@ function createSession(overrides: Record<string, unknown> = {}): RuntimeCommandH
 				],
 			}),
 		},
+		agent: {
+			hasQueuedMessages: () => false,
+			continue: async () => {},
+		},
 		prompt: async (_message: string, options: { preflightResult?: (success: boolean) => void }) => {
 			options.preflightResult?.(true);
 		},
+		abortCompaction: () => {},
+		abort: async () => {},
+		compact: async () => ({ summary: "done", firstKeptEntryId: "entry-a", tokensBefore: 100 }),
 		setModel: async () => {},
 		cycleThinkingLevel: () => "high",
 		...overrides,

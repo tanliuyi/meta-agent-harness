@@ -106,6 +106,7 @@ type TimelineViewItem = {
   summary?: string
   status?: ToolGroupStatus
   toolGroupOpen?: boolean
+  toolOpen?: boolean
 }
 
 /** 已折叠处理段的展开状态。 */
@@ -114,12 +115,16 @@ const collapsedHistoryOpenByKey = ref<Record<string, boolean>>({})
 /** 工具组展开状态，按稳定 timeline key 保存。 */
 const toolGroupOpenByKey = ref<Record<string, boolean>>({})
 
+/** 单个工具展开状态，按稳定 toolCallId 保存。 */
+const toolOpenByKey = ref<Record<string, boolean>>({})
+
 /** 当前会话的渲染消息列表。 */
 const messages = computed<ThreadMessage[]>(() => workspaceSession.activeSnapshot?.messages ?? [])
 
 /** 当前会话的工具调用结构列表。 */
 const toolCallStructures = computed(() => workspaceSession.activeToolCallStructures)
 const toolCallsById = computed(() => workspaceSession.activeToolCallsById)
+const runtimeTimelineEvents = computed(() => workspaceSession.activeRuntimeTimelineEvents)
 
 /** 当前会话的待交付消息队列。 */
 const pendingQueue = computed(
@@ -201,11 +206,13 @@ const hasPendingQueue = computed(
 )
 
 /** 当前 thread 是否处于运行态。 */
-const isThreadRunning = computed(() =>
-  ['queued', 'starting', 'running', 'stopping'].includes(
-    workspaceSession.activeSession?.status ?? ''
+const isThreadRunning = computed(() => {
+  const threadId = workspaceSession.activeSessionId
+  // 直接依赖 sessions[threadId]，避免 activeSession 旧对象引用让 running 状态回退失效。
+  return ['queued', 'starting', 'running', 'stopping'].includes(
+    threadId ? (workspaceSession.sessions[threadId]?.status ?? '') : ''
   )
-)
+})
 
 /** 当前会话是否正在压缩上下文。 */
 const isCompacting = computed(() => Boolean(workspaceSession.activeCompactionState?.running))
@@ -258,6 +265,7 @@ const timelineItems = computed<TimelineItem[]>(() =>
   createTimelineItems({
     messages: messages.value,
     toolCallStructures: toolCallStructures.value,
+    runtimeEvents: runtimeTimelineEvents.value,
     getMessageRenderState,
     resolveTimelineToolCall,
     getToolResultMessageToolCall: resolveToolResultMessageToolCall,
@@ -315,8 +323,19 @@ watch(
     const keySet = new Set(keys)
     for (const key of Object.keys(toolGroupOpenByKey.value)) {
       if (!keySet.has(key)) {
-        const { [key]: _removed, ...nextOpenByKey } = toolGroupOpenByKey.value
-        toolGroupOpenByKey.value = nextOpenByKey
+        delete toolGroupOpenByKey.value[key]
+      }
+    }
+  }
+)
+
+watch(
+  () => timelineItems.value.flatMap(getTimelineItemToolCallIdsForOpenState),
+  (toolCallIds) => {
+    const idSet = new Set(toolCallIds)
+    for (const toolCallId of Object.keys(toolOpenByKey.value)) {
+      if (!idSet.has(toolCallId)) {
+        delete toolOpenByKey.value[toolCallId]
       }
     }
   }
@@ -344,7 +363,6 @@ const isNearBottom = ref(true)
 const shouldFollowBottom = ref(true)
 const imageSelectionError = ref<string>()
 const selectingImages = ref(false)
-const runningDelivery = ref<'steer' | 'followUp'>('steer')
 let processingTimerId: number | null = null
 let activityIndicatorTimerId: number | null = null
 
@@ -544,6 +562,9 @@ function getTimelineItemComponent(item: TimelineItem): TimelineItemComponent {
   if (item.type === 'tool') {
     return ToolMessage
   }
+  if (item.type === 'runtime-event') {
+    return SystemMessage
+  }
   if (item.type === 'compaction-divider') {
     return CompactionDivider
   }
@@ -562,6 +583,9 @@ function getTimelineItemClassSuffix(item: TimelineItem): string {
   if (item.type === 'message') {
     return item.message.role
   }
+  if (item.type === 'runtime-event') {
+    return 'system'
+  }
   return item.type
 }
 
@@ -571,7 +595,10 @@ function getTimelineItemClassSuffix(item: TimelineItem): string {
  * @returns 消息。
  */
 function getTimelineItemMessage(item: TimelineItem): ThreadMessage | undefined {
-  return item.type === 'message' || item.type === 'thinking' || item.type === 'compaction-divider'
+  return item.type === 'message' ||
+    item.type === 'thinking' ||
+    item.type === 'compaction-divider' ||
+    item.type === 'runtime-event'
     ? item.message
     : undefined
 }
@@ -675,6 +702,27 @@ function getTimelineItemToolGroupOpen(item: TimelineItem): boolean | undefined {
 }
 
 /**
+ * 获取单个工具展开状态。
+ * @param item - timeline 项。
+ * @returns 是否展开。
+ */
+function getTimelineItemToolOpen(item: TimelineItem): boolean | undefined {
+  const toolCall = getTimelineItemToolCall(item)
+  if (!toolCall) {
+    return undefined
+  }
+  return toolOpenByKey.value[toolCall.toolCallId] ?? workspaceSession.activeExtensionToolsExpanded
+}
+
+function getTimelineItemToolCallIdsForOpenState(item: TimelineItem): string[] {
+  if (item.type === 'tool-group') {
+    return item.toolCallIds
+  }
+  const toolCall = getTimelineItemToolCall(item)
+  return toolCall ? [toolCall.toolCallId] : []
+}
+
+/**
  * 将 timeline item 转成模板消费的稳定视图模型。
  * @param item - timeline 项。
  * @returns timeline 视图模型。
@@ -710,7 +758,8 @@ function toTimelineViewItem(item: TimelineItem): TimelineViewItem {
     toolCalls: getTimelineItemToolCalls(item),
     summary: getTimelineItemToolGroupSummary(item),
     status: getTimelineItemToolGroupStatus(item),
-    toolGroupOpen: getTimelineItemToolGroupOpen(item)
+    toolGroupOpen: getTimelineItemToolGroupOpen(item),
+    toolOpen: getTimelineItemToolOpen(item)
   }
 }
 
@@ -759,7 +808,8 @@ function isSameTimelineViewItem(left: TimelineViewItem, right: TimelineViewItem)
     left.toolCalls === right.toolCalls &&
     left.summary === right.summary &&
     left.status === right.status &&
-    left.toolGroupOpen === right.toolGroupOpen
+    left.toolGroupOpen === right.toolGroupOpen &&
+    left.toolOpen === right.toolOpen
   )
 }
 
@@ -806,6 +856,21 @@ function setToolGroupOpen(viewItem: TimelineViewItem, open: boolean): void {
     ...toolGroupOpenByKey.value,
     [viewItem.item.key]: open
   }
+}
+
+function setToolOpen(toolCallId: string, open: boolean): void {
+  toolOpenByKey.value = {
+    ...toolOpenByKey.value,
+    [toolCallId]: open
+  }
+}
+
+function setTimelineItemToolOpen(viewItem: TimelineViewItem, open: boolean): void {
+  const toolCallId = viewItem.toolCall?.toolCallId
+  if (!toolCallId) {
+    return
+  }
+  setToolOpen(toolCallId, open)
 }
 
 async function forkFromMessage(entryId: string): Promise<void> {
@@ -1006,7 +1071,10 @@ async function sendComposerPrompt(): Promise<void> {
     await workspaceSession.setActiveThinkingLevel(activeThinkingLevel.value)
   }
   workspaceSession.clearActiveSessionAction()
-  await workspaceSession.sendPrompt(workspaceSession.defaultSessionContextId, runningDelivery.value)
+  await workspaceSession.sendPrompt(
+    workspaceSession.defaultSessionContextId,
+    workspaceSession.runningDelivery
+  )
 }
 
 /**
@@ -1313,9 +1381,11 @@ function getTimelineItemRevision(item: TimelineItem | undefined): unknown[] {
             :tool-call-ids="viewItem.toolCallIds ?? []"
             :tool-calls="viewItem.toolCalls ?? []"
             :default-open="workspaceSession.activeExtensionToolsExpanded"
+            :tool-open-by-key="toolOpenByKey"
             :summary="viewItem.summary ?? ''"
             :status="viewItem.status"
             @update:open="setToolGroupOpen(viewItem, $event)"
+            @update-tool-open="setToolOpen"
           />
           <component
             :is="viewItem.component"
@@ -1336,8 +1406,10 @@ function getTimelineItemRevision(item: TimelineItem | undefined): unknown[] {
             :tool-call-ids="viewItem.toolCallIds"
             :tool-calls="viewItem.toolCalls"
             :default-open="workspaceSession.activeExtensionToolsExpanded"
+            :open="viewItem.toolOpen"
             :summary="viewItem.summary"
             :status="viewItem.status"
+            @update:open="setTimelineItemToolOpen(viewItem, $event)"
             @fork-from-message="forkFromMessage"
             @locate-in-tree="locateMessageInTree"
             @navigate-tree="navigateMessageTree"
@@ -1391,7 +1463,11 @@ function getTimelineItemRevision(item: TimelineItem | undefined): unknown[] {
             </Tooltip>
             <Tooltip v-if="workspaceSession.activeSnapshot?.currentEntryId">
               <TooltipTrigger as-child>
-                <BaseIconButton label="在 Tree 中定位" size="small" @click="locateCurrentLeafInTree">
+                <BaseIconButton
+                  label="在 Tree 中定位"
+                  size="small"
+                  @click="locateCurrentLeafInTree"
+                >
                   <MapPin :size="14" />
                 </BaseIconButton>
               </TooltipTrigger>
@@ -1414,7 +1490,7 @@ function getTimelineItemRevision(item: TimelineItem | undefined): unknown[] {
       </div>
       <Composer
         v-model="workspaceSession.draftMessage"
-        v-model:running-delivery="runningDelivery"
+        v-model:running-delivery="workspaceSession.runningDelivery"
         :is-running="isRunning"
         :can-send="canSend"
         :submitting="workspaceSession.isSendingPrompt"

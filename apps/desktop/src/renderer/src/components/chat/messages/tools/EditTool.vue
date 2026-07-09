@@ -16,6 +16,9 @@ import {
 } from './support/tool-message'
 
 const props = defineProps<ToolComponentProps>()
+const emit = defineEmits<{
+  'update:open': [open: boolean]
+}>()
 const DiffViewer = defineAsyncComponent({
   loader: () => import('./DiffViewer.vue'),
   suspensible: false
@@ -45,8 +48,8 @@ const isError = computed(() => isToolError(props.message, props.toolCall))
 const status = computed(() => props.toolCall?.status)
 const name = computed(() =>
   getToolStatusLabel(status.value, {
-    queued: '编辑',
-    running: '编辑',
+    queued: '正在编辑',
+    running: '正在编辑',
     succeeded: '已编辑',
     failed: '编辑失败',
     cancelled: '取消编辑'
@@ -61,11 +64,13 @@ const name = computed(() =>
     :result="result"
     :status="status"
     :is-error="isError"
-    :scroll-content="false"
+    :scroll-content="!diff"
     max-content-height="360px"
-    content-class="edit-tool__diff-content"
-    result-class="edit-tool__diff-result"
+    :content-class="diff ? 'edit-tool__diff-content' : undefined"
+    :result-class="diff ? 'edit-tool__diff-result' : undefined"
     :default-open="props.defaultOpen"
+    :open="props.open"
+    @update:open="emit('update:open', $event)"
   >
     <template #icon>
       <PencilIcon :size="14" />
@@ -126,6 +131,7 @@ const name = computed(() =>
 
 :deep(.edit-tool__diff-content .tool-message__content-inner) {
   display: flex;
+  flex-direction: column;
   min-width: 0;
   min-height: 0;
   max-height: inherit;
