@@ -55,6 +55,9 @@ const sessionInfo = computed<SessionInfo>((previous) =>
   createStableSessionInfo(activeSession.value, previous)
 )
 
+const hasActiveSession = computed(() => Boolean(activeSession.value))
+const isSessionPanelOpen = computed(() => hasActiveSession.value && sessionPanel.value.open)
+
 /** 内容区布局变量。 */
 const workspaceContentStyle = computed(() => ({
   '--session-panel-resizer-width': `${RESIZER_WIDTH}px`,
@@ -130,7 +133,7 @@ const {
     class="workspace-content"
     :class="{
       'workspace-content--resizing-session-panel': isSessionPanelResizing,
-      'workspace-content--session-panel-open': sessionPanel.open
+      'workspace-content--session-panel-open': isSessionPanelOpen
     }"
     :style="workspaceContentStyle"
   >
@@ -140,7 +143,7 @@ const {
     </div>
 
     <div
-      v-if="sessionPanel.open"
+      v-if="isSessionPanelOpen"
       class="workspace-content__session-panel-resizer"
       :class="{ 'workspace-content__session-panel-resizer--active': isSessionPanelResizing }"
       role="separator"
@@ -155,7 +158,7 @@ const {
     />
 
     <SessionPanel
-      v-if="shouldRenderSessionPanel"
+      v-if="hasActiveSession && shouldRenderSessionPanel"
       class="workspace-content__session-panel"
       :class="{ 'workspace-content__session-panel--collapsed': !sessionPanel.open }"
       :collapsed="!sessionPanel.open"

@@ -105,21 +105,7 @@ export type UserMessageDisplaySegment =
  */
 export function getUserMessageDisplaySegments(message: ThreadMessage): UserMessageDisplaySegment[] {
   const text = getMessageText(message)
-  if (!text) {
-    return []
-  }
-  const skillContext = extractDisplaySkillContext(text)
-  if (skillContext.skills.length > 0) {
-    return getSkillContextDisplaySegments(text)
-  }
-  const fileReferenceNames = getHiddenFileBlockNames(text)
-
-  const displayText = stripHiddenFileBlocks(text)
-  return displayText
-    ? parseUserMessageDisplaySegments(displayText, {
-        allowedFileArgs: fileReferenceNames
-      })
-    : []
+  return text ? getUserMessageDisplaySegmentsFromText(text) : []
 }
 
 interface ParseUserMessageDisplaySegmentsOptions {
@@ -231,8 +217,9 @@ function getSkillContextDisplaySegments(text: string): UserMessageDisplaySegment
     : []
   const referencedSkills = new Set(
     userSegments
-      .filter((segment): segment is Extract<UserMessageDisplaySegment, { type: 'skillReference' }> =>
-        segment.type === 'skillReference'
+      .filter(
+        (segment): segment is Extract<UserMessageDisplaySegment, { type: 'skillReference' }> =>
+          segment.type === 'skillReference'
       )
       .map((segment) => segment.name)
   )
@@ -260,7 +247,9 @@ function extractDisplaySkillContext(text: string): {
   let rest = stripLeadingFileBlocks(text)
   const skills: ParsedDisplaySkillBlock[] = []
   while (true) {
-    const match = rest.match(/^<skill\s+name="([^"]+)"\s+location="([^"]+)">\n?[\s\S]*?\n?<\/skill>\s*/)
+    const match = rest.match(
+      /^<skill\s+name="([^"]+)"\s+location="([^"]+)">\n?[\s\S]*?\n?<\/skill>\s*/
+    )
     if (!match) {
       break
     }
@@ -334,6 +323,7 @@ export function getMessageFileAttachments(message: ThreadMessage): MessageFileAt
   }
   const attachments: MessageFileAttachment[] = []
   const fileBlockPattern = /<file\b[^>]*\bname="([^"]+)"[^>]*>([\s\S]*?)<\/file>/g
+  const referencedFileArgs = getUserMessageReferencedFileArgs(text)
   const images = getMessageImages(message)
   let imageIndex = 0
   for (const match of text.matchAll(fileBlockPattern)) {
@@ -344,6 +334,9 @@ export function getMessageFileAttachments(message: ThreadMessage): MessageFileAt
     const note = body?.trim()
     const isImageName = isImageFileName(name)
     const inlineImage = isImageName ? images[imageIndex++] : undefined
+    if (isImageName && isReferencedFileArg(name, referencedFileArgs)) {
+      continue
+    }
     const fileImageSrc = getFileAttachmentImageSrc(name)
     const imageSrc = inlineImage ? getMessageImageSrc(inlineImage) : fileImageSrc
     if (!imageSrc) {
@@ -363,6 +356,43 @@ export function getMessageFileAttachments(message: ThreadMessage): MessageFileAt
     })
   }
   return attachments
+}
+
+function getUserMessageReferencedFileArgs(text: string): string[] {
+  return getUserMessageDisplaySegmentsFromText(text)
+    .filter(
+      (segment): segment is Extract<UserMessageDisplaySegment, { type: 'fileReference' }> =>
+        segment.type === 'fileReference'
+    )
+    .map((segment) => segment.fileArg)
+}
+
+function getUserMessageDisplaySegmentsFromText(text: string): UserMessageDisplaySegment[] {
+  const skillContext = extractDisplaySkillContext(text)
+  if (skillContext.skills.length > 0) {
+    return getSkillContextDisplaySegments(text)
+  }
+  const fileReferenceNames = getHiddenFileBlockNames(text)
+  const displayText = stripHiddenFileBlocks(text)
+  return displayText
+    ? parseUserMessageDisplaySegments(displayText, {
+        allowedFileArgs: fileReferenceNames
+      })
+    : []
+}
+
+function isReferencedFileArg(filePath: string, referencedFileArgs: readonly string[]): boolean {
+  if (referencedFileArgs.length === 0) {
+    return false
+  }
+  const normalizedFilePath = normalizeFileReferencePath(filePath)
+  return referencedFileArgs.some((fileArg) => {
+    const normalizedFileArg = normalizeFileReferencePath(fileArg)
+    return (
+      normalizedFilePath === normalizedFileArg ||
+      normalizedFilePath.endsWith(`/${normalizedFileArg}`)
+    )
+  })
 }
 
 function isSkippedFileAttachmentNote(note: string | undefined): boolean {
@@ -481,10 +511,23 @@ export function getStandaloneMessageImages(message: ThreadMessage): MessageImage
   if (images.length === 0) {
     return []
   }
-  const attachmentImageCount = getMessageFileAttachments(message).filter(
-    (attachment) => attachment.isImage
-  ).length
+  const attachmentImageCount = getImageFileBlockCount(getMessageText(message))
   return images.slice(attachmentImageCount)
+}
+
+function getImageFileBlockCount(text: string | undefined): number {
+  if (!text) {
+    return 0
+  }
+  let count = 0
+  const fileBlockPattern = /<file\b[^>]*\bname="([^"]+)"[^>]*>[\s\S]*?<\/file>/g
+  for (const match of text.matchAll(fileBlockPattern)) {
+    const name = match[1]
+    if (name && isImageFileName(name)) {
+      count += 1
+    }
+  }
+  return count
 }
 
 /**

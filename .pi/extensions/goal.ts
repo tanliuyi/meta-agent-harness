@@ -528,7 +528,6 @@ function showGoal(ctx: StatusContext) {
 }
 
 function registerDesktopPanel(ctx: StatusContext) {
-	if (ctx.mode !== "desktop") return;
 	ctx.desktop?.registerWebviewPanel(PANEL_ID, {
 		viewType: PANEL_VIEW_TYPE,
 		title: "Goal",
@@ -581,7 +580,6 @@ async function handleDesktopPanelMessage(pi: ExtensionAPI, message: unknown, ctx
 }
 
 function postGoalPanelState(ctx: StatusContext) {
-	if (ctx.mode !== "desktop") return;
 	ctx.desktop?.postPanelMessage(PANEL_ID, {
 		type: "goal-state",
 		updatedAt: new Date().toISOString(),

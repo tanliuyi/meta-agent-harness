@@ -13,6 +13,7 @@ import { CodingThreadManager } from '../thread-manager'
 import { buildSessionTreeBranches } from '../session-tree-branches'
 import { SessionManager } from '@coding-agent-src/core/session-manager'
 import type { ApprovalRequest, ThreadSummary } from '@shared/coding-agent/types'
+import type { ModelSettingsService } from '../model-settings-service'
 import type { ThreadWorkerRegistry } from '../thread-worker-registry'
 
 /** 创建临时目录。 */
@@ -31,6 +32,18 @@ function approvalRequest(action: string): ApprovalRequest {
     defaultAction: 'deny',
     createdAt: '2026-07-01T00:00:04.000Z'
   }
+}
+
+function createModelSettingsService(
+  models: Array<{ provider: string; id: string; contextWindow: number }>
+): ModelSettingsService {
+  return {
+    listModelRegistry: async () => ({
+      models: models.map((model) => ({ ...model, status: 'available' as const })),
+      providers: [],
+      refreshedAt: '2026-07-01T00:00:00.000Z'
+    })
+  } as unknown as ModelSettingsService
 }
 
 describe('ProjectStore', () => {
@@ -794,6 +807,126 @@ describe('CodingThreadStore', () => {
       }
     ])
     expect(snapshot.toolCalls.some((toolCall) => toolCall.toolName === 'tool')).toBe(false)
+    store.close()
+    projectStore.close()
+    rmSync(root, { recursive: true, force: true })
+  })
+
+  it('inactive JSONL snapshot 从模型 registry 重建 context usage', async () => {
+    const projectStore = new ProjectStore(':memory:')
+    const store = new CodingThreadStore(':memory:')
+    const root = createTempDir()
+    const cwd = join(root, 'repo')
+    const sessionDir = join(root, 'sessions')
+    mkdirSync(cwd, { recursive: true })
+    const sessionManager = SessionManager.create(cwd, sessionDir)
+    sessionManager.appendMessage({ role: 'user', content: 'hello', timestamp: 1 })
+    sessionManager.appendMessage({
+      role: 'assistant',
+      content: [{ type: 'text', text: 'world' }],
+      api: 'openai-responses',
+      provider: 'custom-provider',
+      model: 'custom-model',
+      usage: {
+        input: 120000,
+        output: 3000,
+        cacheRead: 77000,
+        cacheWrite: 0,
+        totalTokens: 200000,
+        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 }
+      },
+      stopReason: 'stop',
+      timestamp: 2
+    })
+    const sessionFile = sessionManager.getSessionFile()
+    if (!sessionFile) {
+      throw new Error('session file is required')
+    }
+    const project = projectStore.createProject({ path: cwd })
+    store.saveThread({
+      threadId: 'thread-jsonl-context',
+      projectId: project.projectId,
+      sessionFile,
+      status: 'stopped',
+      createdAt: '2026-07-01T00:00:00.000Z',
+      updatedAt: '2026-07-01T00:00:00.000Z'
+    })
+
+    const manager = new ThreadManagerCore(
+      createIdleThreadWorkerRegistry(),
+      store,
+      projectStore,
+      undefined,
+      createModelSettingsService([
+        { provider: 'custom-provider', id: 'custom-model', contextWindow: 256000 }
+      ])
+    )
+    const snapshot = await manager.getSnapshot('thread-jsonl-context')
+
+    expect(snapshot.model).toEqual({ provider: 'custom-provider', id: 'custom-model' })
+    expect(snapshot.context).toEqual({ tokens: 200000, contextWindow: 256000, percent: 78 })
+    store.close()
+    projectStore.close()
+    rmSync(root, { recursive: true, force: true })
+  })
+
+  it('inactive compacted JSONL snapshot 在新 usage 前只保留 context window', async () => {
+    const projectStore = new ProjectStore(':memory:')
+    const store = new CodingThreadStore(':memory:')
+    const root = createTempDir()
+    const cwd = join(root, 'repo')
+    const sessionDir = join(root, 'sessions')
+    mkdirSync(cwd, { recursive: true })
+    const sessionManager = SessionManager.create(cwd, sessionDir)
+    const firstMessageId = sessionManager.appendMessage({
+      role: 'user',
+      content: 'hello',
+      timestamp: 1
+    })
+    sessionManager.appendMessage({
+      role: 'assistant',
+      content: [{ type: 'text', text: 'world' }],
+      api: 'openai-responses',
+      provider: 'custom-provider',
+      model: 'custom-model',
+      usage: {
+        input: 250000,
+        output: 1000,
+        cacheRead: 0,
+        cacheWrite: 0,
+        totalTokens: 251000,
+        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 }
+      },
+      stopReason: 'stop',
+      timestamp: 2
+    })
+    sessionManager.appendCompaction('compressed summary', firstMessageId, 251000)
+    const sessionFile = sessionManager.getSessionFile()
+    if (!sessionFile) {
+      throw new Error('session file is required')
+    }
+    const project = projectStore.createProject({ path: cwd })
+    store.saveThread({
+      threadId: 'thread-jsonl-compacted-context',
+      projectId: project.projectId,
+      sessionFile,
+      status: 'stopped',
+      createdAt: '2026-07-01T00:00:00.000Z',
+      updatedAt: '2026-07-01T00:00:00.000Z'
+    })
+
+    const manager = new ThreadManagerCore(
+      createIdleThreadWorkerRegistry(),
+      store,
+      projectStore,
+      undefined,
+      createModelSettingsService([
+        { provider: 'custom-provider', id: 'custom-model', contextWindow: 256000 }
+      ])
+    )
+    const snapshot = await manager.getSnapshot('thread-jsonl-compacted-context')
+
+    expect(snapshot.context).toEqual({ contextWindow: 256000 })
     store.close()
     projectStore.close()
     rmSync(root, { recursive: true, force: true })

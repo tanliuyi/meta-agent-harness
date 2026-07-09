@@ -18,28 +18,28 @@ export function getSessionPanelTabComponent(tabId: SessionPanelTabId): Component
 
 registerSessionPanelTab({
   id: 'session',
-  label: 'Session',
+  label: '会话',
   allowMultiple: false,
   component: defineAsyncComponent(() => import('../tabs/SessionOverviewTab.vue'))
 })
 
 registerSessionPanelTab({
   id: 'changes',
-  label: 'Changes',
+  label: '变更',
   allowMultiple: false,
   component: defineAsyncComponent(() => import('../tabs/ChangesTab.vue'))
 })
 
 registerSessionPanelTab({
   id: 'tree',
-  label: 'Tree',
+  label: '会话树',
   allowMultiple: false,
   component: defineAsyncComponent(() => import('../tabs/SessionTreeTab.vue'))
 })
 
 registerSessionPanelTab({
   id: 'commands',
-  label: 'Commands',
+  label: '命令',
   allowMultiple: false,
   component: defineAsyncComponent(() => import('../tabs/CommandsTab.vue'))
 })
@@ -53,7 +53,7 @@ registerSessionPanelTab({
 
 registerSessionPanelTab({
   id: 'approvals',
-  label: 'Approvals',
+  label: '审批',
   allowMultiple: false,
   component: defineAsyncComponent(() => import('../tabs/ApprovalsTab.vue'))
 })

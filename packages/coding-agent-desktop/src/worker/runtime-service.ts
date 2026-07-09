@@ -330,7 +330,7 @@ export class RuntimeDesktopWorkerService implements DesktopWorkerService {
 		await runtime.session.bindExtensions({
 			uiContext: uiBridge.createContext(),
 			desktopContext: uiBridge.createDesktopContext(),
-			mode: "rpc",
+			mode: "desktop",
 			commandContextActions: this.createCommandContextActions(),
 			shutdownHandler: () => {
 				void this.stop("extension-shutdown");

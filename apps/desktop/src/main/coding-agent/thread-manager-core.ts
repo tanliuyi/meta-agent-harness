@@ -6,6 +6,7 @@ import type {
   CodingAgentIpcEvent,
   DesktopExtensionWebviewPanel,
   ListThreadsInput,
+  ModelSettingsModelItem,
   ThreadSnapshot,
   ThreadSummary
 } from '@shared/coding-agent/types'
@@ -623,7 +624,8 @@ export class ThreadManagerCore {
         thread,
         cwd: this.getThreadCwd(thread),
         sessionFile: thread.sessionFile,
-        currentEntryId
+        currentEntryId,
+        modelContextWindows: await this.getModelContextWindowsForSnapshot()
       })
       return {
         ...snapshot,
@@ -631,6 +633,21 @@ export class ThreadManagerCore {
       }
     } catch (error) {
       this.saveStoreDiagnostic(thread.threadId, error)
+      return undefined
+    }
+  }
+
+  private async getModelContextWindowsForSnapshot(): Promise<Record<string, number> | undefined> {
+    try {
+      const registry = await (await this.getModelSettingsService()).listModelRegistry()
+      return Object.fromEntries(
+        registry.models.flatMap((model: ModelSettingsModelItem) =>
+          model.contextWindow && model.contextWindow > 0
+            ? [[`${model.provider}/${model.id}`, model.contextWindow] as const]
+            : []
+        )
+      )
+    } catch {
       return undefined
     }
   }

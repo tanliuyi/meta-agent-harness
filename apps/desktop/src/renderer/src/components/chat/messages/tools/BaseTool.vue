@@ -270,6 +270,29 @@ watch(
   }
 }
 
+.tool-message[data-status='queued'],
+.tool-message[data-status='running'] {
+  &:not(.tool-message--error) {
+    .tool-message__name,
+    .tool-message__status {
+      animation: tool-message-text-shimmer 1.8s linear infinite;
+      color: transparent;
+      background: linear-gradient(
+        110deg,
+        var(--color-text-muted) 0%,
+        var(--color-text-muted) 34%,
+        var(--color-text) 48%,
+        var(--color-info) 55%,
+        var(--color-text-muted) 70%,
+        var(--color-text-muted) 100%
+      );
+      background-size: 220% 100%;
+      background-clip: text;
+      -webkit-background-clip: text;
+    }
+  }
+}
+
 .tool-message__trigger {
   display: flex;
   flex-direction: row;
@@ -364,6 +387,28 @@ watch(
   dt,
   dd {
     margin: 0;
+  }
+}
+
+@keyframes tool-message-text-shimmer {
+  from {
+    background-position: 120% 0;
+  }
+
+  to {
+    background-position: -120% 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tool-message[data-status='queued'],
+  .tool-message[data-status='running'] {
+    .tool-message__name,
+    .tool-message__status {
+      animation: none;
+      color: var(--color-text-muted);
+      background: none;
+    }
   }
 }
 </style>

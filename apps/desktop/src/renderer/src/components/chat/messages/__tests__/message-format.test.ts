@@ -83,7 +83,7 @@ describe('message-format', () => {
     expect(getStandaloneMessageImages(message)).toEqual([])
   })
 
-  it('renders relative @image references from raw image content instead of file URLs', () => {
+  it('does not render visible @image path references as image attachments', () => {
     const message = {
       id: 'message-relative-image',
       role: 'user',
@@ -99,11 +99,7 @@ describe('message-format', () => {
       createdAt: '2026-07-03T00:00:00.000Z'
     } satisfies ThreadMessage
 
-    expect(getMessageFileAttachments(message)[0]).toMatchObject({
-      name: 'hero.jpg',
-      isImage: true,
-      imageSrc: 'data:image/jpeg;base64,abc'
-    })
+    expect(getMessageFileAttachments(message)).toEqual([])
     expect(getStandaloneMessageImages(message)).toEqual([])
   })
 
@@ -121,6 +117,36 @@ describe('message-format', () => {
     } satisfies ThreadMessage
 
     expect(getMessageFileAttachments(message)).toEqual([])
+  })
+
+  it('does not render absolute image file blocks when represented by a visible relative @path', () => {
+    const message = {
+      id: 'message-absolute-image-reference',
+      role: 'user',
+      text:
+        '<file name="/Users/tanliuyi/projects/meta-agent-harness/apps/desktop/resources/icon.png">' +
+        '[Image omitted: could not be resized below the inline image size limit.]</file>\n' +
+        '@apps/desktop/resources/icon.png 这是测试',
+      raw: {
+        role: 'user',
+        content:
+          '<file name="/Users/tanliuyi/projects/meta-agent-harness/apps/desktop/resources/icon.png">' +
+          '[Image omitted: could not be resized below the inline image size limit.]</file>\n' +
+          '@apps/desktop/resources/icon.png 这是测试',
+        timestamp: 1783036800000
+      },
+      createdAt: '2026-07-03T00:00:00.000Z'
+    } satisfies ThreadMessage
+
+    expect(getMessageFileAttachments(message)).toEqual([])
+    expect(getUserMessageDisplaySegments(message)).toEqual([
+      {
+        type: 'fileReference',
+        fileArg: 'apps/desktop/resources/icon.png',
+        label: 'icon.png'
+      },
+      { type: 'text', text: ' 这是测试' }
+    ])
   })
 
   it('does not render text @file blocks as expanded attachment rows', () => {

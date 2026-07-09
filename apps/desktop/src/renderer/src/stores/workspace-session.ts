@@ -3591,7 +3591,7 @@ function mergeThreadSnapshot(
     model: incoming.model ?? existing.model,
     sessionTree: incoming.sessionTree ?? existing.sessionTree,
     currentEntryId: incoming.currentEntryId ?? existing.currentEntryId,
-    context: incoming.context ?? existing.context,
+    context: 'context' in incoming ? incoming.context : existing.context,
     cost: incoming.cost ?? existing.cost,
     // fix: live 压缩会追加 compaction message；snapshot 必须换引用，但旧消息对象要尽量复用，避免整条 timeline DOM 重建。
     messages: mergeSnapshotMessages(existing.messages, incoming.messages)

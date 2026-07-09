@@ -30,7 +30,7 @@ const styles = computed(() => {
     <div class="session-header__title">
       <strong>{{ session.title }}</strong>
     </div>
-    <div class="session-header__actions">
+    <div v-if="session.sessionId" class="session-header__actions">
       <BaseIconButton label="查看会话信息">
         <svg
           viewBox="0 0 24 24"

@@ -24,6 +24,8 @@ export interface BuildSnapshotFromSessionInput {
   cwdOverride?: string
   /** 可选当前 leaf 覆盖；用于 live runtime 尚未写回 JSONL leaf 的场景。 */
   currentEntryId?: string | null
+  /** 已知模型上下文窗口，key 为 provider/modelId。 */
+  modelContextWindows?: Record<string, number>
 }
 
 /**
@@ -44,7 +46,8 @@ export function buildSnapshotFromSession(input: BuildSnapshotFromSessionInput): 
     },
     sessionFile: input.sessionFile,
     cwdOverride: input.cwdOverride,
-    currentEntryId: input.currentEntryId
+    currentEntryId: input.currentEntryId,
+    modelContextWindows: input.modelContextWindows
   })
   return {
     ...snapshot,

@@ -3,6 +3,7 @@ import {
   getToolGroupStatus,
   groupTimelineTools,
   summarizeToolGroup,
+  summarizeToolGroupParts,
   type ToolCall
 } from '../support/tool-group'
 
@@ -106,7 +107,27 @@ describe('tool-group', () => {
         toolCall('bash-c', 'bash', {}, 'succeeded'),
         toolCall('bash-d', 'bash', {}, 'failed')
       ])
-    ).toBe('准备运行 1 命令，1 命令运行，已运行 1 命令，1 命令失败')
+    ).toBe('正在运行 1 命令，正在1 命令运行，已运行 1 命令，1 命令失败')
+  })
+
+  it('摘要片段保留失败状态用于局部错误样式', () => {
+    expect(
+      summarizeToolGroupParts([
+        toolCall('read-a', 'read', { path: 'src/a.ts' }, 'succeeded'),
+        toolCall('bash-a', 'bash', {}, 'failed')
+      ])
+    ).toEqual([
+      {
+        key: '读取:succeeded',
+        status: 'succeeded',
+        text: '已读取 1 文件'
+      },
+      {
+        key: '运行:failed',
+        status: 'failed',
+        text: '1 命令失败'
+      }
+    ])
   })
 
   it('聚合工具组状态', () => {

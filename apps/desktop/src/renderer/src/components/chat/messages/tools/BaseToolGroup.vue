@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import type { HTMLAttributes } from 'vue'
 import { computed, ref, watch } from 'vue'
 import { ChevronRight } from 'lucide-vue-next'
 import ToolGroupIcon from '@renderer/components/icons/ToolGroupIcon.vue'
@@ -12,6 +13,7 @@ const props = withDefaults(
     isError?: boolean
     defaultOpen?: boolean
     open?: boolean
+    class?: HTMLAttributes['class']
   }>(),
   {
     status: undefined,
@@ -51,14 +53,16 @@ const open = computed({
   <Collapsible
     v-model:open="open"
     class="tool-group"
-    :class="{ 'tool-group--error': isError }"
+    :class="[props.class, { 'tool-group--error': isError }]"
     :data-status="status"
   >
     <CollapsibleTrigger class="tool-group__trigger" :aria-label="summary">
       <span class="tool-group__leading-icon">
         <slot name="icon"><ToolGroupIcon :size="14" /></slot>
       </span>
-      <span class="tool-group__summary">{{ summary }}</span>
+      <span class="tool-group__summary">
+        <slot name="summary">{{ summary }}</slot>
+      </span>
       <ChevronRight :size="16" class="tool-group__icon" aria-hidden="true" />
     </CollapsibleTrigger>
 
@@ -141,6 +145,7 @@ const open = computed({
 }
 
 .tool-group__summary {
+  position: relative;
   flex: 0 1 auto;
   min-width: 0;
   max-width: 100%;
@@ -150,9 +155,37 @@ const open = computed({
   white-space: nowrap;
 }
 
+.tool-group--summary-active {
+  .tool-group__summary::after {
+    content: '';
+    position: absolute;
+    inset: -1px 0;
+    pointer-events: none;
+    animation: tool-group-summary-shimmer 1.8s linear infinite;
+    background: repeating-linear-gradient(
+      110deg,
+      transparent 0,
+      transparent 48px,
+      color-mix(in srgb, var(--color-info) 6%, transparent) 64px,
+      color-mix(in srgb, var(--color-info) 20%, transparent) 78px,
+      color-mix(in srgb, var(--color-text) 16%, transparent) 88px,
+      color-mix(in srgb, var(--color-info) 10%, transparent) 100px,
+      transparent 118px,
+      transparent 220px
+    );
+    background-size: 220px 100%;
+    filter: blur(0.8px);
+    mask-image:
+      linear-gradient(to right, transparent 0%, #000 12%, #000 88%, transparent 100%),
+      linear-gradient(to bottom, transparent 0%, #000 22%, #000 78%, transparent 100%);
+    mask-composite: intersect;
+    opacity: 0.38;
+  }
+}
+
 .tool-group--error {
   .tool-group__summary {
-    color: var(--color-danger);
+    color: var(--color-text-subtle);
   }
 }
 
@@ -180,6 +213,25 @@ const open = computed({
 
   :deep(.tool-message__icon) {
     display: none;
+  }
+}
+
+@keyframes tool-group-summary-shimmer {
+  from {
+    background-position: -220px 0;
+  }
+
+  to {
+    background-position: 0 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tool-group--summary-active {
+    .tool-group__summary::after {
+      animation: none;
+      background: none;
+    }
   }
 }
 </style>

@@ -272,6 +272,7 @@ describe("RuntimeDesktopWorkerService", () => {
 						bindCount++;
 						expect(nextBindings.uiContext).toBeDefined();
 						expect(nextBindings.desktopContext).toBeDefined();
+						expect(nextBindings.mode).toBe("desktop");
 					},
 				},
 			}),

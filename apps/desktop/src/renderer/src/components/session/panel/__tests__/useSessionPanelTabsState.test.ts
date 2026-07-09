@@ -4,12 +4,12 @@ import { useSessionPanelTabsState } from '../state/useSessionPanelTabsState'
 import type { SessionPanelTab } from '../model/types'
 
 const tabs: SessionPanelTab[] = [
-  { id: 'session', label: 'Session', allowMultiple: true },
-  { id: 'changes', label: 'Changes', allowMultiple: true },
-  { id: 'tree', label: 'Tree', allowMultiple: true },
-  { id: 'commands', label: 'Commands', allowMultiple: true },
-  { id: 'extensions', label: 'Extensions', allowMultiple: true },
-  { id: 'approvals', label: 'Approvals', allowMultiple: true }
+  { id: 'session', label: '会话', allowMultiple: true },
+  { id: 'changes', label: '变更', allowMultiple: true },
+  { id: 'tree', label: '会话树', allowMultiple: true },
+  { id: 'commands', label: '命令', allowMultiple: true },
+  { id: 'extensions', label: '扩展', allowMultiple: true },
+  { id: 'approvals', label: '审批', allowMultiple: true }
 ]
 
 const singleSessionTabs: SessionPanelTab[] = tabs.map((tab) =>

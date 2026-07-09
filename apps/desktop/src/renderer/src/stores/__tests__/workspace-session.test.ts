@@ -225,7 +225,7 @@ describe('applyEventToSessions', () => {
         raw: {
           role: 'assistant',
           stopReason: 'error',
-          content: [{ type: 'text', text: '准备编辑文件。' }]
+          content: [{ type: 'text', text: '正在编辑文件。' }]
         }
       }
     ])
@@ -1743,7 +1743,9 @@ describe('workspace-session Project-first actions', () => {
   it('运行 command 失败时使用 Toast，不写入 sidebar 错误状态', async () => {
     const runCommand = vi
       .fn()
-      .mockRejectedValue(new Error('/share 需要设置 GITHUB_TOKEN 或 GH_TOKEN 以创建 secret GitHub gist'))
+      .mockRejectedValue(
+        new Error('/share 需要设置 GITHUB_TOKEN 或 GH_TOKEN 以创建 secret GitHub gist')
+      )
     installCodingAgentApi({ runCommand })
     const store = useWorkspaceSessionStore()
     store.sessions['thread-a'] = snapshotToWorkspaceSession(createSnapshot())
@@ -2019,7 +2021,14 @@ describe('workspace-session Project-first actions', () => {
     }
     const forkThread = vi.fn().mockResolvedValue({ cancelled: false, snapshot: forkSnapshot })
     const getSnapshot = vi.fn().mockResolvedValue(createSnapshot())
-    installCodingAgentApi({ compact, exportSession, revealResourcePath, clone, forkThread, getSnapshot })
+    installCodingAgentApi({
+      compact,
+      exportSession,
+      revealResourcePath,
+      clone,
+      forkThread,
+      getSnapshot
+    })
     const store = useWorkspaceSessionStore()
     store.sessions['thread-a'] = snapshotToWorkspaceSession(createSnapshot())
     await store.setActiveSessionId('thread-a')
@@ -2408,7 +2417,10 @@ describe('workspace-session Project-first actions', () => {
       sessionFile: '/tmp/parent.jsonl'
     }
     const createThread = vi.fn().mockResolvedValue(parentSnapshot)
-    installCodingAgentApi({ createThread, getSnapshot: vi.fn().mockResolvedValue(createSnapshot()) })
+    installCodingAgentApi({
+      createThread,
+      getSnapshot: vi.fn().mockResolvedValue(createSnapshot())
+    })
     const store = useWorkspaceSessionStore()
     const childSnapshot: ThreadSnapshot = {
       ...createSnapshot(),
@@ -2435,7 +2447,10 @@ describe('workspace-session Project-first actions', () => {
 
   it('从 parentSessionFile 恢复来源失败时不误报成功', async () => {
     const createThread = vi.fn().mockRejectedValue(new Error('restore failed'))
-    installCodingAgentApi({ createThread, getSnapshot: vi.fn().mockResolvedValue(createSnapshot()) })
+    installCodingAgentApi({
+      createThread,
+      getSnapshot: vi.fn().mockResolvedValue(createSnapshot())
+    })
     const store = useWorkspaceSessionStore()
     const childSnapshot: ThreadSnapshot = {
       ...createSnapshot(),
@@ -2481,10 +2496,12 @@ describe('workspace-session Project-first actions', () => {
       }
     }
     const restoreThread = vi.fn().mockResolvedValue(undefined)
-    const listThreads = vi.fn().mockResolvedValue([
-      snapshotToWorkspaceSession(childSnapshot),
-      snapshotToWorkspaceSession(parentSnapshot)
-    ])
+    const listThreads = vi
+      .fn()
+      .mockResolvedValue([
+        snapshotToWorkspaceSession(childSnapshot),
+        snapshotToWorkspaceSession(parentSnapshot)
+      ])
     installCodingAgentApi({
       createThread: vi.fn(),
       getSnapshot: vi.fn().mockResolvedValue(childSnapshot),
@@ -2813,11 +2830,7 @@ describe('workspace-session Project-first actions', () => {
     const store = useWorkspaceSessionStore()
     store.sessions['thread-a'] = snapshotToWorkspaceSession(snapshot)
     await store.setActiveSessionId('thread-a')
-    store.draftMessage = createComposerContentWithSkillReference(
-      '请用 ',
-      'skill:review',
-      ' 检查 '
-    )
+    store.draftMessage = createComposerContentWithSkillReference('请用 ', 'skill:review', ' 检查 ')
 
     await store.sendPrompt()
 
@@ -3540,7 +3553,12 @@ function createAssistantErrorToolMessage(
     ...createAssistantMessage('', timestamp),
     content: [
       { type: 'text' as const, text: '准备编辑文件。' },
-      { type: 'toolCall' as const, id: 'tool-edit', name: 'edit', arguments: { path: 'src/app.ts' } }
+      {
+        type: 'toolCall' as const,
+        id: 'tool-edit',
+        name: 'edit',
+        arguments: { path: 'src/app.ts' }
+      }
     ],
     stopReason: 'error' as const,
     errorMessage: 'stream_read_error'

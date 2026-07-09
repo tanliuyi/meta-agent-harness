@@ -13,6 +13,12 @@ interface ToolGroupSummaryDescriptor {
   status: ToolGroupStatus
 }
 
+export interface ToolGroupSummaryPart {
+  key: string
+  text: string
+  status: ToolGroupStatus
+}
+
 export interface ToolGroupTimelineItem {
   type: 'tool-group'
   key: string
@@ -130,7 +136,18 @@ export function getToolGroupStatus(toolCalls: ToolCall[]): ToolGroupStatus | und
  * @returns 摘要。
  */
 export function summarizeToolGroup(toolCalls: GroupableToolCall[]): string {
-  return joinSummaryParts([
+  return summarizeToolGroupParts(toolCalls)
+    .map((part) => part.text)
+    .join('，')
+}
+
+/**
+ * 生成通用工具组摘要片段，保留每个片段对应的状态，便于 UI 精确展示错误。
+ * @param toolCalls - 工具调用列表。
+ * @returns 摘要片段。
+ */
+export function summarizeToolGroupParts(toolCalls: GroupableToolCall[]): ToolGroupSummaryPart[] {
+  return [
     ...summarizeByStatus(toolCalls, 'read', '读取', '文件', countUniqueToolPaths),
     ...summarizeByStatus(toolCalls, ['grep', 'find'], '搜索', '次', countTools),
     ...summarizeByStatus(toolCalls, 'ls', '列出', '目录', countTools),
@@ -138,7 +155,7 @@ export function summarizeToolGroup(toolCalls: GroupableToolCall[]): string {
     ...summarizeByStatus(toolCalls, 'write', '写入', '文件', countUniqueToolPaths),
     ...summarizeByStatus(toolCalls, 'bash', '运行', '命令', countTools),
     ...summarizeGenericToolsByStatus(toolCalls)
-  ])
+  ]
 }
 
 /**
@@ -176,11 +193,13 @@ function summarizeByStatus(
   verb: string,
   noun: string,
   counter: (toolCalls: GroupableToolCall[], toolNames: string | string[]) => number
-): string[] {
-  return createStatusDescriptors(toolCalls, toolNames, verb, noun, counter).map(formatStatusSummary)
+): ToolGroupSummaryPart[] {
+  return createStatusDescriptors(toolCalls, toolNames, verb, noun, counter).map(
+    formatStatusSummaryPart
+  )
 }
 
-function summarizeGenericToolsByStatus(toolCalls: GroupableToolCall[]): string[] {
+function summarizeGenericToolsByStatus(toolCalls: GroupableToolCall[]): ToolGroupSummaryPart[] {
   const knownToolNames = new Set(['read', 'grep', 'find', 'ls', 'edit', 'write', 'bash'])
   const genericTools = toolCalls.filter((toolCall) => !knownToolNames.has(toolCall.toolName))
   return createStatusDescriptors(
@@ -189,7 +208,7 @@ function summarizeGenericToolsByStatus(toolCalls: GroupableToolCall[]): string[]
     '执行',
     '工具',
     (items) => items.length
-  ).map(formatStatusSummary)
+  ).map(formatStatusSummaryPart)
 }
 
 function createStatusDescriptors(
@@ -209,21 +228,33 @@ function createStatusDescriptors(
     .filter((descriptor): descriptor is ToolGroupSummaryDescriptor => Boolean(descriptor))
 }
 
-function formatStatusSummary(descriptor: ToolGroupSummaryDescriptor): string {
+function formatStatusSummaryPart(descriptor: ToolGroupSummaryDescriptor): ToolGroupSummaryPart {
   const quantity = `${descriptor.count} ${descriptor.noun}`
+  let text: string
   switch (descriptor.status) {
     case 'queued':
-      return `准备${descriptor.verb} ${quantity}`
+      text = `正在${descriptor.verb} ${quantity}`
+      break
     case 'running':
-      return `${quantity}${descriptor.verb}`
+      text = `正在${quantity}${descriptor.verb}`
+      break
     case 'succeeded':
-      return `已${descriptor.verb} ${quantity}`
+      text = `已${descriptor.verb} ${quantity}`
+      break
     case 'failed':
-      return `${quantity}失败`
+      text = `${quantity}失败`
+      break
     case 'cancelled':
-      return `已取消 ${quantity}`
+      text = `已取消 ${quantity}`
+      break
     default:
-      return `准备${descriptor.verb} ${quantity}`
+      text = `正在${descriptor.verb} ${quantity}`
+      break
+  }
+  return {
+    key: descriptor.key,
+    status: descriptor.status,
+    text
   }
 }
 
@@ -248,8 +279,4 @@ function filterTools(
 ): GroupableToolCall[] {
   const names = new Set(Array.isArray(toolNames) ? toolNames : [toolNames])
   return toolCalls.filter((toolCall) => names.has(toolCall.toolName))
-}
-
-function joinSummaryParts(parts: Array<string | undefined>): string {
-  return parts.filter(Boolean).join('，')
 }

@@ -15,6 +15,7 @@ import type { Component } from 'vue'
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import ScrollArea from '@/components/ui/scroll-area/ScrollArea.vue'
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { ShieldAlert, ShieldCheck, ShieldOff } from '@lucide/vue'
 import { RouterLink } from 'vue-router'
 import NameCommandDialog from '@renderer/components/chat/composer/dialogs/NameCommandDialog.vue'
@@ -287,7 +288,6 @@ function getProjectMenuSections(project: ProjectSummary): ProjectMenuSection[] {
 
   if (project.trust?.requiresTrust) {
     sections.push({
-      label: 'Project trust',
       items: [
         {
           id: 'project-trust',
@@ -352,121 +352,131 @@ function getProjectTrustIcon(project: ProjectSummary): Component | undefined {
 
 <template>
   <aside class="workspace__sidebar">
-    <div class="sidebar-section__header">
-      <span>项目</span>
-      <BaseIconButton
-        label="打开 Project"
-        size="small"
-        class="project-tree__add-btn"
-        @click="createProject"
-      >
-        <PlusIcon :size="14" />
-      </BaseIconButton>
-    </div>
-    <ScrollArea class="sidebar-section">
-      <template v-if="workspaceProject.errorMessage">
-        <p class="sidebar-error">
-          {{ workspaceProject.errorMessage }}
-        </p>
-      </template>
+    <TooltipProvider :delay-duration="150">
+      <div class="sidebar-section__header">
+        <span>项目</span>
+        <Tooltip>
+          <TooltipTrigger as-child>
+            <span class="sidebar-tooltip-trigger project-tree__add-btn">
+              <BaseIconButton label="打开 Project" size="small" @click="createProject">
+                <PlusIcon :size="14" />
+              </BaseIconButton>
+            </span>
+          </TooltipTrigger>
+          <TooltipContent side="top">添加项目</TooltipContent>
+        </Tooltip>
+      </div>
+      <ScrollArea class="sidebar-section">
+        <template v-if="workspaceProject.errorMessage">
+          <p class="sidebar-error">
+            {{ workspaceProject.errorMessage }}
+          </p>
+        </template>
 
-      <ul class="project-tree">
-        <Collapsible
-          v-for="projectItem in projectListItems"
-          :key="projectItem.project.projectId"
-          v-slot="{ open }"
-          :open="workspaceUi.isProjectOpen(projectItem.project.projectId)"
-          class="project-tree__item"
-          @update:open="(open) => workspaceUi.setProjectOpen(projectItem.project.projectId, open)"
-        >
-          <BaseContextMenu
-            :sections="getProjectMenuSections(projectItem.project)"
-            @select="(item) => runProjectMenuAction(item.id, projectItem.project)"
+        <ul class="project-tree">
+          <Collapsible
+            v-for="projectItem in projectListItems"
+            :key="projectItem.project.projectId"
+            v-slot="{ open }"
+            :open="workspaceUi.isProjectOpen(projectItem.project.projectId)"
+            class="project-tree__item"
+            @update:open="(open) => workspaceUi.setProjectOpen(projectItem.project.projectId, open)"
           >
-            <CollapsibleTrigger>
-              <!-- Project row only toggles the tree; thread selection belongs to thread items. -->
-              <div class="project-tree__project">
-                <FolderIcon v-if="!open" :size="12" />
-                <FolderOpenIcon v-else :size="12" />
-                <span class="project-tree__project-name">{{ projectItem.project.name }}</span>
-                <span
-                  v-if="!open && projectItem.hasRunningThread"
-                  class="thread-status project-tree__running-status is-running"
-                  aria-label="运行中"
-                  role="img"
-                >
-                  <svg class="thread-status__svg" viewBox="0 0 16 16" aria-hidden="true">
-                    <circle class="thread-status__track" cx="8" cy="8" r="6.25" />
-                    <circle class="thread-status__runner" cx="8" cy="8" r="6.25" />
-                  </svg>
-                </span>
-                <BaseIconButton
-                  label="创建 Thread"
-                  size="small"
-                  :disabled="projectItem.project.status !== 'available'"
-                  class="thread__add-btn"
-                  @click.stop="createThreadInProject(projectItem.project.projectId)"
-                >
-                  <PlusIcon :size="14" />
-                </BaseIconButton>
-              </div>
-            </CollapsibleTrigger>
-          </BaseContextMenu>
-
-          <CollapsibleContent>
-            <ul class="session-group">
-              <template v-if="projectItem.threads.length === 0">
-                <li class="session-group__item is-empty">
-                  <span class="session-group__item-title">暂无会话</span>
-                </li>
-              </template>
-
-              <template v-else>
-                <SidebarThreadItem
-                  v-for="threadItem in projectItem.visibleThreads"
-                  :key="threadItem.thread.threadId"
-                  :active="threadItem.thread.threadId === workspaceSession.activeSessionId"
-                  :current-time="currentTime"
-                  :depth="threadItem.depth"
-                  :thread="threadItem.thread"
-                  @menu-action="runThreadMenuAction"
-                  @navigate-leaf="navigateThreadLeaf"
-                  @select-thread="workspaceSession.setActiveSessionId"
-                />
-
-                <li
-                  v-if="projectItem.canExpand || projectItem.canCollapse"
-                  class="session-group__expand-collapse"
-                >
-                  <button
-                    v-if="projectItem.canExpand"
-                    class="expand-collapse-btn"
-                    @click="
-                      expandProject(projectItem.project.projectId, projectItem.threads.length)
-                    "
+            <BaseContextMenu
+              :sections="getProjectMenuSections(projectItem.project)"
+              @select="(item) => runProjectMenuAction(item.id, projectItem.project)"
+            >
+              <CollapsibleTrigger>
+                <!-- Project row only toggles the tree; thread selection belongs to thread items. -->
+                <div class="project-tree__project">
+                  <FolderIcon v-if="!open" :size="12" />
+                  <FolderOpenIcon v-else :size="12" />
+                  <span class="project-tree__project-name">{{ projectItem.project.name }}</span>
+                  <span
+                    v-if="!open && projectItem.hasRunningThread"
+                    class="thread-status project-tree__running-status is-running"
+                    aria-label="运行中"
+                    role="img"
                   >
-                    {{ projectItem.expandButtonText }}
-                  </button>
-                  <button
-                    v-if="projectItem.canCollapse"
-                    class="expand-collapse-btn collapse-btn"
-                    @click="collapseProject(projectItem.project.projectId)"
+                    <svg class="thread-status__svg" viewBox="0 0 16 16" aria-hidden="true">
+                      <circle class="thread-status__track" cx="8" cy="8" r="6.25" />
+                      <circle class="thread-status__runner" cx="8" cy="8" r="6.25" />
+                    </svg>
+                  </span>
+                  <Tooltip>
+                    <TooltipTrigger as-child>
+                      <span class="sidebar-tooltip-trigger thread__add-btn">
+                        <BaseIconButton
+                          label="创建 Thread"
+                          size="small"
+                          :disabled="projectItem.project.status !== 'available'"
+                          @click.stop="createThreadInProject(projectItem.project.projectId)"
+                        >
+                          <PlusIcon :size="14" />
+                        </BaseIconButton>
+                      </span>
+                    </TooltipTrigger>
+                    <TooltipContent side="top">添加会话</TooltipContent>
+                  </Tooltip>
+                </div>
+              </CollapsibleTrigger>
+            </BaseContextMenu>
+
+            <CollapsibleContent>
+              <ul class="session-group">
+                <template v-if="projectItem.threads.length === 0">
+                  <li class="session-group__item is-empty">
+                    <span class="session-group__item-title">暂无会话</span>
+                  </li>
+                </template>
+
+                <template v-else>
+                  <SidebarThreadItem
+                    v-for="threadItem in projectItem.visibleThreads"
+                    :key="threadItem.thread.threadId"
+                    :active="threadItem.thread.threadId === workspaceSession.activeSessionId"
+                    :current-time="currentTime"
+                    :depth="threadItem.depth"
+                    :thread="threadItem.thread"
+                    @menu-action="runThreadMenuAction"
+                    @navigate-leaf="navigateThreadLeaf"
+                    @select-thread="workspaceSession.setActiveSessionId"
+                  />
+
+                  <li
+                    v-if="projectItem.canExpand || projectItem.canCollapse"
+                    class="session-group__expand-collapse"
                   >
-                    收起
-                  </button>
-                </li>
-              </template>
-            </ul>
-          </CollapsibleContent>
-        </Collapsible>
-      </ul>
-    </ScrollArea>
-    <div class="sidebar-section is-footer">
-      <RouterLink to="/settings" class="button-cell">
-        <SettingIcon :size="12" />
-        <span>设置</span>
-      </RouterLink>
-    </div>
+                    <button
+                      v-if="projectItem.canExpand"
+                      class="expand-collapse-btn"
+                      @click="
+                        expandProject(projectItem.project.projectId, projectItem.threads.length)
+                      "
+                    >
+                      {{ projectItem.expandButtonText }}
+                    </button>
+                    <button
+                      v-if="projectItem.canCollapse"
+                      class="expand-collapse-btn collapse-btn"
+                      @click="collapseProject(projectItem.project.projectId)"
+                    >
+                      收起
+                    </button>
+                  </li>
+                </template>
+              </ul>
+            </CollapsibleContent>
+          </Collapsible>
+        </ul>
+      </ScrollArea>
+      <div class="sidebar-section is-footer">
+        <RouterLink to="/settings" class="button-cell">
+          <SettingIcon :size="12" />
+          <span>设置</span>
+        </RouterLink>
+      </div>
+    </TooltipProvider>
   </aside>
 
   <NameCommandDialog
@@ -505,6 +515,10 @@ function getProjectTrustIcon(project: ProjectSummary): Component | undefined {
 .sidebar-section :deep([data-slot='scroll-area-viewport']) {
   display: flex;
   flex-direction: column;
+}
+
+.sidebar-tooltip-trigger {
+  display: inline-flex;
 }
 
 .sidebar-section__header {

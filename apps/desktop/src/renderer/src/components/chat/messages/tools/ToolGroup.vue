@@ -6,7 +6,7 @@ import ToolGroupIcon from '@renderer/components/icons/ToolGroupIcon.vue'
 import ToolIcon from '@renderer/components/icons/ToolIcon.vue'
 import ToolMessage from '../ToolMessage.vue'
 import BaseToolGroup from './BaseToolGroup.vue'
-import type { ToolCall, ToolGroupStatus } from './support/tool-group'
+import { summarizeToolGroupParts, type ToolCall, type ToolGroupStatus } from './support/tool-group'
 
 const props = defineProps<{
   toolCallIds: string[]
@@ -38,6 +38,10 @@ const uniqueToolIcons = computed(() => {
 const stackedToolIcons = computed(() => uniqueToolIcons.value.slice(0, visibleIconCount))
 const hiddenToolIconCount = computed(() =>
   Math.max(0, uniqueToolIcons.value.length - visibleIconCount)
+)
+const summaryParts = computed(() => summarizeToolGroupParts(props.toolCalls))
+const summaryHasActivePart = computed(() =>
+  summaryParts.value.some((part) => part.status === 'queued' || part.status === 'running')
 )
 
 function getToolOpen(toolCall: ToolCall): boolean {
@@ -71,8 +75,20 @@ function getToolIconComponent(toolName: string | undefined): Component {
     :status="props.status"
     :is-error="props.status === 'failed'"
     :default-open="props.defaultOpen"
+    :class="{ 'tool-group--summary-active': summaryHasActivePart }"
     @update:open="emit('update:open', $event)"
   >
+    <template #summary>
+      <template v-if="summaryParts.length">
+        <template v-for="(part, index) in summaryParts" :key="`${part.key}:${index}`">
+          <span :class="{ 'tool-group-summary-part--failed': part.status === 'failed' }">
+            {{ part.text }}
+          </span>
+          <span v-if="index < summaryParts.length - 1">，</span>
+        </template>
+      </template>
+      <template v-else>{{ props.summary }}</template>
+    </template>
     <template #icon>
       <span v-if="stackedToolIcons.length" class="tool-group-stack" aria-hidden="true">
         <span
@@ -106,6 +122,10 @@ function getToolIconComponent(toolName: string | undefined): Component {
 </template>
 
 <style lang="scss" scoped>
+.tool-group-summary-part--failed {
+  color: var(--color-danger);
+}
+
 .tool-group-stack {
   display: inline-flex;
   align-items: center;

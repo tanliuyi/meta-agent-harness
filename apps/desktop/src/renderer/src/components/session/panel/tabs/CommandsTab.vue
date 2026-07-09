@@ -76,9 +76,7 @@ function runCommand(command: CommandInfo): void {
     />
     <div v-if="workspaceSession.activeCommandsLoading" class="session-empty">Loading...</div>
     <div
-      v-else-if="
-        workspaceSession.activeCommandsLoaded && runnableCommands.length === 0
-      "
+      v-else-if="workspaceSession.activeCommandsLoaded && runnableCommands.length === 0"
       class="session-empty"
     >
       No commands
