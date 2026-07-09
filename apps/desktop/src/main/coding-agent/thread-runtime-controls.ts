@@ -129,11 +129,13 @@ export async function sendExtensionPanelMessage(
   core: ThreadManagerCore,
   input: ExtensionPanelMessageInput
 ): Promise<void> {
-  await core.sendOk(input.threadId, {
-    type: 'desktop.panelMessage',
-    panelId: input.panelId,
-    message: input.message
-  })
+  await sendOptionalExtensionPanelCommand(() =>
+    core.sendOk(input.threadId, {
+      type: 'desktop.panelMessage',
+      panelId: input.panelId,
+      message: input.message
+    })
+  )
 }
 
 /**
@@ -145,10 +147,23 @@ export async function sendExtensionPanelLifecycleEvent(
   core: ThreadManagerCore,
   input: ExtensionPanelLifecycleInput
 ): Promise<void> {
-  await core.sendOk(input.threadId, {
-    type: 'desktop.panelLifecycle',
-    event: input.event
-  })
+  await sendOptionalExtensionPanelCommand(() =>
+    core.sendOk(input.threadId, {
+      type: 'desktop.panelLifecycle',
+      event: input.event
+    })
+  )
+}
+
+async function sendOptionalExtensionPanelCommand(send: () => Promise<void>): Promise<void> {
+  try {
+    await send()
+  } catch (error) {
+    if (error instanceof Error && error.message === 'worker has no bound thread') {
+      return
+    }
+    throw error
+  }
 }
 
 /**

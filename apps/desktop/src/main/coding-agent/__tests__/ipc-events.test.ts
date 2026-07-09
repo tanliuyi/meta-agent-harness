@@ -6,11 +6,11 @@ import { describe, expect, it, vi } from 'vitest'
 import { codingAgentChannels } from '@shared/coding-agent/channels'
 import {
   publishCodingAgentEvent,
-  normalizeAllowedExternalUrl,
   syncThreadStatusFromWorkerEvent,
   syncThreadStatusFromWorkerLifecycle,
   toCodingAgentIpcEvent
 } from '../ipc'
+import { normalizeAllowedExternalUrl } from '../external-url'
 import type { CodingAgentIpcEvent } from '@shared/coding-agent/types'
 import { ThreadManagerCore } from '../thread-manager-core'
 

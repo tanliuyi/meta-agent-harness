@@ -55,14 +55,23 @@ const sessionInfo = computed<SessionInfo>((previous) =>
   createStableSessionInfo(activeSession.value, previous)
 )
 
-/** 内容区网格列模板。 */
-const workspaceContentColumns = computed(() => {
-  if (!sessionPanel.value.open) {
-    return 'minmax(0, 1fr)'
-  }
+/** 内容区布局变量。 */
+const workspaceContentStyle = computed(() => ({
+  '--session-panel-resizer-width': `${RESIZER_WIDTH}px`,
+  '--session-panel-width': `${sessionPanel.value.width}px`
+}))
 
-  return `minmax(0, 1fr) ${RESIZER_WIDTH}px ${sessionPanel.value.width}px`
-})
+function getSessionPanelLayoutMaxWidth(): number {
+  const contentWidth = workspaceContentRef.value?.getBoundingClientRect().width
+  if (!contentWidth) {
+    return Number.MAX_SAFE_INTEGER
+  }
+  return Math.max(sessionPanel.value.minWidth, contentWidth - RESIZER_WIDTH)
+}
+
+function clampSessionPanelWidth(width: number): number {
+  return Math.min(getSessionPanelLayoutMaxWidth(), Math.max(sessionPanel.value.minWidth, width))
+}
 
 /**
  * 向子组件提供会话上下文。
@@ -108,10 +117,10 @@ const {
       return sessionPanel.value.width
     }
 
-    return contentRect.right - event.clientX
+    return clampSessionPanelWidth(contentRect.right - event.clientX)
   },
-  getValue: computed(() => sessionPanel.value.width),
-  setValue: workspaceSession.setActiveSessionPanelWidth
+  getValue: computed(() => clampSessionPanelWidth(sessionPanel.value.width)),
+  setValue: (width) => workspaceSession.setActiveSessionPanelWidth(clampSessionPanelWidth(width))
 })
 </script>
 
@@ -119,7 +128,11 @@ const {
   <section
     ref="workspaceContentRef"
     class="workspace-content"
-    :style="{ gridTemplateColumns: workspaceContentColumns }"
+    :class="{
+      'workspace-content--resizing-session-panel': isSessionPanelResizing,
+      'workspace-content--session-panel-open': sessionPanel.open
+    }"
+    :style="workspaceContentStyle"
   >
     <div class="workspace-content__main-session">
       <SessionHeader class="workspace-content__session-header" />
@@ -134,7 +147,7 @@ const {
       aria-label="调整会话面板宽度"
       aria-orientation="vertical"
       :aria-valuemin="sessionPanel.minWidth"
-      :aria-valuemax="sessionPanel.maxWidth"
+      :aria-valuemax="sessionPanel.maxWidth ?? undefined"
       :aria-valuenow="sessionPanel.width"
       tabindex="0"
       @pointerdown="startSessionPanelResize"
@@ -153,11 +166,17 @@ const {
 
 <style lang="scss" scoped>
 .workspace-content {
+  --session-panel-layout-width: min(
+    var(--session-panel-width, 420px),
+    calc(100% - var(--session-panel-resizer-width, 1px))
+  );
+
   position: relative;
   display: grid;
   min-width: 0;
   min-height: 0;
-  overflow: hidden;
+  z-index: 2;
+  overflow: visible;
   background-color: var(--color-surface);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-workspace-shell) 0 0 var(--radius-workspace-shell);
@@ -166,8 +185,16 @@ const {
 .workspace-content__main-session {
   display: grid;
   grid-template-rows: var(--session-header-height) minmax(0, 1fr);
+  width: 100%;
   min-width: 0;
   min-height: 0;
+}
+
+.workspace-content--session-panel-open .workspace-content__main-session {
+  width: max(
+    0px,
+    calc(100% - var(--session-panel-layout-width) - var(--session-panel-resizer-width, 1px))
+  );
 }
 
 .workspace-content__session-header {
@@ -199,8 +226,19 @@ const {
   margin: 0 auto;
 }
 
+.workspace-content__session-panel:not(.workspace-content__session-panel--collapsed) {
+  position: absolute;
+  z-index: 3;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: var(--session-panel-layout-width);
+  background-color: var(--color-surface);
+}
+
 .workspace-content__session-panel--collapsed {
   position: absolute;
+  z-index: 3;
   top: 0;
   right: 0;
   display: flex;
@@ -211,8 +249,17 @@ const {
   height: var(--session-header-height);
 }
 
+.workspace-content--resizing-session-panel :deep(.extension-webview-panel__frame) {
+  pointer-events: none;
+}
+
 .workspace-content__session-panel-resizer {
-  position: relative;
+  position: absolute;
+  z-index: 4;
+  top: 0;
+  right: var(--session-panel-layout-width);
+  bottom: 0;
+  width: var(--session-panel-resizer-width, 1px);
   cursor: col-resize;
   touch-action: none;
 
@@ -255,6 +302,10 @@ const {
   .workspace-content {
     grid-template-columns: 1fr;
     padding: var(--space-5);
+  }
+
+  .workspace-content__main-session {
+    width: 100%;
   }
 
   .workspace-content__session-panel-resizer,

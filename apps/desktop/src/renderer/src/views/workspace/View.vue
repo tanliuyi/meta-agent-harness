@@ -80,6 +80,8 @@ const workspaceGridAreas = computed(() => {
 }
 
 .workspace__resizer {
+  position: relative;
+  z-index: 5;
   grid-area: resizer;
 }
 

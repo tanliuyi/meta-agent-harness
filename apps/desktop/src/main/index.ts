@@ -16,6 +16,11 @@ import {
   registerWebviewResourceProtocol,
   registerWebviewResourceScheme
 } from './coding-agent/webview-resource-protocol'
+import { normalizeAllowedExternalUrl } from './coding-agent/external-url'
+import {
+  createMainWindowNavigationTarget,
+  isMainWindowNavigationAllowed
+} from './window-security'
 // import { installIpcLogger } from 'electron-ipc-logger'
 
 const defaultWindowBounds = {
@@ -80,17 +85,41 @@ function createWindow(): void {
 
   mainWindowState.manage(mainWindow)
 
+  const rendererIndexPath = join(__dirname, '../renderer/index.html')
+  const devRendererUrl = is.dev ? process.env['ELECTRON_RENDERER_URL'] : undefined
+  const navigationTarget = createMainWindowNavigationTarget({
+    devRendererUrl,
+    rendererIndexPath
+  })
+
   mainWindow.webContents.setWindowOpenHandler((details) => {
-    shell.openExternal(details.url)
+    try {
+      void shell.openExternal(normalizeAllowedExternalUrl(details.url))
+    } catch (error) {
+      console.warn(
+        'Blocked external window URL:',
+        error instanceof Error ? error.message : String(error)
+      )
+    }
     return { action: 'deny' }
   })
 
-  if (is.dev && process.env['ELECTRON_RENDERER_URL']) {
-    const rendererUrl = new URL(process.env['ELECTRON_RENDERER_URL'])
+  const preventUntrustedNavigation = (event: Electron.Event, url: string): void => {
+    if (isMainWindowNavigationAllowed(url, navigationTarget)) {
+      return
+    }
+    event.preventDefault()
+    console.warn('Blocked main window navigation:', url)
+  }
+  mainWindow.webContents.on('will-navigate', preventUntrustedNavigation)
+  mainWindow.webContents.on('will-redirect', preventUntrustedNavigation)
+
+  if (devRendererUrl) {
+    const rendererUrl = new URL(devRendererUrl)
     rendererUrl.hash = initialRendererHash
     mainWindow.loadURL(rendererUrl.toString())
   } else {
-    mainWindow.loadFile(join(__dirname, '../renderer/index.html'), { hash: initialRendererHash })
+    mainWindow.loadFile(rendererIndexPath, { hash: initialRendererHash })
   }
 }
 

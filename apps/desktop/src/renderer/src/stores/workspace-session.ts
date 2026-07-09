@@ -226,8 +226,8 @@ export type WorkspaceToolCallStructure = Pick<
 /** 会话面板最小宽度。 */
 const minSessionPanelWidth = 300
 
-/** 会话面板最大宽度。 */
-const maxSessionPanelWidth = 720
+/** 会话面板最大宽度；undefined 表示不限制。 */
+const maxSessionPanelWidth: number | undefined = undefined
 
 /** 默认会话上下文 ID。 */
 const defaultSessionContextId = 'main'
@@ -655,7 +655,7 @@ export default defineStore('workspace-session', () => {
       }
       return {
         panelOpen: parsed.panelOpen,
-        panelWidth: Math.min(maxSessionPanelWidth, Math.max(minSessionPanelWidth, parsed.panelWidth))
+        panelWidth: Math.max(minSessionPanelWidth, parsed.panelWidth)
       }
     } catch {
       return undefined
@@ -2583,12 +2583,12 @@ export default defineStore('workspace-session', () => {
   }
 
   /**
-   * 设置当前活跃会话面板的宽度，并限制在最小/最大宽度范围内。
+   * 设置当前活跃会话面板的宽度，并限制在最小宽度范围内。
    * @param width - 目标宽度。
    */
   const setActiveSessionPanelWidth = (width: number, contextId = defaultSessionContextId): void => {
     const state = getSessionPanelState(contextId)
-    state.panelWidth = Math.min(maxSessionPanelWidth, Math.max(minSessionPanelWidth, width))
+    state.panelWidth = Math.max(minSessionPanelWidth, width)
     writeStoredSessionPanelState(contextId, state)
   }
 

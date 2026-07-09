@@ -26,7 +26,7 @@ import {
   getExtensionPanelAllowedNavigationOrigin,
   getExtensionPanelSandbox,
   getExtensionPanelResolvedUrl,
-  prepareExtensionPanelHtml,
+  prepareExtensionPanelHtml
 } from './display/extensionPanelDisplay'
 
 const props = defineProps<{
@@ -50,7 +50,9 @@ const panelState = computed(() =>
 )
 const iframeSandbox = computed(() => getExtensionPanelSandbox(panel.value))
 const urlSource = computed(() => getExtensionPanelResolvedUrl(panel.value) ?? '')
-const allowedNavigationOrigin = computed(() => getExtensionPanelAllowedNavigationOrigin(panel.value))
+const allowedNavigationOrigin = computed(() =>
+  getExtensionPanelAllowedNavigationOrigin(panel.value)
+)
 const panelTheme = computed(() =>
   collectExtensionPanelThemePayload({
     theme: resolvedTheme.value,
@@ -202,13 +204,10 @@ watch(
   { immediate: true }
 )
 
-watch(
-  panelTheme,
-  async () => {
-    await nextTick()
-    postPanelTheme()
-  }
-)
+watch(panelTheme, async () => {
+  await nextTick()
+  postPanelTheme()
+})
 
 window.addEventListener('message', handleWindowMessage)
 onMounted(() => {
@@ -268,13 +267,16 @@ onBeforeUnmount(() => {
   grid-template-rows: auto minmax(0, 1fr);
   height: 100%;
   min-height: 0;
+  padding: 0;
+
+  & .session-section__header {
+    padding: var(--space-4) var(--space-4) 0;
+  }
 }
 
 .extension-webview-panel__frame-wrap {
   min-height: 0;
   overflow: hidden;
-  border: 1px solid var(--color-border-subtle);
-  border-radius: var(--radius-md);
   background: var(--color-surface);
 }
 

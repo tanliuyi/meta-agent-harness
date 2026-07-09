@@ -18,6 +18,7 @@ import type { AgentSettingsService } from './agent-settings-service'
 import { createConfiguredWorkerClient } from './worker-client-factory'
 import { ThreadWorkerRegistry } from './thread-worker-registry'
 import { cacheWorkerProjectionEvent } from './projection-cache'
+import { normalizeAllowedExternalUrl } from './external-url'
 import type { WorkerClient, WorkerEnvelope } from './worker-types'
 import type { ThreadWorkerLifecycleEvent } from './thread-worker-registry'
 import type {
@@ -857,28 +858,6 @@ async function revealResourcePath(input: RevealResourcePathInput): Promise<void>
  */
 export async function openExternalUrl(input: OpenExternalUrlInput): Promise<void> {
   await shell.openExternal(normalizeAllowedExternalUrl(input.uri))
-}
-
-/**
- * 规范化并校验允许交给系统处理的外部 URL。
- * @param uriInput - 原始 URI。
- * @returns 规范化后的 URL。
- */
-export function normalizeAllowedExternalUrl(uriInput: string): string {
-  const uri = uriInput.trim()
-  if (!uri) {
-    throw new Error('Invalid external URL')
-  }
-  let url: URL
-  try {
-    url = new URL(uri)
-  } catch {
-    throw new Error('Invalid external URL')
-  }
-  if (!['http:', 'https:', 'mailto:'].includes(url.protocol)) {
-    throw new Error(`External URL protocol is not allowed: ${url.protocol}`)
-  }
-  return url.toString()
 }
 
 /**

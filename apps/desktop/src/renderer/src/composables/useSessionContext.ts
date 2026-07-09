@@ -22,8 +22,8 @@ export type SessionInfo = {
 
 /** 会话面板状态。 */
 export type SessionPanelState = {
-  /** 最大宽度。 */
-  maxWidth: number
+  /** 最大宽度，未设置表示不限制。 */
+  maxWidth?: number
   /** 最小宽度。 */
   minWidth: number
   /** 是否展开。 */

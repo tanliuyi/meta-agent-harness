@@ -6,6 +6,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { tmpdir } from 'node:os'
+import { pathToFileURL } from 'node:url'
 
 vi.mock('electron', () => ({
   net: { fetch: vi.fn() },
@@ -87,7 +88,7 @@ describe('webview-resource-protocol', () => {
       expect(getResponse.headers.get('Cache-Control')).toBe('no-store')
       expect(getResponse.headers.get('X-Content-Type-Options')).toBe('nosniff')
       expect(getResponse.headers.get('Content-Length')).toBe(String('{"version":3}'.length))
-      expect(net.fetch).toHaveBeenCalledWith(`file://${filePath}`)
+      expect(net.fetch).toHaveBeenCalledWith(pathToFileURL(filePath).toString())
 
       const headResponse = await handler(
         new Request('pi-webview-resource://token-a', { method: 'HEAD' })

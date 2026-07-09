@@ -2,7 +2,7 @@ import type { SessionInfo, SessionPanelState } from '@renderer/composables/useSe
 import type { SessionUiState, WorkspaceSession } from '@renderer/stores/workspace-session'
 
 export interface WorkspaceContentPanelInput {
-  maxWidth: number
+  maxWidth?: number
   minWidth: number
   panel: SessionUiState
 }

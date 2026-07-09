@@ -1290,6 +1290,18 @@ describe('workspace-session Project-first actions', () => {
     expect(store.activeSessionPanel).toEqual({ panelOpen: false, panelWidth: 520 })
   })
 
+  it('会话面板宽度不限制最大值', async () => {
+    const snapshot = createSnapshot()
+    installCodingAgentApi({})
+    const store = useWorkspaceSessionStore()
+    store.sessions['thread-a'] = snapshotToWorkspaceSession(snapshot)
+
+    await store.setActiveSessionId('thread-a')
+    store.setActiveSessionPanelWidth(960)
+
+    expect(store.activeSessionPanel).toEqual({ panelOpen: false, panelWidth: 960 })
+  })
+
   it('renderer reload 后通过 localStorage 恢复会话面板宽度与开启状态', async () => {
     const snapshot = createSnapshot()
     const localStorage = createMemorySessionStorage()
