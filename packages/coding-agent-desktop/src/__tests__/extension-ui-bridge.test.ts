@@ -57,6 +57,31 @@ describe("ExtensionUiBridge", () => {
 		expect(() => bridge.respond({ id: "missing", cancelled: true })).toThrow("extension UI request not found");
 	});
 
+	/** 验证交互类 UI 请求串行投递，避免 Composer 同时出现多个输入弹窗。 */
+	it("交互类 UI 请求串行投递", async () => {
+		const events: WorkerEventEnvelope[] = [];
+		const bridge = new ExtensionUiBridge("thread-1", (event) => events.push(event));
+		const ui = bridge.createContext();
+
+		const first = ui.input("First");
+		const second = ui.editor("Second", "prefill");
+
+		expect(getProjectionRequests(events)).toEqual([expect.objectContaining({ type: "input", title: "First" })]);
+
+		const firstRequest = getProjectionRequests(events)[0];
+		bridge.respond({ id: firstRequest.id, value: "first value" });
+		await expect(first).resolves.toBe("first value");
+
+		expect(getProjectionRequests(events)).toEqual([
+			expect.objectContaining({ type: "input", title: "First" }),
+			expect.objectContaining({ type: "editor", title: "Second", prefill: "prefill" }),
+		]);
+
+		const secondRequest = getProjectionRequests(events)[1];
+		bridge.respond({ id: secondRequest.id, value: "second value" });
+		await expect(second).resolves.toBe("second value");
+	});
+
 	/** 验证 UI 状态 API 通过 projection event 投影给 renderer。 */
 	it("UI 状态 API 通过 projection event 投影", () => {
 		const events: WorkerEventEnvelope[] = [];

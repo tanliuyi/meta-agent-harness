@@ -1,5 +1,6 @@
 const state = {
   goal: undefined,
+  editorOpen: false,
 };
 
 const elements = {
@@ -25,11 +26,20 @@ function post(type) {
   window.piPanel.post({ type });
 }
 
+function postEditorAction(type) {
+  state.editorOpen = true;
+  render();
+  post(type);
+}
+
 function render() {
   const goal = state.goal;
   const hasGoal = Boolean(goal);
+  const editorOpen = Boolean(state.editorOpen);
   elements.empty.hidden = hasGoal;
   elements.details.hidden = !hasGoal;
+  elements.start.disabled = editorOpen;
+  elements.startEmpty.disabled = editorOpen;
 
   if (!goal) {
     elements.status.textContent = "No active goal";
@@ -54,10 +64,10 @@ function render() {
   elements.metricTokens.textContent = goal.tokens || "-";
   elements.commands.textContent = goal.commands || "";
 
-  elements.edit.disabled = false;
-  elements.pause.disabled = goal.status !== "active";
-  elements.resume.disabled = goal.status !== "paused" && goal.status !== "budget_limited";
-  elements.clear.disabled = false;
+  elements.edit.disabled = editorOpen;
+  elements.pause.disabled = editorOpen || goal.status !== "active";
+  elements.resume.disabled = editorOpen || (goal.status !== "paused" && goal.status !== "budget_limited");
+  elements.clear.disabled = editorOpen;
 }
 
 window.piPanel.onMessage((message) => {
@@ -71,12 +81,13 @@ window.piPanel.onMessage((message) => {
   }
   if (message.type !== "goal-state") return;
   state.goal = message.goal;
+  state.editorOpen = Boolean(message.editorOpen);
   render();
 });
 
-elements.start.addEventListener("click", () => post("start"));
-elements.startEmpty.addEventListener("click", () => post("start"));
-elements.edit.addEventListener("click", () => post("edit"));
+elements.start.addEventListener("click", () => postEditorAction("start"));
+elements.startEmpty.addEventListener("click", () => postEditorAction("start"));
+elements.edit.addEventListener("click", () => postEditorAction("edit"));
 elements.pause.addEventListener("click", () => post("pause"));
 elements.resume.addEventListener("click", () => post("resume"));
 elements.clear.addEventListener("click", () => post("clear"));

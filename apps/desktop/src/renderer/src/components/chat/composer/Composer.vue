@@ -296,6 +296,8 @@ const imagePreviewItems = computed<ImagePreviewItem[]>(() =>
 )
 
 const extensionRequestEntries = computed(() => Object.values(props.extensionRequests))
+const visibleExtensionRequest = computed(() => extensionRequestEntries.value[0])
+const isComposerFormDisabled = computed(() => Boolean(visibleExtensionRequest.value))
 const isDropTargetActive = computed(() => isDraggingFiles.value && !props.selectingImages)
 const hasOpenComposerPopup = computed(
   () =>
@@ -509,7 +511,7 @@ watch(
  * 提交输入内容。
  */
 function handleSubmit(): void {
-  if (props.submitting) {
+  if (props.submitting || isComposerFormDisabled.value) {
     return
   }
   emit('submit')
@@ -559,6 +561,9 @@ function handleSkillReferenceCompletion(state: SkillReferenceCompletionState): v
  * @param value - 编辑器纯文本。
  */
 function handleEditorTextChange(value: string): void {
+  if (isComposerFormDisabled.value) {
+    return
+  }
   draftText.value = value
   emit('text-change', value)
 }
@@ -774,7 +779,7 @@ function scrollSelectedCommandIntoView(): void {
  * 处理发送/停止图标按钮点击。
  */
 function handleActionClick(): void {
-  if (props.submitting) {
+  if (props.submitting || isComposerFormDisabled.value) {
     return
   }
   if (props.isRunning && !props.canSend) {
@@ -788,7 +793,7 @@ function handleActionClick(): void {
  * 切换 command palette。
  */
 function toggleCommandPalette(): void {
-  if (!canOpenCommandPalette.value) {
+  if (!canOpenCommandPalette.value || isComposerFormDisabled.value) {
     return
   }
   commandPaletteMode.value = 'button'
@@ -1035,6 +1040,9 @@ function handleThinkingLevelChange(value: unknown): void {
  * 打开图片选择器。
  */
 function openImagePicker(): void {
+  if (isComposerFormDisabled.value) {
+    return
+  }
   emit('select-images', props.threadId)
 }
 
@@ -1424,318 +1432,360 @@ function clearExtensionDraft(id: string): void {
         </div>
       </div>
     </Teleport>
-    <div v-if="extensionRequestEntries.length > 0" class="composer__extension-requests">
-      <article
-        v-for="request in extensionRequestEntries"
-        :key="request.id"
-        class="composer__extension-request"
-      >
-        <header class="composer__extension-request-header">
-          <div>
-            <strong>{{ getExtensionRequestTitle(request) }}</strong>
-            <span>{{ request.type }}</span>
-          </div>
-          <BaseButton
-            type="button"
-            size="sm"
-            variant="ghost"
-            @click="cancelExtensionRequest(request)"
-          >
-            取消
-          </BaseButton>
-        </header>
-
-        <p v-if="request.type === 'confirm'" class="composer__extension-request-message">
-          {{ request.message }}
-        </p>
-
-        <div v-if="request.type === 'select'" class="composer__extension-request-options">
-          <BaseButton
-            v-for="option in request.options"
-            :key="option"
-            type="button"
-            size="sm"
-            variant="secondary"
-            @click="submitExtensionRequest(request, option)"
-          >
-            {{ option }}
-          </BaseButton>
-        </div>
-
-        <input
-          v-if="request.type === 'input'"
-          class="composer__extension-request-input"
-          :value="getExtensionDraft(request)"
-          :placeholder="request.placeholder"
-          :aria-label="getExtensionRequestTitle(request)"
-          @input="setExtensionDraft(request.id, ($event.target as HTMLInputElement).value)"
-          @keydown.enter.prevent="submitExtensionRequest(request)"
-        />
-
-        <textarea
-          v-if="request.type === 'editor'"
-          class="composer__extension-request-editor"
-          :value="getExtensionDraft(request)"
-          :aria-label="getExtensionRequestTitle(request)"
-          @input="setExtensionDraft(request.id, ($event.target as HTMLTextAreaElement).value)"
-        />
-
-        <div
-          v-if="request.type === 'confirm' || request.type === 'input' || request.type === 'editor'"
-          class="composer__extension-request-actions"
-        >
-          <BaseButton
-            v-if="request.type === 'confirm'"
-            type="button"
-            size="sm"
-            variant="primary"
-            @click="submitExtensionRequest(request, true)"
-          >
-            确认
-          </BaseButton>
-          <BaseButton
-            v-else
-            type="button"
-            size="sm"
-            variant="primary"
-            @click="submitExtensionRequest(request)"
-          >
-            提交
-          </BaseButton>
-        </div>
-      </article>
-    </div>
-
-    <form class="composer" @submit.prevent="handleSubmit">
+    <div class="composer-stack">
       <div
-        v-if="imagePreviews.length > 0 || fileAttachments.length > 0 || selectingImages"
-        class="composer__attachments"
+        v-if="visibleExtensionRequest"
+        :key="visibleExtensionRequest.id"
+        class="composer__extension-requests"
       >
-        <div v-if="imagePreviews.length > 0" class="composer__images">
-          <div v-for="(image, index) in imagePreviews" :key="image.id" class="composer__image">
-            <button
-              class="composer__image-preview"
-              type="button"
-              :aria-label="`预览 ${image.name}`"
-              @click="openImagePreview(index)"
-            >
-              <img :src="image.previewSrc" :alt="image.name" />
-            </button>
-            <button
-              type="button"
-              class="composer__image-remove"
-              :aria-label="`移除 ${image.name}`"
-              @click="emit('remove-image', image.id)"
-            >
-              <X :size="10" />
-            </button>
-          </div>
-        </div>
-        <div v-if="fileAttachments.length > 0" class="composer__files">
-          <div v-for="file in fileAttachments" :key="file.id" class="composer__file">
-            <FileIcon :size="15" class="composer__file-icon" />
-            <div class="composer__file-meta">
-              <strong :title="file.path">{{ file.name }}</strong>
-              <span>{{ formatFileSize(file.size) }}</span>
+        <article class="composer__extension-request">
+          <header class="composer__extension-request-header">
+            <div>
+              <strong>{{ getExtensionRequestTitle(visibleExtensionRequest) }}</strong>
+              <span>{{ visibleExtensionRequest.type }}</span>
             </div>
-            <button
+            <BaseButton
               type="button"
-              class="composer__file-remove"
-              :aria-label="`移除 ${file.name}`"
-              @click="emit('remove-file', file.id)"
+              size="sm"
+              variant="ghost"
+              @click="cancelExtensionRequest(visibleExtensionRequest)"
             >
-              <X :size="10" />
+              取消
+            </BaseButton>
+          </header>
+
+          <div class="composer__extension-request-body">
+            <p
+              v-if="visibleExtensionRequest.type === 'confirm'"
+              class="composer__extension-request-message"
+            >
+              {{ visibleExtensionRequest.message }}
+            </p>
+
+            <div
+              v-if="visibleExtensionRequest.type === 'select'"
+              class="composer__extension-request-options"
+            >
+              <BaseButton
+                v-for="option in visibleExtensionRequest.options"
+                :key="option"
+                type="button"
+                size="sm"
+                variant="secondary"
+                @click="submitExtensionRequest(visibleExtensionRequest, option)"
+              >
+                {{ option }}
+              </BaseButton>
+            </div>
+
+            <input
+              v-if="visibleExtensionRequest.type === 'input'"
+              class="composer__extension-request-input"
+              :value="getExtensionDraft(visibleExtensionRequest)"
+              :placeholder="visibleExtensionRequest.placeholder"
+              :aria-label="getExtensionRequestTitle(visibleExtensionRequest)"
+              @input="
+                setExtensionDraft(
+                  visibleExtensionRequest.id,
+                  ($event.target as HTMLInputElement).value
+                )
+              "
+              @keydown.enter.prevent="submitExtensionRequest(visibleExtensionRequest)"
+            />
+
+            <textarea
+              v-if="visibleExtensionRequest.type === 'editor'"
+              class="composer__extension-request-editor"
+              :value="getExtensionDraft(visibleExtensionRequest)"
+              :aria-label="getExtensionRequestTitle(visibleExtensionRequest)"
+              @input="
+                setExtensionDraft(
+                  visibleExtensionRequest.id,
+                  ($event.target as HTMLTextAreaElement).value
+                )
+              "
+            />
+          </div>
+
+          <div
+            v-if="
+              visibleExtensionRequest.type === 'confirm' ||
+              visibleExtensionRequest.type === 'input' ||
+              visibleExtensionRequest.type === 'editor'
+            "
+            class="composer__extension-request-actions"
+          >
+            <BaseButton
+              v-if="visibleExtensionRequest.type === 'confirm'"
+              type="button"
+              size="sm"
+              variant="primary"
+              @click="submitExtensionRequest(visibleExtensionRequest, true)"
+            >
+              确认
+            </BaseButton>
+            <BaseButton
+              v-else
+              type="button"
+              size="sm"
+              variant="primary"
+              @click="submitExtensionRequest(visibleExtensionRequest)"
+            >
+              提交
+            </BaseButton>
+          </div>
+        </article>
+      </div>
+
+      <form
+        class="composer"
+        :class="{ 'is-disabled': isComposerFormDisabled }"
+        :inert="isComposerFormDisabled"
+        :aria-disabled="isComposerFormDisabled"
+        @submit.prevent="handleSubmit"
+      >
+        <div
+          v-if="imagePreviews.length > 0 || fileAttachments.length > 0 || selectingImages"
+          class="composer__attachments"
+        >
+          <div v-if="imagePreviews.length > 0" class="composer__images">
+            <div v-for="(image, index) in imagePreviews" :key="image.id" class="composer__image">
+              <button
+                class="composer__image-preview"
+                type="button"
+                :aria-label="`预览 ${image.name}`"
+                @click="openImagePreview(index)"
+              >
+                <img :src="image.previewSrc" :alt="image.name" />
+              </button>
+              <button
+                type="button"
+                class="composer__image-remove"
+                :aria-label="`移除 ${image.name}`"
+                @click="emit('remove-image', image.id)"
+              >
+                <X :size="10" />
+              </button>
+            </div>
+          </div>
+          <div v-if="fileAttachments.length > 0" class="composer__files">
+            <div v-for="file in fileAttachments" :key="file.id" class="composer__file">
+              <FileIcon :size="15" class="composer__file-icon" />
+              <div class="composer__file-meta">
+                <strong :title="file.path">{{ file.name }}</strong>
+                <span>{{ formatFileSize(file.size) }}</span>
+              </div>
+              <button
+                type="button"
+                class="composer__file-remove"
+                :aria-label="`移除 ${file.name}`"
+                @click="emit('remove-file', file.id)"
+              >
+                <X :size="10" />
+              </button>
+            </div>
+          </div>
+        </div>
+        <PlainTextEditor
+          ref="editorRef"
+          :model-value="modelValue"
+          :placeholder="placeholder"
+          :thread-id="threadId"
+          :project-id="projectId"
+          :commands="commands"
+          @update:model-value="emit('update:modelValue', $event)"
+          @text-change="handleEditorTextChange"
+          @paste-images="emit('paste-images', $event, threadId)"
+          @file-reference-completion="handleFileReferenceCompletion"
+          @skill-reference-completion="handleSkillReferenceCompletion"
+          @focus-change="handleEditorFocusChange"
+          @submit="handleSubmit"
+        />
+        <div class="composer__actions">
+          <div v-if="imageError" class="composer__image-error" role="alert">
+            <span>{{ imageError }}</span>
+            <button type="button" aria-label="关闭图片错误" @click="emit('dismiss-image-error')">
+              <X :size="12" />
             </button>
           </div>
-        </div>
-      </div>
-      <PlainTextEditor
-        ref="editorRef"
-        :model-value="modelValue"
-        :placeholder="placeholder"
-        :thread-id="threadId"
-        :project-id="projectId"
-        :commands="commands"
-        @update:model-value="emit('update:modelValue', $event)"
-        @text-change="handleEditorTextChange"
-        @paste-images="emit('paste-images', $event, threadId)"
-        @file-reference-completion="handleFileReferenceCompletion"
-        @skill-reference-completion="handleSkillReferenceCompletion"
-        @focus-change="handleEditorFocusChange"
-        @submit="handleSubmit"
-      />
-      <div class="composer__actions">
-        <div v-if="imageError" class="composer__image-error" role="alert">
-          <span>{{ imageError }}</span>
-          <button type="button" aria-label="关闭图片错误" @click="emit('dismiss-image-error')">
-            <X :size="12" />
-          </button>
-        </div>
-        <div style="margin-right: auto">
-          <div class="composer__left-actions">
-            <TooltipProvider>
-              <Tooltip>
-                <TooltipTrigger as-child>
-                  <BaseIconButton
-                    type="button"
-                    size="medium"
-                    class="composer__attach"
-                    label="添加图片"
-                    :disabled="selectingImages"
-                    @click="openImagePicker"
-                  >
-                    <PlusIcon :size="16" />
-                  </BaseIconButton>
-                </TooltipTrigger>
-                <TooltipContent>添加图片</TooltipContent>
-              </Tooltip>
-            </TooltipProvider>
-            <TooltipProvider>
-              <Tooltip>
-                <TooltipTrigger as-child>
-                  <BaseIconButton
-                    type="button"
-                    size="medium"
-                    class="composer__commands"
-                    label="打开命令面板"
-                    :active="commandPaletteOpen"
-                    :disabled="!canOpenCommandPalette"
-                    @click="toggleCommandPalette"
-                  >
-                    <CommandIcon :size="15" />
-                  </BaseIconButton>
-                </TooltipTrigger>
-                <TooltipContent>命令面板 (⌘K)</TooltipContent>
-              </Tooltip>
-            </TooltipProvider>
+          <div style="margin-right: auto">
+            <div class="composer__left-actions">
+              <TooltipProvider>
+                <Tooltip>
+                  <TooltipTrigger as-child>
+                    <BaseIconButton
+                      type="button"
+                      size="medium"
+                      class="composer__attach"
+                      label="添加图片"
+                      :disabled="selectingImages"
+                      @click="openImagePicker"
+                    >
+                      <PlusIcon :size="16" />
+                    </BaseIconButton>
+                  </TooltipTrigger>
+                  <TooltipContent>添加图片</TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
+              <TooltipProvider>
+                <Tooltip>
+                  <TooltipTrigger as-child>
+                    <BaseIconButton
+                      type="button"
+                      size="medium"
+                      class="composer__commands"
+                      label="打开命令面板"
+                      :active="commandPaletteOpen"
+                      :disabled="!canOpenCommandPalette"
+                      @click="toggleCommandPalette"
+                    >
+                      <CommandIcon :size="15" />
+                    </BaseIconButton>
+                  </TooltipTrigger>
+                  <TooltipContent>命令面板 (⌘K)</TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
+            </div>
           </div>
-        </div>
-        <Select
-          :model-value="currentModelValue"
-          :disabled="isModelSelectDisabled"
-          @update:model-value="handleModelChange"
-          @update:open="handleModelSelectOpenChange"
-        >
-          <SelectTrigger
-            :ref="modelSelectContentWidth.setTriggerRef"
-            class="composer__model-select"
-            variant="borderless"
-            size="sm"
-            :hide-icon="true"
-            aria-label="选择当前会话模型"
+          <Select
+            :model-value="currentModelValue"
+            :disabled="isModelSelectDisabled"
+            @update:model-value="handleModelChange"
+            @update:open="handleModelSelectOpenChange"
           >
-            <span class="composer__model-label">{{ currentModelLabel }}</span>
-          </SelectTrigger>
-          <SelectContent
-            class="composer__model-select-content"
-            :content-style="modelSelectContentWidth.contentStyle.value"
-          >
-            <VirtualSelectItems
-              v-if="shouldVirtualizeModelSelect"
-              :items="modelSelectItems"
-              scroll-class="composer__model-select-scroll"
-              size-class="composer__model-select-size"
-              item-class="composer__model-select-item"
-            />
-            <ScrollArea v-else class="composer__model-select-scroll">
-              <SelectGroup class="composer__model-select-list">
-                <SelectItem v-for="item in modelSelectItems" :key="item.key" :value="item.value">
-                  {{ item.label }}
-                </SelectItem>
-              </SelectGroup>
-            </ScrollArea>
-          </SelectContent>
-        </Select>
-
-        <TooltipProvider>
-          <Tooltip>
-            <Select
-              :model-value="currentThinkingLevel"
-              :disabled="thinkingSelectDisabled"
-              @update:model-value="handleThinkingLevelChange"
+            <SelectTrigger
+              :ref="modelSelectContentWidth.setTriggerRef"
+              class="composer__model-select"
+              variant="borderless"
+              size="sm"
+              :hide-icon="true"
+              aria-label="选择当前会话模型"
             >
-              <TooltipTrigger as="span" class="composer__thinking-tooltip-trigger">
-                <SelectTrigger
-                  class="composer__thinking-select"
-                  variant="borderless"
-                  size="sm"
-                  :hide-icon="true"
-                  aria-label="选择当前会话 Thinking level"
-                >
-                  <span class="composer__thinking-label">{{ currentThinkingLabel }}</span>
-                </SelectTrigger>
-              </TooltipTrigger>
-
-              <SelectContent :content-style="{ width: '128px', minWidth: '128px' }">
-                <SelectGroup>
-                  <SelectItem
-                    v-for="option in thinkingOptions"
-                    :key="option.value"
-                    :value="option.value"
-                  >
-                    {{ option.label }}
+              <span class="composer__model-label">{{ currentModelLabel }}</span>
+            </SelectTrigger>
+            <SelectContent
+              class="composer__model-select-content"
+              :content-style="modelSelectContentWidth.contentStyle.value"
+            >
+              <VirtualSelectItems
+                v-if="shouldVirtualizeModelSelect"
+                :items="modelSelectItems"
+                scroll-class="composer__model-select-scroll"
+                size-class="composer__model-select-size"
+                item-class="composer__model-select-item"
+              />
+              <ScrollArea v-else class="composer__model-select-scroll">
+                <SelectGroup class="composer__model-select-list">
+                  <SelectItem v-for="item in modelSelectItems" :key="item.key" :value="item.value">
+                    {{ item.label }}
                   </SelectItem>
                 </SelectGroup>
-              </SelectContent>
-            </Select>
-            <TooltipContent>Thinking level: {{ currentThinkingLabel }}</TooltipContent>
-          </Tooltip>
-        </TooltipProvider>
+              </ScrollArea>
+            </SelectContent>
+          </Select>
 
-        <Select
-          v-if="isRunning && canSend"
-          :model-value="runningDelivery"
-          @update:model-value="handleRunningDeliveryChange"
-        >
-          <SelectTrigger
-            class="composer__delivery-select"
-            variant="borderless"
-            size="sm"
-            :hide-icon="true"
-            aria-label="运行中消息交付方式"
+          <TooltipProvider>
+            <Tooltip>
+              <Select
+                :model-value="currentThinkingLevel"
+                :disabled="thinkingSelectDisabled"
+                @update:model-value="handleThinkingLevelChange"
+              >
+                <TooltipTrigger as="span" class="composer__thinking-tooltip-trigger">
+                  <SelectTrigger
+                    class="composer__thinking-select"
+                    variant="borderless"
+                    size="sm"
+                    :hide-icon="true"
+                    aria-label="选择当前会话 Thinking level"
+                  >
+                    <span class="composer__thinking-label">{{ currentThinkingLabel }}</span>
+                  </SelectTrigger>
+                </TooltipTrigger>
+
+                <SelectContent :content-style="{ width: '128px', minWidth: '128px' }">
+                  <SelectGroup>
+                    <SelectItem
+                      v-for="option in thinkingOptions"
+                      :key="option.value"
+                      :value="option.value"
+                    >
+                      {{ option.label }}
+                    </SelectItem>
+                  </SelectGroup>
+                </SelectContent>
+              </Select>
+              <TooltipContent>Thinking level: {{ currentThinkingLabel }}</TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
+
+          <Select
+            v-if="isRunning && canSend"
+            :model-value="runningDelivery"
+            @update:model-value="handleRunningDeliveryChange"
           >
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectGroup>
-              <SelectItem value="steer">Steer</SelectItem>
-              <SelectItem value="followUp">Follow-up</SelectItem>
-            </SelectGroup>
-          </SelectContent>
-        </Select>
+            <SelectTrigger
+              class="composer__delivery-select"
+              variant="borderless"
+              size="sm"
+              :hide-icon="true"
+              aria-label="运行中消息交付方式"
+            >
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectGroup>
+                <SelectItem value="steer">Steer</SelectItem>
+                <SelectItem value="followUp">Follow-up</SelectItem>
+              </SelectGroup>
+            </SelectContent>
+          </Select>
 
-        <Usage v-if="usage" :usage="usage" />
+          <Usage v-if="usage" :usage="usage" />
 
-        <ImagePreviewDialog
-          v-if="imagePreviewDialogOpen"
-          v-model:open="imagePreviewDialogOpen"
-          :images="imagePreviewItems"
-          :initial-index="imagePreviewInitialIndex"
-        />
+          <ImagePreviewDialog
+            v-if="imagePreviewDialogOpen"
+            v-model:open="imagePreviewDialogOpen"
+            :images="imagePreviewItems"
+            :initial-index="imagePreviewInitialIndex"
+          />
 
+          <BaseIconButton
+            type="button"
+            size="medium"
+            class="composer__action"
+            :class="{ 'is-stop': isRunning && !canSend, 'is-loading': submitting }"
+            :label="
+              submitting
+                ? '发送中'
+                : isRunning && !canSend
+                  ? '停止'
+                  : isRunning
+                    ? '发送到队列'
+                    : '发送'
+            "
+            :disabled="submitting || (!isRunning && !canSend)"
+            @click="handleActionClick"
+          >
+            <LoaderCircle v-if="submitting" :size="18" />
+            <StopIcon v-else-if="isRunning && !canSend" :size="20" />
+            <SendIcon v-else :size="20" />
+          </BaseIconButton>
+        </div>
+      </form>
+
+      <div v-if="isComposerFormDisabled && isRunning && !canSend" class="composer__floating-stop">
         <BaseIconButton
           type="button"
           size="medium"
-          class="composer__action"
-          :class="{ 'is-stop': isRunning && !canSend, 'is-loading': submitting }"
-          :label="
-            submitting
-              ? '发送中'
-              : isRunning && !canSend
-                ? '停止'
-                : isRunning
-                  ? '发送到队列'
-                  : '发送'
-          "
-          :disabled="submitting || (!isRunning && !canSend)"
-          @click="handleActionClick"
+          class="composer__action is-stop"
+          label="停止"
+          @click="emit('abort')"
         >
-          <LoaderCircle v-if="submitting" :size="18" />
-          <StopIcon v-else-if="isRunning && !canSend" :size="20" />
-          <SendIcon v-else :size="20" />
+          <StopIcon :size="20" />
         </BaseIconButton>
       </div>
-    </form>
+    </div>
 
     <div v-if="!threadId" class="composer-footer">
       <Select
@@ -1812,8 +1862,17 @@ function clearExtensionDraft(id: string): void {
   }
 }
 
+.composer-stack {
+  position: relative;
+  display: grid;
+  min-width: 0;
+  overflow: visible;
+  border-radius: 18px;
+}
+
 .composer {
   position: relative;
+  grid-area: 1 / 1;
   display: grid;
   gap: var(--space-2);
   padding: var(--space-4);
@@ -1840,6 +1899,26 @@ function clearExtensionDraft(id: string): void {
     pointer-events: none;
     transition: opacity var(--duration-fast) var(--ease-standard);
   }
+
+  &.is-disabled {
+    color: var(--color-text-muted);
+    background: color-mix(in srgb, var(--color-surface-raised) 82%, var(--color-canvas));
+    border-color: color-mix(in srgb, var(--color-border) 64%, transparent);
+    box-shadow: none;
+    filter: saturate(0.62);
+    pointer-events: none;
+    user-select: none;
+  }
+}
+
+.composer__floating-stop {
+  position: relative;
+  z-index: 31;
+  grid-area: 1 / 1;
+  align-self: end;
+  justify-self: end;
+  margin: 0 var(--space-4) var(--space-4) 0;
+  pointer-events: auto;
 }
 
 .composer__floating-popup {
@@ -2425,21 +2504,37 @@ function clearExtensionDraft(id: string): void {
 }
 
 .composer__extension-requests {
+  position: relative;
+  z-index: 30;
+  box-sizing: border-box;
+  grid-area: 1 / 1;
+  align-self: end;
   display: grid;
-  gap: var(--space-2);
   min-width: 0;
+  overflow: visible;
+  background: color-mix(in srgb, var(--color-canvas) 36%, transparent);
+  pointer-events: none;
 }
 
 .composer__extension-request {
+  box-sizing: border-box;
   display: grid;
-  gap: var(--space-2);
+  grid-template-rows: auto auto auto;
+  gap: var(--space-3);
+  width: 100%;
   min-width: 0;
-  padding: var(--space-3);
+  min-height: 0;
+  padding: var(--space-4);
+  overflow: visible;
   color: var(--color-text);
-  background: var(--color-surface-raised);
-  border: 1px solid var(--color-border);
+  background: color-mix(in srgb, var(--color-surface-raised) 98%, var(--color-canvas));
+  border: 1px solid color-mix(in srgb, var(--color-primary) 42%, var(--color-border));
   border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-sm);
+  box-shadow:
+    var(--shadow-md),
+    0 18px 48px color-mix(in srgb, var(--color-canvas) 36%, transparent);
+  pointer-events: auto;
+  backdrop-filter: blur(18px);
 }
 
 .composer__extension-request-header {
@@ -2447,11 +2542,13 @@ function clearExtensionDraft(id: string): void {
   align-items: center;
   gap: var(--space-2);
   min-width: 0;
+  padding-bottom: var(--space-2);
+  border-bottom: 1px solid color-mix(in srgb, var(--color-border) 72%, transparent);
 
   > div {
     display: flex;
     flex: 1 1 auto;
-    align-items: baseline;
+    align-items: center;
     gap: var(--space-2);
     min-width: 0;
   }
@@ -2471,16 +2568,33 @@ function clearExtensionDraft(id: string): void {
   }
 
   span {
-    color: var(--color-text-subtle);
-    font-size: var(--font-size-ui-xs);
+    flex: 0 0 auto;
+    padding: 2px 6px;
+    color: var(--color-text-muted);
+    background: color-mix(in srgb, var(--color-canvas) 72%, transparent);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-sm);
+    font-size: var(--font-size-ui-2xs);
+    font-weight: 650;
+    line-height: 1.2;
+    text-transform: uppercase;
   }
+}
+
+.composer__extension-request-body {
+  display: grid;
+  align-content: start;
+  gap: var(--space-3);
+  min-width: 0;
+  min-height: 0;
+  overflow: visible;
 }
 
 .composer__extension-request-message {
   margin: 0;
   color: var(--color-text-muted);
   font-size: var(--font-size-ui-sm);
-  line-height: 1.35;
+  line-height: 1.45;
   overflow-wrap: anywhere;
   white-space: pre-wrap;
 }
@@ -2493,31 +2607,41 @@ function clearExtensionDraft(id: string): void {
   min-width: 0;
 }
 
+.composer__extension-request-actions {
+  justify-content: flex-end;
+  padding-top: var(--space-1);
+}
+
 .composer__extension-request-input,
 .composer__extension-request-editor {
   width: 100%;
   min-width: 0;
   color: var(--color-text);
-  background: var(--color-canvas);
+  background: color-mix(in srgb, var(--color-canvas) 88%, transparent);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-md);
   font: inherit;
   font-size: var(--font-size-ui-sm);
+  transition:
+    border-color var(--duration-fast) var(--ease-standard),
+    box-shadow var(--duration-fast) var(--ease-standard),
+    background var(--duration-fast) var(--ease-standard);
 
   &:focus {
     outline: none;
+    background: var(--color-canvas);
+    border-color: color-mix(in srgb, var(--color-primary) 55%, var(--color-border));
     box-shadow: var(--shadow-focus);
   }
 }
 
 .composer__extension-request-input {
-  height: 30px;
+  height: 34px;
   padding: 0 var(--space-2);
 }
 
 .composer__extension-request-editor {
-  min-height: 84px;
-  max-height: 160px;
+  min-height: 92px;
   padding: var(--space-2);
   resize: vertical;
   line-height: 1.45;

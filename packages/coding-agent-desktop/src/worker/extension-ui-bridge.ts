@@ -18,6 +18,8 @@ import {
 
 /** 等待中的 UI 请求。 */
 interface PendingUiRequest<T> {
+	request: ExtensionUiRequest;
+	options?: ExtensionUIDialogOptions;
 	resolve: (value: T) => void;
 	reject: (error: Error) => void;
 	timer?: ReturnType<typeof setTimeout>;
@@ -102,7 +104,9 @@ export class ExtensionUiBridge {
 	private readonly threadId: ThreadId;
 	private readonly emit: (event: WorkerEventEnvelope) => void;
 	private readonly pending = new Map<string, PendingUiRequest<unknown>>();
+	private readonly dialogQueue: string[] = [];
 	private readonly terminalInputHandlers = new Set<(data: string) => unknown>();
+	private activeDialogRequestId: string | undefined;
 	private activeTheme = desktopThemes[0];
 	private cwd: string;
 	private editorText = "";
@@ -323,7 +327,11 @@ export class ExtensionUiBridge {
 			clearTimeout(pending.timer);
 		}
 		this.pending.delete(response.id);
+		if (this.activeDialogRequestId === response.id) {
+			this.activeDialogRequestId = undefined;
+		}
 		pending.resolve(response);
+		this.emitNextDialogRequest();
 	}
 
 	private requestDialog<T>(
@@ -332,19 +340,39 @@ export class ExtensionUiBridge {
 		parse: (response: ExtensionUiResponse) => T,
 	): Promise<T> {
 		return new Promise<T>((resolve, reject) => {
-			const timer = options?.timeout
-				? setTimeout(() => {
-						this.pending.delete(request.id);
-						reject(new Error(`extension UI request timed out: ${request.id}`));
-					}, options.timeout)
-				: undefined;
 			this.pending.set(request.id, {
+				request,
+				options,
 				resolve: (value) => resolve(parse(value as ExtensionUiResponse)),
 				reject,
-				timer,
 			});
-			this.emitUi(request);
+			this.dialogQueue.push(request.id);
+			this.emitNextDialogRequest();
 		});
+	}
+
+	private emitNextDialogRequest(): void {
+		if (this.activeDialogRequestId) return;
+		const requestId = this.dialogQueue.shift();
+		if (!requestId) return;
+		const pending = this.pending.get(requestId);
+		if (!pending) {
+			this.emitNextDialogRequest();
+			return;
+		}
+
+		this.activeDialogRequestId = requestId;
+		if (pending.options?.timeout) {
+			pending.timer = setTimeout(() => {
+				this.pending.delete(requestId);
+				if (this.activeDialogRequestId === requestId) {
+					this.activeDialogRequestId = undefined;
+				}
+				pending.reject(new Error(`extension UI request timed out: ${requestId}`));
+				this.emitNextDialogRequest();
+			}, pending.options.timeout);
+		}
+		this.emitUi(pending.request);
 	}
 
 	private emitUi(request: ExtensionUiRequest): void {

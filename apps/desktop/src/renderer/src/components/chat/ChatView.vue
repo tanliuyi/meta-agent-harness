@@ -65,6 +65,8 @@ const modelSettings = useModelSettingsStore()
 let initialSettingsLoadSchedule: InitialSettingsLoadSchedule | undefined
 
 const SESSION_ACTION_AUTO_DISMISS_MS = 5000
+const SESSION_NOTIFICATION_AUTO_DISMISS_MS = 5000
+const sessionNotificationTimeouts = new Map<string, number>()
 
 type TimelineScrollBehavior = 'auto' | 'smooth'
 type ScrollAreaInstance = InstanceType<typeof ScrollArea>
@@ -1229,6 +1231,30 @@ watch(
 )
 
 watch(
+  () => workspaceSession.activeSessionNotifications.map((notification) => notification.id),
+  (notificationIds) => {
+    const activeIds = new Set(notificationIds)
+    for (const [notificationId, timeoutId] of sessionNotificationTimeouts) {
+      if (!activeIds.has(notificationId)) {
+        window.clearTimeout(timeoutId)
+        sessionNotificationTimeouts.delete(notificationId)
+      }
+    }
+    for (const notificationId of notificationIds) {
+      if (sessionNotificationTimeouts.has(notificationId)) {
+        continue
+      }
+      const timeoutId = window.setTimeout(() => {
+        workspaceSession.dismissSessionNotification(notificationId)
+        sessionNotificationTimeouts.delete(notificationId)
+      }, SESSION_NOTIFICATION_AUTO_DISMISS_MS)
+      sessionNotificationTimeouts.set(notificationId, timeoutId)
+    }
+  },
+  { immediate: true }
+)
+
+watch(
   () => [
     workspaceSession.activeSessionId,
     displayTimelineItems.value.length,
@@ -1322,6 +1348,10 @@ onBeforeUnmount(() => {
   if (activityIndicatorTimerId !== null) {
     window.clearInterval(activityIndicatorTimerId)
   }
+  for (const timeoutId of sessionNotificationTimeouts.values()) {
+    window.clearTimeout(timeoutId)
+  }
+  sessionNotificationTimeouts.clear()
 })
 
 /**
@@ -1424,8 +1454,8 @@ function getTimelineItemRevision(item: TimelineItem | undefined): unknown[] {
           <span>
             {{ activityLabel }}
             <template v-if="hasPendingQueue">
-              · 已排队 {{ pendingQueue.steering.length }} 条 steer /
-              {{ pendingQueue.followUp.length }} 条 follow-up
+              · 已排队 {{ pendingQueue.steering.length }} 条引导消息 /
+              {{ pendingQueue.followUp.length }} 条后续消息
             </template>
           </span>
         </div>
@@ -1443,6 +1473,30 @@ function getTimelineItemRevision(item: TimelineItem | undefined): unknown[] {
     </button>
 
     <div ref="composerRef" class="chat-view__composer">
+      <TransitionGroup
+        name="session-notification"
+        tag="div"
+        class="chat-view__session-notifications"
+      >
+        <div
+          v-for="notification in workspaceSession.activeSessionNotifications"
+          :key="notification.id"
+          class="chat-view__session-notification"
+        >
+          <span class="chat-view__session-notification-text">
+            {{ notification.message }}
+          </span>
+          <button
+            type="button"
+            class="chat-view__session-notification-close"
+            aria-label="关闭通知"
+            @click="workspaceSession.dismissSessionNotification(notification.id)"
+          >
+            <X :size="14" />
+          </button>
+        </div>
+      </TransitionGroup>
+
       <div v-if="workspaceSession.activeSessionActionMessage" class="chat-view__session-action">
         <span class="chat-view__session-action-text">
           {{ workspaceSession.activeSessionActionMessage }}
@@ -1565,6 +1619,96 @@ function getTimelineItemRevision(item: TimelineItem | undefined): unknown[] {
   min-height: 100%;
   margin: 0 auto;
   padding: var(--space-6) var(--space-8) var(--space-8);
+}
+
+.chat-view__session-notifications {
+  position: absolute;
+  right: var(--space-8);
+  bottom: calc(100% + var(--space-3));
+  left: var(--space-8);
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-2);
+  pointer-events: none;
+}
+
+.chat-view__session-notification {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  box-sizing: border-box;
+  max-width: min(100%, 640px);
+  padding: var(--space-2) var(--space-2) var(--space-2) var(--space-4);
+  overflow: hidden;
+  color: var(--color-text);
+  font-size: var(--font-size-ui-sm);
+  line-height: 1.4;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  box-shadow: var(--shadow-md);
+}
+
+.chat-view__session-notification-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chat-view__session-notification-close {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  color: var(--color-text-muted);
+  background: transparent;
+  border: 0;
+  border-radius: 6px;
+  cursor: pointer;
+  pointer-events: auto;
+  transition:
+    color var(--duration-fast) var(--ease-standard),
+    background-color var(--duration-fast) var(--ease-standard);
+
+  &:hover {
+    color: var(--color-text);
+    background: var(--color-surface-hover);
+  }
+
+  &:focus-visible {
+    outline: none;
+    box-shadow: var(--shadow-focus);
+  }
+}
+
+.session-notification-enter-active,
+.session-notification-leave-active,
+.session-notification-move {
+  transition:
+    opacity 180ms ease,
+    transform 180ms ease;
+}
+
+.session-notification-enter-from,
+.session-notification-leave-to {
+  opacity: 0;
+  transform: translateY(8px) scale(0.98);
+}
+
+.session-notification-enter-to,
+.session-notification-leave-from {
+  opacity: 1;
+  transform: translateY(0) scale(1);
+}
+
+.session-notification-leave-active {
+  position: absolute;
 }
 
 .chat-view__session-action {

@@ -46,6 +46,7 @@ import type {
 const PROMPT_TITLE_MAX_CHARS = 30
 const EXTENSION_INLINE_NOTIFY_MAX_CHARS = 180
 const DEFERRED_SNAPSHOT_REFRESH_DELAY_MS = 900
+const MAX_SESSION_NOTIFICATIONS = 4
 
 /** 会话面板 UI 状态。 */
 export type SessionUiState = {
@@ -57,6 +58,11 @@ export type SessionUiState = {
 
 export type { ComposerImageAttachment } from './workspace-session-composer'
 export type { ComposerFileAttachment } from './workspace-session-composer'
+
+export interface SessionNotification {
+  id: string
+  message: string
+}
 
 /** 运行中消息的交付方式。 */
 export type RunningMessageDelivery = 'steer' | 'followUp'
@@ -368,6 +374,8 @@ export default defineStore('workspace-session', () => {
   const sessionActionDetailsByThreadId = shallowReactive<
     Record<string, RunCommandResult['details'] | undefined>
   >({})
+  const sessionNotificationsByThreadId = shallowReactive<Record<string, SessionNotification[]>>({})
+  let sessionNotificationSequence = 0
 
   /** 每个 thread 当前正在导航到的 session tree entry。 */
   const navigatingTreeEntryByThreadId = shallowReactive<Record<string, string | undefined>>({})
@@ -1172,6 +1180,9 @@ export default defineStore('workspace-session', () => {
   const activeSessionActionDetails = computed(() =>
     activeSessionId.value ? sessionActionDetailsByThreadId[activeSessionId.value] : undefined
   )
+  const activeSessionNotifications = computed(() =>
+    activeSessionId.value ? (sessionNotificationsByThreadId[activeSessionId.value] ?? []) : []
+  )
   const activeNavigatingTreeEntryId = computed(() =>
     activeSessionId.value ? navigatingTreeEntryByThreadId[activeSessionId.value] : undefined
   )
@@ -1184,6 +1195,41 @@ export default defineStore('workspace-session', () => {
     }
     delete sessionActionMessageByThreadId[threadId]
     delete sessionActionDetailsByThreadId[threadId]
+  }
+
+  const pushSessionNotification = (threadId: string, message: string): void => {
+    if (!message.trim()) {
+      return
+    }
+    const notifications = sessionNotificationsByThreadId[threadId] ?? []
+    const notification: SessionNotification = {
+      id: `${Date.now()}-${++sessionNotificationSequence}`,
+      message
+    }
+    sessionNotificationsByThreadId[threadId] = [...notifications, notification].slice(
+      -MAX_SESSION_NOTIFICATIONS
+    )
+  }
+
+  const dismissSessionNotification = (
+    notificationId: string,
+    threadId = activeSessionId.value
+  ): void => {
+    if (!threadId) {
+      return
+    }
+    const notifications = sessionNotificationsByThreadId[threadId]
+    if (!notifications?.length) {
+      return
+    }
+    const nextNotifications = notifications.filter(
+      (notification) => notification.id !== notificationId
+    )
+    if (nextNotifications.length) {
+      sessionNotificationsByThreadId[threadId] = nextNotifications
+    } else {
+      delete sessionNotificationsByThreadId[threadId]
+    }
   }
 
   /** 新会话草稿模型。 */
@@ -1534,9 +1580,9 @@ export default defineStore('workspace-session', () => {
     try {
       const result = await window.api.codingAgent.cycleModel(threadId)
       if (result) {
-        sessionActionMessageByThreadId[threadId] = `已切换模型到 ${getModelLabel(result.model)}`
+        pushSessionNotification(threadId, `已切换模型到 ${getModelLabel(result.model)}`)
       } else {
-        sessionActionMessageByThreadId[threadId] = '没有可切换的模型'
+        pushSessionNotification(threadId, '没有可切换的模型')
       }
       await refreshSnapshot(threadId)
     } catch (error) {
@@ -1578,9 +1624,10 @@ export default defineStore('workspace-session', () => {
     runtime.errorMessage = undefined
     try {
       const result = await window.api.codingAgent.cycleThinkingLevel(threadId)
-      sessionActionMessageByThreadId[threadId] = result
-        ? `Thinking 已切换到 ${result.level}`
-        : '当前模型不支持切换 thinking'
+      pushSessionNotification(
+        threadId,
+        result ? `Thinking 已切换到 ${result.level}` : '当前模型不支持切换 thinking'
+      )
       await refreshSnapshot(threadId)
     } catch (error) {
       runtime.errorMessage = error instanceof Error ? error.message : String(error)
@@ -1899,7 +1946,7 @@ export default defineStore('workspace-session', () => {
       if (desktopCommandResult.message) {
         const targetThreadId = threadId ?? activeSessionId.value
         if (targetThreadId) {
-          sessionActionMessageByThreadId[targetThreadId] = desktopCommandResult.message
+          pushSessionNotification(targetThreadId, desktopCommandResult.message)
           delete sessionActionDetailsByThreadId[targetThreadId]
         }
         toast.info('命令已完成', desktopCommandResult.message)
@@ -1925,8 +1972,10 @@ export default defineStore('workspace-session', () => {
       if (result?.refreshSnapshot) {
         await refreshSnapshot(targetThreadId)
       }
-      sessionActionMessageByThreadId[targetThreadId] =
+      pushSessionNotification(
+        targetThreadId,
         result?.message ?? `已运行 ${args ? `${command} ${args}` : command}`
+      )
       if (result?.details) {
         sessionActionDetailsByThreadId[targetThreadId] = result.details
       } else {
@@ -2066,7 +2115,7 @@ export default defineStore('workspace-session', () => {
       commandsLoadedByThreadId[threadId] = false
       commandsByThreadId[threadId] = []
       await loadCommands(threadId)
-      sessionActionMessageByThreadId[threadId] = '已重载扩展与资源'
+      pushSessionNotification(threadId, '已重载扩展与资源')
       toast.success('扩展与资源已应用到当前会话')
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
@@ -2107,7 +2156,7 @@ export default defineStore('workspace-session', () => {
       if (sessions[threadId]) {
         sessions[threadId] = applySessionStatus(sessions[threadId], 'idle')
       }
-      sessionActionMessageByThreadId[threadId] = result.cancelled ? '压缩已取消' : '上下文已压缩'
+      pushSessionNotification(threadId, result.cancelled ? '压缩已取消' : '上下文已压缩')
       await refreshSnapshot(threadId)
     } catch (error) {
       runtime.compaction = {
@@ -2138,7 +2187,7 @@ export default defineStore('workspace-session', () => {
     }
     try {
       await window.api.codingAgent.setAutoCompaction({ threadId, enabled })
-      sessionActionMessageByThreadId[threadId] = enabled ? '自动压缩已启用' : '自动压缩已关闭'
+      pushSessionNotification(threadId, enabled ? '自动压缩已启用' : '自动压缩已关闭')
       await refreshSnapshot(threadId)
     } catch (error) {
       ensureRuntime(threadId).errorMessage = error instanceof Error ? error.message : String(error)
@@ -2157,7 +2206,7 @@ export default defineStore('workspace-session', () => {
     }
     try {
       await window.api.codingAgent.setAutoRetry({ threadId, enabled })
-      sessionActionMessageByThreadId[threadId] = enabled ? '自动重试已启用' : '自动重试已关闭'
+      pushSessionNotification(threadId, enabled ? '自动重试已启用' : '自动重试已关闭')
       await refreshSnapshot(threadId)
     } catch (error) {
       ensureRuntime(threadId).errorMessage = error instanceof Error ? error.message : String(error)
@@ -2174,7 +2223,7 @@ export default defineStore('workspace-session', () => {
     try {
       await window.api.codingAgent.abortRetry(threadId)
       ensureRuntime(threadId).retry = undefined
-      sessionActionMessageByThreadId[threadId] = '已中止自动重试'
+      pushSessionNotification(threadId, '已中止自动重试')
       await refreshSnapshot(threadId)
     } catch (error) {
       ensureRuntime(threadId).errorMessage = error instanceof Error ? error.message : String(error)
@@ -2192,7 +2241,7 @@ export default defineStore('workspace-session', () => {
     try {
       const result = await window.api.codingAgent.exportSession({ threadId })
       ensureRuntime(threadId).lastExport = result
-      sessionActionMessageByThreadId[threadId] = 'Session 已导出'
+      pushSessionNotification(threadId, 'Session 已导出')
     } catch (error) {
       ensureRuntime(threadId).errorMessage = error instanceof Error ? error.message : String(error)
     }
@@ -2238,7 +2287,7 @@ export default defineStore('workspace-session', () => {
       if (previousPath && previousPath !== snapshot.sessionFile) {
         ensureRuntime(threadId).previousSessionFile = previousPath
       }
-      sessionActionMessageByThreadId[threadId] = '已创建新 session'
+      pushSessionNotification(threadId, '已创建新 session')
     } catch (error) {
       ensureRuntime(threadId).errorMessage = error instanceof Error ? error.message : String(error)
     }
@@ -2264,7 +2313,7 @@ export default defineStore('workspace-session', () => {
       syncToolCallsByIdFromSnapshot(snapshot)
       syncRenderStateFromSnapshot(snapshot)
       setContextActiveThreadId(snapshot.threadId)
-      sessionActionMessageByThreadId[threadId] = `已导入 ${inputPath}`
+      pushSessionNotification(threadId, `已导入 ${inputPath}`)
     } catch (error) {
       ensureRuntime(threadId).errorMessage = error instanceof Error ? error.message : String(error)
     }
@@ -2293,7 +2342,7 @@ export default defineStore('workspace-session', () => {
       if (previousPath && previousPath !== snapshot.sessionFile) {
         ensureRuntime(threadId).previousSessionFile = previousPath
       }
-      sessionActionMessageByThreadId[threadId] = `已切换到 ${nextPath}`
+      pushSessionNotification(threadId, `已切换到 ${nextPath}`)
     } catch (error) {
       ensureRuntime(threadId).errorMessage = error instanceof Error ? error.message : String(error)
     }
@@ -2329,14 +2378,14 @@ export default defineStore('workspace-session', () => {
     }
     if (lineage.parentThreadId && sessions[lineage.parentThreadId]) {
       setContextActiveThreadId(lineage.parentThreadId, contextId)
-      sessionActionMessageByThreadId[lineage.parentThreadId] = '已打开来源对话'
+      pushSessionNotification(lineage.parentThreadId, '已打开来源对话')
       return
     }
     if (lineage.parentThreadId && lineage.parentThreadArchivedAt) {
       await window.api.codingAgent.restoreThread(lineage.parentThreadId)
       await loadThreads(contextId)
       setContextActiveThreadId(lineage.parentThreadId, contextId)
-      sessionActionMessageByThreadId[lineage.parentThreadId] = '已恢复并打开来源对话'
+      pushSessionNotification(lineage.parentThreadId, '已恢复并打开来源对话')
       return
     }
     if (lineage.parentSessionFile && !lineage.parentSessionMissing && !lineage.unavailable) {
@@ -2344,7 +2393,7 @@ export default defineStore('workspace-session', () => {
         sessionFile: lineage.parentSessionFile
       })
       if (snapshot?.threadId) {
-        sessionActionMessageByThreadId[snapshot.threadId] = '已恢复来源对话'
+        pushSessionNotification(snapshot.threadId, '已恢复来源对话')
         return
       }
     }
@@ -2378,7 +2427,7 @@ export default defineStore('workspace-session', () => {
       mergeSnapshot(sessions, snapshot)
       syncToolCallsByIdFromSnapshot(snapshot)
       syncRenderStateFromSnapshot(snapshot)
-      sessionActionMessageByThreadId[threadId] = '当前 session 已克隆'
+      pushSessionNotification(threadId, '当前 session 已克隆')
     } catch (error) {
       ensureRuntime(threadId).errorMessage = error instanceof Error ? error.message : String(error)
     }
@@ -2396,7 +2445,7 @@ export default defineStore('workspace-session', () => {
     try {
       const result = await window.api.codingAgent.forkThread({ threadId, entryId, position: 'at' })
       if (result.cancelled || !result.snapshot) {
-        sessionActionMessageByThreadId[threadId] = '分支会话创建已取消'
+        pushSessionNotification(threadId, '分支会话创建已取消')
         return
       }
       const snapshot = result.snapshot
@@ -2406,7 +2455,7 @@ export default defineStore('workspace-session', () => {
       ensureRuntime(snapshot.threadId)
       setContextActiveThreadId(snapshot.threadId)
       workspaceProject.setActiveProjectId(snapshot.projectId)
-      sessionActionMessageByThreadId[snapshot.threadId] = '已创建分支会话'
+      pushSessionNotification(snapshot.threadId, '已创建分支会话')
     } catch (error) {
       ensureRuntime(threadId).errorMessage = error instanceof Error ? error.message : String(error)
     }
@@ -2565,7 +2614,7 @@ export default defineStore('workspace-session', () => {
       mergeSnapshot(sessions, snapshot)
       syncToolCallsByIdFromSnapshot(snapshot)
       syncRenderStateFromSnapshot(snapshot)
-      sessionActionMessageByThreadId[threadId] = label.trim() ? 'Label 已保存' : 'Label 已清除'
+      pushSessionNotification(threadId, label.trim() ? 'Label 已保存' : 'Label 已清除')
     } catch (error) {
       ensureRuntime(threadId).errorMessage = error instanceof Error ? error.message : String(error)
     }
@@ -2632,6 +2681,7 @@ export default defineStore('workspace-session', () => {
       delete commandsLoadedByThreadId[threadId]
       delete sessionTreeBranchesByThreadId[threadId]
       delete sessionActionMessageByThreadId[threadId]
+      delete sessionNotificationsByThreadId[threadId]
       await loadThreads(contextId, { selectLatestActiveProjectThread: true })
     } catch (error) {
       globalErrorMessage.value = error instanceof Error ? error.message : String(error)
@@ -2830,7 +2880,7 @@ export default defineStore('workspace-session', () => {
         runtime.extensionUiRequests[request.id] = request
         return
       case 'notify':
-        sessionActionMessageByThreadId[threadId] = getExtensionNotifySummary(request.message)
+        pushSessionNotification(threadId, getExtensionNotifySummary(request.message))
         if (shouldShowExtensionNotifyInPanel(request.message)) {
           runtime.extensionNotifications = [request.message]
         }
@@ -2994,9 +3044,12 @@ export default defineStore('workspace-session', () => {
         if (sessions[threadId]) {
           sessions[threadId] = applySessionStatus(sessions[threadId], 'idle')
         }
-        sessionActionMessageByThreadId[threadId] = event.success
-          ? '自动重试已恢复'
-          : `自动重试结束${event.finalError ? `：${event.finalError}` : ''}`
+        pushSessionNotification(
+          threadId,
+          event.success
+            ? '自动重试已恢复'
+            : `自动重试结束${event.finalError ? `：${event.finalError}` : ''}`
+        )
       } else if (event.type === 'compaction_start') {
         runtime.compaction = {
           reason: event.reason,
@@ -3007,7 +3060,7 @@ export default defineStore('workspace-session', () => {
         if (sessions[threadId]) {
           sessions[threadId] = applySessionStatus(sessions[threadId], 'running')
         }
-        sessionActionMessageByThreadId[threadId] = '正在压缩上下文'
+        pushSessionNotification(threadId, '正在压缩上下文')
       } else if (event.type === 'compaction_end') {
         runtime.compaction = {
           ...runtime.compaction,
@@ -3023,9 +3076,12 @@ export default defineStore('workspace-session', () => {
         if (sessions[threadId]) {
           sessions[threadId] = applySessionStatus(sessions[threadId], 'idle')
         }
-        sessionActionMessageByThreadId[threadId] = event.aborted
-          ? `压缩已中止${event.errorMessage ? `：${event.errorMessage}` : ''}`
-          : '上下文已压缩'
+        pushSessionNotification(
+          threadId,
+          event.aborted
+            ? `压缩已中止${event.errorMessage ? `：${event.errorMessage}` : ''}`
+            : '上下文已压缩'
+        )
         void refreshSnapshot(threadId)
       }
     }
@@ -3059,7 +3115,10 @@ export default defineStore('workspace-session', () => {
         break
       case 'projection':
         if (event.event.type === 'thread.stateChanged' && sessions[event.threadId]) {
-          sessions[event.threadId] = applySessionStatus(sessions[event.threadId], event.event.status)
+          sessions[event.threadId] = applySessionStatus(
+            sessions[event.threadId],
+            event.event.status
+          )
         }
         if (event.event.type === 'approval.requested') {
           ensureRuntime(event.threadId).approvals[event.event.approval.approvalId] =
@@ -3140,6 +3199,7 @@ export default defineStore('workspace-session', () => {
     activeSession,
     activeSessionActionMessage,
     activeSessionActionDetails,
+    activeSessionNotifications,
     activeSessionId,
     activeSessionPanel,
     activeSnapshot,
@@ -3158,6 +3218,7 @@ export default defineStore('workspace-session', () => {
     clearComposerImages,
     cloneActiveSession,
     clearActiveSessionAction,
+    dismissSessionNotification,
     compactActive,
     defaultSessionContextId,
     draftFiles,

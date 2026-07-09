@@ -44,6 +44,13 @@ afterEach(() => {
   vi.useRealTimers()
 })
 
+function expectLastSessionNotification(
+  store: ReturnType<typeof useWorkspaceSessionStore>,
+  message: string
+): void {
+  expect(store.activeSessionNotifications.at(-1)?.message).toBe(message)
+}
+
 describe('applyEventToSessions', () => {
   it('将后端真实 message_update 应用到 snapshot messages', () => {
     const sessions = createSessions()
@@ -1628,7 +1635,7 @@ describe('workspace-session Project-first actions', () => {
 
     expect(store.activeExtensionNotifications).toEqual([longMessage])
     expect(toastMock.info).toHaveBeenCalledWith('扩展', '通知内容较长，已放入扩展面板')
-    expect(store.activeSessionActionMessage).toBe('同步完成，但有 3 个文件需要人工确认')
+    expectLastSessionNotification(store, '同步完成，但有 3 个文件需要人工确认')
 
     store.clearExtensionNotifications()
 
@@ -1690,7 +1697,7 @@ describe('workspace-session Project-first actions', () => {
     })
     expect(getSnapshot).toHaveBeenCalledWith('thread-a')
     expect(store.sessions['thread-a']?.title).toBe('Updated')
-    expect(store.activeSessionActionMessage).toBe('已克隆当前会话')
+    expectLastSessionNotification(store, '已克隆当前会话')
   })
 
   it('运行带详情的 command 后在当前 session 暴露详情并在后续命令清理', async () => {
@@ -1713,7 +1720,7 @@ describe('workspace-session Project-first actions', () => {
 
     await store.runCommand('hotkeys')
 
-    expect(store.activeSessionActionMessage).toBe('已打开 Hotkeys')
+    expectLastSessionNotification(store, '已打开 Hotkeys')
     expect(store.activeSessionActionDetails).toEqual({
       title: 'Hotkeys',
       body: 'ctrl+c Clear editor'
@@ -1721,7 +1728,7 @@ describe('workspace-session Project-first actions', () => {
 
     await store.runCommand('reload')
 
-    expect(store.activeSessionActionMessage).toBe('已重载扩展与资源')
+    expectLastSessionNotification(store, '已重载扩展与资源')
     expect(store.activeSessionActionDetails).toBeUndefined()
   })
 
@@ -1736,7 +1743,7 @@ describe('workspace-session Project-first actions', () => {
 
     expect(routerMock.push).toHaveBeenCalledWith('/settings/agent')
     expect(runCommand).not.toHaveBeenCalled()
-    expect(store.activeSessionActionMessage).toBe('已打开 Agent 设置')
+    expectLastSessionNotification(store, '已打开 Agent 设置')
     expect(toastMock.info).toHaveBeenCalledWith('命令已完成', '已打开 Agent 设置')
   })
 
@@ -1781,7 +1788,7 @@ describe('workspace-session Project-first actions', () => {
     expect(runCommand).not.toHaveBeenCalled()
     expect(store.activeSessionPanel.panelOpen).toBe(true)
     expect(store.treeFocusRequest).toEqual({ entryId: 'entry-current', requestId: 1 })
-    expect(store.activeSessionActionMessage).toBe('已打开 Session Tree')
+    expectLastSessionNotification(store, '已打开 Session Tree')
   })
 
   it('带参数 model command 继续交给 main runtime command', async () => {
@@ -1802,7 +1809,7 @@ describe('workspace-session Project-first actions', () => {
       command: 'model',
       args: 'openai/gpt-5'
     })
-    expect(store.activeSessionActionMessage).toBe('已切换模型到 openai/gpt-5')
+    expectLastSessionNotification(store, '已切换模型到 openai/gpt-5')
   })
 
   it('新会话草稿态加载 command 只发现资源不创建 thread，运行 command 时才创建', async () => {
@@ -1968,7 +1975,7 @@ describe('workspace-session Project-first actions', () => {
     expect(store.activeCommands.map((command) => command.name)).toEqual(
       expect.arrayContaining(['reload', 'extension:hello'])
     )
-    expect(store.activeSessionActionMessage).toBe('已重载扩展与资源')
+    expectLastSessionNotification(store, '已重载扩展与资源')
   })
 
   it('按需加载 command，进入会话本身不触发 commands API', async () => {
@@ -2061,7 +2068,7 @@ describe('workspace-session Project-first actions', () => {
     expect(store.sessionsByProject['project-a']?.map((session) => session.threadId)).toEqual(
       expect.arrayContaining(['thread-a', 'thread-b'])
     )
-    expect(store.activeSessionActionMessage).toBe('已创建分支会话')
+    expectLastSessionNotification(store, '已创建分支会话')
   })
 
   it('取消 session tree 导航时保留当前 snapshot 与草稿', async () => {
@@ -2406,7 +2413,7 @@ describe('workspace-session Project-first actions', () => {
     await store.openParentSession()
 
     expect(store.activeSessionId).toBe('thread-parent')
-    expect(store.activeSessionActionMessage).toBe('已打开来源对话')
+    expectLastSessionNotification(store, '已打开来源对话')
   })
 
   it('打开 fork 来源时可从 parentSessionFile 恢复 sidebar thread', async () => {
@@ -2442,7 +2449,7 @@ describe('workspace-session Project-first actions', () => {
       sessionFile: '/tmp/parent.jsonl'
     })
     expect(store.activeSessionId).toBe('thread-restored')
-    expect(store.activeSessionActionMessage).toBe('已恢复来源对话')
+    expectLastSessionNotification(store, '已恢复来源对话')
   })
 
   it('从 parentSessionFile 恢复来源失败时不误报成功', async () => {
@@ -2517,7 +2524,7 @@ describe('workspace-session Project-first actions', () => {
     expect(restoreThread).toHaveBeenCalledWith('thread-parent')
     expect(window.api.codingAgent.createThread).not.toHaveBeenCalled()
     expect(store.activeSessionId).toBe('thread-parent')
-    expect(store.activeSessionActionMessage).toBe('已恢复并打开来源对话')
+    expectLastSessionNotification(store, '已恢复并打开来源对话')
   })
 
   it('消费 compaction 事件并刷新持久化后的 snapshot', async () => {
@@ -2554,7 +2561,7 @@ describe('workspace-session Project-first actions', () => {
     })
     expect(store.activeSession?.status).toBe('running')
     expect(store.activeSnapshot?.status).toBe('running')
-    expect(store.activeSessionActionMessage).toBe('正在压缩上下文')
+    expectLastSessionNotification(store, '正在压缩上下文')
 
     capturedEventListener?.({
       type: 'compaction_end',
@@ -2577,7 +2584,7 @@ describe('workspace-session Project-first actions', () => {
     })
     expect(store.activeSession?.status).toBe('idle')
     expect(store.activeSnapshot?.status).toBe('idle')
-    expect(store.activeSessionActionMessage).toBe('上下文已压缩')
+    expectLastSessionNotification(store, '上下文已压缩')
     expect(getSnapshot).toHaveBeenCalledWith('thread-a')
     expect(store.sessions['thread-a']).not.toBe(beforeSession)
     expect(store.activeSnapshot?.messages).toMatchObject([
@@ -2636,7 +2643,7 @@ describe('workspace-session Project-first actions', () => {
     })
     expect(store.activeSnapshot?.sessionFile).toBe('/tmp/existing.jsonl')
     expect(store.activePreviousSessionFile).toBe('/tmp/imported.jsonl')
-    expect(store.activeSessionActionMessage).toBe('已切换到 /tmp/existing.jsonl')
+    expectLastSessionNotification(store, '已切换到 /tmp/existing.jsonl')
   })
 
   it('暴露模型、thinking 和 runtime control 操作', async () => {
@@ -2688,7 +2695,7 @@ describe('workspace-session Project-first actions', () => {
     expect(abortRetry).toHaveBeenCalledWith('thread-a')
     expect(store.activeSnapshot?.model?.displayName).toBe('GPT-5')
     expect(store.activeSnapshot?.thinkingLevel).toBe('high')
-    expect(store.activeSessionActionMessage).toBe('已中止自动重试')
+    expectLastSessionNotification(store, '已中止自动重试')
   })
 
   it('投影 auto retry 事件到当前 runtime 状态', async () => {
@@ -2726,7 +2733,7 @@ describe('workspace-session Project-first actions', () => {
     expect(store.activeRetryState).toBeUndefined()
     expect(store.activeSession?.status).toBe('idle')
     expect(store.activeSnapshot?.status).toBe('idle')
-    expect(store.activeSessionActionMessage).toBe('自动重试结束：cancelled')
+    expectLastSessionNotification(store, '自动重试结束：cancelled')
   })
 
   it('自动重试等待后成功响应时保持 running 并在完成后回到 idle', async () => {
@@ -2780,7 +2787,7 @@ describe('workspace-session Project-first actions', () => {
     expect(store.activeRetryState).toBeUndefined()
     expect(store.activeSession?.status).toBe('idle')
     expect(store.activeSnapshot?.status).toBe('idle')
-    expect(store.activeSessionActionMessage).toBe('自动重试已恢复')
+    expectLastSessionNotification(store, '自动重试已恢复')
     expect(store.activeSnapshot?.messages.at(-1)).toMatchObject({
       role: 'assistant',
       text: 'retry recovered'

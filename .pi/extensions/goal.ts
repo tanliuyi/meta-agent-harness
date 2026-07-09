@@ -131,6 +131,7 @@ let extensionApi: ExtensionAPI | undefined;
 let continuationPending: ContinuationPending | undefined;
 let goalRecovery: GoalRecovery | undefined;
 let staleGoalToolCallsBlocked = false;
+let goalPanelEditorOpen = false;
 const cancelledContinuationMarkers = new Set<string>();
 
 const goalCompleteTool = defineTool({
@@ -247,6 +248,7 @@ export default function goal(pi: ExtensionAPI) {
 
 	pi.on("session_start", (_event, ctx) => {
 		clearCompletionStatusTimer();
+		clearGoalPanelEditorOpen();
 		clearContinuationTracking();
 		clearGoalRecovery();
 		clearStaleGoalToolCallBlock();
@@ -274,6 +276,7 @@ export default function goal(pi: ExtensionAPI) {
 
 	pi.on("session_shutdown", (_event, ctx) => {
 		if (activeGoal) persistGoal(activeGoal);
+		clearGoalPanelEditorOpen();
 		clearContinuationTracking();
 		clearGoalRecovery();
 		clearStaleGoalToolCallBlock();
@@ -566,6 +569,26 @@ async function handleDesktopPanelMessage(pi: ExtensionAPI, message: unknown, ctx
 		return;
 	}
 	if (action === "start" || action === "edit") {
+		await handleGoalPanelEditorAction(pi, action, ctx);
+		return;
+	}
+	postGoalPanelState(ctx);
+}
+
+async function handleGoalPanelEditorAction(
+	pi: ExtensionAPI,
+	action: "start" | "edit",
+	ctx: ExtensionContext,
+) {
+	if (goalPanelEditorOpen) {
+		ctx.ui.notify("A goal editor is already open.", "info");
+		postGoalPanelState(ctx);
+		return;
+	}
+
+	goalPanelEditorOpen = true;
+	postGoalPanelState(ctx);
+	try {
 		const prefill = action === "edit" ? activeGoal?.text : "";
 		const objective = await ctx.ui.editor(action === "edit" ? "Edit goal" : "Start goal", prefill ?? "");
 		if (objective === undefined) {
@@ -574,15 +597,17 @@ async function handleDesktopPanelMessage(pi: ExtensionAPI, message: unknown, ctx
 		}
 		if (action === "edit" && activeGoal) await editGoal(objective, undefined, pi, ctx);
 		else await startGoal(objective, undefined, pi, ctx);
-		return;
+	} finally {
+		goalPanelEditorOpen = false;
+		postGoalPanelState(ctx);
 	}
-	postGoalPanelState(ctx);
 }
 
 function postGoalPanelState(ctx: StatusContext) {
 	ctx.desktop?.postPanelMessage(PANEL_ID, {
 		type: "goal-state",
 		updatedAt: new Date().toISOString(),
+		editorOpen: goalPanelEditorOpen,
 		goal: activeGoal
 			? {
 					text: activeGoal.text,
@@ -897,6 +922,10 @@ function blockStaleGoalToolCalls() {
 
 function clearStaleGoalToolCallBlock() {
 	staleGoalToolCallsBlocked = false;
+}
+
+function clearGoalPanelEditorOpen() {
+	goalPanelEditorOpen = false;
 }
 
 function clearGoalRecovery() {

@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link rel="stylesheet" href="./panel.css" />
+    <title>拓展请求</title>
+  </head>
+  <body>
+    <main class="request-shell">
+      <header class="request-header">
+        <div>
+          <h1>拓展请求</h1>
+          <p id="status">就绪</p>
+        </div>
+        <button id="refresh" class="icon-button" type="button" title="刷新" aria-label="刷新">
+          <span aria-hidden="true">R</span>
+        </button>
+      </header>
+
+      <section class="summary" aria-label="请求摘要">
+        <div>
+          <span>点击次数</span>
+          <strong id="clicks">0</strong>
+        </div>
+        <div>
+          <span>上次操作</span>
+          <strong id="last-action">-</strong>
+        </div>
+        <div>
+          <span>上次结果</span>
+          <strong id="last-result">-</strong>
+        </div>
+      </section>
+
+      <section class="button-grid" aria-label="按钮示例">
+        <div class="button-group">
+          <h2>操作按钮</h2>
+          <div class="button-row">
+            <button class="primary" type="button" data-action="notify-info">主要</button>
+            <button type="button" data-action="clicked-secondary">次要</button>
+            <button class="subtle" type="button" data-action="clicked-subtle">弱化</button>
+            <button class="danger" type="button" data-action="notify-error">危险</button>
+          </div>
+        </div>
+
+        <div class="button-group">
+          <h2>拓展 UI</h2>
+          <div class="button-row">
+            <button type="button" data-action="confirm">确认</button>
+            <button type="button" data-action="select">选择</button>
+            <button type="button" data-action="input">输入</button>
+            <button type="button" data-action="editor">编辑器</button>
+            <button type="button" data-action="paste">粘贴</button>
+            <button type="button" data-action="set-editor-text">设置文本</button>
+          </div>
+        </div>
+
+        <div class="button-group">
+          <h2>图标按钮</h2>
+          <div class="button-row compact">
+            <button class="icon-button" type="button" title="添加" aria-label="添加" data-action="icon-add"><span aria-hidden="true">+</span></button>
+            <button class="icon-button" type="button" title="运行" aria-label="运行" data-action="icon-run"><span aria-hidden="true">&gt;</span></button>
+            <button class="icon-button" type="button" title="停止" aria-label="停止" data-action="icon-stop"><span aria-hidden="true">[]</span></button>
+            <button class="icon-button danger" type="button" title="删除" aria-label="删除" data-action="icon-delete"><span aria-hidden="true">x</span></button>
+          </div>
+        </div>
+
+        <div class="button-group">
+          <h2>分段按钮</h2>
+          <div class="segmented" role="group" aria-label="模式">
+            <button class="active" type="button" data-segment="草稿">草稿</button>
+            <button type="button" data-segment="审阅">审阅</button>
+            <button type="button" data-segment="发布">发布</button>
+          </div>
+        </div>
+
+        <div class="button-group">
+          <h2>切换按钮</h2>
+          <div class="button-row">
+            <button id="toggle" class="toggle" type="button" aria-pressed="false">切换关闭</button>
+            <button class="warning" type="button" data-action="notify-warning">警告</button>
+            <button type="button" disabled>禁用</button>
+          </div>
+        </div>
+
+        <div class="button-group">
+          <h2>状态</h2>
+          <div class="button-row">
+            <button type="button" data-action="status" data-value="请求测试中">设置状态</button>
+            <button type="button" data-action="clear-status">清除状态</button>
+          </div>
+        </div>
+
+        <div class="button-group menu-group">
+          <h2>菜单</h2>
+          <button id="menu-button" class="menu-button" type="button" aria-haspopup="true" aria-expanded="false">菜单</button>
+          <div id="menu" class="menu" role="menu" hidden>
+            <button type="button" role="menuitem" data-action="menu-copy">复制</button>
+            <button type="button" role="menuitem" data-action="menu-export">导出</button>
+            <button type="button" role="menuitem" class="danger" data-action="menu-delete">删除</button>
+          </div>
+        </div>
+      </section>
+    </main>
+    <script src="./panel.js"></script>
+  </body>
+</html>

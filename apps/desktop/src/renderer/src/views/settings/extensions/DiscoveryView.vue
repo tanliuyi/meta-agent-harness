@@ -1,5 +1,12 @@
 <script setup lang="ts">
-import { BaseButton, BaseField, BasePanel, BaseSegmentedControl } from '@renderer/components/base'
+import {
+  BaseBadge,
+  BaseButton,
+  BaseField,
+  BasePanel,
+  BaseSegmentedControl
+} from '@renderer/components/base'
+import { SettingsSelectField } from '@renderer/views/settings/components/form'
 import {
   Dialog,
   DialogContent,
@@ -12,7 +19,17 @@ import useAgentSettingsStore from '@renderer/stores/agent-settings'
 import useWorkspaceProjectStore from '@renderer/stores/workspace-project'
 import useWorkspaceSessionStore from '@renderer/stores/workspace-session'
 import type { ResourceSnapshot, ResourceSnapshotInput } from '@shared/coding-agent/types'
-import { AlertTriangle, FolderOpen, Plus, RefreshCw, Settings } from 'lucide-vue-next'
+import {
+  ChevronRight,
+  Command,
+  Flag,
+  FolderOpen,
+  Plus,
+  RefreshCw,
+  Search,
+  Settings,
+  Wrench
+} from 'lucide-vue-next'
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 
@@ -29,8 +46,14 @@ interface ExtensionListRow {
 interface ExtensionGroup {
   key: ExtensionGroupKey
   title: string
-  description: string
   rows: ExtensionListRow[]
+}
+
+interface CapabilitySummary {
+  total: number
+  commands: number
+  tools: number
+  flags: number
 }
 
 const agentSettings = useAgentSettingsStore()
@@ -44,6 +67,24 @@ const pathSettingsDialogOpen = ref(false)
 const pathDraft = ref('')
 const scopeDraft = ref<ExtensionScope>('user')
 const selectedRow = ref<ExtensionListRow | null>(null)
+
+const searchQuery = ref('')
+const scopeFilter = ref<'all' | 'project' | 'user' | 'package'>('all')
+const statusFilter = ref<'all' | 'enabled' | 'disabled'>('all')
+const expandedGroups = ref<Record<string, boolean>>({})
+const expandedCapabilities = ref<Record<string, boolean>>({})
+
+const scopeFilterOptions = [
+  { label: '全部', value: 'all' },
+  { label: '项目', value: 'project' },
+  { label: '用户', value: 'user' },
+  { label: '包', value: 'package' }
+]
+const statusFilterOptions = [
+  { label: '全部', value: 'all' },
+  { label: '已启用', value: 'enabled' },
+  { label: '已禁用', value: 'disabled' }
+]
 
 const extensionRows = computed(() => agentSettings.discoveredExtensions)
 const extensionPathRows = computed(() => agentSettings.resolvedExtensionPaths)
@@ -122,14 +163,12 @@ const extensionGroups = computed<ExtensionGroup[]>(() => {
   const groups: ExtensionGroup[] = [
     {
       key: 'project',
-      title: 'Project',
-      description: '当前项目 .pi/settings.json 或项目自动发现的扩展。',
+      title: '项目',
       rows: projectRows
     },
     {
       key: 'user',
       title: '用户',
-      description: '全局用户 settings 与用户级自动发现扩展。',
       rows: userRows
     }
   ]
@@ -138,13 +177,50 @@ const extensionGroups = computed<ExtensionGroup[]>(() => {
     groups.push({
       key: `package:${source}`,
       title: source,
-      description: '来自 package source 的扩展；如需管理来源，请进入包来源页。',
       rows
     })
   }
 
   return groups
 })
+const filteredExtensionGroups = computed<ExtensionGroup[]>(() => {
+  const query = searchQuery.value.trim().toLowerCase()
+  return extensionGroups.value
+    .map((group) => {
+      const rows = group.rows.filter((row) => {
+        const matchesScope =
+          scopeFilter.value === 'all' ||
+          (scopeFilter.value === 'package'
+            ? group.key.startsWith('package:')
+            : group.key === scopeFilter.value)
+        const matchesStatus =
+          statusFilter.value === 'all' ||
+          (statusFilter.value === 'enabled' ? row.path.enabled : !row.path.enabled)
+        if (!matchesScope || !matchesStatus) return false
+        if (!query) return true
+        const haystack = [
+          row.path.path,
+          ...(row.extension?.commands.map((c) => c.name) ?? []),
+          ...(row.extension?.tools.map((t) => t.name) ?? []),
+          ...(row.extension?.flags.map((f) => f.name) ?? [])
+        ]
+          .join(' ')
+          .toLowerCase()
+        return haystack.includes(query)
+      })
+      return { ...group, rows }
+    })
+    .filter((group) => group.rows.length > 0)
+})
+const totalFilteredRows = computed(() =>
+  filteredExtensionGroups.value.reduce((sum, group) => sum + group.rows.length, 0)
+)
+const hasActiveFilters = computed(
+  () =>
+    searchQuery.value.trim().length > 0 ||
+    scopeFilter.value !== 'all' ||
+    statusFilter.value !== 'all'
+)
 const addScopeOptions = computed(() => [
   { label: '用户', value: 'user' as const },
   {
@@ -186,6 +262,43 @@ function selectSnapshotScope(scope: typeof snapshotScope.value): void {
   snapshotScope.value = scope
   void refreshResourceSnapshot()
   void loadProjectPathsForCurrentView()
+}
+
+function clearFilters(): void {
+  searchQuery.value = ''
+  scopeFilter.value = 'all'
+  statusFilter.value = 'all'
+}
+
+function isGroupExpanded(key: string): boolean {
+  return expandedGroups.value[key] !== false
+}
+
+function toggleGroup(key: string): void {
+  expandedGroups.value = { ...expandedGroups.value, [key]: !isGroupExpanded(key) }
+}
+
+function isCapabilitiesExpanded(path: string): boolean {
+  return expandedCapabilities.value[path] === true
+}
+
+function toggleCapabilities(path: string): void {
+  expandedCapabilities.value = {
+    ...expandedCapabilities.value,
+    [path]: !isCapabilitiesExpanded(path)
+  }
+}
+
+function getCapabilitySummary(row: ExtensionListRow): CapabilitySummary {
+  const extension = row.extension
+  const commands = extension?.commands.length ?? 0
+  const tools = extension?.tools.length ?? 0
+  const flags = extension?.flags.length ?? 0
+  return { total: commands + tools + flags, commands, tools, flags }
+}
+
+function getCapabilityTypeLabel(type: 'commands' | 'tools' | 'flags'): string {
+  return { commands: '命令', tools: '工具', flags: '参数' }[type]
 }
 
 function openAddDialog(): void {
@@ -314,9 +427,28 @@ function getSettingsForPathScope(scope: string): string[] {
 
 function getExtensionPathStateLabel(path: ExtensionPathRow): string {
   if (!path.enabled) return '已禁用'
-  if (path.sourceInfo.origin === 'package') return '包来源启用'
-  if (path.sourceInfo.scope === 'project') return '项目启用'
-  return '已启用'
+  if (path.sourceInfo.origin === 'package') return '包来源'
+  if (path.sourceInfo.scope === 'project') return '项目'
+  return '启用'
+}
+
+function getExtensionPathStateTone(
+  path: ExtensionPathRow
+): 'success' | 'neutral' | 'info' | 'warning' {
+  if (!path.enabled) return 'neutral'
+  if (path.sourceInfo.origin === 'package') return 'info'
+  if (path.sourceInfo.scope === 'project') return 'success'
+  return 'success'
+}
+
+function getExtensionPathDisplayName(path: string): string {
+  return path.split(/[/\\]/).pop() || path
+}
+
+function getExtensionPathDisplaySubtitle(path: string): string {
+  const segments = path.split(/[/\\]/)
+  segments.pop()
+  return segments.join('/') || path
 }
 
 function getExtensionPathMeta(path: ExtensionPathRow): string {
@@ -328,9 +460,8 @@ function getExtensionPathMeta(path: ExtensionPathRow): string {
 }
 
 function getCapabilityCount(row: ExtensionListRow): number {
-  const extension = row.extension
-  if (!extension) return 0
-  return extension.commands.length + extension.tools.length + extension.flags.length
+  const summary = getCapabilitySummary(row)
+  return summary.total
 }
 
 function appendPathSetting(settings: string[], path: string): string[] {
@@ -403,7 +534,7 @@ function getDiagnosticTypeLabel(type: string): string {
         <p class="extensions-page__eyebrow">发现</p>
         <h1 class="extensions-page__title">扩展列表</h1>
         <p class="extensions-page__subtitle">
-          统一查看扩展发现结果，并在同一处配置用户或 Project 扩展路径。
+          统一查看扩展发现结果，并在同一处配置用户或项目扩展路径。
         </p>
       </div>
     </header>
@@ -412,51 +543,64 @@ function getDiagnosticTypeLabel(type: string): string {
 
     <BasePanel title="扩展管理" eyebrow="发现">
       <template #actions>
-        <div class="extension-scope__actions">
-          <BaseButton size="sm" variant="secondary" @click="openAddDialog">
-            <template #icon>
-              <Plus :size="14" />
-            </template>
-            添加扩展路径
-          </BaseButton>
-          <BaseButton
-            size="sm"
-            :variant="snapshotScope === 'project' ? 'secondary' : 'ghost'"
-            @click="selectSnapshotScope('project')"
-          >
-            项目
-          </BaseButton>
-          <BaseButton
-            size="sm"
-            :variant="snapshotScope === 'global' ? 'secondary' : 'ghost'"
-            @click="selectSnapshotScope('global')"
-          >
-            全局
-          </BaseButton>
-          <BaseButton size="sm" variant="ghost" @click="refreshResourceSnapshotWithSpin">
-            <template #icon>
-              <RefreshCw :key="refreshSpinKey" class="refresh-spin-icon" :size="14" />
-            </template>
-            刷新
-          </BaseButton>
-        </div>
+        <BaseButton size="sm" variant="secondary" @click="openAddDialog">
+          <template #icon>
+            <Plus :size="14" />
+          </template>
+          添加扩展路径
+        </BaseButton>
+        <BaseButton
+          size="sm"
+          variant="ghost"
+          :disabled="agentSettings.resourcePackagesLoading"
+          @click="refreshResourceSnapshotWithSpin"
+        >
+          <template #icon>
+            <RefreshCw :key="refreshSpinKey" class="refresh-spin-icon" :size="14" />
+          </template>
+          刷新
+        </BaseButton>
       </template>
 
       <div class="extension-scope">
-        <div>
+        <div class="extension-scope__selector">
+          <span>发现视角</span>
+          <BaseSegmentedControl
+            :model-value="snapshotScope"
+            label="发现视角"
+            size="small"
+            :options="[
+              { label: '项目', value: 'project' },
+              { label: '全局', value: 'global' }
+            ]"
+            @update:model-value="selectSnapshotScope"
+          />
+        </div>
+        <div class="extension-scope__label">
           <strong>{{ snapshotScopeLabel }}</strong>
           <span>切换视角只影响本页发现结果，不会自动修改运行中会话。</span>
         </div>
       </div>
+
       <div class="extension-toolbar">
-        <div class="extension-stats" aria-label="扩展发现统计">
-          <span v-for="item in discoveredStats" :key="item.label">
-            {{ item.label }}: <strong>{{ item.value }}</strong>
-          </span>
-        </div>
-        <div class="extension-warning">
-          <AlertTriangle :size="15" />
-          <span>发现结果会加载已启用的扩展代码。</span>
+        <BaseField
+          id="extension-search"
+          v-model="searchQuery"
+          type="search"
+          label="搜索扩展"
+          placeholder="路径、命令或工具名称"
+        />
+        <SettingsSelectField v-model="scopeFilter" label="作用域" :options="scopeFilterOptions" />
+        <SettingsSelectField v-model="statusFilter" label="状态" :options="statusFilterOptions" />
+        <BaseButton v-if="hasActiveFilters" size="sm" variant="ghost" @click="clearFilters">
+          清除筛选
+        </BaseButton>
+      </div>
+
+      <div class="extension-summary" aria-label="扩展发现统计">
+        <div v-for="item in discoveredStats" :key="item.label">
+          <span>{{ item.label }}</span>
+          <strong>{{ item.value }}</strong>
         </div>
       </div>
 
@@ -468,92 +612,156 @@ function getDiagnosticTypeLabel(type: string): string {
         <strong>暂无扩展路径</strong>
         <span>添加包来源或扩展路径后，桌面端会按 Pi core 规则发现。</span>
       </div>
+      <div v-else-if="totalFilteredRows === 0" class="empty-state">
+        <Search :size="22" />
+        <strong>没有匹配的扩展</strong>
+        <span>调整搜索词、作用域或状态筛选后再试。</span>
+      </div>
       <div v-else class="extension-groups">
-        <section v-for="group in extensionGroups" :key="group.key" class="extension-group">
-          <div class="extension-group__header">
-            <div>
+        <section v-for="group in filteredExtensionGroups" :key="group.key" class="extension-group">
+          <button
+            class="extension-group__header"
+            type="button"
+            :aria-expanded="isGroupExpanded(group.key)"
+            @click="toggleGroup(group.key)"
+          >
+            <ChevronRight
+              class="extension-group__chevron"
+              :class="{ 'is-expanded': isGroupExpanded(group.key) }"
+              :size="16"
+              aria-hidden="true"
+            />
+            <div class="extension-group__heading">
               <h3>{{ group.title }}</h3>
-              <p>{{ group.description }}</p>
             </div>
-            <span>{{ group.rows.length }}</span>
-          </div>
+            <BaseBadge tone="neutral">{{ group.rows.length }}</BaseBadge>
+          </button>
 
-          <div v-if="group.rows.length === 0" class="extension-group__empty">
-            暂无{{ group.title }}扩展
-          </div>
-          <ul v-else class="extension-list">
+          <ul v-if="isGroupExpanded(group.key)" class="extension-list">
             <li
               v-for="row in group.rows"
               :key="`${group.key}:${row.path.path}`"
               class="extension-list__row"
               :class="{ 'is-disabled': !row.path.enabled }"
             >
-              <div class="extension-list__copy">
-                <div class="extension-list__title-line">
-                  <strong>{{ row.path.path }}</strong>
-                  <span class="extension-status" :class="{ 'is-disabled': !row.path.enabled }">
+              <div class="extension-list__main">
+                <div class="extension-list__copy">
+                  <div class="extension-list__title">
+                    <strong :title="row.path.path">{{
+                      getExtensionPathDisplayName(row.path.path)
+                    }}</strong>
+                    <BaseBadge :tone="getExtensionPathStateTone(row.path)">
+                      {{ getExtensionPathStateLabel(row.path) }}
+                    </BaseBadge>
+                  </div>
+                  <span class="extension-list__path" :title="row.path.path">{{
+                    getExtensionPathDisplaySubtitle(row.path.path)
+                  }}</span>
+                  <span class="extension-list__source">{{ getExtensionPathMeta(row.path) }}</span>
+                  <div class="extension-list__summary">
+                    <template v-if="row.extension && getCapabilityCount(row) > 0">
+                      <BaseBadge
+                        v-if="getCapabilitySummary(row).commands > 0"
+                        tone="info"
+                        class="capability-badge"
+                      >
+                        <Command :size="11" aria-hidden="true" />
+                        {{ getCapabilitySummary(row).commands }} 命令
+                      </BaseBadge>
+                      <BaseBadge
+                        v-if="getCapabilitySummary(row).tools > 0"
+                        tone="info"
+                        class="capability-badge"
+                      >
+                        <Wrench :size="11" aria-hidden="true" />
+                        {{ getCapabilitySummary(row).tools }} 工具
+                      </BaseBadge>
+                      <BaseBadge
+                        v-if="getCapabilitySummary(row).flags > 0"
+                        tone="info"
+                        class="capability-badge"
+                      >
+                        <Flag :size="11" aria-hidden="true" />
+                        {{ getCapabilitySummary(row).flags }} 参数
+                      </BaseBadge>
+                      <BaseButton
+                        size="sm"
+                        variant="ghost"
+                        @click="toggleCapabilities(row.path.path)"
+                      >
+                        {{ isCapabilitiesExpanded(row.path.path) ? '收起' : '详情' }}
+                      </BaseButton>
+                    </template>
+                    <span v-else class="extension-list__empty-capability">
+                      {{ row.path.enabled ? '未注册命令/工具/参数' : '已禁用，未加载能力' }}
+                    </span>
+                  </div>
+                </div>
+
+                <div class="extension-list__actions">
+                  <BaseButton
+                    v-if="canConfigureExtensionPath(row.path)"
+                    size="sm"
+                    variant="ghost"
+                    @click="openPathSettings(row)"
+                  >
+                    <template #icon>
+                      <Settings :size="14" />
+                    </template>
+                    设置
+                  </BaseButton>
+                  <BaseButton
+                    v-else-if="group.key.startsWith('package')"
+                    size="sm"
+                    variant="ghost"
+                    @click="router.push('/settings/extensions/packages')"
+                  >
+                    包来源
+                  </BaseButton>
+                  <span v-else class="extension-list__state">
                     {{ getExtensionPathStateLabel(row.path) }}
                   </span>
                 </div>
-                <span>{{ getExtensionPathMeta(row.path) }}</span>
               </div>
 
-              <div class="extension-list__chips" aria-label="扩展能力">
-                <template v-if="row.extension && getCapabilityCount(row) > 0">
-                  <span
-                    v-for="command in row.extension.commands"
-                    :key="`command:${row.path.path}:${command.name}`"
-                  >
-                    /{{ command.name }}
-                  </span>
-                  <span
-                    v-for="tool in row.extension.tools"
-                    :key="`tool:${row.path.path}:${tool.name}`"
-                  >
-                    tool：{{ tool.name }}
-                  </span>
-                  <span
-                    v-for="flag in row.extension.flags"
-                    :key="`flag:${row.path.path}:${flag.name}`"
-                  >
-                    --{{ flag.name }}
-                  </span>
-                </template>
-                <span v-else>{{
-                  row.path.enabled ? '未注册命令/工具/参数' : '已禁用，未加载能力'
-                }}</span>
-              </div>
-
-              <div class="extension-list__actions">
-                <BaseButton
-                  v-if="canConfigureExtensionPath(row.path)"
-                  size="sm"
-                  variant="ghost"
-                  @click="openPathSettings(row)"
+              <div
+                v-if="
+                  isCapabilitiesExpanded(row.path.path) &&
+                  row.extension &&
+                  getCapabilityCount(row) > 0
+                "
+                class="extension-list__capabilities"
+              >
+                <div
+                  v-for="type in ['commands', 'tools', 'flags'] as const"
+                  :key="type"
+                  class="capability-section"
+                  :class="{ 'is-empty': (row.extension?.[type]?.length ?? 0) === 0 }"
                 >
-                  <template #icon>
-                    <Settings :size="14" />
-                  </template>
-                  设置
-                </BaseButton>
-                <BaseButton
-                  v-else-if="group.key.startsWith('package')"
-                  size="sm"
-                  variant="ghost"
-                  @click="router.push('/settings/extensions/packages')"
-                >
-                  包来源
-                </BaseButton>
-                <span v-else class="extension-paths__state">
-                  {{ getExtensionPathStateLabel(row.path) }}
-                </span>
+                  <span class="capability-section__label">
+                    {{ getCapabilityTypeLabel(type) }}
+                    <em>({{ row.extension?.[type]?.length ?? 0 }})</em>
+                  </span>
+                  <div v-if="row.extension?.[type]?.length" class="capability-chips">
+                    <span
+                      v-for="item in row.extension[type]"
+                      :key="`${type}:${row.path.path}:${item.name}`"
+                    >
+                      <template v-if="type === 'commands'">/{{ item.name }}</template>
+                      <template v-else-if="type === 'tools'">tool:{{ item.name }}</template>
+                      <template v-else>--{{ item.name }}</template>
+                    </span>
+                  </div>
+                </div>
               </div>
             </li>
           </ul>
         </section>
       </div>
+    </BasePanel>
 
-      <ul v-if="agentSettings.resourceDiagnostics.length" class="resource-diagnostics">
+    <BasePanel v-if="agentSettings.resourceDiagnostics.length" title="诊断" eyebrow="警告">
+      <ul class="resource-diagnostics">
         <li
           v-for="diagnostic in agentSettings.resourceDiagnostics"
           :key="`${diagnostic.path}:${diagnostic.message}`"
