@@ -1331,7 +1331,10 @@ describe('buildSessionTreeBranches', () => {
     })
     expect(entryRows.find((row) => row.current)?.visualDepth).toBeLessThanOrEqual(2)
 
-    const entriesResult = await buildSessionTreeBranches(sessionFile, { viewMode: 'entries' })
+    const entriesResult = await buildSessionTreeBranches(sessionFile, {
+      filter: 'all',
+      viewMode: 'entries'
+    })
     expect(entriesResult.rows.every((row) => row.kind === 'entry')).toBe(true)
     expect(entriesResult.rows).toHaveLength(entriesResult.visibleEntries)
     expect(entriesResult.visibleEntries).toBe(entriesResult.totalEntries)

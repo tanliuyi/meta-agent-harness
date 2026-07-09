@@ -13,7 +13,8 @@ import {
   DialogTitle
 } from '@renderer/components/ui/dialog'
 import useWorkspaceSessionStore from '@renderer/stores/workspace-session'
-import type { SessionTreeViewMode } from '@shared/coding-agent/types'
+import useAgentSettingsStore from '@renderer/stores/agent-settings'
+import type { AgentTreeFilterMode, SessionTreeViewMode } from '@shared/coding-agent/types'
 import {
   canForkTreeEntry,
   canNavigateTreeEntry,
@@ -50,6 +51,7 @@ type VirtualSessionTreeRow = {
 }
 
 const workspaceSession = useWorkspaceSessionStore()
+const agentSettings = useAgentSettingsStore()
 
 const currentEntryId = computed(() => workspaceSession.activeSnapshot?.currentEntryId)
 const sessionTreeEntryCount = computed(
@@ -85,9 +87,14 @@ const isTreeLabelDialogOpen = ref(false)
 const treeLabelDialogEntryId = ref<string>()
 const sessionTreeListRef = ref<HTMLElement>()
 const sessionTreeQuery = ref('')
-const sessionTreeFilter = ref<SessionTreeFilter>('all')
+const sessionTreeFilter = ref<SessionTreeFilter>('default')
 const sessionTreeViewMode = ref<SessionTreeViewMode>('branches')
+const hasAppliedConfiguredTreeFilter = ref(false)
 let sessionTreeQueryTimer: ReturnType<typeof setTimeout> | undefined
+
+if (!agentSettings.snapshot && !agentSettings.loading) {
+  void agentSettings.load()
+}
 
 const sessionTreeVirtualizer = useVirtualizer(
   computed(() => ({
@@ -131,6 +138,18 @@ const selectedTreeEntry = computed(() => {
 })
 const treeLabelDialogEntry = computed(() =>
   visibleTreeEntries.value.find((entry) => entry.id === treeLabelDialogEntryId.value)
+)
+
+watch(
+  () => agentSettings.snapshot?.display.treeFilterMode,
+  (mode) => {
+    if (!mode || hasAppliedConfiguredTreeFilter.value) {
+      return
+    }
+    sessionTreeFilter.value = toSessionTreeFilter(mode)
+    hasAppliedConfiguredTreeFilter.value = true
+  },
+  { immediate: true }
 )
 
 watch(
@@ -245,6 +264,21 @@ function clearQueuedSessionTreeBranchesView(): void {
   }
   clearTimeout(sessionTreeQueryTimer)
   sessionTreeQueryTimer = undefined
+}
+
+function toSessionTreeFilter(mode: AgentTreeFilterMode): SessionTreeFilter {
+  switch (mode) {
+    case 'no-tools':
+      return 'no-tools'
+    case 'user-only':
+      return 'user'
+    case 'labeled-only':
+      return 'labeled'
+    case 'default':
+      return 'default'
+    case 'all':
+      return 'all'
+  }
 }
 
 function getSessionTreeIndent(visualDepth: number): string {

@@ -401,7 +401,7 @@ export interface LoadSessionTreeChildrenInput extends ThreadIdInput {
 }
 
 /** Session tree branch 视图过滤条件。 */
-export type SessionTreeBranchFilter = 'all' | 'user' | 'labeled' | 'no-tools'
+export type SessionTreeBranchFilter = 'default' | 'all' | 'user' | 'labeled' | 'no-tools'
 
 /** Session tree 扁平视图模式。 */
 export type SessionTreeViewMode = 'branches' | 'entries'
@@ -410,7 +410,7 @@ export type SessionTreeViewMode = 'branches' | 'entries'
 export interface LoadSessionTreeBranchesInput extends ThreadIdInput {
   /** 搜索关键字；为空时不搜索。 */
   query?: string
-  /** 过滤条件；默认 all。 */
+  /** 过滤条件；默认 default。 */
   filter?: SessionTreeBranchFilter
   /** 视图模式；branches 折叠线性段，entries 返回完整 entry rows。 */
   viewMode?: SessionTreeViewMode

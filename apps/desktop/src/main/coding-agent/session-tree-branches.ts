@@ -46,16 +46,18 @@ export async function buildSessionTreeBranches(
     await loadFlatSessionTree(sessionFile)
   const currentEntryId =
     input.currentEntryId !== undefined ? input.currentEntryId : persistedCurrentEntryId
-  const filter = input.filter ?? 'all'
+  const filter = input.filter ?? 'default'
   const query = input.query?.trim().toLowerCase() ?? ''
   const viewMode = input.viewMode ?? 'branches'
-  const shouldReturnEntryRows = viewMode === 'entries' || query.length > 0 || filter !== 'all'
+  const shouldReturnEntryRows =
+    viewMode === 'entries' || query.length > 0 || (filter !== 'default' && filter !== 'all')
   const visibleEntries = flatEntries.filter((entry) =>
     matchesBranchEntry(entry.node, filter, query)
   )
+  const visibleEntryIds = new Set(visibleEntries.map((entry) => entry.node.entry.id))
   const rows = shouldReturnEntryRows
-    ? visibleEntries.map((entry) => toBranchEntryRow(entry, currentEntryId))
-    : compressBranchEntries(visibleEntries, currentEntryId)
+    ? visibleEntries.map((entry) => toBranchEntryRow(entry, currentEntryId, visibleEntryIds))
+    : compressBranchEntries(visibleEntries, currentEntryId, visibleEntryIds)
   return {
     rows: normalizeBranchRowDepth(rows),
     totalEntries: flatEntries.length,
@@ -107,7 +109,8 @@ function flattenSessionTree(
 
 function compressBranchEntries(
   entries: FlatSessionTreeEntry[],
-  currentEntryId: string | null
+  currentEntryId: string | null,
+  visibleEntryIds: Set<string>
 ): SessionTreeBranchRow[] {
   const result: SessionTreeBranchRow[] = []
   let segment: FlatSessionTreeEntry[] = []
@@ -129,9 +132,9 @@ function compressBranchEntries(
     segment = []
   }
   for (const entry of entries) {
-    if (shouldShowBranchEntry(entry.node, currentEntryId)) {
+    if (shouldShowBranchEntry(entry.node, currentEntryId, visibleEntryIds)) {
       flushSegment()
-      result.push(toBranchEntryRow(entry, currentEntryId))
+      result.push(toBranchEntryRow(entry, currentEntryId, visibleEntryIds))
       continue
     }
     segment.push(entry)
@@ -155,9 +158,11 @@ function normalizeBranchRowDepth(rows: SessionTreeBranchRow[]): SessionTreeBranc
 
 function toBranchEntryRow(
   entry: FlatSessionTreeEntry,
-  currentEntryId: string | null
+  currentEntryId: string | null,
+  visibleEntryIds: Set<string>
 ): SessionTreeBranchEntryRow {
   const node = entry.node
+  const visibleChildCount = getVisibleSessionTreeChildCount(node, visibleEntryIds)
   return {
     kind: 'entry',
     id: node.entry.id,
@@ -171,20 +176,25 @@ function toBranchEntryRow(
     labelTimestamp: node.labelTimestamp,
     depth: entry.depth,
     visualDepth: entry.visualDepth,
-    childCount: node.children.length,
-    leaf: isSessionTreeLeaf(node),
-    branchPoint: isSessionTreeBranchPoint(node),
+    childCount: visibleChildCount,
+    leaf: visibleChildCount === 0,
+    branchPoint: visibleChildCount > 1,
     current: node.entry.id === currentEntryId
   }
 }
 
-function shouldShowBranchEntry(node: SessionTreeNode, currentEntryId: string | null): boolean {
+function shouldShowBranchEntry(
+  node: SessionTreeNode,
+  currentEntryId: string | null,
+  visibleEntryIds: Set<string>
+): boolean {
+  const visibleChildCount = getVisibleSessionTreeChildCount(node, visibleEntryIds)
   return (
     node.entry.parentId === null ||
     node.entry.id === currentEntryId ||
     Boolean(node.label) ||
-    isSessionTreeLeaf(node) ||
-    isSessionTreeBranchPoint(node) ||
+    visibleChildCount === 0 ||
+    visibleChildCount > 1 ||
     node.entry.type === 'branch_summary' ||
     node.entry.type === 'compaction'
   )
@@ -219,7 +229,9 @@ function matchesFilter(node: SessionTreeNode, filter: SessionTreeBranchFilter): 
     case 'labeled':
       return Boolean(node.label)
     case 'no-tools':
-      return !isToolSessionTreeNode(node)
+      return !isSettingsSessionTreeNode(node) && !isToolSessionTreeNode(node)
+    case 'default':
+      return !isSettingsSessionTreeNode(node)
     case 'all':
       return true
   }
@@ -230,12 +242,21 @@ function isToolSessionTreeNode(node: SessionTreeNode): boolean {
   return title.startsWith('toolResult:') || title.startsWith('tool:')
 }
 
-function shouldIndentSessionTreeNode(node: SessionTreeNode): boolean {
-  return !['model_change', 'thinking_level_change'].includes(node.entry.type)
+function isSettingsSessionTreeNode(node: SessionTreeNode): boolean {
+  return ['label', 'custom', 'model_change', 'thinking_level_change'].includes(node.entry.type)
 }
 
-function isSessionTreeLeaf(node: SessionTreeNode): boolean {
-  return node.children.length === 0
+function getVisibleSessionTreeChildCount(
+  node: SessionTreeNode,
+  visibleEntryIds: Set<string>
+): number {
+  return node.children.filter(
+    (child) => visibleEntryIds.has(child.entry.id) && shouldIndentSessionTreeNode(child)
+  ).length
+}
+
+function shouldIndentSessionTreeNode(node: SessionTreeNode): boolean {
+  return !['model_change', 'thinking_level_change'].includes(node.entry.type)
 }
 
 function isSessionTreeBranchPoint(node: SessionTreeNode): boolean {

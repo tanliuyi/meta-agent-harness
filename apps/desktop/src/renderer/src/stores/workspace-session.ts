@@ -1848,7 +1848,7 @@ export default defineStore('workspace-session', () => {
       threadId,
       revision: state.revision,
       query: options.query?.trim() ?? '',
-      filter: options.filter ?? 'all',
+      filter: options.filter ?? 'default',
       viewMode: options.viewMode ?? 'branches'
     })
     state.loading = true

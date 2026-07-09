@@ -2,7 +2,7 @@ import type { Component } from 'vue'
 import type { SessionTreeViewMode } from '@shared/coding-agent/types'
 
 export type OnOffValue = 'on' | 'off'
-export type SessionTreeFilter = 'all' | 'user' | 'labeled' | 'no-tools'
+export type SessionTreeFilter = 'default' | 'all' | 'user' | 'labeled' | 'no-tools'
 export type BuiltInSessionPanelTabId =
   'session' | 'changes' | 'tree' | 'commands' | 'extensions' | 'approvals'
 export type ExtensionSessionPanelTabId = `extension:${string}`
@@ -64,6 +64,7 @@ export const sessionTreeViewOptions: Array<{ label: string; value: SessionTreeVi
 ]
 
 export const sessionTreeFilterOptions: Array<{ label: string; value: SessionTreeFilter }> = [
+  { label: 'Default', value: 'default' },
   { label: 'All', value: 'all' },
   { label: 'User', value: 'user' },
   { label: 'Labeled', value: 'labeled' },
