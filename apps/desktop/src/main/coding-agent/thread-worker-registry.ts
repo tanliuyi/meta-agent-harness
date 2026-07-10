@@ -265,8 +265,8 @@ export class ThreadWorkerRegistry {
       this.stopIdleCheck()
     }
     if (worker) {
-      this.workers.delete(worker.workerId)
       await worker.stop(reason)
+      this.workers.delete(worker.workerId)
     }
     this.onLifecycle?.({
       type: 'worker.run.finished',
@@ -455,6 +455,7 @@ export class ThreadWorkerRegistry {
       ? this.leases.get(info.threadId)
       : Array.from(this.leases.values()).find((candidate) => candidate.workerId === info.workerId)
     if (!lease || !this.leases.has(lease.threadId)) {
+      this.workers.delete(info.workerId)
       return
     }
     await this.releaseThreadWorker(lease.threadId, 'crash', {

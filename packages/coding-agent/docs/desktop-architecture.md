@@ -89,6 +89,25 @@ worker；worker 启动时读取当前 Project trust 状态：
 - unknown / untrusted：传入 `projectTrustOverride: false`，跳过这些 Project 本地
   agent 资源，但仍允许创建 Thread 和进行普通对话。
 
+“本次信任”是当前 desktop 主进程生命周期内的 Project 级临时决策，不写入
+`trust.json`，也不绑定到单个 Thread。Desktop 完全退出后该决策自动失效。即使恢复
+Session 得到的实际 `cwd` 与 Project 路径不同，worker 的 `projectTrustOverride` 也必须
+按 Thread 所属 Project 路径计算，避免临时决策因 Session `cwd` 不同而失效。
+
+Project trust 变更必须立即刷新该 Project 当前已绑定的所有 worker。刷新会停止正在
+执行的任务并重新启动 worker，使启用或撤销本地资源权限都立即生效。实现必须遵循以下
+并发与失败规则：
+
+- 同一 Project 的 trust 变更、Thread 创建、worker 惰性启动、手动重启和命令发送必须
+  通过 Project 级生命周期队列串行；涉及具体 Thread 时，再按 Project → Thread 的固定
+  顺序进入 Thread 级队列，避免 trust 变更遗漏尚未形成 lease 的 pending worker。
+- 单个 worker 刷新失败不能阻止其余 worker 继续刷新，尤其不能让后续 worker 保留旧的
+  trusted runtime。
+- 任一 worker 未能停止或重启时，trust 决策本身仍按用户选择更新并广播最新 Project
+  状态，但设置 trust 的 IPC 必须返回失败，不能把尚未完全执行的安全降级报告为成功。
+- worker 停止失败后必须从可路由 lease 中移除，同时保留底层 worker 引用，供退出回调
+  或 Desktop shutdown 再次清理。
+
 如果后续某个操作必须依赖 Project 本地 agent 资源，UI 应提示用户到 Project 层完成
 trust 决策，而不是在 Thread 创建或普通 runtime approval 流程中临时弹
 `project_trust`。Runtime approval bridge 仍用于危险命令、文件 mutation、扩展 UI

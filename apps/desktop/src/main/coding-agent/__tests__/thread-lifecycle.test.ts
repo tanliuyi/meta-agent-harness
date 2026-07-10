@@ -5,11 +5,11 @@
 import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
-import { describe, expect, it, vi } from 'vitest'
+import { describe, expect, it } from 'vitest'
 import { ProjectStore } from '../project-store'
 import { ProjectTrustService } from '../project-trust-service'
 import { CodingThreadStore } from '../thread-store'
-import { CodingThreadManager } from '../thread-manager'
+import { CodingThreadManager, ProjectTrustRefreshError } from '../thread-manager'
 import { resolveSessionCwd, SessionManager } from '@coding-agent-src/core/session-manager'
 import type { StartThreadInput, WorkerLease, WorkerResponseEnvelope } from '../worker-types'
 import type { ThreadWorkerRegistry } from '../thread-worker-registry'
@@ -250,14 +250,15 @@ describe('CodingThreadManager lifecycle', () => {
     await manager.createThread({ threadId: 'thread-a', projectId: project.projectId })
     await manager.createThread({ threadId: 'thread-b', projectId: project.projectId })
     registry.failedReleases.add('thread-a')
-    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined)
 
-    const untrustedProject = await manager.setProjectTrust({
-      projectId: project.projectId,
-      decision: 'doNotTrust'
-    })
+    await expect(
+      manager.setProjectTrust({
+        projectId: project.projectId,
+        decision: 'doNotTrust'
+      })
+    ).rejects.toBeInstanceOf(ProjectTrustRefreshError)
 
-    expect(untrustedProject.trust?.state).toBe('untrusted')
+    expect(manager.getProject(project.projectId).trust?.state).toBe('untrusted')
     expect(registry.acquires.at(-1)).toMatchObject({
       threadId: 'thread-b',
       projectTrustOverride: false
@@ -268,9 +269,6 @@ describe('CodingThreadManager lifecycle', () => {
         expect.objectContaining({ threadId: 'thread-b', status: 'idle' })
       ])
     )
-    expect(consoleError).toHaveBeenCalledOnce()
-    consoleError.mockRestore()
-
     threadStore.close()
     projectStore.close()
     rmSync(root, { recursive: true, force: true })

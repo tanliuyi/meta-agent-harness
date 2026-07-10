@@ -117,6 +117,16 @@ import {
 } from './thread-session-commands'
 import { ThreadManagerCore } from './thread-manager-core'
 
+export class ProjectTrustRefreshError extends AggregateError {
+  constructor(
+    readonly project: ProjectSummary,
+    errors: unknown[]
+  ) {
+    super(errors, `failed to refresh Project trust workers: ${project.path}`)
+    this.name = 'ProjectTrustRefreshError'
+  }
+}
+
 /**
  * Desktop coding agent 线程管理器，提供线程生命周期、模型、会话、运行控制等操作。
  */
@@ -175,32 +185,30 @@ export class CodingThreadManager extends ThreadManagerCore {
    * @param input - trust 输入。
    * @returns 更新后的 Project。
    */
-  async setProjectTrust(input: SetProjectTrustInput): Promise<ProjectSummary> {
-    const project = this.getProjectStore().requireProject(input.projectId)
-    this.getProjectTrustService().setProjectTrust(project, input.decision)
+  setProjectTrust(input: SetProjectTrustInput): Promise<ProjectSummary> {
+    return this.runProjectWorkerLifecycle(input.projectId, async () => {
+      const project = this.getProjectStore().requireProject(input.projectId)
+      this.getProjectTrustService().setProjectTrust(project, input.decision)
 
-    const activeThreadIds = this.getWorkers()
-      .listLeases()
-      .filter((lease) => this.requireThread(lease.threadId).projectId === project.projectId)
-      .map((lease) => lease.threadId)
-    const restartErrors: unknown[] = []
-    for (const threadId of activeThreadIds) {
-      try {
-        await this.restartThread(threadId)
-      } catch (error) {
-        restartErrors.push(error)
+      const activeThreadIds = this.getWorkers()
+        .listLeases()
+        .filter((lease) => this.requireThread(lease.threadId).projectId === project.projectId)
+        .map((lease) => lease.threadId)
+      const restartErrors: unknown[] = []
+      for (const threadId of activeThreadIds) {
+        try {
+          await this.runThreadWorkerLifecycle(threadId, () => restartThread(this, threadId))
+        } catch (error) {
+          restartErrors.push(error)
+        }
       }
-    }
-    if (restartErrors.length > 0) {
-      console.error(
-        new AggregateError(
-          restartErrors,
-          `failed to refresh Project trust workers: ${project.path}`
-        )
-      )
-    }
 
-    return this.getProject(input.projectId)
+      const updatedProject = this.getProject(input.projectId)
+      if (restartErrors.length > 0) {
+        throw new ProjectTrustRefreshError(updatedProject, restartErrors)
+      }
+      return updatedProject
+    })
   }
 
   /**
@@ -209,8 +217,13 @@ export class CodingThreadManager extends ThreadManagerCore {
    * @returns 线程快照。
    */
   createThread(input: CreateThreadInput): Promise<ThreadSnapshot> {
+    if (!input.projectId) {
+      return createThread(this, input)
+    }
     const threadId = input.threadId ?? crypto.randomUUID()
-    return this.runThreadWorkerLifecycle(threadId, () => createThread(this, { ...input, threadId }))
+    return this.runProjectWorkerLifecycle(input.projectId, () =>
+      this.runThreadWorkerLifecycle(threadId, () => createThread(this, { ...input, threadId }))
+    )
   }
 
   /**
@@ -227,7 +240,10 @@ export class CodingThreadManager extends ThreadManagerCore {
    * @returns 线程快照。
    */
   restartThread(threadId: string): Promise<ThreadSnapshot> {
-    return this.runThreadWorkerLifecycle(threadId, () => restartThread(this, threadId))
+    const projectId = this.requireThread(threadId).projectId
+    return this.runProjectWorkerLifecycle(projectId, () =>
+      this.runThreadWorkerLifecycle(threadId, () => restartThread(this, threadId))
+    )
   }
 
   /**

@@ -9,7 +9,7 @@ import { randomUUID } from 'node:crypto'
 import { tmpdir } from 'node:os'
 import { codingAgentChannels } from '@shared/coding-agent/channels'
 import { fail, ok } from '@shared/coding-agent/ipc-contract'
-import { CodingThreadManager } from './thread-manager'
+import { CodingThreadManager, ProjectTrustRefreshError } from './thread-manager'
 import { CodingThreadStore } from './thread-store'
 import { ProjectStore } from './project-store'
 import { ProjectTrustService } from './project-trust-service'
@@ -197,12 +197,22 @@ export function registerCodingAgentIpc(options: CodingAgentIpcOptions = {}): Cod
     })
   })
   handle(manager, codingAgentChannels.setProjectTrust, async (input: SetProjectTrustInput) => {
-    const project = await manager.setProjectTrust(input)
-    publishCodingAgentEvent(subscribers, {
-      type: 'project',
-      event: { type: 'project.trustChanged', project }
-    })
-    return project
+    try {
+      const project = await manager.setProjectTrust(input)
+      publishCodingAgentEvent(subscribers, {
+        type: 'project',
+        event: { type: 'project.trustChanged', project }
+      })
+      return project
+    } catch (error) {
+      if (error instanceof ProjectTrustRefreshError) {
+        publishCodingAgentEvent(subscribers, {
+          type: 'project',
+          event: { type: 'project.trustChanged', project: error.project }
+        })
+      }
+      throw error
+    }
   })
   handle(manager, codingAgentChannels.createThread, async (input: CreateThreadInput) => {
     const snapshot = await manager.createThread(input)

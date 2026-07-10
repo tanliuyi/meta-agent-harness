@@ -66,6 +66,7 @@ export class ThreadManagerCore {
   private readonly projectStore: ProjectStore | undefined
   /** Project trust 服务。 */
   private readonly projectTrustService: ProjectTrustService | undefined
+  private readonly projectWorkerLifecycleTasks = new Map<string, Promise<void>>()
   private readonly threadWorkerLifecycleTasks = new Map<string, Promise<void>>()
   /** 全局模型设置服务。 */
   private modelSettingsService: ModelSettingsService | undefined
@@ -543,13 +544,16 @@ export class ThreadManagerCore {
    * @throws 当 worker 响应失败时。
    */
   async sendOk(threadId: string, command: WorkerCommand): Promise<void> {
-    await this.runThreadWorkerLifecycle(threadId, async () => {
-      await this.ensureWorker(threadId)
-      const response = await this.workers.send(threadId, command)
-      if (!response.success) {
-        throwResponseError(response)
-      }
-    })
+    const projectId = this.requireThread(threadId).projectId
+    await this.runProjectWorkerLifecycle(projectId, () =>
+      this.runThreadWorkerLifecycle(threadId, async () => {
+        await this.ensureWorker(threadId)
+        const response = await this.workers.send(threadId, command)
+        if (!response.success) {
+          throwResponseError(response)
+        }
+      })
+    )
   }
 
   /**
@@ -560,14 +564,17 @@ export class ThreadManagerCore {
    * @throws 当 worker 响应失败时。
    */
   async sendData<T>(threadId: string, command: WorkerCommand): Promise<T> {
-    return await this.runThreadWorkerLifecycle(threadId, async () => {
-      await this.ensureWorker(threadId)
-      const response = await this.workers.send(threadId, command)
-      if (!response.success) {
-        throwResponseError(response)
-      }
-      return response.data as T
-    })
+    const projectId = this.requireThread(threadId).projectId
+    return await this.runProjectWorkerLifecycle(projectId, () =>
+      this.runThreadWorkerLifecycle(threadId, async () => {
+        await this.ensureWorker(threadId)
+        const response = await this.workers.send(threadId, command)
+        if (!response.success) {
+          throwResponseError(response)
+        }
+        return response.data as T
+      })
+    )
   }
 
   /**
@@ -825,26 +832,23 @@ export class ThreadManagerCore {
   }
 
   /**
+   * 串行执行指定 Project 的 worker 生命周期操作。
+   * @param projectId - Project ID。
+   * @param operation - 生命周期操作。
+   * @returns 操作结果。
+   */
+  async runProjectWorkerLifecycle<T>(projectId: string, operation: () => Promise<T>): Promise<T> {
+    return await runQueuedLifecycleTask(this.projectWorkerLifecycleTasks, projectId, operation)
+  }
+
+  /**
    * 串行执行指定 Thread 的 worker 生命周期操作。
    * @param threadId - Thread ID。
    * @param operation - 生命周期操作。
    * @returns 操作结果。
    */
   async runThreadWorkerLifecycle<T>(threadId: string, operation: () => Promise<T>): Promise<T> {
-    const previousTask = this.threadWorkerLifecycleTasks.get(threadId) ?? Promise.resolve()
-    const result = previousTask.catch(() => undefined).then(operation)
-    const barrier = result.then(
-      () => undefined,
-      () => undefined
-    )
-    this.threadWorkerLifecycleTasks.set(threadId, barrier)
-    try {
-      return await result
-    } finally {
-      if (this.threadWorkerLifecycleTasks.get(threadId) === barrier) {
-        this.threadWorkerLifecycleTasks.delete(threadId)
-      }
-    }
+    return await runQueuedLifecycleTask(this.threadWorkerLifecycleTasks, threadId, operation)
   }
 
   /**
@@ -924,6 +928,27 @@ function getThreadStatusFromLiveState(
     return 'idle'
   }
   return undefined
+}
+
+async function runQueuedLifecycleTask<T>(
+  tasks: Map<string, Promise<void>>,
+  key: string,
+  operation: () => Promise<T>
+): Promise<T> {
+  const previousTask = tasks.get(key) ?? Promise.resolve()
+  const result = previousTask.catch(() => undefined).then(operation)
+  const barrier = result.then(
+    () => undefined,
+    () => undefined
+  )
+  tasks.set(key, barrier)
+  try {
+    return await result
+  } finally {
+    if (tasks.get(key) === barrier) {
+      tasks.delete(key)
+    }
+  }
 }
 
 function normalizePersistedThread(thread: ThreadSummary): ThreadSummary {
