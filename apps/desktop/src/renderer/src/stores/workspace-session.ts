@@ -12,9 +12,12 @@ import {
   ensureComposerDraft,
   ensureComposerFiles,
   ensureComposerImages,
+  ensureComposerQuotes,
   getPromptImagePayload,
+  restoreComposerPromptDraft,
   type ComposerFileAttachment,
-  type ComposerImageAttachment
+  type ComposerImageAttachment,
+  type ComposerQuoteAttachment
 } from './workspace-session-composer'
 import { useToast } from '@renderer/composables/useToast'
 import { getBuiltinCommandInfos } from '@shared/coding-agent/builtin-commands'
@@ -54,6 +57,9 @@ const PROMPT_TITLE_MAX_CHARS = 30
 const EXTENSION_INLINE_NOTIFY_MAX_CHARS = 180
 const DEFERRED_SNAPSHOT_REFRESH_DELAY_MS = 900
 const MAX_SESSION_NOTIFICATIONS = 4
+const MAX_COMPOSER_QUOTES = 5
+const MAX_COMPOSER_QUOTE_CHARS = 4000
+const MAX_COMPOSER_QUOTE_TOTAL_CHARS = 12000
 
 /** 会话面板 UI 状态。 */
 export type SessionUiState = {
@@ -65,6 +71,7 @@ export type SessionUiState = {
 
 export type { ComposerImageAttachment } from './workspace-session-composer'
 export type { ComposerFileAttachment } from './workspace-session-composer'
+export type { ComposerQuoteAttachment } from './workspace-session-composer'
 
 export interface SessionNotification {
   id: string
@@ -121,6 +128,10 @@ export type WorkspaceSessionContext = {
   orphanFileAttachments: ComposerFileAttachment[]
   /** 当前上下文内每个 thread 独立的文件路径附件草稿。 */
   composerFileAttachments: Record<string, ComposerFileAttachment[]>
+  /** 未选中会话时的临时文本引用草稿。 */
+  orphanQuoteAttachments: ComposerQuoteAttachment[]
+  /** 当前上下文内每个 thread 独立的文本引用草稿。 */
+  composerQuoteAttachments: Record<string, ComposerQuoteAttachment[]>
   /** 未选中会话时运行中消息交付方式。 */
   orphanRunningDelivery: RunningMessageDelivery
   /** 当前上下文内每个 thread 独立的运行中消息交付方式。 */
@@ -331,6 +342,9 @@ const emptyComposerImages = Object.freeze([]) as unknown as ComposerImageAttachm
 /** 空 Composer 文件路径附件列表，避免草稿 getter 为无附件 thread 创建新数组。 */
 const emptyComposerFiles = Object.freeze([]) as unknown as ComposerFileAttachment[]
 
+/** 空 Composer 文本引用列表，避免草稿 getter 为无引用 thread 创建新数组。 */
+const emptyComposerQuotes = Object.freeze([]) as unknown as ComposerQuoteAttachment[]
+
 /**
  * Workspace Session Store。
  * 负责加载、创建、管理 thread，处理 IPC 事件以及审批请求。
@@ -425,6 +439,8 @@ export default defineStore('workspace-session', () => {
       composerImageAttachments: {},
       orphanFileAttachments: [],
       composerFileAttachments: {},
+      orphanQuoteAttachments: [],
+      composerQuoteAttachments: {},
       orphanRunningDelivery: 'steer',
       runningDeliveries: {},
       panel: createUiState(),
@@ -478,6 +494,7 @@ export default defineStore('workspace-session', () => {
     context.composerDrafts[threadId] ??= createEmptyComposerContent()
     context.composerImageAttachments[threadId] ??= []
     context.composerFileAttachments[threadId] ??= []
+    context.composerQuoteAttachments[threadId] ??= []
     context.runningDeliveries[threadId] ??= 'steer'
   }
 
@@ -849,6 +866,11 @@ export default defineStore('workspace-session', () => {
       for (const threadId of Object.keys(context.composerFileAttachments)) {
         if (!existingThreadIds.has(threadId)) {
           delete context.composerFileAttachments[threadId]
+        }
+      }
+      for (const threadId of Object.keys(context.composerQuoteAttachments)) {
+        if (!existingThreadIds.has(threadId)) {
+          delete context.composerQuoteAttachments[threadId]
         }
       }
       for (const threadId of Object.keys(context.runningDeliveries)) {
@@ -1295,6 +1317,15 @@ export default defineStore('workspace-session', () => {
       : context.orphanFileAttachments
   })
 
+  /** 当前活跃会话的 Composer 文本引用，按 session 隔离。 */
+  const draftQuotes = computed(() => {
+    const threadId = activeSessionId.value
+    const context = mainContext.value
+    return threadId
+      ? (context.composerQuoteAttachments[threadId] ?? emptyComposerQuotes)
+      : context.orphanQuoteAttachments
+  })
+
   /** 当前活跃会话运行中消息交付方式，按 session 隔离。 */
   const runningDelivery = computed({
     get: (): RunningMessageDelivery => {
@@ -1320,7 +1351,8 @@ export default defineStore('workspace-session', () => {
     () =>
       Boolean(getComposerText(draftMessage.value).trim()) ||
       draftImages.value.length > 0 ||
-      draftFiles.value.length > 0
+      draftFiles.value.length > 0 ||
+      draftQuotes.value.length > 0
   )
 
   /** 默认上下文 Composer 是否正在提交。 */
@@ -1675,6 +1707,7 @@ export default defineStore('workspace-session', () => {
     const orphanDraft = context.orphanDraftMessage
     const orphanImages = [...context.orphanImageAttachments]
     const orphanFiles = [...context.orphanFileAttachments]
+    const orphanQuotes = [...context.orphanQuoteAttachments]
     const orphanModel = context.orphanModel
     const orphanThinkingLevel = context.orphanThinkingLevel
     const snapshot = await window.api.codingAgent.createThread({
@@ -1694,6 +1727,8 @@ export default defineStore('workspace-session', () => {
     context.composerDrafts[threadId] = orphanDraft
     context.composerImageAttachments[threadId] = orphanImages
     context.composerFileAttachments[threadId] = orphanFiles
+    context.composerQuoteAttachments[threadId] = orphanQuotes
+    context.orphanQuoteAttachments = []
     const runtime = ensureRuntime(threadId)
     runtime.errorMessage = undefined
     return { threadId, runtime }
@@ -1716,6 +1751,7 @@ export default defineStore('workspace-session', () => {
     const skillReferences = getComposerSkillReferences(draft)
     const images = getComposerImages(threadId, contextId)
     const files = getComposerFiles(threadId, contextId)
+    const quotes = getComposerQuotes(threadId, contextId)
     const fileArgs = dedupeStrings([
       ...getComposerFileArgs(draft),
       ...files.map((file) => file.path)
@@ -1723,7 +1759,8 @@ export default defineStore('workspace-session', () => {
     const message =
       text ||
       (images.length > 0 ? '请分析这些图片' : '') ||
-      (files.length > 0 ? '请处理这些文件' : '')
+      (files.length > 0 ? '请处理这些文件' : '') ||
+      (quotes.length > 0 ? '请基于引用内容回答' : '')
     if (!message) {
       return
     }
@@ -1759,6 +1796,15 @@ export default defineStore('workspace-session', () => {
         message,
         ...(fileArgs.length > 0 ? { fileArgs } : {}),
         ...(skillReferences.length > 0 ? { skillReferences } : {}),
+        ...(quotes.length > 0
+          ? {
+              quoteContexts: quotes.map(({ messageId, sessionEntryId, text }) => ({
+                messageId,
+                ...(sessionEntryId ? { sessionEntryId } : {}),
+                text
+              }))
+            }
+          : {}),
         ...getPromptImagePayload(images)
       }
       if (isQueuedWhileRunning) {
@@ -1773,9 +1819,11 @@ export default defineStore('workspace-session', () => {
       clearComposerDraft(targetThreadId, contextId)
       clearComposerImages(targetThreadId, contextId)
       clearComposerFiles(targetThreadId, contextId)
+      clearComposerQuotes(targetThreadId, contextId)
       context.orphanDraftMessage = createEmptyComposerContent()
       context.orphanImageAttachments = []
       context.orphanFileAttachments = []
+      context.orphanQuoteAttachments = []
       context.orphanModel = undefined
       context.orphanThinkingLevel = undefined
       // sessions 是 shallowReactive，状态变化要替换根对象，避免 ChatView running computed 卡住。
@@ -2509,6 +2557,24 @@ export default defineStore('workspace-session', () => {
     }
   }
 
+  function applyTreeNavigationEditorText(threadId: string, editorText: string | undefined): void {
+    const context = ensureSessionContext(defaultSessionContextId)
+    const images = ensureComposerImages(context.composerImageAttachments, threadId)
+    const files = ensureComposerFiles(context.composerFileAttachments, threadId)
+    const quotes = ensureComposerQuotes(context.composerQuoteAttachments, threadId)
+    images.splice(0)
+    files.splice(0)
+    quotes.splice(0)
+    if (editorText === undefined) {
+      clearComposerDraft(threadId)
+      return
+    }
+    const restored = restoreComposerPromptDraft(editorText, sessions[threadId]?.snapshot?.cwd ?? '')
+    context.composerDrafts[threadId] = restored.content
+    files.push(...restored.files)
+    quotes.push(...restored.quotes)
+  }
+
   /**
    * 在当前 session tree 内导航。
    * @param entryId - 目标 entry ID。
@@ -2545,11 +2611,7 @@ export default defineStore('workspace-session', () => {
         runtime.previousLeafEntryId = previousLeafEntryId
         runtime.nextLeafEntryId = undefined
       }
-      if (result.editorText !== undefined) {
-        draftMessage.value = createComposerContentFromText(result.editorText)
-      } else {
-        clearComposerDraft(threadId)
-      }
+      applyTreeNavigationEditorText(threadId, result.editorText)
       sessionActionMessageByThreadId[threadId] = result.editorText
         ? '已回到选中消息，可编辑后重新发送'
         : '已移动到选中节点'
@@ -2589,11 +2651,7 @@ export default defineStore('workspace-session', () => {
       const runtime = ensureRuntime(threadId)
       runtime.previousLeafEntryId = undefined
       runtime.nextLeafEntryId = currentLeafEntryId ?? undefined
-      if (result.editorText !== undefined) {
-        draftMessage.value = createComposerContentFromText(result.editorText)
-      } else {
-        clearComposerDraft(threadId)
-      }
+      applyTreeNavigationEditorText(threadId, result.editorText)
       sessionActionMessageByThreadId[threadId] = '已返回之前位置'
     } catch (error) {
       ensureRuntime(threadId).errorMessage = error instanceof Error ? error.message : String(error)
@@ -2912,6 +2970,55 @@ export default defineStore('workspace-session', () => {
     getComposerFiles(threadId, contextId).splice(0)
   }
 
+  /** 获取指定会话的 assistant 文本引用草稿。 */
+  const getComposerQuotes = (
+    threadId = activeSessionId.value,
+    contextId = defaultSessionContextId
+  ): ComposerQuoteAttachment[] => {
+    const context = ensureSessionContext(contextId)
+    if (!threadId) {
+      return context.orphanQuoteAttachments
+    }
+    return ensureComposerQuotes(context.composerQuoteAttachments, threadId)
+  }
+
+  /** 添加 assistant 文本引用草稿。 */
+  const addComposerQuote = (
+    quote: ComposerQuoteAttachment,
+    contextId = defaultSessionContextId,
+    threadId = getContextActiveThreadId(contextId)
+  ): void => {
+    const text = quote.text.trim().slice(0, MAX_COMPOSER_QUOTE_CHARS)
+    if (!text) return
+
+    const target = getComposerQuotes(threadId, contextId)
+    if (
+      target.length >= MAX_COMPOSER_QUOTES ||
+      target.some((item) => item.messageId === quote.messageId && item.text === text)
+    ) {
+      return
+    }
+    const remainingChars =
+      MAX_COMPOSER_QUOTE_TOTAL_CHARS - target.reduce((sum, item) => sum + item.text.length, 0)
+    if (remainingChars <= 0) return
+    target.push({ ...quote, text: text.slice(0, remainingChars) })
+  }
+
+  /** 删除 assistant 文本引用草稿。 */
+  const removeComposerQuote = (quoteId: string, contextId = defaultSessionContextId): void => {
+    const quotes = getComposerQuotes(getContextActiveThreadId(contextId), contextId)
+    const index = quotes.findIndex((quote) => quote.id === quoteId)
+    if (index >= 0) quotes.splice(index, 1)
+  }
+
+  /** 清空 assistant 文本引用草稿。 */
+  const clearComposerQuotes = (
+    threadId = activeSessionId.value,
+    contextId = defaultSessionContextId
+  ): void => {
+    getComposerQuotes(threadId, contextId).splice(0)
+  }
+
   /**
    * 应用 extension UI 请求。
    * 交互类请求进入待响应队列；状态类请求直接投影到当前 thread runtime。
@@ -3226,6 +3333,7 @@ export default defineStore('workspace-session', () => {
     abortActive,
     abortActiveRetry,
     addComposerImages,
+    addComposerQuote,
     archiveThread,
     activeCommands,
     activeCommandsLoaded,
@@ -3276,6 +3384,7 @@ export default defineStore('workspace-session', () => {
     clearComposerFiles,
     clearComposerDraft,
     clearComposerImages,
+    clearComposerQuotes,
     cloneActiveSession,
     clearActiveSessionAction,
     dismissSessionNotification,
@@ -3284,6 +3393,7 @@ export default defineStore('workspace-session', () => {
     draftFiles,
     draftImages,
     draftMessage,
+    draftQuotes,
     runningDelivery,
     errorMessage,
     events: activeEvents,
@@ -3294,6 +3404,7 @@ export default defineStore('workspace-session', () => {
     getComposerDraft,
     getComposerFiles,
     getComposerImages,
+    getComposerQuotes,
     getMessageRenderState,
     hasDraftMessage,
     isNewSessionActive,
@@ -3318,6 +3429,7 @@ export default defineStore('workspace-session', () => {
     pendingApprovals: activePendingApprovals,
     refreshSnapshot,
     removeComposerImage,
+    removeComposerQuote,
     revealActiveExport,
     respondApproval,
     respondExtensionDialog,

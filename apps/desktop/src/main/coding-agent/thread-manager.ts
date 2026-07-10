@@ -175,9 +175,31 @@ export class CodingThreadManager extends ThreadManagerCore {
    * @param input - trust 输入。
    * @returns 更新后的 Project。
    */
-  setProjectTrust(input: SetProjectTrustInput): ProjectSummary {
+  async setProjectTrust(input: SetProjectTrustInput): Promise<ProjectSummary> {
     const project = this.getProjectStore().requireProject(input.projectId)
     this.getProjectTrustService().setProjectTrust(project, input.decision)
+
+    const activeThreadIds = this.getWorkers()
+      .listLeases()
+      .filter((lease) => this.requireThread(lease.threadId).projectId === project.projectId)
+      .map((lease) => lease.threadId)
+    const restartErrors: unknown[] = []
+    for (const threadId of activeThreadIds) {
+      try {
+        await this.restartThread(threadId)
+      } catch (error) {
+        restartErrors.push(error)
+      }
+    }
+    if (restartErrors.length > 0) {
+      console.error(
+        new AggregateError(
+          restartErrors,
+          `failed to refresh Project trust workers: ${project.path}`
+        )
+      )
+    }
+
     return this.getProject(input.projectId)
   }
 
@@ -187,7 +209,8 @@ export class CodingThreadManager extends ThreadManagerCore {
    * @returns 线程快照。
    */
   createThread(input: CreateThreadInput): Promise<ThreadSnapshot> {
-    return createThread(this, input)
+    const threadId = input.threadId ?? crypto.randomUUID()
+    return this.runThreadWorkerLifecycle(threadId, () => createThread(this, { ...input, threadId }))
   }
 
   /**
@@ -195,7 +218,7 @@ export class CodingThreadManager extends ThreadManagerCore {
    * @param threadId - 线程 ID。
    */
   stopThread(threadId: string): Promise<void> {
-    return stopThread(this, threadId)
+    return this.runThreadWorkerLifecycle(threadId, () => stopThread(this, threadId))
   }
 
   /**
@@ -204,7 +227,7 @@ export class CodingThreadManager extends ThreadManagerCore {
    * @returns 线程快照。
    */
   restartThread(threadId: string): Promise<ThreadSnapshot> {
-    return restartThread(this, threadId)
+    return this.runThreadWorkerLifecycle(threadId, () => restartThread(this, threadId))
   }
 
   /**
@@ -373,7 +396,7 @@ export class CodingThreadManager extends ThreadManagerCore {
    * @param threadId - 线程 ID。
    */
   archiveThread(threadId: string): Promise<void> {
-    return archiveThread(this, threadId)
+    return this.runThreadWorkerLifecycle(threadId, () => archiveThread(this, threadId))
   }
 
   /**

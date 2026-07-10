@@ -254,6 +254,16 @@ export interface ThreadIdInput {
   threadId: string
 }
 
+/** Assistant 文本引用上下文。 */
+export interface PromptQuoteContext {
+  /** 来源消息 ID。 */
+  messageId: string
+  /** 来源 session entry ID，用于后续定位来源。 */
+  sessionEntryId?: string
+  /** 实际引用文本。 */
+  text: string
+}
+
 /** 提示输入。 */
 export interface PromptInput extends ThreadIdInput {
   /** 用户消息文本。 */
@@ -262,6 +272,8 @@ export interface PromptInput extends ThreadIdInput {
   fileArgs?: string[]
   /** Composer 中结构化记录的 skill 引用。 */
   skillReferences?: PromptSkillReference[]
+  /** 从 assistant 消息中选取的文本引用上下文。 */
+  quoteContexts?: PromptQuoteContext[]
   /** 附加图片数据。 */
   images?: PromptImage[]
   /** 附加图片文件，由后端按 Pi @file 语义展开。 */
@@ -278,6 +290,8 @@ export interface TextInput extends ThreadIdInput {
   fileArgs?: string[]
   /** Composer 中结构化记录的 skill 引用。 */
   skillReferences?: PromptSkillReference[]
+  /** 从 assistant 消息中选取的文本引用上下文。 */
+  quoteContexts?: PromptQuoteContext[]
   /** 附加图片数据。 */
   images?: PromptImage[]
   /** 附加图片文件，由后端按 Pi @file 语义展开。 */

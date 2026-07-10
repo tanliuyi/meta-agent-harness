@@ -34,6 +34,9 @@ describe('thread-runtime-controls', () => {
     )
     expect(commands.map((command) => command.name)).not.toEqual(
       expect.arrayContaining([
+        'changelog',
+        'hotkeys',
+        'new',
         'settings',
         'model',
         'scoped-models',

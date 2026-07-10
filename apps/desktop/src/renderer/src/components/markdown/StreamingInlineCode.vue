@@ -63,7 +63,7 @@ function getFileReferenceDisplayName(value: string): string {
 
 .streaming-inline-code {
   display: inline;
-  padding: 1px 5px;
+  padding: 2px 5px;
   font-family: var(--font-mono) !important;
   font-size: var(--font-size-code);
   font-weight: var(--font-weight-code);

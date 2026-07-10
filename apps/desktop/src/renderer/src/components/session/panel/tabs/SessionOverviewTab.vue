@@ -20,6 +20,7 @@ import {
   CollapsibleContent,
   CollapsibleTrigger
 } from '@renderer/components/ui/collapsible'
+import ScrollArea from '@renderer/components/ui/scroll-area/ScrollArea.vue'
 import useWorkspaceProjectStore from '@renderer/stores/workspace-project'
 import useWorkspaceSessionStore from '@renderer/stores/workspace-session'
 import { getFileName } from '../shared/utils'
@@ -270,10 +271,13 @@ async function runSessionAction(actionId: string): Promise<void> {
       </div>
     </div>
 
-    <article v-if="workspaceSession.activeSessionActionDetails" class="session-command-details">
+    <ScrollArea
+      v-if="workspaceSession.activeSessionActionDetails"
+      class="session-command-details"
+    >
       <strong>{{ workspaceSession.activeSessionActionDetails.title }}</strong>
       <pre>{{ workspaceSession.activeSessionActionDetails.body }}</pre>
-    </article>
+    </ScrollArea>
     <div v-if="workspaceSession.activeExportResult" class="export-result">
       <div>
         <span>HTML export</span>

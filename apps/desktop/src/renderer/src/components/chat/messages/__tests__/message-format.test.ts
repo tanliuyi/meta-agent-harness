@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   getMessageFileAttachments,
+  getQueuedUserPromptDisplayText,
   getStandaloneMessageImages,
   getUserMessageDisplaySegments,
   getUserMessageDisplayText,
@@ -39,6 +40,44 @@ describe('message-format', () => {
         imageSrc: 'file:///tmp/b.png'
       }
     ])
+  })
+
+  it('removes only injected XML blocks from queued message summaries', () => {
+    expect(getQueuedUserPromptDisplayText('请分析这些图片')).toBe('请分析这些图片')
+    expect(
+      getQueuedUserPromptDisplayText(
+        '<file name="/repo/src/App.vue">source</file>\n请修复 @src/App.vue'
+      )
+    ).toBe('请修复 @src/App.vue')
+    expect(
+      getQueuedUserPromptDisplayText(
+        '<quoted_context><quote message_id="message-a">引用正文</quote></quoted_context>\n\n请检查结论'
+      )
+    ).toBe('请检查结论')
+    expect(
+      getQueuedUserPromptDisplayText(
+        '<skill name="review" location="/skills/review/SKILL.md">skill body</skill>\n\n$skill:review 检查代码'
+      )
+    ).toBe('$skill:review 检查代码')
+  })
+
+  it('hides queued entries only when XML block removal leaves no text', () => {
+    expect(
+      getQueuedUserPromptDisplayText('<file name="E:\\Temp\\image.png"></file>')
+    ).toBeUndefined()
+    expect(
+      getQueuedUserPromptDisplayText(
+        '<quoted_context><quote message_id="message-a">引用正文</quote></quoted_context>'
+      )
+    ).toBeUndefined()
+    expect(
+      getQueuedUserPromptDisplayText('<file name="E:\\Temp\\image.png"></file>\n请分析这些图片')
+    ).toBe('请分析这些图片')
+    expect(
+      getQueuedUserPromptDisplayText(
+        '<quoted_context><quote message_id="message-a">引用正文</quote></quoted_context>\n\n请基于引用内容回答'
+      )
+    ).toBe('请基于引用内容回答')
   })
 
   it('keeps Windows drive separators valid in image file URLs', () => {
@@ -190,6 +229,50 @@ describe('message-format', () => {
       }
     ])
     expect(getUserMessageDisplayText(message)).toBe('请处理这些文件')
+  })
+
+  it('renders quoted context as text reference chips without exposing its body', () => {
+    const message = {
+      id: 'message-quote',
+      role: 'user',
+      text:
+        '<quoted_context>\n' +
+        '<quote message_id="message-186" session_entry_id="entry-a">\n' +
+        '第一段 &lt;引用&gt; &amp; 正文\n' +
+        '</quote>\n' +
+        '<quote message_id="message-187">\n' +
+        '另一段引用正文\n' +
+        '</quote>\n' +
+        '</quoted_context>\n\n' +
+        '请基于引用内容回答',
+      raw: {
+        role: 'user',
+        content: '请基于引用内容回答',
+        timestamp: 1783036800000
+      },
+      createdAt: '2026-07-03T00:00:00.000Z'
+    } satisfies ThreadMessage
+
+    expect(getUserMessageDisplayText(message)).toBe(
+      '第一段 <引用> & 正文\n另一段引用正文\n\n请基于引用内容回答'
+    )
+    expect(getUserMessageDisplaySegments(message)).toEqual([
+      {
+        type: 'quoteReference',
+        label: '文本引用',
+        messageId: 'message-186',
+        sessionEntryId: 'entry-a',
+        text: '第一段 <引用> & 正文'
+      },
+      {
+        type: 'quoteReference',
+        label: '文本引用',
+        messageId: 'message-187',
+        text: '另一段引用正文'
+      },
+      { type: 'text', text: '\n\n' },
+      { type: 'text', text: '请基于引用内容回答' }
+    ])
   })
 
   it('parses bare @file references as inline display segments', () => {

@@ -8,13 +8,10 @@
 import type { BuiltinCommandInfo } from './types'
 
 const builtinSlashCommands: ReadonlyArray<Pick<BuiltinCommandInfo, 'name' | 'description'>> = [
-  { name: 'name', description: 'Set session display name' },
-  { name: 'session', description: 'Show session info and stats' },
-  { name: 'changelog', description: 'Show changelog entries' },
-  { name: 'hotkeys', description: 'Show all keyboard shortcuts' },
-  { name: 'new', description: 'Start a new session' },
-  { name: 'compact', description: 'Manually compact the session context' },
-  { name: 'reload', description: 'Reload keybindings, extensions, skills, prompts, and themes' }
+  { name: 'name', description: '设置会话显示名称' },
+  { name: 'session', description: '显示会话信息和统计数据' },
+  { name: 'compact', description: '手动压缩会话上下文' },
+  { name: 'reload', description: '重新加载快捷键、扩展、技能、提示词和主题' }
 ]
 
 /** 获取 Pi agent 内建 slash commands。 */

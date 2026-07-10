@@ -16,7 +16,6 @@ import {
   getMessageFileAttachments,
   getMessageImageSrc,
   getMessageText,
-  getUserMessageDisplayText,
   getStandaloneMessageImages,
   getUserMessageDisplaySegments
 } from './support/message-format'
@@ -24,7 +23,7 @@ import type { ImagePreviewItem } from '../ImagePreviewDialog.vue'
 import BaseIconButton from '@/components/base/BaseIconButton.vue'
 import SkillIcon from '@/components/icons/SkillIcon.vue'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
-import { Check, Copy, File as FileIcon, GitFork, MapPin, Pencil } from 'lucide-vue-next'
+import { Check, Copy, File as FileIcon, GitFork, MapPin, Pencil, Quote } from 'lucide-vue-next'
 
 const COLLAPSED_MAX_HEIGHT = 320
 const USER_MESSAGE_MAX_WIDTH = 640
@@ -56,9 +55,30 @@ const imagePreviewInitialIndex = ref(0)
 const attachmentPreviewCount = computed(
   () => fileAttachments.value.filter((attachment) => Boolean(attachment.imageSrc)).length
 )
-const displaySegments = computed(() => getUserMessageDisplaySegments(props.message))
+const allDisplaySegments = computed(() => getUserMessageDisplaySegments(props.message))
+const quoteSegments = computed(() =>
+  allDisplaySegments.value.filter((segment) => segment.type === 'quoteReference')
+)
+const displaySegments = computed(() => {
+  const segments = allDisplaySegments.value.filter((segment) => segment.type !== 'quoteReference')
+  const first = segments[0]
+  if (first?.type === 'text') {
+    const text = first.text.replace(/^\s+/, '')
+    return text ? [{ ...first, text }, ...segments.slice(1)] : segments.slice(1)
+  }
+  return segments
+})
 const displaySegmentsKey = computed(() => getDisplaySegmentsKey(displaySegments.value))
-const displayText = computed(() => getUserMessageDisplayText(props.message) ?? '')
+const displayText = computed(() =>
+  displaySegments.value
+    .map((segment) => {
+      if (segment.type === 'text') return segment.text
+      if (segment.type === 'fileReference') return `@${segment.fileArg}`
+      return segment.label
+    })
+    .join('')
+    .trim()
+)
 const hasMediaBubble = computed(
   () => fileAttachments.value.length > 0 || standaloneImages.value.length > 0
 )
@@ -399,7 +419,10 @@ function getDisplaySegmentsKey(segments: RichInlineDisplaySegment[]): string {
       if (segment.type === 'fileReference') {
         return `file:${segment.fileArg}:${segment.label}`
       }
-      return `skill:${segment.name}:${segment.label}:${segment.location}`
+      if (segment.type === 'skillReference') {
+        return `skill:${segment.name}:${segment.label}:${segment.location}`
+      }
+      return `quote:${segment.messageId ?? ''}:${segment.sessionEntryId ?? ''}:${getTextKeySample(segment.text)}`
     })
     .join('\n')
 }
@@ -511,6 +534,14 @@ function toggleExpand(): void {
         :images="imagePreviewItems"
         :initial-index="imagePreviewInitialIndex"
       />
+      <div v-if="quoteSegments.length > 0" class="user-message user-message--quotes">
+        <div class="user-message__quotes">
+          <div v-for="(segment, index) in quoteSegments" :key="index" class="quote-reference-node">
+            <Quote :size="14" aria-hidden="true" />
+            <div class="quote-reference-node__text">{{ segment.text }}</div>
+          </div>
+        </div>
+      </div>
       <div
         v-if="displaySegments.length > 0"
         ref="contentRef"
@@ -531,7 +562,7 @@ function toggleExpand(): void {
                 <span class="file-reference-node__label">{{ segment.label }}</span>
               </span>
               <span
-                v-else
+                v-else-if="segment.type === 'skillReference'"
                 class="file-reference-node skill-reference-node"
                 :title="segment.location"
               >
@@ -677,6 +708,15 @@ function toggleExpand(): void {
     padding: var(--space-1);
   }
 
+  &--quotes {
+    inline-size: max-content;
+    padding: 6px;
+    background: var(--color-surface-raised);
+    border: 0;
+    border-radius: 12px;
+    box-shadow: var(--shadow-md);
+  }
+
   &--collapsed {
     .user-message__body {
       max-height: 320px;
@@ -736,6 +776,41 @@ function toggleExpand(): void {
 
 .file-reference-node__label {
   @include file-reference-node.file-reference-node-label;
+}
+
+.user-message__quotes {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.quote-reference-node {
+  display: grid;
+  grid-template-columns: 14px minmax(0, 1fr);
+  align-items: start;
+  gap: 6px;
+  min-width: 0;
+  min-height: 24px;
+  padding: 2px 6px;
+  color: var(--color-text);
+  border-radius: var(--radius-lg);
+
+  svg {
+    margin-top: 2px;
+    opacity: 0.78;
+  }
+}
+
+.quote-reference-node__text {
+  display: -webkit-box;
+  min-width: 0;
+  overflow: hidden;
+  font-size: var(--font-size-ui-sm);
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
 }
 
 .user-message__images {

@@ -51,7 +51,7 @@ export async function createThread(
       initialModel: input.initialModel,
       thinkingLevel: input.thinkingLevel,
       agentDir: input.agentDir,
-      projectTrustOverride: core.getProjectTrustOverride(cwd)
+      projectTrustOverride: core.getProjectTrustOverride(project.path)
     })
     core.updateThread(threadId, { status: 'idle' })
     return await core.getSnapshot(threadId)
@@ -85,29 +85,35 @@ export async function restartThread(
 ): Promise<ThreadSnapshot> {
   const thread = core.requireThread(threadId)
   const extensionPanelRestoreRequests = core.getExtensionPanelRestoreRequests(threadId)
-  if (
-    core
-      .getWorkers()
-      .listLeases()
-      .some((lease) => lease.threadId === threadId)
-  ) {
-    await core.getWorkers().releaseThreadWorker(threadId, 'stop')
+  try {
+    if (
+      core
+        .getWorkers()
+        .listLeases()
+        .some((lease) => lease.threadId === threadId)
+    ) {
+      await core.getWorkers().releaseThreadWorker(threadId, 'stop')
+    }
+    core.clearExtensionPanelRuntime(threadId)
+    core.updateThread(threadId, { status: 'starting' })
+    const projectPath = core.getThreadCwd(thread)
+    const cwd = thread.sessionFile
+      ? await resolveSessionCwdLazy(thread.sessionFile, projectPath)
+      : projectPath
+    await core.getWorkers().acquireThreadWorker({
+      threadId,
+      cwd,
+      sessionFile: thread.sessionFile,
+      title: thread.title,
+      projectTrustOverride: core.getProjectTrustOverride(projectPath)
+    })
+    core.updateThread(threadId, { status: 'idle' })
+    await core.requestExtensionPanelRestoreRuntime(threadId, extensionPanelRestoreRequests)
+    return await core.getSnapshot(threadId)
+  } catch (error) {
+    core.updateThread(threadId, { status: 'error' })
+    throw error
   }
-  core.clearExtensionPanelRuntime(threadId)
-  core.updateThread(threadId, { status: 'starting' })
-  const cwd = thread.sessionFile
-    ? await resolveSessionCwdLazy(thread.sessionFile, core.getThreadCwd(thread))
-    : core.getThreadCwd(thread)
-  await core.getWorkers().acquireThreadWorker({
-    threadId,
-    cwd,
-    sessionFile: thread.sessionFile,
-    title: thread.title,
-    projectTrustOverride: core.getProjectTrustOverride(cwd)
-  })
-  core.updateThread(threadId, { status: 'idle' })
-  await core.requestExtensionPanelRestoreRuntime(threadId, extensionPanelRestoreRequests)
-  return await core.getSnapshot(threadId)
 }
 
 /**

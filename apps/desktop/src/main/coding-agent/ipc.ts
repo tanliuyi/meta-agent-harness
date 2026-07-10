@@ -196,8 +196,8 @@ export function registerCodingAgentIpc(options: CodingAgentIpcOptions = {}): Cod
       event: { type: 'project.updated', project }
     })
   })
-  handle(manager, codingAgentChannels.setProjectTrust, (input: SetProjectTrustInput) => {
-    const project = manager.setProjectTrust(input)
+  handle(manager, codingAgentChannels.setProjectTrust, async (input: SetProjectTrustInput) => {
+    const project = await manager.setProjectTrust(input)
     publishCodingAgentEvent(subscribers, {
       type: 'project',
       event: { type: 'project.trustChanged', project }

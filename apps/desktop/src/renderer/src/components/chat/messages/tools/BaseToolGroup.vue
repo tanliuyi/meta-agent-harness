@@ -88,6 +88,7 @@ const open = computed({
   align-items: center;
   gap: var(--space-2);
   max-width: 100%;
+  min-height: 24px;
   width: fit-content;
   padding: 0;
   color: inherit;
@@ -114,10 +115,7 @@ const open = computed({
 }
 
 .tool-group[data-state='open'] .tool-group__trigger {
-  // width: 100%;
-  // padding: var(--space-2);
   background: var(--color-canvas);
-  // border-bottom: 1px solid var(--color-border);
   border-bottom-right-radius: 0;
   border-bottom-left-radius: 0;
 }
@@ -199,7 +197,7 @@ const open = computed({
 .tool-group__list {
   display: flex;
   flex-direction: column;
-  gap: var(--space-1);
+  gap: var(--space-2);
   min-width: 0;
   padding: var(--space-2) 0;
 

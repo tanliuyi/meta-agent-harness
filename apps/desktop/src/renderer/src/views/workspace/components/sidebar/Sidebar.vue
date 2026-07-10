@@ -161,7 +161,7 @@ async function requestProjectTrust(project: ProjectSummary): Promise<void> {
 
   const actions: Array<{ label: string; value: ProjectTrustDecision; tone?: 'destructive' }> = []
   if (project.trust.state !== 'trusted') {
-    actions.push({ label: '信任 Project', value: 'trustProject' })
+    actions.push({ label: '信任项目', value: 'trustProject' })
     if (project.trust.parentPath) {
       actions.push({ label: '信任父目录', value: 'trustParent' })
     }
@@ -172,7 +172,7 @@ async function requestProjectTrust(project: ProjectSummary): Promise<void> {
   const result = await confirm({
     actions,
     cancelText: '取消',
-    description: `${getProjectTrustDescription(project)}。Project 路径：${project.path}`,
+    description: `${getProjectTrustDescription(project)}。项目路径：${project.path}`,
     id: `project-trust-${project.projectId}`,
     title: `${project.name}：${getProjectTrustStateLabel(project)}`,
     tone: project.trust.state === 'untrusted' ? 'destructive' : 'default'
@@ -354,11 +354,11 @@ function getProjectTrustIcon(project: ProjectSummary): Component | undefined {
   <aside class="workspace__sidebar">
     <TooltipProvider :delay-duration="150">
       <div class="sidebar-section__header">
-        <span>项目</span>
+        <span>工作空间</span>
         <Tooltip>
           <TooltipTrigger as-child>
             <span class="sidebar-tooltip-trigger project-tree__add-btn">
-              <BaseIconButton label="打开 Project" size="small" @click="createProject">
+              <BaseIconButton label="打开项目" size="small" @click="createProject">
                 <PlusIcon :size="14" />
               </BaseIconButton>
             </span>
@@ -492,7 +492,7 @@ function getProjectTrustIcon(project: ProjectSummary): Component | undefined {
   position: relative;
   display: flex;
   flex-direction: column;
-  gap: var(--space-3);
+  gap: var(--space-2);
   min-width: 0;
   min-height: 0;
   padding: var(--space-4) 0 0;
@@ -528,8 +528,8 @@ function getProjectTrustIcon(project: ProjectSummary): Component | undefined {
   align-items: center;
   justify-content: space-between;
   gap: var(--space-2);
-  height: 32px;
-  padding: 0 var(--space-3);
+  height: 2.4em;
+  padding: 0 var(--space-6);
 
   span {
     min-width: 0;

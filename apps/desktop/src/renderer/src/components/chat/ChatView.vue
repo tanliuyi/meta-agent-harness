@@ -17,6 +17,7 @@ import ToolMessage from './messages/ToolMessage.vue'
 import UserMessage from './messages/UserMessage.vue'
 import ToolGroup from './messages/tools/ToolGroup.vue'
 import type { ToolCall, ToolGroupStatus } from './messages/tools/support/tool-group'
+import { getQueuedUserPromptDisplayText } from './messages/support/message-format'
 import {
   scheduleInitialSettingsLoad,
   type InitialSettingsLoadSchedule
@@ -33,6 +34,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 import type {
   ComposerFileAttachment,
   ComposerImageAttachment,
+  ComposerQuoteAttachment,
   MessageRenderState
 } from '@renderer/stores/workspace-session'
 import {
@@ -53,6 +55,7 @@ import {
 import type {
   PromptImageAttachment,
   PromptImageDraft,
+  PromptQuoteContext,
   ThreadMessage,
   ThinkingLevel
 } from '@shared/coding-agent/types'
@@ -206,6 +209,25 @@ const hideThinkingBlock = computed(() => agentSettings.snapshot?.display.hideThi
 /** 是否存在待交付队列消息。 */
 const hasPendingQueue = computed(
   () => pendingQueue.value.steering.length > 0 || pendingQueue.value.followUp.length > 0
+)
+
+/** Composer session actions 中可展示的引导消息。 */
+const pendingSteeringPrompts = computed(() =>
+  pendingQueue.value.steering
+    .map(getQueuedUserPromptDisplayText)
+    .filter((message): message is string => Boolean(message))
+)
+
+/** Composer session actions 中可展示的后续消息。 */
+const pendingFollowUpPrompts = computed(() =>
+  pendingQueue.value.followUp
+    .map(getQueuedUserPromptDisplayText)
+    .filter((message): message is string => Boolean(message))
+)
+
+/** Composer session actions 中是否存在用户 prompt。 */
+const hasVisiblePendingQueue = computed(
+  () => pendingSteeringPrompts.value.length > 0 || pendingFollowUpPrompts.value.length > 0
 )
 
 /** 当前 thread 是否处于运行态。 */
@@ -483,6 +505,15 @@ function handleAddFiles(files: Array<Omit<ComposerFileAttachment, 'id'>>, thread
     workspaceSession.defaultSessionContextId,
     threadId
   )
+}
+
+/** 将 assistant 选中文本添加为 Composer 引用。 */
+function handleQuoteSelection(quote: PromptQuoteContext): void {
+  const attachment: ComposerQuoteAttachment = {
+    ...quote,
+    id: `quote-${crypto.randomUUID()}`
+  }
+  workspaceSession.addComposerQuote(attachment)
 }
 
 /**
@@ -1422,6 +1453,7 @@ function getTimelineItemRevision(item: TimelineItem | undefined): unknown[] {
             @fork-from-message="forkFromMessage"
             @locate-in-tree="locateMessageInTree"
             @navigate-tree="navigateMessageTree"
+            @quote-selection="handleQuoteSelection"
           />
         </div>
 
@@ -1477,7 +1509,7 @@ function getTimelineItemRevision(item: TimelineItem | undefined): unknown[] {
       </TransitionGroup>
 
       <div
-        v-if="workspaceSession.activeSessionActionMessage || hasPendingQueue"
+        v-if="workspaceSession.activeSessionActionMessage || hasVisiblePendingQueue"
         class="chat-view__session-action"
       >
         <div
@@ -1529,7 +1561,7 @@ function getTimelineItemRevision(item: TimelineItem | undefined): unknown[] {
           </TooltipProvider>
         </div>
         <div
-          v-for="(message, index) in pendingQueue.steering"
+          v-for="(message, index) in pendingSteeringPrompts"
           :key="`steering-${index}-${message}`"
           class="chat-view__session-action-row"
         >
@@ -1543,7 +1575,7 @@ function getTimelineItemRevision(item: TimelineItem | undefined): unknown[] {
           </span>
         </div>
         <div
-          v-for="(message, index) in pendingQueue.followUp"
+          v-for="(message, index) in pendingFollowUpPrompts"
           :key="`follow-up-${index}-${message}`"
           class="chat-view__session-action-row"
         >
@@ -1564,6 +1596,7 @@ function getTimelineItemRevision(item: TimelineItem | undefined): unknown[] {
         :projects="workspaceProject.projectList"
         :images="workspaceSession.draftImages"
         :files="workspaceSession.draftFiles"
+        :quotes="workspaceSession.draftQuotes"
         :image-error="imageSelectionError"
         :selecting-images="selectingImages"
         :usage="tokenUsage"
@@ -1591,6 +1624,7 @@ function getTimelineItemRevision(item: TimelineItem | undefined): unknown[] {
         @add-files="handleAddFiles"
         @remove-image="workspaceSession.removeComposerImage"
         @remove-file="workspaceSession.removeComposerFile"
+        @remove-quote="workspaceSession.removeComposerQuote"
         @clear-images="handleClearImages"
         @dismiss-image-error="handleDismissImageError"
         @load-commands="workspaceSession.loadCommands()"

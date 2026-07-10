@@ -32,6 +32,7 @@ import {
   File as FileIcon,
   Folder as FolderIcon,
   LoaderCircle,
+  Quote,
   X
 } from 'lucide-vue-next'
 import type { ImagePreviewItem } from '../ImagePreviewDialog.vue'
@@ -39,7 +40,8 @@ import Usage from './Usage.vue'
 import type { TokenUsage } from './Usage.vue'
 import type {
   ComposerFileAttachment,
-  ComposerImageAttachment
+  ComposerImageAttachment,
+  ComposerQuoteAttachment
 } from '@renderer/stores/workspace-session'
 import {
   getCommandQueryArgs,
@@ -141,6 +143,8 @@ const props = withDefaults(
     images?: ComposerImageAttachment[]
     /** 文件路径附件草稿。 */
     files?: ComposerFileAttachment[]
+    /** Assistant 文本引用草稿。 */
+    quotes?: ComposerQuoteAttachment[]
     /** 图片处理错误。 */
     imageError?: string
     /** 是否正在选择/处理图片。 */
@@ -178,6 +182,7 @@ const props = withDefaults(
     projects: () => [],
     images: () => [],
     files: () => [],
+    quotes: () => [],
     imageError: undefined,
     selectingImages: false,
     usage: undefined,
@@ -222,6 +227,8 @@ const emit = defineEmits<{
   'remove-image': [id: string]
   /** 删除文件附件。 */
   'remove-file': [id: string]
+  /** 删除 assistant 文本引用。 */
+  'remove-quote': [id: string]
   /** 清空图片附件。 */
   'clear-images': []
   /** 关闭图片处理错误。 */
@@ -1356,7 +1363,7 @@ function formatModelLabel(model: Pick<SessionModel, 'provider' | 'id'>): string 
               ref="commandSearchInputRef"
               v-model="commandSearch"
               type="search"
-              placeholder="Search commands"
+              placeholder="搜索命令"
               @keydown="handleCommandPaletteKeyDown"
             />
             <div v-else class="composer__command-query">
@@ -1399,7 +1406,12 @@ function formatModelLabel(model: Pick<SessionModel, 'provider' | 'id'>): string 
         @submit.prevent="handleSubmit"
       >
         <div
-          v-if="imagePreviews.length > 0 || fileAttachments.length > 0 || selectingImages"
+          v-if="
+            imagePreviews.length > 0 ||
+            fileAttachments.length > 0 ||
+            quotes.length > 0 ||
+            selectingImages
+          "
           class="composer__attachments"
         >
           <div v-if="imagePreviews.length > 0" class="composer__images">
@@ -1417,6 +1429,20 @@ function formatModelLabel(model: Pick<SessionModel, 'provider' | 'id'>): string 
                 class="composer__image-remove"
                 :aria-label="`移除 ${image.name}`"
                 @click="emit('remove-image', image.id)"
+              >
+                <X :size="10" />
+              </button>
+            </div>
+          </div>
+          <div v-if="quotes.length > 0" class="composer__quotes">
+            <div v-for="quote in quotes" :key="quote.id" class="composer__quote">
+              <Quote :size="14" aria-hidden="true" />
+              <span>文本引用</span>
+              <button
+                type="button"
+                class="composer__quote-remove"
+                aria-label="移除文本引用"
+                @click="emit('remove-quote', quote.id)"
               >
                 <X :size="10" />
               </button>
@@ -2173,16 +2199,59 @@ function formatModelLabel(model: Pick<SessionModel, 'provider' | 'id'>): string 
 }
 
 .composer__attachments {
-  display: grid;
+  display: flex;
+  flex-flow: row wrap;
+  align-items: flex-start;
   gap: var(--space-2);
   min-width: 0;
 }
 
 .composer__images {
   display: flex;
+  flex: 0 0 100%;
   flex-wrap: wrap;
   gap: var(--space-2);
   min-width: 0;
+}
+
+.composer__quotes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.composer__quote {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  height: 28px;
+  padding: 0 var(--space-1) 0 var(--space-2);
+  color: var(--color-text);
+  font-size: var(--font-size-ui-sm);
+  background: var(--color-control-track);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+}
+
+.composer__quote-remove {
+  display: grid;
+  width: 16px;
+  height: 16px;
+  place-items: center;
+  padding: 0;
+  color: var(--color-text-muted);
+  background: transparent;
+  border: 0;
+  border-radius: 99px;
+  cursor: pointer;
+
+  &:hover,
+  &:focus-visible {
+    color: var(--color-danger-ink);
+    background: var(--color-danger);
+    outline: none;
+  }
 }
 
 .composer__files {
@@ -2193,76 +2262,66 @@ function formatModelLabel(model: Pick<SessionModel, 'provider' | 'id'>): string 
 }
 
 .composer__file {
-  position: relative;
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
-  align-items: flex-start;
-  gap: var(--space-2);
-  min-width: 180px;
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  min-width: 0;
   max-width: min(320px, 100%);
-  height: 40px;
-  padding: var(--space-1) var(--space-4) var(--space-1) var(--space-2);
+  height: 28px;
+  padding: 0 var(--space-1) 0 var(--space-2);
   color: var(--color-text);
   background: var(--color-control-track);
   border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-lg);
 }
 
 .composer__file-icon {
+  flex: 0 0 auto;
   color: var(--color-text-muted);
 }
 
 .composer__file-meta {
-  display: grid;
-  gap: 1px;
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-1);
   min-width: 0;
+  white-space: nowrap;
 
-  strong,
-  span {
+  strong {
     min-width: 0;
     overflow: hidden;
+    font-size: var(--font-size-ui-sm);
+    font-weight: 500;
     text-overflow: ellipsis;
     white-space: nowrap;
   }
 
-  strong {
-    font-size: var(--font-size-ui-xs);
-    font-weight: 650;
-  }
-
   span {
+    flex: 0 0 auto;
     color: var(--color-text-muted);
-    font-size: var(--font-size-ui-2xs);
+    font-size: var(--font-size-ui-xs);
+    white-space: nowrap;
   }
 }
 
 .composer__file-remove {
-  position: absolute;
-  top: 2px;
-  right: 2px;
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  width: 14px;
-  height: 14px;
+  display: grid;
+  flex: 0 0 auto;
+  width: 16px;
+  height: 16px;
+  place-items: center;
   padding: 0;
-  color: var(--color-text);
-  background: var(--composer-image-remove-bg);
-  border: 1px solid var(--color-border);
-  border-radius: 50%;
-  box-shadow: var(--shadow-sm);
+  color: var(--color-text-muted);
+  background: transparent;
+  border: 0;
+  border-radius: 99px;
   cursor: pointer;
-  transition:
-    opacity var(--duration-fast) var(--ease-standard),
-    background var(--duration-fast) var(--ease-standard),
-    color var(--duration-fast) var(--ease-standard),
-    border-color var(--duration-fast) var(--ease-standard);
 
-  &:hover {
-    opacity: 1;
+  &:hover,
+  &:focus-visible {
     color: var(--color-danger-ink);
     background: var(--color-danger);
-    border-color: var(--color-danger);
+    outline: none;
   }
 }
 

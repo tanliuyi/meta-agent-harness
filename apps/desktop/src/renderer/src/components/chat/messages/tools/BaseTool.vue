@@ -273,22 +273,31 @@ watch(
 .tool-message[data-status='queued'],
 .tool-message[data-status='running'] {
   &:not(.tool-message--error) {
-    .tool-message__name,
-    .tool-message__status {
+    .tool-message__name::after,
+    .tool-message__status::after {
+      content: '';
+      position: absolute;
+      inset: -1px 0;
+      pointer-events: none;
       animation: tool-message-text-shimmer 1.8s linear infinite;
-      color: transparent;
-      background: linear-gradient(
+      background: repeating-linear-gradient(
         110deg,
-        var(--color-text-muted) 0%,
-        var(--color-text-muted) 34%,
-        var(--color-text) 48%,
-        var(--color-info) 55%,
-        var(--color-text-muted) 70%,
-        var(--color-text-muted) 100%
+        transparent 0,
+        transparent 48px,
+        color-mix(in srgb, var(--color-info) 6%, transparent) 64px,
+        color-mix(in srgb, var(--color-info) 20%, transparent) 78px,
+        color-mix(in srgb, var(--color-text) 16%, transparent) 88px,
+        color-mix(in srgb, var(--color-info) 10%, transparent) 100px,
+        transparent 118px,
+        transparent 220px
       );
-      background-size: 220% 100%;
-      background-clip: text;
-      -webkit-background-clip: text;
+      background-size: 220px 100%;
+      filter: blur(0.8px);
+      mask-image:
+        linear-gradient(to right, transparent 0%, #000 12%, #000 88%, transparent 100%),
+        linear-gradient(to bottom, transparent 0%, #000 22%, #000 78%, transparent 100%);
+      mask-composite: intersect;
+      opacity: 0.38;
     }
   }
 }
@@ -341,6 +350,7 @@ watch(
 }
 
 .tool-message__name {
+  position: relative;
   flex: 0 0 auto;
   color: var(--color-text-muted);
   font-size: var(--font-size-ui);
@@ -363,6 +373,7 @@ watch(
 }
 
 .tool-message__status {
+  position: relative;
   flex: 0 0 auto;
   color: var(--color-text-muted);
   font-size: var(--font-size-ui-xs);
@@ -392,21 +403,20 @@ watch(
 
 @keyframes tool-message-text-shimmer {
   from {
-    background-position: 120% 0;
+    background-position: -220px 0;
   }
 
   to {
-    background-position: -120% 0;
+    background-position: 0 0;
   }
 }
 
 @media (prefers-reduced-motion: reduce) {
   .tool-message[data-status='queued'],
   .tool-message[data-status='running'] {
-    .tool-message__name,
-    .tool-message__status {
+    .tool-message__name::after,
+    .tool-message__status::after {
       animation: none;
-      color: var(--color-text-muted);
       background: none;
     }
   }

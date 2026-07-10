@@ -1,3 +1,8 @@
+import {
+  parsePromptContext,
+  stripPromptContextBlocks,
+  type PromptSkillContextBlock
+} from '@shared/coding-agent/prompt-context'
 import type { ThreadMessage } from '@shared/coding-agent/types'
 
 /**
@@ -56,26 +61,34 @@ export function getUserMessageDisplayText(message: ThreadMessage): string | unde
   if (!text) {
     return undefined
   }
-  const skillContext = extractDisplaySkillContext(text)
-  if (skillContext.skills.length > 0) {
-    const segments = getSkillContextDisplaySegments(text)
-    const displayText = segments
-      .map((segment) => {
-        if (segment.type === 'text') {
-          return segment.text
-        }
-        if (segment.type === 'fileReference') {
-          return `@${segment.fileArg}`
-        }
-        return segment.label
-      })
-      .join('')
-      .trim()
-    return displayText || undefined
-  }
-
-  const displayText = stripHiddenFileBlocks(text)
+  const segments = getUserMessageDisplaySegmentsFromText(text)
+  const quoteText = segments
+    .filter(
+      (segment): segment is Extract<UserMessageDisplaySegment, { type: 'quoteReference' }> =>
+        segment.type === 'quoteReference'
+    )
+    .map((segment) => segment.text)
+    .join('\n')
+  const messageText = segments
+    .filter((segment) => segment.type !== 'quoteReference')
+    .map((segment) => {
+      if (segment.type === 'text') return segment.text
+      if (segment.type === 'fileReference') return `@${segment.fileArg}`
+      return segment.label
+    })
+    .join('')
+    .trim()
+  const displayText = [quoteText, messageText].filter(Boolean).join('\n\n')
   return displayText || undefined
+}
+
+/**
+ * 获取排队消息的展示文本，仅移除附件、引用与 skill 注入的 XML 块。
+ * @param text - Pi 队列中的完整消息文本。
+ * @returns XML 块之外的文本；没有剩余文本时返回 undefined。
+ */
+export function getQueuedUserPromptDisplayText(text: string): string | undefined {
+  return stripPromptContextBlocks(text)
 }
 
 /**
@@ -96,6 +109,13 @@ export type UserMessageDisplaySegment =
       name: string
       label: string
       location: string
+    }
+  | {
+      type: 'quoteReference'
+      messageId?: string
+      sessionEntryId?: string
+      label: string
+      text: string
     }
 
 /**
@@ -199,16 +219,12 @@ function pushTextSegment(segments: UserMessageDisplaySegment[], text: string): v
   segments.push({ type: 'text', text })
 }
 
-interface ParsedDisplaySkillBlock {
-  name: string
-  location: string
-}
-
-function getSkillContextDisplaySegments(text: string): UserMessageDisplaySegment[] {
-  const fileReferenceNames = getHiddenFileBlockNames(text)
-  const skillContext = extractDisplaySkillContext(text)
-  const skillLocations = new Map(skillContext.skills.map((skill) => [skill.name, skill.location]))
-  const userMessage = stripHiddenFileBlocks(skillContext.rest)
+function getSkillContextDisplaySegments(
+  skills: readonly PromptSkillContextBlock[],
+  userMessage: string,
+  fileReferenceNames: readonly string[]
+): UserMessageDisplaySegment[] {
+  const skillLocations = new Map(skills.map((skill) => [skill.name, skill.location]))
   const userSegments = userMessage
     ? parseUserMessageDisplaySegments(userMessage, {
         allowedFileArgs: fileReferenceNames,
@@ -223,7 +239,7 @@ function getSkillContextDisplaySegments(text: string): UserMessageDisplaySegment
       )
       .map((segment) => segment.name)
   )
-  const prefixSkillSegments: UserMessageDisplaySegment[] = skillContext.skills
+  const prefixSkillSegments: UserMessageDisplaySegment[] = skills
     .filter((skill) => !referencedSkills.has(skill.name))
     .map((skill) => ({
       type: 'skillReference',
@@ -238,47 +254,6 @@ function getSkillContextDisplaySegments(text: string): UserMessageDisplaySegment
     return prefixSkillSegments
   }
   return [...prefixSkillSegments, { type: 'text', text: '\n\n' }, ...userSegments]
-}
-
-function extractDisplaySkillContext(text: string): {
-  skills: ParsedDisplaySkillBlock[]
-  rest: string
-} {
-  let rest = stripLeadingFileBlocks(text)
-  const skills: ParsedDisplaySkillBlock[] = []
-  while (true) {
-    const match = rest.match(
-      /^<skill\s+name="([^"]+)"\s+location="([^"]+)">\n?[\s\S]*?\n?<\/skill>\s*/
-    )
-    if (!match) {
-      break
-    }
-    skills.push({
-      name: match[1],
-      location: match[2]
-    })
-    rest = rest.slice(match[0].length)
-  }
-  return { skills, rest }
-}
-
-function stripHiddenFileBlocks(text: string): string {
-  return text.replace(/<file\b[^>]*>[\s\S]*?<\/file>\s*/g, '').trim()
-}
-
-function stripLeadingFileBlocks(text: string): string {
-  return text.replace(/^(?:<file\b[^>]*>[\s\S]*?<\/file>\s*)+/g, '').trimStart()
-}
-
-function getHiddenFileBlockNames(text: string): string[] {
-  const names: string[] = []
-  const fileBlockPattern = /<file\b[^>]*\bname="([^"]+)"[^>]*>[\s\S]*?<\/file>/g
-  for (const match of text.matchAll(fileBlockPattern)) {
-    if (match[1]) {
-      names.push(match[1])
-    }
-  }
-  return names
 }
 
 function getSkillReferenceLabel(name: string): string {
@@ -322,16 +297,13 @@ export function getMessageFileAttachments(message: ThreadMessage): MessageFileAt
     return []
   }
   const attachments: MessageFileAttachment[] = []
-  const fileBlockPattern = /<file\b[^>]*\bname="([^"]+)"[^>]*>([\s\S]*?)<\/file>/g
+  const context = parsePromptContext(text)
   const referencedFileArgs = getUserMessageReferencedFileArgs(text)
   const images = getMessageImages(message)
   let imageIndex = 0
-  for (const match of text.matchAll(fileBlockPattern)) {
-    const [, name, body] = match
-    if (!name) {
-      continue
-    }
-    const note = body?.trim()
+  for (const file of context.files) {
+    const name = file.name
+    const note = file.content.trim()
     const isImageName = isImageFileName(name)
     const inlineImage = isImageName ? images[imageIndex++] : undefined
     if (isImageName && isReferencedFileArg(name, referencedFileArgs)) {
@@ -368,17 +340,27 @@ function getUserMessageReferencedFileArgs(text: string): string[] {
 }
 
 function getUserMessageDisplaySegmentsFromText(text: string): UserMessageDisplaySegment[] {
-  const skillContext = extractDisplaySkillContext(text)
-  if (skillContext.skills.length > 0) {
-    return getSkillContextDisplaySegments(text)
-  }
-  const fileReferenceNames = getHiddenFileBlockNames(text)
-  const displayText = stripHiddenFileBlocks(text)
-  return displayText
-    ? parseUserMessageDisplaySegments(displayText, {
-        allowedFileArgs: fileReferenceNames
-      })
-    : []
+  const context = parsePromptContext(text)
+  const fileReferenceNames = context.files.map((file) => file.name)
+  const contentSegments =
+    context.skills.length > 0
+      ? getSkillContextDisplaySegments(context.skills, context.message, fileReferenceNames)
+      : context.message
+        ? parseUserMessageDisplaySegments(context.message, {
+            allowedFileArgs: fileReferenceNames
+          })
+        : []
+  const quoteSegments: UserMessageDisplaySegment[] = context.quotes.map((quote) => ({
+    type: 'quoteReference',
+    label: '文本引用',
+    messageId: quote.messageId,
+    ...(quote.sessionEntryId ? { sessionEntryId: quote.sessionEntryId } : {}),
+    text: quote.text
+  }))
+  if (quoteSegments.length === 0) return contentSegments
+  return contentSegments.length > 0
+    ? [...quoteSegments, { type: 'text', text: '\n\n' }, ...contentSegments]
+    : quoteSegments
 }
 
 function isReferencedFileArg(filePath: string, referencedFileArgs: readonly string[]): boolean {
@@ -511,23 +493,13 @@ export function getStandaloneMessageImages(message: ThreadMessage): MessageImage
   if (images.length === 0) {
     return []
   }
-  const attachmentImageCount = getImageFileBlockCount(getMessageText(message))
+  const attachmentImageCount = getImageFileContextCount(getMessageText(message))
   return images.slice(attachmentImageCount)
 }
 
-function getImageFileBlockCount(text: string | undefined): number {
-  if (!text) {
-    return 0
-  }
-  let count = 0
-  const fileBlockPattern = /<file\b[^>]*\bname="([^"]+)"[^>]*>[\s\S]*?<\/file>/g
-  for (const match of text.matchAll(fileBlockPattern)) {
-    const name = match[1]
-    if (name && isImageFileName(name)) {
-      count += 1
-    }
-  }
-  return count
+function getImageFileContextCount(text: string | undefined): number {
+  if (!text) return 0
+  return parsePromptContext(text).files.filter((file) => isImageFileName(file.name)).length
 }
 
 /**

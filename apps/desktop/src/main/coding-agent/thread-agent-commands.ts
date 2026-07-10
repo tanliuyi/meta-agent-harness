@@ -6,6 +6,11 @@ import { clipboard } from 'electron'
 import { readFileSync } from 'node:fs'
 import { readFile, stat } from 'node:fs/promises'
 import { dirname } from 'node:path'
+import {
+  serializePromptFileContext,
+  serializePromptQuoteContexts,
+  serializePromptSkillContext
+} from '@shared/coding-agent/prompt-context'
 import type {
   PromptImage,
   PromptImageFile,
@@ -17,31 +22,17 @@ import type {
 } from '@shared/coding-agent/types'
 import type { ThreadManagerCore } from './thread-manager-core'
 type ConfigModule = typeof import('@coding-agent-src/config')
-type ChangelogModule = typeof import('@coding-agent-src/utils/changelog')
-type KeybindingsModule =
-  typeof import('@coding-agent-src/core/keybindings')
 type ShareViewerConfigModule = {
   getShareViewerUrl: ConfigModule['getShareViewerUrl']
 }
-type ChangelogSupportModule = {
-  getChangelogPath: ChangelogModule['getChangelogPath']
-  parseChangelog: ChangelogModule['parseChangelog']
-}
-type HotkeysSupportModule = {
-  KEYBINDINGS: KeybindingsModule['KEYBINDINGS']
-  KeybindingsManager: KeybindingsModule['KeybindingsManager']
-}
-type FileReferenceModule =
-  typeof import('@coding-agent-src/core/file-reference')
+type FileReferenceModule = typeof import('@coding-agent-src/core/file-reference')
 type PromptFileReferenceModule = {
   dedupeFileArgs: FileReferenceModule['dedupeFileArgs']
   parseFileReferenceTokens: FileReferenceModule['parseFileReferenceTokens']
 }
 
-type PathUtilsModule =
-  typeof import('@coding-agent-src/core/tools/path-utils')
-type ImageProcessModule =
-  typeof import('@coding-agent-src/utils/image-process')
+type PathUtilsModule = typeof import('@coding-agent-src/core/tools/path-utils')
+type ImageProcessModule = typeof import('@coding-agent-src/utils/image-process')
 type MimeModule = typeof import('@coding-agent-src/utils/mime')
 type PromptFileSupportModule = {
   resolveReadPath: PathUtilsModule['resolveReadPath']
@@ -50,8 +41,6 @@ type PromptFileSupportModule = {
 }
 
 let shareViewerConfigModulePromise: Promise<ShareViewerConfigModule> | undefined
-let changelogSupportModulePromise: Promise<ChangelogSupportModule> | undefined
-let hotkeysSupportModulePromise: Promise<HotkeysSupportModule> | undefined
 let promptFileReferenceModulePromise: Promise<PromptFileReferenceModule> | undefined
 let promptFileSupportModulePromise: Promise<PromptFileSupportModule> | undefined
 
@@ -60,41 +49,19 @@ const maxPromptImageFileBytes = 20 * 1024 * 1024
 const maxTextProbeBytes = 4096
 
 function loadShareViewerConfigModule(): Promise<ShareViewerConfigModule> {
-  shareViewerConfigModulePromise ??= import(
-    '@coding-agent-src/config'
-  ).then((config) => ({
+  shareViewerConfigModulePromise ??= import('@coding-agent-src/config').then((config) => ({
     getShareViewerUrl: config.getShareViewerUrl
   }))
   return shareViewerConfigModulePromise
 }
 
-function loadChangelogSupportModule(): Promise<ChangelogSupportModule> {
-  changelogSupportModulePromise ??= import(
-    '@coding-agent-src/utils/changelog'
-  ).then((changelog) => ({
-    getChangelogPath: changelog.getChangelogPath,
-    parseChangelog: changelog.parseChangelog
-  }))
-  return changelogSupportModulePromise
-}
-
-function loadHotkeysSupportModule(): Promise<HotkeysSupportModule> {
-  hotkeysSupportModulePromise ??= import(
-    '@coding-agent-src/core/keybindings'
-  ).then((keybindings) => ({
-    KEYBINDINGS: keybindings.KEYBINDINGS,
-    KeybindingsManager: keybindings.KeybindingsManager
-  }))
-  return hotkeysSupportModulePromise
-}
-
 function loadPromptFileReferenceModule(): Promise<PromptFileReferenceModule> {
-  promptFileReferenceModulePromise ??= import(
-    '@coding-agent-src/core/file-reference'
-  ).then((fileReference) => ({
-    dedupeFileArgs: fileReference.dedupeFileArgs,
-    parseFileReferenceTokens: fileReference.parseFileReferenceTokens
-  }))
+  promptFileReferenceModulePromise ??= import('@coding-agent-src/core/file-reference').then(
+    (fileReference) => ({
+      dedupeFileArgs: fileReference.dedupeFileArgs,
+      parseFileReferenceTokens: fileReference.parseFileReferenceTokens
+    })
+  )
   return promptFileReferenceModulePromise
 }
 
@@ -236,10 +203,6 @@ async function runBuiltinCommand(
       await core.sendOk(input.threadId, { type: 'clone' })
       await syncThreadFromSnapshot(core, input.threadId)
       return { handled: true, result: { message: '已克隆当前会话', refreshSnapshot: true } }
-    case 'new':
-      await core.sendOk(input.threadId, { type: 'new_session' })
-      await syncThreadFromSnapshot(core, input.threadId)
-      return { handled: true, result: { message: '已开始新会话', refreshSnapshot: true } }
     case 'name':
       if (!args) {
         throw new Error('/name 需要提供会话名称')
@@ -332,26 +295,6 @@ async function runBuiltinCommand(
         }
       }
     }
-    case 'changelog': {
-      const details = await getChangelogCommandDetails(args)
-      return {
-        handled: true,
-        result: {
-          message: details ? '已打开 Changelog' : '没有可显示的 changelog',
-          ...(details ? { details } : {})
-        }
-      }
-    }
-    case 'hotkeys': {
-      const details = await getHotkeysCommandDetails()
-      return {
-        handled: true,
-        result: {
-          message: '已打开 Hotkeys',
-          details
-        }
-      }
-    }
     case 'share': {
       const result = await shareSession(core, input.threadId)
       clipboard.writeText(result.url)
@@ -426,48 +369,6 @@ async function shareSession(
   }
 }
 
-async function getChangelogCommandDetails(
-  args: string | undefined
-): Promise<RunCommandResult['details']> {
-  const { getChangelogPath, parseChangelog } = await loadChangelogSupportModule()
-  const entries = parseChangelog(getChangelogPath())
-  if (entries.length === 0) {
-    return undefined
-  }
-  const trimmedArgs = args?.trim()
-  const versionFilter = trimmedArgs?.match(/^v?(\d+)\.(\d+)\.(\d+)$/)
-  const count = trimmedArgs && /^\d+$/.test(trimmedArgs) ? Number.parseInt(trimmedArgs, 10) : 5
-  const selectedEntries = versionFilter
-    ? entries.filter(
-        (entry) =>
-          entry.major === Number.parseInt(versionFilter[1], 10) &&
-          entry.minor === Number.parseInt(versionFilter[2], 10) &&
-          entry.patch === Number.parseInt(versionFilter[3], 10)
-      )
-    : entries.slice(0, Math.max(1, Math.min(count, 20)))
-  const body = selectedEntries.map((entry) => entry.content).join('\n\n')
-  return {
-    title: versionFilter
-      ? `Changelog ${trimmedArgs}`
-      : `Changelog 最近 ${selectedEntries.length} 条`,
-    body: body || '没有匹配的 changelog 条目'
-  }
-}
-
-async function getHotkeysCommandDetails(): Promise<NonNullable<RunCommandResult['details']>> {
-  const { KEYBINDINGS, KeybindingsManager } = await loadHotkeysSupportModule()
-  const effectiveConfig = KeybindingsManager.create().getEffectiveConfig()
-  const rows = Object.entries(KEYBINDINGS).map(([id, definition]) => {
-    const keys = effectiveConfig[id]
-    const keyLabel = Array.isArray(keys) ? keys.join(', ') : keys || '未绑定'
-    return `${keyLabel.padEnd(18)} ${definition.description ?? id}`
-  })
-  return {
-    title: 'Hotkeys',
-    body: rows.join('\n')
-  }
-}
-
 function normalizeCommandName(command: string): string {
   return command.trim().replace(/^\/+/, '')
 }
@@ -514,7 +415,8 @@ async function resolvePromptInput(
   core: ThreadManagerCore,
   input: TextInput
 ): Promise<Pick<TextInput, 'message' | 'images'>> {
-  const message = await resolvePromptSkillReferences(input.message, input.skillReferences)
+  const messageWithSkills = await resolvePromptSkillReferences(input.message, input.skillReferences)
+  const message = serializePromptQuoteContexts(messageWithSkills, input.quoteContexts ?? [])
   if (
     (!input.imageFiles || input.imageFiles.length === 0) &&
     (!input.fileArgs || input.fileArgs.length === 0) &&
@@ -591,7 +493,7 @@ async function createSkillReferenceBlockFromReference(
   const name = normalizeSkillReferenceName(reference.name)
   const baseDir = reference.baseDir ?? dirname(reference.path)
   const body = stripSkillFrontmatter(content).trim()
-  return `<skill name="${name}" location="${reference.path}">\nReferences are relative to ${baseDir}.\n\n${body}\n</skill>`
+  return serializePromptSkillContext(name, reference.path, baseDir, body)
 }
 
 /**
@@ -660,7 +562,9 @@ async function processPromptFileArg(
     return { text: '', images: [] }
   }
 
-  const mimeType = await support.detectSupportedImageMimeTypeFromFile(absolutePath).catch(() => null)
+  const mimeType = await support
+    .detectSupportedImageMimeTypeFromFile(absolutePath)
+    .catch(() => null)
   if (mimeType) {
     return processPromptImageFile(absolutePath, fileStats.size, mimeType, support, autoResizeImages)
   }
@@ -691,7 +595,7 @@ async function processPromptImageFile(
     const content = await readFile(absolutePath)
     const processed = await support.processImage(content, mimeType, { autoResizeImages })
     if (!processed.ok) {
-      return { text: `<file name="${absolutePath}">${processed.message}</file>\n`, images: [] }
+      return { text: serializePromptFileContext(absolutePath, processed.message), images: [] }
     }
     const attachment: PromptImage = {
       type: 'image',
@@ -699,7 +603,7 @@ async function processPromptImageFile(
       data: processed.data
     }
     const hints = processed.hints.length > 0 ? processed.hints.join('\n') : ''
-    return { text: `<file name="${absolutePath}">${hints}</file>\n`, images: [attachment] }
+    return { text: serializePromptFileContext(absolutePath, hints), images: [attachment] }
   } catch (error) {
     return {
       text: createSkippedPromptFileText(absolutePath, getFileReadErrorMessage(error)),
@@ -733,7 +637,10 @@ async function processPromptTextFile(
         images: []
       }
     }
-    return { text: `<file name="${absolutePath}">\n${content.toString('utf8')}\n</file>\n`, images: [] }
+    return {
+      text: serializePromptFileContext(absolutePath, content.toString('utf8'), { multiline: true }),
+      images: []
+    }
   } catch (error) {
     return {
       text: createSkippedPromptFileText(absolutePath, getFileReadErrorMessage(error)),
@@ -743,7 +650,7 @@ async function processPromptTextFile(
 }
 
 function createSkippedPromptFileText(absolutePath: string, reason: string): string {
-  return `<file name="${absolutePath}">[Skipped: ${reason}.]</file>\n`
+  return serializePromptFileContext(absolutePath, `[Skipped: ${reason}.]`)
 }
 
 function getFileReadErrorMessage(error: unknown): string {

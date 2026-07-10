@@ -53,7 +53,7 @@ function runCommand(command: CommandInfo): void {
   <section class="session-section" role="tabpanel">
     <header class="session-section__header">
       <div class="session-section__title">
-        <h3>Commands</h3>
+        <h3>命令</h3>
         <span v-if="workspaceSession.activeCommandsLoaded" class="session-panel-count">
           {{ filteredCommands.length }} / {{ runnableCommands.length }}
         </span>
@@ -64,15 +64,15 @@ function runCommand(command: CommandInfo): void {
         :disabled="!hasActiveThread"
         @click="workspaceSession.loadCommands()"
       >
-        Refresh
+        刷新
       </BaseButton>
     </header>
     <BaseField
       id="session-command-search"
       v-model="commandQuery"
-      label="Search commands"
+      label="搜索命令"
       type="search"
-      placeholder="Search commands or type /command args"
+      placeholder="搜索命令，或输入 /command args"
     />
     <div v-if="workspaceSession.activeCommandsLoading" class="session-empty">Loading...</div>
     <div

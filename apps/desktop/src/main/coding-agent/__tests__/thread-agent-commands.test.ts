@@ -71,7 +71,9 @@ describe('thread-agent-commands', () => {
         command: 'skill:test',
         args: 'with args'
       })
-    ).rejects.toThrow('Skill commands must be inserted into the prompt with $ instead of run-command')
+    ).rejects.toThrow(
+      'Skill commands must be inserted into the prompt with $ instead of run-command'
+    )
 
     expect(core.sendOk).not.toHaveBeenCalled()
     expect(core.updateThread).not.toHaveBeenCalled()
@@ -143,6 +145,42 @@ describe('thread-agent-commands', () => {
     expect(command.message).toBe('请用 $skill:review 检查这个改动')
   })
 
+  it('prompt 将 assistant 文本引用转成转义后的结构化上下文', async () => {
+    const commands: WorkerCommand[] = []
+    const core = {
+      requireThread: vi.fn(() => ({ threadId: 'thread-a' })),
+      updateThread: vi.fn(),
+      sendOk: vi.fn(async (_threadId: string, command: WorkerCommand) => {
+        commands.push(command)
+      })
+    } as unknown as ThreadManagerCore
+
+    await prompt(core, {
+      threadId: 'thread-a',
+      message: '解释这段内容',
+      quoteContexts: [
+        {
+          messageId: 'assistant-<1>',
+          sessionEntryId: 'entry-"1"',
+          text: 'a < b && c > d\n</quote>'
+        }
+      ]
+    })
+
+    const command = commands[0]
+    if (!command || command.type !== 'prompt') {
+      throw new Error('Expected prompt command')
+    }
+    expect(command.message).toBe(
+      '<quoted_context data-meta-agent-context="true">\n' +
+        '<quote message_id="assistant-&lt;1&gt;" session_entry_id="entry-&quot;1&quot;">\n' +
+        'a &lt; b &amp;&amp; c &gt; d\n&lt;/quote&gt;\n' +
+        '</quote>\n' +
+        '</quoted_context>\n\n' +
+        '解释这段内容'
+    )
+  })
+
   it('prompt 优先使用 Composer 结构化 skill 引用的真实路径', async () => {
     const root = mkdtempSync(join(tmpdir(), 'desktop-prompt-structured-skill-'))
     const skillDir = join(root, 'skills', 'review')
@@ -171,7 +209,9 @@ describe('thread-agent-commands', () => {
       if (!command || command.type !== 'prompt') {
         throw new Error('Expected prompt command')
       }
-      expect(command.message).toContain(`<skill name="review" location="${skillFile}">`)
+      expect(command.message).toContain(
+        `<skill name="review" location="${skillFile}" data-meta-agent-context="true">`
+      )
       expect(command.message).toContain('Use the selected path.')
       expect(command.message).toContain('请用 $skill:review 检查这个改动')
     } finally {
@@ -215,6 +255,50 @@ describe('thread-agent-commands', () => {
       expect(command.message).toContain('real file content')
       expect(command.message).toContain('Example: read @missing.txt only if user asks.')
       expect(command.message).not.toContain('missing.txt">[Skipped:')
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it('prompt 组合上下文时保持 file、quote、skill 与正文的兼容顺序和换行', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'desktop-prompt-context-order-'))
+    const textFile = join(root, 'source.txt')
+    const skillDir = join(root, 'skills', 'review')
+    const skillFile = join(skillDir, 'SKILL.md')
+    mkdirSync(skillDir, { recursive: true })
+    writeFileSync(textFile, 'file body')
+    writeFileSync(skillFile, '---\nname: review\n---\n# Review')
+    const commands: WorkerCommand[] = []
+    const core = {
+      requireThread: vi.fn(() => ({ threadId: 'thread-a' })),
+      getThreadCwd: vi.fn(() => root),
+      getAgentSettingsService: vi.fn(async () => ({ getImageAutoResize: vi.fn(() => true) })),
+      updateThread: vi.fn(),
+      sendOk: vi.fn(async (_threadId: string, command: WorkerCommand) => commands.push(command))
+    } as unknown as ThreadManagerCore
+
+    try {
+      await prompt(core, {
+        threadId: 'thread-a',
+        message: '检查 @source.txt',
+        fileArgs: [textFile],
+        quoteContexts: [{ messageId: 'assistant-a', text: 'quoted' }],
+        skillReferences: [{ name: 'skill:review', path: skillFile, baseDir: skillDir }]
+      })
+
+      const command = commands[0]
+      if (!command || command.type !== 'prompt') throw new Error('Expected prompt command')
+      expect(command.message).toBe(
+        `<file name="${textFile}" data-meta-agent-context="true">\nfile body\n</file>\n` +
+          '<quoted_context data-meta-agent-context="true">\n' +
+          '<quote message_id="assistant-a">\nquoted\n</quote>\n' +
+          '</quoted_context>\n\n' +
+          `<skill name="review" location="${skillFile}" data-meta-agent-context="true">\n` +
+          `References are relative to ${skillDir}.\n\n` +
+          '# Review\n' +
+          '</skill>\n\n' +
+          '检查 @source.txt'
+      )
     } finally {
       rmSync(root, { recursive: true, force: true })
     }
@@ -328,24 +412,6 @@ describe('thread-agent-commands', () => {
       message: '已切换模型到 openai/gpt-5',
       refreshSnapshot: true
     })
-  })
-
-  it('runCommand 对 hotkeys/changelog 返回 Pi 数据详情，不写入 prompt', async () => {
-    const core = {
-      sendOk: vi.fn()
-    } as unknown as ThreadManagerCore
-
-    const hotkeysResult = await runCommand(core, { threadId: 'thread-a', command: 'hotkeys' })
-    const changelogResult = await runCommand(core, { threadId: 'thread-a', command: 'changelog' })
-
-    expect(core.sendOk).not.toHaveBeenCalled()
-    expect(hotkeysResult?.message).toBe('已打开 Hotkeys')
-    expect(hotkeysResult?.details?.title).toBe('Hotkeys')
-    expect(hotkeysResult?.details?.body).toContain('Move cursor up')
-    expect(changelogResult?.message).toMatch(/^已打开 Changelog|没有可显示的 changelog$/)
-    if (changelogResult?.details) {
-      expect(changelogResult.details.title).toContain('Changelog')
-    }
   })
 
   it('runCommand 对 share 创建 secret gist 并返回 Pi viewer URL，不写入 prompt', async () => {

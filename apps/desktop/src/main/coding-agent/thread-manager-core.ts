@@ -66,6 +66,7 @@ export class ThreadManagerCore {
   private readonly projectStore: ProjectStore | undefined
   /** Project trust 服务。 */
   private readonly projectTrustService: ProjectTrustService | undefined
+  private readonly threadWorkerLifecycleTasks = new Map<string, Promise<void>>()
   /** 全局模型设置服务。 */
   private modelSettingsService: ModelSettingsService | undefined
   private modelSettingsServicePromise: Promise<ModelSettingsService> | undefined
@@ -542,11 +543,13 @@ export class ThreadManagerCore {
    * @throws 当 worker 响应失败时。
    */
   async sendOk(threadId: string, command: WorkerCommand): Promise<void> {
-    await this.ensureWorker(threadId)
-    const response = await this.workers.send(threadId, command)
-    if (!response.success) {
-      throwResponseError(response)
-    }
+    await this.runThreadWorkerLifecycle(threadId, async () => {
+      await this.ensureWorker(threadId)
+      const response = await this.workers.send(threadId, command)
+      if (!response.success) {
+        throwResponseError(response)
+      }
+    })
   }
 
   /**
@@ -557,12 +560,14 @@ export class ThreadManagerCore {
    * @throws 当 worker 响应失败时。
    */
   async sendData<T>(threadId: string, command: WorkerCommand): Promise<T> {
-    await this.ensureWorker(threadId)
-    const response = await this.workers.send(threadId, command)
-    if (!response.success) {
-      throwResponseError(response)
-    }
-    return response.data as T
+    return await this.runThreadWorkerLifecycle(threadId, async () => {
+      await this.ensureWorker(threadId)
+      const response = await this.workers.send(threadId, command)
+      if (!response.success) {
+        throwResponseError(response)
+      }
+      return response.data as T
+    })
   }
 
   /**
@@ -812,11 +817,34 @@ export class ThreadManagerCore {
 
   /**
    * 获取线程启动用的 Project trust 覆盖。
-   * @param cwd - Project cwd。
+   * @param projectPath - Thread 所属 Project 路径。
    * @returns 是否加载 Project 本地资源。
    */
-  getProjectTrustOverride(cwd: string): boolean {
-    return this.projectTrustService?.isProjectTrusted(cwd) ?? false
+  getProjectTrustOverride(projectPath: string): boolean {
+    return this.projectTrustService?.isProjectTrusted(projectPath) ?? false
+  }
+
+  /**
+   * 串行执行指定 Thread 的 worker 生命周期操作。
+   * @param threadId - Thread ID。
+   * @param operation - 生命周期操作。
+   * @returns 操作结果。
+   */
+  async runThreadWorkerLifecycle<T>(threadId: string, operation: () => Promise<T>): Promise<T> {
+    const previousTask = this.threadWorkerLifecycleTasks.get(threadId) ?? Promise.resolve()
+    const result = previousTask.catch(() => undefined).then(operation)
+    const barrier = result.then(
+      () => undefined,
+      () => undefined
+    )
+    this.threadWorkerLifecycleTasks.set(threadId, barrier)
+    try {
+      return await result
+    } finally {
+      if (this.threadWorkerLifecycleTasks.get(threadId) === barrier) {
+        this.threadWorkerLifecycleTasks.delete(threadId)
+      }
+    }
   }
 
   /**
@@ -847,16 +875,17 @@ export class ThreadManagerCore {
     }
     const thread = this.requireThread(threadId)
     const statusAfterStart = thread.status === 'running' ? 'running' : 'idle'
+    const projectPath = this.getThreadCwd(thread)
     const cwd = thread.sessionFile
-      ? await resolveSessionCwdLazy(thread.sessionFile, this.getThreadCwd(thread))
-      : this.getThreadCwd(thread)
+      ? await resolveSessionCwdLazy(thread.sessionFile, projectPath)
+      : projectPath
     this.updateThread(threadId, { status: 'starting' })
     await this.workers.acquireThreadWorker({
       threadId,
       cwd,
       sessionFile: thread.sessionFile,
       title: thread.title,
-      projectTrustOverride: this.getProjectTrustOverride(cwd)
+      projectTrustOverride: this.getProjectTrustOverride(projectPath)
     })
     this.updateThread(threadId, { status: statusAfterStart })
   }

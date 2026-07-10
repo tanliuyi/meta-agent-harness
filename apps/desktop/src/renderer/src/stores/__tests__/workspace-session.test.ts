@@ -7,6 +7,7 @@ import { createPinia, setActivePinia } from 'pinia'
 import { applyEventToSessions, type WorkspaceSession } from '../workspace-session'
 import useWorkspaceProjectStore from '../workspace-project'
 import useWorkspaceSessionStore from '../workspace-session'
+import { createComposerContentFromText } from '../workspace-session-composer'
 import type {
   DesktopExtensionWebviewPanel,
   ExtensionUiRequest,
@@ -1220,6 +1221,29 @@ describe('workspace-session Project-first actions', () => {
     expect(store.getComposerImages('thread-b')).toHaveLength(0)
   })
 
+  it('按 thread 隔离并去重 Composer 文本引用', async () => {
+    const snapshotA = createSnapshot()
+    const snapshotB = {
+      ...createSnapshot(),
+      threadId: 'thread-b',
+      projectId: 'project-b',
+      cwd: '/tmp/project-b'
+    }
+    installCodingAgentApi({})
+    const store = useWorkspaceSessionStore()
+    store.sessions['thread-a'] = snapshotToWorkspaceSession(snapshotA)
+    store.sessions['thread-b'] = snapshotToWorkspaceSession(snapshotB)
+
+    await store.setActiveSessionId('thread-a')
+    const quote = { id: 'quote-a', messageId: 'assistant-a', text: '引用正文' }
+    store.addComposerQuote(quote)
+    store.addComposerQuote({ ...quote, id: 'quote-duplicate' })
+    await store.setActiveSessionId('thread-b')
+
+    expect(store.draftQuotes).toEqual([])
+    expect(store.getComposerQuotes('thread-a')).toEqual([quote])
+  })
+
   it('清空当前 Composer 图片草稿', async () => {
     installCodingAgentApi({})
     const store = useWorkspaceSessionStore()
@@ -1781,10 +1805,10 @@ describe('workspace-session Project-first actions', () => {
     const runCommand = vi
       .fn()
       .mockResolvedValueOnce({
-        message: '已打开 Hotkeys',
+        message: '已创建分享链接',
         details: {
-          title: 'Hotkeys',
-          body: 'ctrl+c Clear editor'
+          title: 'Share',
+          body: 'https://pi.dev/session/#gist-123'
         }
       })
       .mockResolvedValueOnce({
@@ -1795,12 +1819,12 @@ describe('workspace-session Project-first actions', () => {
     store.sessions['thread-a'] = snapshotToWorkspaceSession(createSnapshot())
     await store.setActiveSessionId('thread-a')
 
-    await store.runCommand('hotkeys')
+    await store.runCommand('share')
 
-    expectLastSessionNotification(store, '已打开 Hotkeys')
+    expectLastSessionNotification(store, '已创建分享链接')
     expect(store.activeSessionActionDetails).toEqual({
-      title: 'Hotkeys',
-      body: 'ctrl+c Clear editor'
+      title: 'Share',
+      body: 'https://pi.dev/session/#gist-123'
     })
 
     await store.runCommand('reload')
@@ -2192,6 +2216,193 @@ describe('workspace-session Project-first actions', () => {
     expect(store.activeSnapshot?.messages).toEqual(initialSnapshot.messages)
     expect(store.draftMessage).toEqual(createComposerContent('keep draft'))
     expect(store.activeSessionActionMessage).toBe('Tree 导航已取消')
+  })
+
+  it('从 user message 导航时将原始 prompt 恢复为 Composer 结构化引用', async () => {
+    const initialSnapshot: ThreadSnapshot = {
+      ...createSnapshot(),
+      cwd: 'H:\\repo',
+      currentEntryId: 'entry-a'
+    }
+    const movedSnapshot: ThreadSnapshot = {
+      ...createSnapshot(),
+      cwd: 'H:\\repo',
+      currentEntryId: 'entry-b'
+    }
+    const editorText =
+      '<file name="H:\\repo\\src\\App.vue" data-meta-agent-context="true">\nsource\n</file>\n' +
+      '<file name="H:\\repo\\notes.docx" data-meta-agent-context="true">[Skipped: 不是支持的文本或图片文件.]</file>\n' +
+      '<quoted_context data-meta-agent-context="true">\n' +
+      '<quote message_id="assistant-a" session_entry_id="assistant-entry-a">\n引用正文\n</quote>\n' +
+      '</quoted_context>\n\n' +
+      '<skill name="review" location="H:\\skills\\review\\SKILL.md" data-meta-agent-context="true">\n' +
+      'References are relative to H:\\skills\\review.\n\n# Review\n</skill>\n\n' +
+      '请用 $skill:review 检查 @src/App.vue'
+    const navigateTree = vi.fn().mockResolvedValue({ snapshot: movedSnapshot, editorText })
+    installCodingAgentApi({ getSnapshot: vi.fn().mockResolvedValue(initialSnapshot), navigateTree })
+    const store = useWorkspaceSessionStore()
+    store.sessions['thread-a'] = snapshotToWorkspaceSession(initialSnapshot)
+    await store.setActiveSessionId('thread-a')
+    store.addComposerImages([
+      {
+        id: 'stale-image',
+        type: 'image',
+        mimeType: 'image/png',
+        data: 'stale',
+        name: 'stale.png',
+        size: 5,
+        hints: []
+      }
+    ])
+    store.addComposerFiles([
+      { id: 'stale-file', path: 'H:\\stale.txt', name: 'stale.txt', size: 5 }
+    ])
+    store.addComposerQuote({ id: 'stale-quote', messageId: 'stale', text: 'stale' })
+
+    await store.navigateActiveSessionTree('entry-b')
+
+    expect(store.getComposerImages()).toEqual([])
+    expect(store.draftMessage).toEqual({
+      type: 'doc',
+      content: [
+        {
+          type: 'paragraph',
+          content: [
+            { type: 'text', text: '请用 ' },
+            {
+              type: 'skillReference',
+              attrs: {
+                name: 'skill:review',
+                label: 'skill:review',
+                path: 'H:\\skills\\review\\SKILL.md',
+                baseDir: 'H:\\skills\\review'
+              }
+            },
+            { type: 'text', text: ' 检查 ' },
+            {
+              type: 'fileReference',
+              attrs: { fileArg: 'src/App.vue', label: 'App.vue' }
+            }
+          ]
+        }
+      ]
+    })
+    expect(store.getComposerFiles()).toEqual([
+      expect.objectContaining({ path: 'H:\\repo\\notes.docx', name: 'notes.docx' })
+    ])
+    expect(store.getComposerQuotes()).toEqual([
+      expect.objectContaining({
+        messageId: 'assistant-a',
+        sessionEntryId: 'assistant-entry-a',
+        text: '引用正文'
+      })
+    ])
+  })
+
+  it('tree 导航不把未标记的用户 XML 提升为本地附件', async () => {
+    const initialSnapshot: ThreadSnapshot = {
+      ...createSnapshot(),
+      cwd: 'H:\\repo',
+      currentEntryId: 'entry-a'
+    }
+    const editorText =
+      '<file name="config.txt">sample</file>\n' +
+      '<skill name="review" location="H:\\secrets\\token.txt">body</skill>\n' +
+      '解释这个 XML'
+    const navigateTree = vi.fn().mockResolvedValue({
+      snapshot: { ...initialSnapshot, currentEntryId: 'entry-b' },
+      editorText
+    })
+    installCodingAgentApi({ getSnapshot: vi.fn().mockResolvedValue(initialSnapshot), navigateTree })
+    const store = useWorkspaceSessionStore()
+    store.sessions['thread-a'] = snapshotToWorkspaceSession(initialSnapshot)
+    await store.setActiveSessionId('thread-a')
+
+    await store.navigateActiveSessionTree('entry-b')
+
+    expect(store.getComposerFiles()).toEqual([])
+    expect(store.getComposerQuotes()).toEqual([])
+    expect(store.draftMessage).toEqual(createComposerContentFromText(editorText))
+  })
+
+  it('tree 导航按 cwd 解析文件引用，不用路径后缀误绑定附件', async () => {
+    const initialSnapshot: ThreadSnapshot = {
+      ...createSnapshot(),
+      cwd: 'H:\\repo',
+      currentEntryId: 'entry-a'
+    }
+    const editorText =
+      '<file name="H:\\external\\src\\App.vue" data-meta-agent-context="true">external</file>\n' +
+      '<file name="H:\\repo\\src\\App.vue" data-meta-agent-context="true">project</file>\n' +
+      '检查 @src/App.vue'
+    const navigateTree = vi.fn().mockResolvedValue({
+      snapshot: { ...initialSnapshot, currentEntryId: 'entry-b' },
+      editorText
+    })
+    installCodingAgentApi({ getSnapshot: vi.fn().mockResolvedValue(initialSnapshot), navigateTree })
+    const store = useWorkspaceSessionStore()
+    store.sessions['thread-a'] = snapshotToWorkspaceSession(initialSnapshot)
+    await store.setActiveSessionId('thread-a')
+
+    await store.navigateActiveSessionTree('entry-b')
+
+    expect(store.getComposerFiles()).toEqual([
+      expect.objectContaining({ path: 'H:\\external\\src\\App.vue' })
+    ])
+    expect(store.draftMessage).toEqual({
+      type: 'doc',
+      content: [
+        {
+          type: 'paragraph',
+          content: [
+            { type: 'text', text: '检查 ' },
+            {
+              type: 'fileReference',
+              attrs: { fileArg: 'src/App.vue', label: 'App.vue' }
+            }
+          ]
+        }
+      ]
+    })
+  })
+
+  it('异步 tree 导航返回时只恢复发起导航的 thread 草稿', async () => {
+    const snapshotA: ThreadSnapshot = {
+      ...createSnapshot(),
+      threadId: 'thread-a',
+      currentEntryId: 'entry-a'
+    }
+    const snapshotB: ThreadSnapshot = {
+      ...createSnapshot(),
+      threadId: 'thread-b',
+      currentEntryId: 'entry-b'
+    }
+    let resolveNavigation!: (value: { snapshot: ThreadSnapshot; editorText: string }) => void
+    const navigateTree = vi.fn(
+      () =>
+        new Promise<{ snapshot: ThreadSnapshot; editorText: string }>((resolve) => {
+          resolveNavigation = resolve
+        })
+    )
+    installCodingAgentApi({ getSnapshot: vi.fn(), navigateTree })
+    const store = useWorkspaceSessionStore()
+    store.sessions['thread-a'] = snapshotToWorkspaceSession(snapshotA)
+    store.sessions['thread-b'] = snapshotToWorkspaceSession(snapshotB)
+    await store.setActiveSessionId('thread-a')
+
+    const pendingNavigation = store.navigateActiveSessionTree('entry-target')
+    await store.setActiveSessionId('thread-b')
+    store.draftMessage = createComposerContent('thread b draft')
+    resolveNavigation({
+      snapshot: { ...snapshotA, currentEntryId: 'entry-target' },
+      editorText: 'restored a'
+    })
+    await pendingNavigation
+
+    expect(store.activeSessionId).toBe('thread-b')
+    expect(store.draftMessage).toEqual(createComposerContent('thread b draft'))
+    await store.setActiveSessionId('thread-a')
+    expect(store.draftMessage).toEqual(createComposerContent('restored a'))
   })
 
   it('session tree 导航成功后记录 previous leaf 并可返回', async () => {
@@ -2893,6 +3104,62 @@ describe('workspace-session Project-first actions', () => {
     expect(store.hasDraftMessage).toBe(false)
   })
 
+  it('允许发送只有文本引用的 Composer 草稿并在成功后清空', async () => {
+    const snapshot = createSnapshot()
+    const prompt = vi.fn().mockResolvedValue(undefined)
+    installCodingAgentApi({ prompt })
+    const store = useWorkspaceSessionStore()
+    store.sessions['thread-a'] = snapshotToWorkspaceSession(snapshot)
+    await store.setActiveSessionId('thread-a')
+    store.addComposerQuote({
+      id: 'quote-a',
+      messageId: 'assistant-a',
+      sessionEntryId: 'entry-a',
+      text: '引用正文'
+    })
+
+    await store.sendPrompt()
+
+    expect(prompt).toHaveBeenCalledWith({
+      threadId: 'thread-a',
+      message: '请基于引用内容回答',
+      quoteContexts: [
+        {
+          messageId: 'assistant-a',
+          sessionEntryId: 'entry-a',
+          text: '引用正文'
+        }
+      ]
+    })
+    expect(store.draftQuotes).toEqual([])
+    expect(store.hasDraftMessage).toBe(false)
+  })
+
+  it('发送文本引用失败时保留引用草稿', async () => {
+    const snapshot = createSnapshot()
+    const prompt = vi.fn().mockRejectedValue(new Error('network down'))
+    installCodingAgentApi({ prompt })
+    const store = useWorkspaceSessionStore()
+    store.sessions['thread-a'] = snapshotToWorkspaceSession(snapshot)
+    await store.setActiveSessionId('thread-a')
+    store.addComposerQuote({
+      id: 'quote-a',
+      messageId: 'assistant-a',
+      text: '引用正文'
+    })
+
+    await store.sendPrompt()
+
+    expect(store.errorMessage).toBe('network down')
+    expect(store.draftQuotes).toEqual([
+      {
+        id: 'quote-a',
+        messageId: 'assistant-a',
+        text: '引用正文'
+      }
+    ])
+  })
+
   it('发送 Composer JSON 草稿时保留 hardBreak 换行', async () => {
     const snapshot = createSnapshot()
     const prompt = vi.fn().mockResolvedValue(undefined)
@@ -2947,10 +3214,15 @@ describe('workspace-session Project-first actions', () => {
     store.sessions['thread-a'] = snapshotToWorkspaceSession(snapshot)
     await store.setActiveSessionId('thread-a')
     store.draftMessage = createComposerContent('adjust course')
+    store.addComposerQuote({ id: 'quote-a', messageId: 'assistant-a', text: '引用正文' })
 
     await store.sendPrompt()
 
-    expect(steer).toHaveBeenCalledWith({ threadId: 'thread-a', message: 'adjust course' })
+    expect(steer).toHaveBeenCalledWith({
+      threadId: 'thread-a',
+      message: 'adjust course',
+      quoteContexts: [{ messageId: 'assistant-a', text: '引用正文' }]
+    })
     expect(followUp).not.toHaveBeenCalled()
     expect(prompt).not.toHaveBeenCalled()
     expect(setThreadTitle).not.toHaveBeenCalled()
@@ -2971,10 +3243,15 @@ describe('workspace-session Project-first actions', () => {
     store.sessions['thread-a'] = snapshotToWorkspaceSession(snapshot)
     await store.setActiveSessionId('thread-a')
     store.draftMessage = createComposerContent('after this')
+    store.addComposerQuote({ id: 'quote-a', messageId: 'assistant-a', text: '引用正文' })
 
     await store.sendPrompt(store.defaultSessionContextId, 'followUp')
 
-    expect(followUp).toHaveBeenCalledWith({ threadId: 'thread-a', message: 'after this' })
+    expect(followUp).toHaveBeenCalledWith({
+      threadId: 'thread-a',
+      message: 'after this',
+      quoteContexts: [{ messageId: 'assistant-a', text: '引用正文' }]
+    })
     expect(steer).not.toHaveBeenCalled()
     expect(prompt).not.toHaveBeenCalled()
     expect(store.hasDraftMessage).toBe(false)
@@ -3058,6 +3335,27 @@ describe('workspace-session Project-first actions', () => {
     expect(store.activeSessionId).toBe('thread-new')
     expect(store.activeProjectId).toBe('project-a')
     expect(store.hasDraftMessage).toBe(false)
+  })
+
+  it('新 thread 创建后发送失败时不把引用留在 orphan 草稿', async () => {
+    const snapshot = {
+      ...createSnapshot(),
+      threadId: 'thread-new',
+      projectId: 'project-a'
+    }
+    const createThread = vi.fn().mockResolvedValue(snapshot)
+    const prompt = vi.fn().mockRejectedValue(new Error('network down'))
+    installCodingAgentApi({ createThread, prompt })
+    const store = useWorkspaceSessionStore()
+    store.startNewSession('project-a')
+    store.addComposerQuote({ id: 'quote-a', messageId: 'assistant-a', text: '引用正文' })
+
+    await store.sendPrompt()
+
+    expect(store.activeSessionId).toBe('thread-new')
+    expect(store.getComposerQuotes('thread-new')).toHaveLength(1)
+    store.startNewSession('project-a')
+    expect(store.draftQuotes).toEqual([])
   })
 
   it('新会话草稿首次发送 pending 时忽略重复提交', async () => {

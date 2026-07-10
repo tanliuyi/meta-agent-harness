@@ -2,18 +2,15 @@
  * 本文件测试 Project-first thread lifecycle。
  */
 
-import { mkdirSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { ProjectStore } from '../project-store'
 import { ProjectTrustService } from '../project-trust-service'
 import { CodingThreadStore } from '../thread-store'
 import { CodingThreadManager } from '../thread-manager'
-import {
-  resolveSessionCwd,
-  SessionManager
-} from '@coding-agent-src/core/session-manager'
+import { resolveSessionCwd, SessionManager } from '@coding-agent-src/core/session-manager'
 import type { StartThreadInput, WorkerLease, WorkerResponseEnvelope } from '../worker-types'
 import type { ThreadWorkerRegistry } from '../thread-worker-registry'
 import type { AgentMessage } from '@earendil-works/pi-agent-core'
@@ -192,7 +189,7 @@ describe('CodingThreadManager lifecycle', () => {
       projectTrustOverride: false
     })
 
-    const trustedProject = manager.setProjectTrust({
+    const trustedProject = await manager.setProjectTrust({
       projectId: project.projectId,
       decision: 'trustProject'
     })
@@ -200,15 +197,148 @@ describe('CodingThreadManager lifecycle', () => {
       state: 'trusted',
       requiresTrust: true
     })
+    expect(registry.acquires[1]).toMatchObject({
+      threadId: 'thread-untrusted',
+      cwd: projectPath,
+      projectTrustOverride: true
+    })
 
     await manager.createThread({
       threadId: 'thread-trusted',
       projectId: project.projectId
     })
-    expect(registry.acquires[1]).toMatchObject({
+    expect(registry.acquires[2]).toMatchObject({
       threadId: 'thread-trusted',
       cwd: projectPath,
       projectTrustOverride: true
+    })
+
+    const untrustedProject = await manager.setProjectTrust({
+      projectId: project.projectId,
+      decision: 'doNotTrust'
+    })
+    expect(untrustedProject.trust).toMatchObject({
+      state: 'untrusted',
+      requiresTrust: true
+    })
+    expect(registry.acquires.slice(-2)).toMatchObject([
+      { threadId: 'thread-untrusted', projectTrustOverride: false },
+      { threadId: 'thread-trusted', projectTrustOverride: false }
+    ])
+
+    threadStore.close()
+    projectStore.close()
+    rmSync(root, { recursive: true, force: true })
+  })
+
+  it('单个 worker 刷新失败时仍撤销同项目其他 worker 的信任', async () => {
+    const root = createTempDir()
+    const projectPath = join(root, 'repo')
+    mkdirSync(join(projectPath, '.pi'), { recursive: true })
+    writeFileSync(join(projectPath, '.pi', 'settings.json'), '{}')
+    const projectStore = new ProjectStore(':memory:')
+    const threadStore = new CodingThreadStore(':memory:')
+    const registry = createRecordingRegistry()
+    const manager = new CodingThreadManager(
+      registry as unknown as ThreadWorkerRegistry,
+      threadStore,
+      projectStore,
+      new ProjectTrustService(join(root, 'agent'))
+    )
+    const project = manager.createProject({ path: projectPath })
+    await manager.setProjectTrust({ projectId: project.projectId, decision: 'trustProject' })
+    await manager.createThread({ threadId: 'thread-a', projectId: project.projectId })
+    await manager.createThread({ threadId: 'thread-b', projectId: project.projectId })
+    registry.failedReleases.add('thread-a')
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+
+    const untrustedProject = await manager.setProjectTrust({
+      projectId: project.projectId,
+      decision: 'doNotTrust'
+    })
+
+    expect(untrustedProject.trust?.state).toBe('untrusted')
+    expect(registry.acquires.at(-1)).toMatchObject({
+      threadId: 'thread-b',
+      projectTrustOverride: false
+    })
+    expect(manager.listThreads()).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ threadId: 'thread-a', status: 'error' }),
+        expect.objectContaining({ threadId: 'thread-b', status: 'idle' })
+      ])
+    )
+    expect(consoleError).toHaveBeenCalledOnce()
+    consoleError.mockRestore()
+
+    threadStore.close()
+    projectStore.close()
+    rmSync(root, { recursive: true, force: true })
+  })
+
+  it('本次信任按 Thread 所属 Project 生效且不写入 trust store', async () => {
+    const root = createTempDir()
+    const projectPath = join(root, 'repo')
+    const sessionCwd = join(root, 'session-repo')
+    const agentDir = join(root, 'agent')
+    mkdirSync(join(projectPath, '.pi'), { recursive: true })
+    mkdirSync(join(sessionCwd, '.pi'), { recursive: true })
+    writeFileSync(join(projectPath, '.pi', 'settings.json'), '{}')
+    writeFileSync(join(sessionCwd, '.pi', 'settings.json'), '{}')
+    const sessionFile = join(root, 'sessions', 'session.jsonl')
+    mkdirSync(join(sessionFile, '..'), { recursive: true })
+    writeFileSync(
+      sessionFile,
+      `${JSON.stringify({
+        type: 'session',
+        version: 3,
+        id: 'session-cwd',
+        timestamp: new Date().toISOString(),
+        cwd: sessionCwd
+      })}\n`
+    )
+
+    const projectStore = new ProjectStore(':memory:')
+    const threadStore = new CodingThreadStore(':memory:')
+    const registry = createRecordingRegistry()
+    const trustService = new ProjectTrustService(agentDir)
+    const manager = new CodingThreadManager(
+      registry as unknown as ThreadWorkerRegistry,
+      threadStore,
+      projectStore,
+      trustService
+    )
+    const project = manager.createProject({ path: projectPath })
+
+    await manager.createThread({
+      threadId: 'thread-session-cwd',
+      projectId: project.projectId,
+      sessionFile
+    })
+    expect(registry.acquires[0]).toMatchObject({
+      threadId: 'thread-session-cwd',
+      cwd: sessionCwd,
+      projectTrustOverride: false
+    })
+
+    const trustedProject = await manager.setProjectTrust({
+      projectId: project.projectId,
+      decision: 'trustSession'
+    })
+    expect(trustedProject.trust).toMatchObject({
+      state: 'trusted',
+      requiresTrust: true,
+      sessionOnly: true
+    })
+    expect(registry.acquires[1]).toMatchObject({
+      threadId: 'thread-session-cwd',
+      cwd: sessionCwd,
+      projectTrustOverride: true
+    })
+    expect(existsSync(join(agentDir, 'trust.json'))).toBe(false)
+    expect(new ProjectTrustService(agentDir).decorateProject(project).trust).toMatchObject({
+      state: 'unknown',
+      requiresTrust: true
     })
 
     threadStore.close()
@@ -495,6 +625,7 @@ function createRecordingRegistry(): {
   liveStates: Map<string, Record<string, unknown>>
   liveMessages: Map<string, AgentMessage[]>
   failedCommands: Map<string, NonNullable<WorkerResponseEnvelope['error']>>
+  failedReleases: Set<string>
   sentCommands: Array<{ threadId: string; command: { type: string } }>
   acquireThreadWorker(input: StartThreadInput): Promise<WorkerLease>
   releaseThreadWorker(threadId: string): Promise<void>
@@ -506,6 +637,7 @@ function createRecordingRegistry(): {
   const liveStates = new Map<string, Record<string, unknown>>()
   const liveMessages = new Map<string, AgentMessage[]>()
   const failedCommands = new Map<string, NonNullable<WorkerResponseEnvelope['error']>>()
+  const failedReleases = new Set<string>()
   const sentCommands: Array<{ threadId: string; command: { type: string } }> = []
   const leases = new Map<string, WorkerLease>()
   return {
@@ -513,6 +645,7 @@ function createRecordingRegistry(): {
     liveStates,
     liveMessages,
     failedCommands,
+    failedReleases,
     sentCommands,
     async acquireThreadWorker(input) {
       acquires.push(input)
@@ -534,6 +667,9 @@ function createRecordingRegistry(): {
     },
     async releaseThreadWorker(threadId) {
       leases.delete(threadId)
+      if (failedReleases.has(threadId)) {
+        throw new Error(`failed to release worker: ${threadId}`)
+      }
     },
     async send(threadId, command) {
       sentCommands.push({ threadId, command })
