@@ -83,6 +83,7 @@ export function buildSnapshotFromSession(input: BuildSnapshotFromSessionInput): 
     toolCalls: toDesktopToolCalls(timelineMessages, input.thread.threadId),
     fileChanges: toDesktopFileChanges(timelineMessages, input.thread.threadId),
     approvals: [],
+    extensionDialogs: [],
     queue: { steering: [], followUp: [] },
     diagnostics: []
   }

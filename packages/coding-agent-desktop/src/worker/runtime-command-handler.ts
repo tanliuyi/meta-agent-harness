@@ -43,7 +43,15 @@ async function handleCanonicalCommand(
 		return await startPromptAndWaitForPreflight(host, envelope, command);
 	}
 	if (command.type === "get_state") {
-		return createWorkerResponse(envelope.id, command.type, buildRuntimeState(session));
+		return createWorkerResponse(
+			envelope.id,
+			command.type,
+			buildRuntimeState(
+				session,
+				host.getPendingApprovals?.(),
+				host.getPendingExtensionDialogs?.(),
+			),
+		);
 	}
 	if (command.type === "get_session_stats") {
 		return createWorkerResponse(envelope.id, command.type, session.getSessionStats());

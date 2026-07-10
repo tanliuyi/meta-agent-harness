@@ -5,7 +5,7 @@
 import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { ExtensionUiBridge } from "../worker/extension-ui-bridge.ts";
 import type { WorkerEventEnvelope } from "../protocol/envelope.ts";
 import { desktopWebviewHostStylesheetPath } from "../worker/extension-webview-source.ts";
@@ -66,6 +66,10 @@ describe("ExtensionUiBridge", () => {
 		const first = ui.input("First");
 		const second = ui.editor("Second", "prefill");
 
+		expect(bridge.listPendingDialogs()).toEqual([
+			expect.objectContaining({ type: "input", title: "First" }),
+			expect.objectContaining({ type: "editor", title: "Second", prefill: "prefill" }),
+		]);
 		expect(getProjectionRequests(events)).toEqual([expect.objectContaining({ type: "input", title: "First" })]);
 
 		const firstRequest = getProjectionRequests(events)[0];
@@ -80,6 +84,78 @@ describe("ExtensionUiBridge", () => {
 		const secondRequest = getProjectionRequests(events)[1];
 		bridge.respond({ id: secondRequest.id, value: "second value" });
 		await expect(second).resolves.toBe("second value");
+	});
+
+	it("已取消或等待中的 signal 会取消 dialog 并清理 renderer projection", async () => {
+		const events: WorkerEventEnvelope[] = [];
+		const bridge = new ExtensionUiBridge("thread-1", (event) => events.push(event));
+		const ui = bridge.createContext();
+		const preAborted = new AbortController();
+		preAborted.abort();
+
+		await expect(ui.confirm("Skipped", "Already aborted", { signal: preAborted.signal })).resolves.toBe(false);
+		expect(events).toEqual([]);
+
+		const controller = new AbortController();
+		const pending = ui.input("Name", undefined, { signal: controller.signal });
+		const request = getProjectionRequests(events)[0];
+		controller.abort();
+
+		await expect(pending).resolves.toBeUndefined();
+		expect(events.at(-1)).toMatchObject({
+			eventType: "projection",
+			event: { type: "extensionUi.dismissed", requestId: request.id, reason: "aborted" },
+		});
+		expect(() => bridge.respond({ id: request.id, value: "late" })).toThrow("request not found");
+	});
+
+	it("timeout 返回默认取消值、移除过期 projection 并继续下一个 dialog", async () => {
+		vi.useFakeTimers();
+		try {
+			const events: WorkerEventEnvelope[] = [];
+			const bridge = new ExtensionUiBridge("thread-1", (event) => events.push(event));
+			const ui = bridge.createContext();
+			const timedOut = ui.confirm("First", "Continue?", { timeout: 25 });
+			const next = ui.input("Second");
+			const firstRequest = getProjectionRequests(events)[0];
+
+			await vi.advanceTimersByTimeAsync(25);
+
+			await expect(timedOut).resolves.toBe(false);
+			expect(getProjectionEvents(events)).toContainEqual(
+				expect.objectContaining({
+					type: "extensionUi.dismissed",
+					requestId: firstRequest.id,
+					reason: "timeout",
+				}),
+			);
+			const requests = getProjectionEvents(events).filter((event) => event.type === "extensionUi.requested");
+			expect(requests).toHaveLength(2);
+			const secondRequest = requests[1].request;
+			bridge.respond({ id: secondRequest.id, value: "done" });
+			await expect(next).resolves.toBe("done");
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	it("dispose 会取消全部等待中的 dialogs，且不再接受新请求", async () => {
+		const events: WorkerEventEnvelope[] = [];
+		const bridge = new ExtensionUiBridge("thread-1", (event) => events.push(event));
+		const ui = bridge.createContext();
+		const first = ui.select("First", ["a"]);
+		const second = ui.confirm("Second", "Continue?");
+
+		bridge.dispose();
+
+		await expect(first).resolves.toBeUndefined();
+		await expect(second).resolves.toBe(false);
+		expect(getProjectionEvents(events).filter((event) => event.type === "extensionUi.requested")).toHaveLength(1);
+		expect(getProjectionEvents(events).filter((event) => event.type === "extensionUi.dismissed")).toEqual([
+			expect.objectContaining({ type: "extensionUi.dismissed", reason: "workerStopped" }),
+			expect.objectContaining({ type: "extensionUi.dismissed", reason: "workerStopped" }),
+		]);
+		await expect(ui.input("After stop")).resolves.toBeUndefined();
 	});
 
 	/** 验证 UI 状态 API 通过 projection event 投影给 renderer。 */
@@ -147,8 +223,16 @@ describe("ExtensionUiBridge", () => {
 		expect(ui.setTheme("default")).toEqual({ success: true });
 		expect(ui.setTheme("dark")).toEqual({ success: false, error: "Theme not found: dark" });
 		expect(getProjectionRequests(events)).toEqual([
-			expect.objectContaining({ type: "setStatus", statusKey: "terminalInput", statusText: "1 listener(s)" }),
-			expect.objectContaining({ type: "setStatus", statusKey: "terminalInput", statusText: undefined }),
+			expect.objectContaining({
+				type: "setStatus",
+				statusKey: "terminalInput",
+				statusText: "1 listener(s)",
+			}),
+			expect.objectContaining({
+				type: "setStatus",
+				statusKey: "terminalInput",
+				statusText: undefined,
+			}),
 			expect.objectContaining({ type: "setStatus", statusKey: "theme", statusText: "default" }),
 		]);
 	});
@@ -310,7 +394,8 @@ describe("ExtensionUiBridge", () => {
 			expect(event.panel.source.html).not.toContain("window.piPanel.post({ type: 'ready' })");
 			expect(resourceEvents).toHaveLength(6);
 			const stylesheetResource = resourceEvents.find(
-				(item) => item.type === "extensionPanel.resourceRegistered" && item.resource.contentType === "text/css; charset=utf-8",
+				(item) =>
+					item.type === "extensionPanel.resourceRegistered" && item.resource.contentType === "text/css; charset=utf-8",
 			);
 			if (!stylesheetResource || stylesheetResource.type !== "extensionPanel.resourceRegistered") {
 				throw new Error("stylesheet resource registration is required");
@@ -319,7 +404,9 @@ describe("ExtensionUiBridge", () => {
 			expect(stylesheetResource.resource.content).toContain("background: url('pi-webview-resource://");
 			expect(stylesheetResource.resource.content).toContain("sourceMappingURL=pi-webview-resource://");
 			const scriptResource = resourceEvents.find(
-				(item) => item.type === "extensionPanel.resourceRegistered" && item.resource.contentType === "text/javascript; charset=utf-8",
+				(item) =>
+					item.type === "extensionPanel.resourceRegistered" &&
+					item.resource.contentType === "text/javascript; charset=utf-8",
 			);
 			if (!scriptResource || scriptResource.type !== "extensionPanel.resourceRegistered") {
 				throw new Error("script resource registration is required");
@@ -544,10 +631,12 @@ describe("ExtensionUiBridge", () => {
 			const bridge = new ExtensionUiBridge("thread-1", () => {}, root);
 			const desktop = bridge.createDesktopContext();
 
-			expect(() =>
-				desktop.asWebviewUri(path.join(outside, "secret.svg"), { localResourceRoots: [root] }),
-			).toThrow("outside localResourceRoots");
-			expect(() => desktop.asWebviewUri("./local.svg", { localResourceRoots: [] })).toThrow("outside localResourceRoots");
+			expect(() => desktop.asWebviewUri(path.join(outside, "secret.svg"), { localResourceRoots: [root] })).toThrow(
+				"outside localResourceRoots",
+			);
+			expect(() => desktop.asWebviewUri("./local.svg", { localResourceRoots: [] })).toThrow(
+				"outside localResourceRoots",
+			);
 		} finally {
 			rmSync(root, { recursive: true, force: true });
 			rmSync(outside, { recursive: true, force: true });

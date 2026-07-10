@@ -5,7 +5,8 @@ import type { ThreadMessage } from '@shared/coding-agent/types'
 import {
   createDisplayTimelineItems,
   createProcessingCollapseResult,
-  createTimelineItems
+  createTimelineItems,
+  stabilizeTimelineItems
 } from '../chatTimelineDisplay'
 
 describe('chatTimelineDisplay', () => {
@@ -98,6 +99,62 @@ describe('chatTimelineDisplay', () => {
         summary: '已运行 2 命令，已执行 1 工具'
       }
     ])
+  })
+
+  it('工具完成时只替换变化的 timeline 投影', () => {
+    const message = userMessage('user-a', 'hello')
+    const runningTool = toolCall('tool-read', 'read', { path: 'src/a.ts' })
+    runningTool.status = 'running'
+    const completedTool = { ...runningTool, status: 'succeeded' as const, result: 'done' }
+
+    const createItems = (tool: DesktopToolCall): ReturnType<typeof createTimelineItems> =>
+      createTimelineItems({
+        messages: [message, assistantToolMessage('assistant-a', [tool.toolCallId])],
+        toolCallStructures: [tool],
+        getMessageRenderState,
+        resolveTimelineToolCall: () => ({ ...tool }),
+        getToolResultMessageToolCall: () => undefined,
+        hideThinkingBlock: true
+      })
+
+    const initial = stabilizeTimelineItems(createItems(runningTool), undefined)
+    const completed = stabilizeTimelineItems(createItems(completedTool), initial)
+    const unchanged = stabilizeTimelineItems(createItems(completedTool), completed)
+
+    expect(completed).not.toBe(initial)
+    expect(completed[0]).toBe(initial[0])
+    expect(completed[1]).not.toBe(initial[1])
+    expect(completed[1]?.type).toBe('tool-group')
+    expect(unchanged).toBe(completed)
+  })
+
+  it('相同投影重新排序时保留新顺序', () => {
+    const first = userMessage('user-a', 'first')
+    const second = userMessage('user-b', 'second')
+    const initial = stabilizeTimelineItems(
+      [first, second].map((message) => ({
+        type: 'message' as const,
+        key: message.id,
+        message,
+        revision: 1,
+        renderState: 'complete' as const
+      })),
+      undefined
+    )
+    const reordered = stabilizeTimelineItems(
+      [second, first].map((message) => ({
+        type: 'message' as const,
+        key: message.id,
+        message,
+        revision: 1,
+        renderState: 'complete' as const
+      })),
+      initial
+    )
+
+    expect(reordered.map((item) => item.key)).toEqual(['user-b', 'user-a'])
+    expect(reordered[0]).toBe(initial[1])
+    expect(reordered[1]).toBe(initial[0])
   })
 
   it('处理段 key 不随 user 后面的 timeline item 数量变化', () => {
@@ -242,7 +299,9 @@ describe('chatTimelineDisplay', () => {
       toolCall('tool-edit', 'edit', { path: 'src/a.ts' })
     ]
     const items = createTimelineItems({
-      messages: [assistantTextWithExternalToolIds('message-a', '准备修改', ['tool-read', 'tool-edit'])],
+      messages: [
+        assistantTextWithExternalToolIds('message-a', '准备修改', ['tool-read', 'tool-edit'])
+      ],
       toolCallStructures: [],
       getMessageRenderState,
       resolveTimelineToolCall: (toolCallId) =>
@@ -319,6 +378,41 @@ describe('chatTimelineDisplay', () => {
           }
         }
       }
+    ])
+  })
+
+  it('worker 异常按发生时间停留在恢复后的新消息之前', () => {
+    const beforeCrash = userMessage('user-before-crash', 'start')
+    beforeCrash.createdAt = '2026-07-09T00:00:00.000Z'
+    const resumed = userMessage('user-after-resume', 'continue')
+    resumed.createdAt = '2026-07-09T00:00:02.000Z'
+    const reply = assistantTextMessage('assistant-after-resume', 'done')
+    reply.createdAt = '2026-07-09T00:00:03.000Z'
+
+    const items = createTimelineItems({
+      messages: [beforeCrash, resumed, reply],
+      toolCallStructures: [],
+      runtimeEvents: [
+        {
+          id: 'worker-crash:worker-a:1000',
+          type: 'worker-error',
+          title: 'Worker 已崩溃',
+          message: 'worker exited unexpectedly',
+          createdAt: '2026-07-09T00:00:01.000Z',
+          meta: ['worker', 'crash']
+        }
+      ],
+      getMessageRenderState,
+      resolveTimelineToolCall: () => undefined,
+      getToolResultMessageToolCall: () => undefined,
+      hideThinkingBlock: false
+    })
+
+    expect(items.map((item) => item.key)).toEqual([
+      'user-before-crash',
+      'runtime-event:worker-crash:worker-a:1000',
+      'user-after-resume',
+      'assistant-after-resume:text:0'
     ])
   })
 })

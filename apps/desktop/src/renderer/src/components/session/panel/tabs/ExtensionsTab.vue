@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { BaseButton } from '@renderer/components/base'
 import ExtensionWidget from '@renderer/components/extension/ExtensionWidget.vue'
 import {
@@ -11,7 +11,7 @@ import {
   DialogTitle
 } from '@renderer/components/ui/dialog'
 import useWorkspaceSessionStore from '@renderer/stores/workspace-session'
-import type { ExtensionUiRequest } from '@shared/coding-agent/types'
+import type { ExtensionDialogRequest } from '@shared/coding-agent/types'
 import {
   getExtensionDisplayText,
   getExtensionInitialDraft,
@@ -26,12 +26,10 @@ const extensionDrafts = ref<Record<string, string>>({})
 const activeExtensionRequestId = ref<string>()
 const isExtensionRequestDialogOpen = ref(false)
 
-const extensionUiRequests = computed(() =>
-  Object.values(workspaceSession.activeExtensionUiRequests)
-)
-const hasExtensionUiRequests = computed(() => extensionUiRequests.value.length > 0)
+const extensionDialogs = computed(() => workspaceSession.activeExtensionDialogs)
+const hasExtensionDialogs = computed(() => extensionDialogs.value.length > 0)
 const activeExtensionRequest = computed(() =>
-  extensionUiRequests.value.find((request) => request.id === activeExtensionRequestId.value)
+  extensionDialogs.value.find((request) => request.id === activeExtensionRequestId.value)
 )
 const extensionStatuses = computed(() =>
   Object.entries(workspaceSession.activeExtensionStatuses).filter(([, value]) => value)
@@ -49,7 +47,7 @@ const hasExtensionWorkingState = computed(
 )
 const hasExtensionActivity = computed(
   () =>
-    hasExtensionUiRequests.value ||
+    hasExtensionDialogs.value ||
     extensionStatuses.value.length > 0 ||
     workspaceSession.activeExtensionNotifications.length > 0 ||
     Boolean(workspaceSession.activeExtensionTitle) ||
@@ -75,7 +73,7 @@ const workingIndicatorText = computed(() => {
   return '默认指示器'
 })
 
-function getExtensionDraft(request: ExtensionUiRequest): string {
+function getExtensionDraft(request: ExtensionDialogRequest): string {
   return extensionDrafts.value[request.id] ?? getExtensionInitialDraft(request)
 }
 
@@ -86,7 +84,13 @@ function setExtensionDraft(id: string, value: string): void {
   }
 }
 
-function openExtensionRequestDialog(request: ExtensionUiRequest): void {
+function clearExtensionDraft(id: string): void {
+  const next = { ...extensionDrafts.value }
+  delete next[id]
+  extensionDrafts.value = next
+}
+
+function openExtensionRequestDialog(request: ExtensionDialogRequest): void {
   activeExtensionRequestId.value = request.id
   if (extensionDrafts.value[request.id] === undefined) {
     setExtensionDraft(request.id, getExtensionInitialDraft(request))
@@ -116,36 +120,28 @@ function setActiveExtensionDraft(value: string): void {
 }
 
 async function respondExtensionRequest(
-  request: ExtensionUiRequest,
+  request: ExtensionDialogRequest,
   value?: string | boolean
 ): Promise<void> {
-  const threadId = workspaceSession.activeSessionId
-  if (!threadId) {
-    return
-  }
-  if (request.type === 'confirm') {
-    await workspaceSession.respondExtensionUi(threadId, {
-      id: request.id,
-      confirmed: value === true
-    })
-    closeExtensionRequestDialog()
-    return
-  }
-  await workspaceSession.respondExtensionUi(threadId, {
-    id: request.id,
-    value: typeof value === 'string' ? value : getExtensionDraft(request)
-  })
+  await workspaceSession.respondExtensionDialog(
+    request,
+    typeof value === 'string' || typeof value === 'boolean' ? value : getExtensionDraft(request)
+  )
+  clearExtensionDraft(request.id)
   closeExtensionRequestDialog()
 }
 
-async function cancelExtensionRequest(request: ExtensionUiRequest): Promise<void> {
-  const threadId = workspaceSession.activeSessionId
-  if (!threadId) {
-    return
-  }
-  await workspaceSession.respondExtensionUi(threadId, { id: request.id, cancelled: true })
+async function cancelExtensionRequest(request: ExtensionDialogRequest): Promise<void> {
+  await workspaceSession.cancelExtensionDialog(request)
+  clearExtensionDraft(request.id)
   closeExtensionRequestDialog()
 }
+
+watch(activeExtensionRequest, (request) => {
+  if (isExtensionRequestDialogOpen.value && !request) {
+    closeExtensionRequestDialog()
+  }
+})
 
 function clearNotifications(): void {
   workspaceSession.clearExtensionNotifications()
@@ -157,15 +153,13 @@ function clearNotifications(): void {
     <header class="session-section__header">
       <div class="session-section__title">
         <h3>扩展</h3>
-        <span v-if="extensionUiRequests.length" class="session-panel-count">
-          {{ extensionUiRequests.length }}
+        <span v-if="extensionDialogs.length" class="session-panel-count">
+          {{ extensionDialogs.length }}
         </span>
       </div>
     </header>
 
-    <div v-if="!hasExtensionActivity" class="session-empty">
-      暂无扩展活动
-    </div>
+    <div v-if="!hasExtensionActivity" class="session-empty">暂无扩展活动</div>
 
     <div v-if="hasExtensionActivity" class="extension-panel-stack">
       <section
@@ -190,13 +184,13 @@ function clearNotifications(): void {
         </div>
       </section>
 
-      <section v-if="hasExtensionUiRequests" class="extension-panel-group">
+      <section v-if="hasExtensionDialogs" class="extension-panel-group">
         <header class="extension-panel-group__header">
           <span>请求</span>
-          <strong>{{ extensionUiRequests.length }}</strong>
+          <strong>{{ extensionDialogs.length }}</strong>
         </header>
         <article
-          v-for="request in extensionUiRequests"
+          v-for="request in extensionDialogs"
           :key="request.id"
           class="extension-request-row"
         >
@@ -204,7 +198,9 @@ function clearNotifications(): void {
             <strong>{{ getExtensionRequestTitle(request) }}</strong>
             <span>{{ getExtensionRequestDescription(request) }}</span>
           </div>
-          <span class="extension-request-row__type">{{ getExtensionRequestTypeLabel(request) }}</span>
+          <span class="extension-request-row__type">{{
+            getExtensionRequestTypeLabel(request)
+          }}</span>
           <BaseButton size="sm" variant="secondary" @click="openExtensionRequestDialog(request)">
             响应
           </BaseButton>

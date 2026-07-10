@@ -74,13 +74,12 @@ type CanonicalCommand =
 ```ts
 type DesktopControlCommand =
   | { type: 'worker.startThread'; input: StartThreadInput }
-  | { type: 'worker.stopThread'; reason?: string }
-  | { type: 'worker.snapshot' }
-  | { type: 'worker.reset'; input?: StartThreadInput }
   | { type: 'worker.ping' }
   | { type: 'ui.respond'; response: ExtensionUiResponse }
   | { type: 'approval.respond'; response: ApprovalResponse }
 ```
+
+Thread stop/restart 由 desktop host 的 thread lifecycle API 管理，worker snapshot 由 `WorkerClient.snapshot()` 在 transport client 本地生成；它们不属于可发送给 runtime service 的 `WorkerCommand`。
 
 ## Responses
 

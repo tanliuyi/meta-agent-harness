@@ -19,12 +19,15 @@ withDefaults(
     hint?: string
     /** 输入框原生类型。 */
     type?: 'text' | 'search' | 'email' | 'password'
+    /** 是否禁用输入。 */
+    disabled?: boolean
   }>(),
   {
     modelValue: '',
     placeholder: '',
     hint: '',
-    type: 'text'
+    type: 'text',
+    disabled: false
   }
 )
 
@@ -42,6 +45,7 @@ defineEmits<{
       class="base-field__control"
       :type="type"
       :value="modelValue"
+      :disabled="disabled"
       :placeholder="placeholder"
       @input="$emit('update:modelValue', ($event.target as HTMLInputElement).value)"
     />
@@ -89,6 +93,11 @@ defineEmits<{
     background: var(--color-field-focus);
     border-color: var(--color-primary);
     box-shadow: var(--shadow-focus);
+  }
+
+  &:disabled {
+    cursor: not-allowed;
+    opacity: 0.58;
   }
 }
 

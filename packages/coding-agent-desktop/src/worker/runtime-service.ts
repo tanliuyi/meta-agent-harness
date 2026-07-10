@@ -85,6 +85,8 @@ export class RuntimeDesktopWorkerService implements DesktopWorkerService {
 			this.unsubscribeSession?.();
 			this.unsubscribeSession = undefined;
 			this.toolArgsByCallId.clear();
+			this.approvalBridge?.rejectAll("sessionInvalidated");
+			this.uiBridge?.cancelAll("sessionInvalidated");
 		});
 		await this.bindRuntimeSession();
 		this.started = true;
@@ -208,6 +210,8 @@ export class RuntimeDesktopWorkerService implements DesktopWorkerService {
 		const response = await handleRuntimeCommand(
 			{
 				runtime: this.runtime,
+				getPendingApprovals: () => this.approvalBridge?.listPending() ?? [],
+				getPendingExtensionDialogs: () => this.uiBridge?.listPendingDialogs() ?? [],
 				projectTrustContextFactory: (cwd) =>
 					createDesktopProjectTrustContext({
 						cwd,
@@ -234,7 +238,8 @@ export class RuntimeDesktopWorkerService implements DesktopWorkerService {
 	async stop(_reason: string): Promise<void> {
 		this.unsubscribeSession?.();
 		this.unsubscribeSession = undefined;
-		this.approvalBridge?.rejectAll("worker stopped");
+		this.approvalBridge?.rejectAll("workerStopped");
+		this.uiBridge?.dispose();
 		await this.runtime?.dispose();
 		this.runtime = undefined;
 		this.approvalBridge = undefined;

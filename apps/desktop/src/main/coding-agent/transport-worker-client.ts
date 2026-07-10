@@ -274,15 +274,16 @@ export class TransportWorkerClient implements WorkerClient {
       return
     }
     this.inactivityTimer = setTimeout(() => {
-      this.checkInactivity()
+      this.inactivityTimer = undefined
+      void this.checkInactivity()
     }, this.inactivityTimeoutMs)
   }
 
   /**
    * 检查 worker 是否长时间无消息。
-   * 触发时标记停止，清理资源，并通知上层。
+   * 静默工具可能长时间没有输出，先用 ping 区分合法静默与 worker hang。
    */
-  private checkInactivity(): void {
+  private async checkInactivity(): Promise<void> {
     if (this.stopped) {
       return
     }
@@ -295,16 +296,34 @@ export class TransportWorkerClient implements WorkerClient {
       this.scheduleInactivityCheck()
       return
     }
+    try {
+      await this.send({ type: 'worker.ping' })
+      if (!this.stopped) {
+        this.scheduleInactivityCheck()
+      }
+      return
+    } catch {
+      if (this.stopped) {
+        return
+      }
+    }
+    const confirmedSilentMs = this.now() - this.lastMessageAt
+    if (confirmedSilentMs < timeoutMs) {
+      this.scheduleInactivityCheck()
+      return
+    }
     const info: WorkerHangInfo = {
       workerId: this.workerId,
       threadId: this.threadId,
-      silentMs
+      silentMs: confirmedSilentMs
     }
     this.onHangCallback?.(info)
     this.hangListeners.forEach((listener) => listener(info))
-    this.stop(`worker hang: no message for ${silentMs}ms`).catch(() => {
-      // 清理操作失败时忽略，避免影响回调执行
-    })
+    this.stop(`worker hang: ping timed out after ${confirmedSilentMs}ms without messages`).catch(
+      () => {
+        // 清理操作失败时忽略，避免影响回调执行
+      }
+    )
   }
 
   /**

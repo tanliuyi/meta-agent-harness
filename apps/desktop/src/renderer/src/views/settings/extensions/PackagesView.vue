@@ -1,6 +1,10 @@
 <script setup lang="ts">
-import { BaseButton, BaseField, BasePanel } from '@renderer/components/base'
-import useAgentSettingsStore from '@renderer/stores/agent-settings'
+import { BaseBadge, BaseButton, BaseField, BasePanel } from '@renderer/components/base'
+import { confirm } from '@renderer/composables/useConfirmDialog'
+import useAgentSettingsStore, {
+  type ResourcePackageProgressState
+} from '@renderer/stores/agent-settings'
+import type { ResourcePackageSummary } from '@shared/coding-agent/types'
 import { PackagePlus, RefreshCw, Trash2 } from 'lucide-vue-next'
 import { computed, onMounted, ref } from 'vue'
 
@@ -10,8 +14,25 @@ const packageDraft = ref({
   local: false
 })
 const refreshSpinKey = ref(0)
+const addingPackageSource = ref(false)
+const removingPackageSource = ref<string>()
 
 const packageRows = computed(() => agentSettings.resourcePackages)
+const normalizedPackageSource = computed(() => packageDraft.value.source.trim())
+const packageAlreadyConfigured = computed(() =>
+  packageRows.value.some(
+    (item) =>
+      item.source === normalizedPackageSource.value &&
+      item.scope === (packageDraft.value.local ? 'project' : 'user')
+  )
+)
+const canAddPackageSource = computed(
+  () =>
+    Boolean(normalizedPackageSource.value) &&
+    !packageAlreadyConfigured.value &&
+    !agentSettings.resourcePackagesLoading &&
+    !addingPackageSource.value
+)
 const installedPackageCount = computed(
   () => packageRows.value.filter((item) => Boolean(item.installedPath)).length
 )
@@ -30,16 +51,23 @@ async function refreshResourcePackages(): Promise<void> {
 }
 
 async function addPackageSource(): Promise<void> {
-  const source = packageDraft.value.source.trim()
-  if (!source) return
-  await agentSettings.addResourcePackage({
-    source,
-    local: packageDraft.value.local
-  })
-  packageDraft.value.source = ''
+  const source = normalizedPackageSource.value
+  if (!canAddPackageSource.value) return
+  addingPackageSource.value = true
+  try {
+    await agentSettings.addResourcePackage({
+      source,
+      local: packageDraft.value.local
+    })
+    if (!agentSettings.error) {
+      packageDraft.value.source = ''
+    }
+  } finally {
+    addingPackageSource.value = false
+  }
 }
 
-function getPackageProgress(source: string) {
+function getPackageProgress(source: string): ResourcePackageProgressState | undefined {
   return agentSettings.resourcePackageProgress[source]
 }
 
@@ -51,6 +79,34 @@ function getPackageScopeLabel(scope: string): string {
     }[scope] ?? scope
   )
 }
+
+function getPackageActionLabel(source: string): string | undefined {
+  const progress = getPackageProgress(source)
+  if (!progress?.running) return undefined
+  return progress.action === 'install' ? '安装中…' : '更新中…'
+}
+
+async function removePackageSource(item: ResourcePackageSummary): Promise<void> {
+  const result = await confirm({
+    cancelText: '取消',
+    confirmText: '移除',
+    description: `将从${getPackageScopeLabel(item.scope)}设置中移除 ${item.source}，已安装文件不会自动删除。`,
+    id: `remove-package-${item.scope}-${item.source}`,
+    title: '移除这个包来源？',
+    tone: 'destructive'
+  })
+  if (!result.confirmed) return
+
+  removingPackageSource.value = item.source
+  try {
+    await agentSettings.removeResourcePackage({
+      source: item.source,
+      local: item.scope === 'project'
+    })
+  } finally {
+    removingPackageSource.value = undefined
+  }
+}
 </script>
 
 <template>
@@ -59,9 +115,7 @@ function getPackageScopeLabel(scope: string): string {
       <div>
         <p class="extensions-page__eyebrow">来源</p>
         <h1 class="extensions-page__title">包来源</h1>
-        <p class="extensions-page__subtitle">
-          包来源可以提供扩展、技能、提示词或主题。
-        </p>
+        <p class="extensions-page__subtitle">包来源可以提供扩展、技能、提示词或主题。</p>
       </div>
     </header>
 
@@ -82,38 +136,47 @@ function getPackageScopeLabel(scope: string): string {
         </BaseButton>
       </template>
 
-      <div class="package-manager-form">
+      <form class="package-manager-form" @submit.prevent="addPackageSource">
         <div class="package-manager-form__field">
           <BaseField
             id="extension-package-source"
             v-model="packageDraft.source"
             label="包来源"
             placeholder="npm:@scope/package、Git URL 或 /path/to/package"
+            :disabled="agentSettings.resourcePackagesLoading || addingPackageSource"
           />
-          <p>新增后会写入 Pi-compatible settings.json 的 packages 配置。</p>
+          <p :class="{ 'is-warning': packageAlreadyConfigured }">
+            {{
+              packageAlreadyConfigured
+                ? '该包来源已存在于当前作用域。'
+                : '支持 npm 包、Git URL 和本地路径。按 Enter 可直接添加。'
+            }}
+          </p>
         </div>
         <div class="package-manager-form__actions">
           <label class="package-scope-toggle">
-            <input v-model="packageDraft.local" type="checkbox" />
+            <input
+              v-model="packageDraft.local"
+              type="checkbox"
+              :disabled="agentSettings.resourcePackagesLoading || addingPackageSource"
+            />
             <span>项目本地</span>
           </label>
-          <BaseButton
-            size="sm"
-            variant="primary"
-            :disabled="agentSettings.resourcePackagesLoading || !packageDraft.source.trim()"
-            @click="addPackageSource"
-          >
+          <BaseButton size="sm" variant="primary" type="submit" :disabled="!canAddPackageSource">
             <template #icon><PackagePlus :size="14" /></template>
-            添加
+            {{ addingPackageSource ? '添加中…' : '添加' }}
           </BaseButton>
         </div>
-      </div>
+      </form>
 
       <div class="package-toolbar">
         <span>{{ packageSummaryLabel }}</span>
       </div>
 
-      <div v-if="agentSettings.resourcePackagesLoading" class="empty-state">
+      <div
+        v-if="agentSettings.resourcePackagesLoading && packageRows.length === 0"
+        class="empty-state"
+      >
         <strong>正在加载包来源</strong>
       </div>
       <div v-else-if="packageRows.length === 0" class="empty-state">
@@ -123,18 +186,24 @@ function getPackageScopeLabel(scope: string): string {
       <ul v-else class="package-list">
         <li v-for="item in packageRows" :key="`${item.scope}:${item.source}`">
           <div class="package-list__copy">
-            <strong>{{ item.source }}</strong>
-            <span>
-              {{ getPackageScopeLabel(item.scope) }}
-              <template v-if="item.filtered"> · 已过滤</template>
-              <template v-if="item.installedPath"> · 已安装：{{ item.installedPath }}</template>
-              <template v-else> · 未安装</template>
+            <div class="package-list__heading">
+              <strong>{{ item.source }}</strong>
+              <BaseBadge :tone="item.scope === 'project' ? 'info' : 'neutral'">
+                {{ getPackageScopeLabel(item.scope) }}
+              </BaseBadge>
+              <BaseBadge v-if="item.filtered" tone="warning">已过滤</BaseBadge>
+            </div>
+            <span v-if="item.installedPath" :title="item.installedPath">
+              已安装于 {{ item.installedPath }}
             </span>
+            <span v-else>尚未安装</span>
             <small
               v-if="getPackageProgress(item.source)"
               :class="{ 'is-error': getPackageProgress(item.source)?.error }"
             >
-              {{ getPackageProgress(item.source)?.error ?? getPackageProgress(item.source)?.message }}
+              {{
+                getPackageProgress(item.source)?.error ?? getPackageProgress(item.source)?.message
+              }}
             </small>
           </div>
           <div class="package-list__actions">
@@ -150,7 +219,7 @@ function getPackageScopeLabel(scope: string): string {
                 })
               "
             >
-              安装
+              {{ getPackageActionLabel(item.source) ?? '安装' }}
             </BaseButton>
             <BaseButton
               size="sm"
@@ -158,21 +227,17 @@ function getPackageScopeLabel(scope: string): string {
               :disabled="agentSettings.resourcePackagesLoading"
               @click="agentSettings.updateResourcePackage({ source: item.source })"
             >
-              更新
+              <template #icon><RefreshCw :size="14" /></template>
+              {{ getPackageActionLabel(item.source) ?? '更新' }}
             </BaseButton>
             <BaseButton
               size="sm"
               variant="ghost"
               :disabled="agentSettings.resourcePackagesLoading"
-              @click="
-                agentSettings.removeResourcePackage({
-                  source: item.source,
-                  local: item.scope === 'project'
-                })
-              "
+              @click="removePackageSource(item)"
             >
               <template #icon><Trash2 :size="14" /></template>
-              移除
+              {{ removingPackageSource === item.source ? '移除中…' : '移除' }}
             </BaseButton>
           </div>
         </li>

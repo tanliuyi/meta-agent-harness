@@ -5,13 +5,19 @@
 import type { AgentSession } from "@earendil-works/pi-coding-agent";
 import { toDesktopSessionTree } from "../storage/session-snapshot.ts";
 import type { ThreadLiveState } from "../protocol/thread.ts";
+import type { ApprovalRequest } from "../protocol/approval.ts";
+import type { ExtensionDialogRequest } from "../protocol/extension-ui.ts";
 
 /**
  * 根据 AgentSession 构建 desktop runtime 状态对象。
  * @param session - 当前 agent session 实例。
  * @returns 包含状态字段的 plain 对象。
  */
-export function buildRuntimeState(session: AgentSession): ThreadLiveState {
+export function buildRuntimeState(
+	session: AgentSession,
+	approvals: ApprovalRequest[] = [],
+	extensionDialogs: ExtensionDialogRequest[] = [],
+): ThreadLiveState {
 	return {
 		cwd: session.sessionManager.getCwd(),
 		model: session.model,
@@ -29,6 +35,12 @@ export function buildRuntimeState(session: AgentSession): ThreadLiveState {
 		autoRetryEnabled: session.autoRetryEnabled,
 		messageCount: session.messages.length,
 		pendingMessageCount: session.pendingMessageCount,
+		queue: {
+			steering: [...session.getSteeringMessages()],
+			followUp: [...session.getFollowUpMessages()],
+		},
+		approvals,
+		extensionDialogs,
 		contextUsage: session.getContextUsage(),
 	};
 }

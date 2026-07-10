@@ -11,6 +11,10 @@
   margin-top: var(--space-4);
 }
 
+.switch-list + .settings-form-field {
+  margin-top: var(--space-4);
+}
+
 .media-summary {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);

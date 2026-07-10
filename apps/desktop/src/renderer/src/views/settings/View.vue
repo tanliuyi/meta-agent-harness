@@ -102,7 +102,7 @@ const settingsTitle = computed(() => {
   display: grid;
   grid-area: content;
   grid-template-rows: var(--session-header-height) minmax(0, 1fr);
-  --settings-page-max-width: 768px;
+  --settings-page-max-width: 860px;
   min-width: 0;
   min-height: 0;
   overflow: hidden;
@@ -157,7 +157,8 @@ const settingsTitle = computed(() => {
 
 @media (width <= 820px) {
   .settings {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr) !important;
+    grid-template-areas: 'content' !important;
   }
 
   .settings__sidebar {

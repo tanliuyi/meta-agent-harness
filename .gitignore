@@ -21,3 +21,4 @@ tmp/electron-extension-dev/
 .pi-subagents/
 .pi/token-usage.jsonl
 vendor/pi/
+tmp/

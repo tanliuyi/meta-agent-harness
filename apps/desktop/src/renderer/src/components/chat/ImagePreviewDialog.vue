@@ -49,7 +49,8 @@ watch(
     }
     activeIndex.value = clampIndex(props.initialIndex)
     resetTransform()
-  }
+  },
+  { immediate: true }
 )
 
 watch(
@@ -187,7 +188,12 @@ function handleKeydown(event: KeyboardEvent): void {
       @click.self="handleBackdropClick"
       @wheel="handleWheel"
     >
-      <button class="image-preview__close" type="button" aria-label="关闭图片预览" @click="closePreview">
+      <button
+        class="image-preview__close"
+        type="button"
+        aria-label="关闭图片预览"
+        @click="closePreview"
+      >
         <svg
           viewBox="0 0 20 20"
           fill="none"

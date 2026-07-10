@@ -6,6 +6,8 @@ import type { CwdPath, IsoTime, SessionFile, ThreadId } from "./identity.ts";
 import type { AgentMessage, ThinkingLevel } from "@earendil-works/pi-agent-core";
 import type { RpcResponse, RpcSessionState } from "@earendil-works/pi-coding-agent";
 import type { DesktopSessionTreeNode } from "./snapshot.ts";
+import type { ApprovalRequest } from "./approval.ts";
+import type { ExtensionDialogRequest } from "./extension-ui.ts";
 
 /** Thread 运行时状态。 */
 export type ThreadRuntimeState = "new" | "queued" | "starting" | "idle" | "running" | "stopping" | "stopped" | "error";
@@ -60,13 +62,19 @@ export type ThreadLiveState = RpcSessionState & {
 	currentEntryId?: string | null;
 	/** 当前是否启用自动重试。 */
 	autoRetryEnabled?: boolean;
+	/** 当前等待投递的消息队列。 */
+	queue: {
+		steering: string[];
+		followUp: string[];
+	};
+	/** 当前等待响应的审批。 */
+	approvals: ApprovalRequest[];
+	/** 当前等待用户响应的扩展对话框。 */
+	extensionDialogs: ExtensionDialogRequest[];
 };
 
 /** get_messages 命令返回的 Pi live messages。 */
-export type ThreadMessagesResponse = Extract<
-	RpcResponse,
-	{ command: "get_messages"; success: true }
->["data"] & {
+export type ThreadMessagesResponse = Extract<RpcResponse, { command: "get_messages"; success: true }>["data"] & {
 	/** 当前 branch 中与可渲染 message 对齐的 session entry IDs。 */
 	messageEntryIds?: string[];
 	/** Pi live messages。 */

@@ -5,8 +5,7 @@
 import { pathToFileURL } from 'node:url'
 
 type MainWindowNavigationTarget =
-  | { type: 'origin'; origin: string }
-  | { type: 'file'; hrefWithoutHash: string }
+  { type: 'origin'; origin: string } | { type: 'file'; hrefWithoutHash: string }
 
 /**
  * Build the only allowed top-level navigation target for the main renderer window.

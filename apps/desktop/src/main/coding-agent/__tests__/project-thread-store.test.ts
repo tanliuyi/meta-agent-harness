@@ -530,6 +530,10 @@ describe('CodingThreadStore', () => {
     expect(snapshot.cwd).toBe(runtimeCwd)
     expect(snapshot.status).toBe('idle')
     expect(snapshot.autoRetryEnabled).toBe(false)
+    expect(snapshot.queue).toEqual({ steering: ['redirect'], followUp: ['verify'] })
+    expect(snapshot.approvals).toEqual([
+      expect.objectContaining({ approvalId: 'approval-live', threadId: 'thread-live' })
+    ])
     expect(store.listThreads({ projectId: project.projectId })[0]?.status).toBe('idle')
     expect(
       snapshot.messages.map((message) => ({ role: message.role, text: message.text }))
@@ -1373,7 +1377,19 @@ function createLiveThreadWorkerRegistry(cwd = '/tmp/live-cwd'): ThreadWorkerRegi
             thinkingLevel: 'medium',
             isStreaming: false,
             isCompacting: false,
-            autoRetryEnabled: false
+            autoRetryEnabled: false,
+            queue: { steering: ['redirect'], followUp: ['verify'] },
+            approvals: [
+              {
+                approvalId: 'approval-live',
+                threadId: 'thread-live',
+                action: 'edit',
+                risk: 'high',
+                scope: 'once',
+                defaultAction: 'deny',
+                createdAt: '2026-07-10T00:00:00.000Z'
+              }
+            ]
           }
         }
       }

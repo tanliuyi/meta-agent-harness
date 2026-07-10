@@ -410,6 +410,12 @@ export class ThreadWorkerRegistry {
         if (event.kind === 'event') {
           if (event.eventType === 'projection' && event.event.type === 'thread.stateChanged') {
             lease.status = event.event.status
+          } else if (event.eventType === 'canonical') {
+            if (event.event.type === 'agent_start') {
+              lease.status = 'running'
+            } else if (event.event.type === 'agent_end' && !event.event.willRetry) {
+              lease.status = 'idle'
+            }
           }
         }
       }

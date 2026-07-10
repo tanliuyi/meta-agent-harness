@@ -15,6 +15,7 @@ import type {
 import type { DesktopProjectionEvent as PackageDesktopProjectionEvent } from '@coding-agent-desktop-src/protocol/events/projection'
 import type { WorkerLifecycleEvent as PackageWorkerLifecycleEvent } from '@coding-agent-desktop-src/protocol/events/worker'
 import type {
+  ExtensionDialogRequest as PackageExtensionDialogRequest,
   ExtensionUiRequest as PackageExtensionUiRequest,
   ExtensionUiResponse as PackageExtensionUiResponse
 } from '@coding-agent-desktop-src/protocol/extension-ui'
@@ -1259,6 +1260,9 @@ export interface OpenExternalUrlInput {
   /** 要交给系统浏览器/应用打开的 URI。 */
   uri: string
 }
+
+/** 需要用户响应的扩展 UI 对话框请求。 */
+export type ExtensionDialogRequest = PackageExtensionDialogRequest
 
 /** 扩展 UI 请求。 */
 export type ExtensionUiRequest = PackageExtensionUiRequest

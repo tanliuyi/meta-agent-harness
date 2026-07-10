@@ -45,12 +45,32 @@ export type DesktopProjectionEvent =
 			approval: ApprovalRequest;
 	  }
 	| {
+			/** 事件类型：审批请求已由 host 取消。 */
+			type: "approval.dismissed";
+			/** 线程 ID。 */
+			threadId: ThreadId;
+			/** 被取消的审批 ID。 */
+			approvalId: string;
+			/** 取消原因。 */
+			reason: "timeout" | "sessionInvalidated" | "workerStopped";
+	  }
+	| {
 			/** 事件类型：扩展 UI 已请求。 */
 			type: "extensionUi.requested";
 			/** 线程 ID。 */
 			threadId: ThreadId;
 			/** 扩展 UI 请求。 */
 			request: ExtensionUiRequest;
+	  }
+	| {
+			/** 事件类型：扩展 UI 请求已由 host 取消。 */
+			type: "extensionUi.dismissed";
+			/** 线程 ID。 */
+			threadId: ThreadId;
+			/** 被取消的请求 ID。 */
+			requestId: string;
+			/** 取消原因。 */
+			reason: "aborted" | "timeout" | "sessionInvalidated" | "workerStopped";
 	  }
 	| (ExtensionPanelProjection & {
 			/** 线程 ID。 */

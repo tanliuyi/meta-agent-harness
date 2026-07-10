@@ -3,7 +3,7 @@
  */
 
 import { describe, expect, it, vi } from 'vitest'
-import { dispatchExtensionShortcut, getCommands } from '../thread-runtime-controls'
+import { dispatchExtensionShortcut, getCommands, respondApproval } from '../thread-runtime-controls'
 import type { ThreadManagerCore } from '../thread-manager-core'
 
 describe('thread-runtime-controls', () => {
@@ -66,5 +66,42 @@ describe('thread-runtime-controls', () => {
 
     expect(core.sendData).not.toHaveBeenCalled()
     expect(handled).toBe(false)
+  })
+
+  it('worker 接受审批响应后同步解决 projection store 中的 pending 记录', async () => {
+    const resolveApproval = vi.fn()
+    const core = {
+      sendOk: vi.fn().mockResolvedValue(undefined),
+      getStore: () => ({ resolveApproval })
+    } as unknown as ThreadManagerCore
+    const response = {
+      approvalId: 'approval-a',
+      allow: true,
+      scope: 'workspace' as const
+    }
+
+    await respondApproval(core, { threadId: 'thread-a', response })
+
+    expect(core.sendOk).toHaveBeenCalledWith('thread-a', {
+      type: 'approval.respond',
+      response
+    })
+    expect(resolveApproval).toHaveBeenCalledWith('approval-a', response)
+  })
+
+  it('worker 拒绝审批响应时保留 projection store 的 pending 记录', async () => {
+    const resolveApproval = vi.fn()
+    const core = {
+      sendOk: vi.fn().mockRejectedValue(new Error('worker rejected response')),
+      getStore: () => ({ resolveApproval })
+    } as unknown as ThreadManagerCore
+
+    await expect(
+      respondApproval(core, {
+        threadId: 'thread-a',
+        response: { approvalId: 'approval-a', allow: false, scope: 'once' }
+      })
+    ).rejects.toThrow('worker rejected response')
+    expect(resolveApproval).not.toHaveBeenCalled()
   })
 })

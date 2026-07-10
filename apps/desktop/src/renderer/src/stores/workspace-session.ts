@@ -19,6 +19,12 @@ import {
 import { useToast } from '@renderer/composables/useToast'
 import { getBuiltinCommandInfos } from '@shared/coding-agent/builtin-commands'
 import { formatFileArgForInsertion } from '@shared/coding-agent/file-reference-format'
+import {
+  createExtensionDialogCancellation,
+  createExtensionDialogResponse,
+  enqueueExtensionDialog,
+  removeExtensionDialog
+} from './workspace-session-extension'
 import { toDesktopMessageContent } from '@shared/coding-agent/types'
 import type { JSONContent } from '@tiptap/vue-3'
 import type {
@@ -29,6 +35,7 @@ import type {
   CommandInfo,
   CreateThreadInput,
   DesktopExtensionWebviewPanel,
+  ExtensionDialogRequest,
   ExtensionPanelProjection,
   ExtensionUiRequest,
   ExtensionUiResponseInput,
@@ -134,8 +141,8 @@ export type WorkspaceSessionContext = {
 export type WorkspaceSessionRuntime = {
   /** 待处理的审批请求。 */
   approvals: Record<string, ApprovalRequest>
-  /** 待处理的 extension UI 请求。 */
-  extensionUiRequests: Record<string, ExtensionUiRequest>
+  /** 按到达顺序等待用户响应的 extension 对话框。 */
+  extensionDialogQueue: ExtensionDialogRequest[]
   /** extension 设置的状态文本。 */
   extensionStatuses: Record<string, string | undefined>
   /** extension notify 的完整消息列表。 */
@@ -482,7 +489,7 @@ export default defineStore('workspace-session', () => {
   function ensureRuntime(threadId: string): WorkspaceSessionRuntime {
     runtimeByThreadId[threadId] ??= reactive({
       approvals: {},
-      extensionUiRequests: {},
+      extensionDialogQueue: [],
       extensionStatuses: {},
       extensionNotifications: [],
       extensionPanels: {},
@@ -1009,6 +1016,15 @@ export default defineStore('workspace-session', () => {
     }
   }
 
+  /** 以 worker live snapshot 为准同步等待用户响应的交互。 */
+  function syncPendingInteractionsFromSnapshot(snapshot: ThreadSnapshot): void {
+    const runtime = ensureRuntime(snapshot.threadId)
+    runtime.approvals = Object.fromEntries(
+      snapshot.approvals.map((approval) => [approval.approvalId, approval])
+    )
+    runtime.extensionDialogQueue = snapshot.extensionDialogs ?? []
+  }
+
   /** 默认上下文。 */
   const mainContext = computed(() => mainContextState)
 
@@ -1059,8 +1075,11 @@ export default defineStore('workspace-session', () => {
   /** 当前活跃会话的审批请求。 */
   const activePendingApprovals = computed(() => activeRuntime.value?.approvals ?? {})
 
-  /** 当前活跃会话的 extension UI 请求。 */
-  const activeExtensionUiRequests = computed(() => activeRuntime.value?.extensionUiRequests ?? {})
+  /** 当前活跃会话按到达顺序排列的 extension 对话框。 */
+  const activeExtensionDialogs = computed(() => activeRuntime.value?.extensionDialogQueue ?? [])
+
+  /** 当前需要优先响应的 extension 对话框。 */
+  const activeExtensionDialog = computed(() => activeExtensionDialogs.value[0])
 
   /** 当前活跃会话的 extension 状态文本。 */
   const activeExtensionStatuses = computed(() => activeRuntime.value?.extensionStatuses ?? {})
@@ -1450,6 +1469,7 @@ export default defineStore('workspace-session', () => {
         snapshot
       })
       syncToolCallsByIdFromSnapshot(snapshot)
+      syncPendingInteractionsFromSnapshot(snapshot)
       syncRenderStateFromSnapshot(snapshot)
     } catch (error) {
       runtime.errorMessage = error instanceof Error ? error.message : String(error)
@@ -1811,17 +1831,45 @@ export default defineStore('workspace-session', () => {
     delete ensureRuntime(approval.threadId).approvals[approval.approvalId]
   }
 
-  /**
-   * 响应 extension UI 请求。
-   * @param threadId - 所属 thread ID。
-   * @param response - UI 响应。
-   */
+  /** 向 desktop transport 提交响应，并在成功后移除对应对话框。 */
   const respondExtensionUi = async (
     threadId: string,
     response: ExtensionUiResponseInput['response']
   ): Promise<void> => {
     await window.api.codingAgent.respondUi({ threadId, response })
-    delete ensureRuntime(threadId).extensionUiRequests[response.id]
+    const runtime = ensureRuntime(threadId)
+    runtime.extensionDialogQueue = removeExtensionDialog(runtime.extensionDialogQueue, response.id)
+  }
+
+  /** 响应当前 thread 的 extension 对话框。 */
+  const respondExtensionDialog = async (
+    request: ExtensionDialogRequest,
+    value?: string | boolean
+  ): Promise<void> => {
+    const threadId = getActiveExtensionDialogThreadId(request.id)
+    const response = createExtensionDialogResponse(request, value)
+    if (!threadId || !response) {
+      return
+    }
+    await respondExtensionUi(threadId, response)
+  }
+
+  /** 取消当前 thread 的 extension 对话框。 */
+  const cancelExtensionDialog = async (request: ExtensionDialogRequest): Promise<void> => {
+    const threadId = getActiveExtensionDialogThreadId(request.id)
+    if (!threadId) {
+      return
+    }
+    await respondExtensionUi(threadId, createExtensionDialogCancellation(request))
+  }
+
+  /** 仅允许响应仍属于当前 thread 队列的对话框。 */
+  function getActiveExtensionDialogThreadId(requestId: string): string | undefined {
+    const threadId = activeSessionId.value
+    const runtime = getRuntime(threadId)
+    return runtime?.extensionDialogQueue.some((request) => request.id === requestId)
+      ? threadId
+      : undefined
   }
 
   /**
@@ -2877,7 +2925,7 @@ export default defineStore('workspace-session', () => {
       case 'confirm':
       case 'input':
       case 'editor':
-        runtime.extensionUiRequests[request.id] = request
+        runtime.extensionDialogQueue = enqueueExtensionDialog(runtime.extensionDialogQueue, request)
         return
       case 'notify':
         pushSessionNotification(threadId, getExtensionNotifySummary(request.message))
@@ -3090,6 +3138,7 @@ export default defineStore('workspace-session', () => {
         mergeSnapshot(sessions, event.snapshot)
         syncToolCallsByIdFromSnapshot(event.snapshot)
         ensureRuntime(event.threadId)
+        syncPendingInteractionsFromSnapshot(event.snapshot)
         syncRenderStateFromSnapshot(event.snapshot)
         if (!activeSessionId.value || !sessions[activeSessionId.value]) {
           setContextActiveThreadId(event.threadId)
@@ -3124,8 +3173,18 @@ export default defineStore('workspace-session', () => {
           ensureRuntime(event.threadId).approvals[event.event.approval.approvalId] =
             event.event.approval
         }
+        if (event.event.type === 'approval.dismissed') {
+          delete ensureRuntime(event.threadId).approvals[event.event.approvalId]
+        }
         if (event.event.type === 'extensionUi.requested') {
           applyExtensionUiRequest(event.threadId, event.event.request)
+        }
+        if (event.event.type === 'extensionUi.dismissed') {
+          const runtime = ensureRuntime(event.threadId)
+          runtime.extensionDialogQueue = removeExtensionDialog(
+            runtime.extensionDialogQueue,
+            event.event.requestId
+          )
         }
         if (
           event.event.type === 'extensionPanel.registered' ||
@@ -3174,6 +3233,8 @@ export default defineStore('workspace-session', () => {
     activeCompactionState,
     activeEvents,
     activeExportResult,
+    activeExtensionDialog,
+    activeExtensionDialogs,
     activeExtensionStatuses,
     activeExtensionHiddenThinkingLabel,
     activeExtensionNotifications,
@@ -3182,7 +3243,6 @@ export default defineStore('workspace-session', () => {
     activeExtensionPanelStates,
     activeExtensionTitle,
     activeExtensionToolsExpanded,
-    activeExtensionUiRequests,
     activeExtensionWorkingIndicator,
     activeExtensionWorkingMessage,
     activeExtensionWorkingVisible,
@@ -3260,7 +3320,8 @@ export default defineStore('workspace-session', () => {
     removeComposerImage,
     revealActiveExport,
     respondApproval,
-    respondExtensionUi,
+    respondExtensionDialog,
+    cancelExtensionDialog,
     disposeExtensionPanel,
     reloadSessionResources,
     runtimeByThreadId,
@@ -3842,6 +3903,7 @@ function applyThreadWorkerEventToRuntime(
     if (!runtime) {
       return
     }
+    clearPendingRuntimeInteractions(runtime)
     const createdAt = new Date(event.event.createdAt).toISOString()
     upsertRuntimeTimelineEvent(runtime, {
       id: `worker-failed:${event.event.createdAt}`,
@@ -3854,11 +3916,15 @@ function applyThreadWorkerEventToRuntime(
     runtime.errorMessage = event.event.message
     return
   }
-  if (event.event.type !== 'worker.run.finished' || event.event.reason !== 'crash') {
+  if (event.event.type !== 'worker.run.finished') {
     return
   }
   const runtime = runtimes[event.threadId]
   if (!runtime) {
+    return
+  }
+  clearPendingRuntimeInteractions(runtime)
+  if (event.event.reason !== 'crash') {
     return
   }
   for (const key of Object.keys(runtime.renderState)) {
@@ -3879,6 +3945,11 @@ function applyThreadWorkerEventToRuntime(
     meta: ['worker', 'crash']
   })
   runtime.errorMessage = message
+}
+
+function clearPendingRuntimeInteractions(runtime: WorkspaceSessionRuntime): void {
+  runtime.approvals = {}
+  runtime.extensionDialogQueue = []
 }
 
 function upsertRuntimeTimelineEvent(

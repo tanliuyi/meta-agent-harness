@@ -141,6 +141,21 @@ export type ExtensionUiRequest =
 			expanded: boolean;
 	  };
 
+/** 需要 renderer 展示并等待用户响应的交互请求。 */
+export type ExtensionDialogRequest = Extract<
+	ExtensionUiRequest,
+	{ type: "select" | "confirm" | "input" | "editor" }
+>;
+
+/** 从 desktop worker 的同步缓存读取宿主状态的查询。 */
+export type ExtensionHostStateQuery = Extract<
+	ExtensionUiRequest,
+	{ type: "getEditorText" | "getToolsExpanded" }
+>;
+
+/** 无需用户响应、由 renderer 直接应用的 UI effect。 */
+export type ExtensionUiEffect = Exclude<ExtensionUiRequest, ExtensionDialogRequest | ExtensionHostStateQuery>;
+
 /** Extension UI 响应联合类型。 */
 export type ExtensionUiResponse =
 	| {

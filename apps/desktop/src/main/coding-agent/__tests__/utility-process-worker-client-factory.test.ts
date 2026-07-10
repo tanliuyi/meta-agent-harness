@@ -55,7 +55,8 @@ describe('createUtilityProcessWorkerClient', () => {
 
     const client = await createUtilityProcessWorkerClient({
       workerEntry,
-      inactivityTimeoutMs: 20
+      inactivityTimeoutMs: 20,
+      requestTimeoutMs: 20
     })
     client.onHang?.((info) => hangInfo.push(info))
 

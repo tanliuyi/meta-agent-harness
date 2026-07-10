@@ -48,6 +48,9 @@ function cacheProjectionEvent(
         createdAt: event.approval.createdAt
       })
       return
+    case 'approval.dismissed':
+      store.dismissApproval(event.approvalId)
+      return
     case 'file.changed':
       cacheFileChange(store, threadId, event)
       return

@@ -94,6 +94,31 @@ export interface CreateTimelineItemsInput {
   hideThinkingBlock: boolean
 }
 
+export function stabilizeTimelineItems(
+  items: TimelineItem[],
+  previous: TimelineItem[] | undefined
+): TimelineItem[] {
+  if (!previous) {
+    return items
+  }
+
+  let hasChanged = previous.length !== items.length
+  const previousByKey = new Map(previous.map((item) => [item.key, item]))
+  const stableItems = items.map((item, index) => {
+    const previousItem = previousByKey.get(item.key)
+    if (previous[index]?.key !== item.key) {
+      hasChanged = true
+    }
+    if (previousItem && isSameTimelineItemProjection(previousItem, item)) {
+      return previousItem
+    }
+    hasChanged = true
+    return item
+  })
+
+  return hasChanged ? stableItems : previous
+}
+
 export function createTimelineItems(input: CreateTimelineItemsInput): TimelineItem[] {
   const consumedToolCallIds = new Set<string>()
   const items: TimelineItem[] = []
@@ -174,16 +199,112 @@ export function createTimelineItems(input: CreateTimelineItemsInput): TimelineIt
     })
   }
 
-  for (const event of input.runtimeEvents ?? []) {
-    items.push({
+  insertRuntimeTimelineEvents(items, input.runtimeEvents ?? [])
+
+  return groupTimelineTools(items)
+}
+
+function insertRuntimeTimelineEvents(
+  items: TimelineItem[],
+  events: WorkspaceRuntimeTimelineEvent[]
+): void {
+  for (const event of events) {
+    const item: TimelineItem = {
       type: 'runtime-event',
       key: `runtime-event:${event.id}`,
       event,
       message: runtimeEventToSystemMessage(event)
-    })
+    }
+    const eventTime = parseTime(event.createdAt)
+    const insertIndex =
+      eventTime === undefined
+        ? -1
+        : items.findIndex((candidate) => {
+            const candidateTime = getTimelineItemStartTime(candidate)
+            return candidateTime !== undefined && candidateTime > eventTime
+          })
+    if (insertIndex < 0) {
+      items.push(item)
+    } else {
+      items.splice(insertIndex, 0, item)
+    }
   }
+}
 
-  return groupTimelineTools(items)
+function isSameTimelineItemProjection(left: TimelineItem, right: TimelineItem): boolean {
+  if (left.type !== right.type || left.key !== right.key) {
+    return false
+  }
+  if (left.type === 'collapsed-history' && right.type === 'collapsed-history') {
+    return (
+      left.hiddenCount === right.hiddenCount &&
+      left.hiddenTurnCount === right.hiddenTurnCount &&
+      left.durationLabel === right.durationLabel &&
+      left.collapsible === right.collapsible
+    )
+  }
+  if (left.type === 'message' && right.type === 'message') {
+    return (
+      left.message === right.message &&
+      left.text === right.text &&
+      left.toolCall === right.toolCall &&
+      left.revision === right.revision &&
+      left.renderState === right.renderState
+    )
+  }
+  if (left.type === 'thinking' && right.type === 'thinking') {
+    return (
+      left.message === right.message &&
+      left.text === right.text &&
+      left.collapseWhenResponseAppears === right.collapseWhenResponseAppears &&
+      left.revision === right.revision &&
+      left.renderState === right.renderState
+    )
+  }
+  if (left.type === 'tool' && right.type === 'tool') {
+    return isSameToolCallProjection(left.toolCall, right.toolCall)
+  }
+  if (left.type === 'tool-group' && right.type === 'tool-group') {
+    return (
+      left.summary === right.summary &&
+      isSameStringArray(left.toolCallIds, right.toolCallIds) &&
+      left.toolCalls.length === right.toolCalls.length &&
+      left.toolCalls.every((toolCall, index) =>
+        isSameToolCallProjection(toolCall, right.toolCalls[index])
+      )
+    )
+  }
+  if (left.type === 'compaction-divider' && right.type === 'compaction-divider') {
+    return left.message === right.message
+  }
+  if (left.type === 'runtime-event' && right.type === 'runtime-event') {
+    return left.event === right.event
+  }
+  return false
+}
+
+function isSameStringArray(left: string[], right: string[]): boolean {
+  return left.length === right.length && left.every((value, index) => value === right[index])
+}
+
+function isSameToolCallProjection(
+  left: DesktopToolCall,
+  right: DesktopToolCall | undefined
+): boolean {
+  return (
+    left === right ||
+    (right !== undefined &&
+      left.threadId === right.threadId &&
+      left.toolCallId === right.toolCallId &&
+      left.toolName === right.toolName &&
+      left.status === right.status &&
+      left.args === right.args &&
+      left.partialResult === right.partialResult &&
+      left.result === right.result &&
+      left.resultSummary === right.resultSummary &&
+      left.startedAt === right.startedAt &&
+      left.finishedAt === right.finishedAt)
+  )
 }
 
 function runtimeEventToSystemMessage(event: WorkspaceRuntimeTimelineEvent): ThreadMessage {

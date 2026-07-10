@@ -4,7 +4,11 @@
 
 import type { ExtensionTheme, ExtensionUIContext, ExtensionUIDialogOptions } from "@earendil-works/pi-coding-agent";
 import type { DesktopProjectionEvent } from "../protocol/events/projection.ts";
-import type { ExtensionUiRequest, ExtensionUiResponse } from "../protocol/extension-ui.ts";
+import type {
+	ExtensionDialogRequest,
+	ExtensionUiRequest,
+	ExtensionUiResponse,
+} from "../protocol/extension-ui.ts";
 import type { ThreadId } from "../protocol/identity.ts";
 import type { WorkerEventEnvelope } from "../protocol/envelope.ts";
 import {
@@ -17,12 +21,13 @@ import {
 } from "./extension-webview-source.ts";
 
 /** 等待中的 UI 请求。 */
-interface PendingUiRequest<T> {
-	request: ExtensionUiRequest;
+interface PendingUiRequest {
+	request: ExtensionDialogRequest;
 	options?: ExtensionUIDialogOptions;
-	resolve: (value: T) => void;
-	reject: (error: Error) => void;
+	resolveResponse: (response: ExtensionUiResponse) => void;
+	resolveCancelled: () => void;
 	timer?: ReturnType<typeof setTimeout>;
+	abortHandler?: () => void;
 }
 
 interface DesktopThemeDefinition {
@@ -103,10 +108,11 @@ type DesktopExtensionUIContext = Omit<
 export class ExtensionUiBridge {
 	private readonly threadId: ThreadId;
 	private readonly emit: (event: WorkerEventEnvelope) => void;
-	private readonly pending = new Map<string, PendingUiRequest<unknown>>();
+	private readonly pending = new Map<string, PendingUiRequest>();
 	private readonly dialogQueue: string[] = [];
 	private readonly terminalInputHandlers = new Set<(data: string) => unknown>();
 	private activeDialogRequestId: string | undefined;
+	private disposed = false;
 	private activeTheme = desktopThemes[0];
 	private cwd: string;
 	private editorText = "";
@@ -133,17 +139,17 @@ export class ExtensionUiBridge {
 			cspSource: "pi-webview-resource:",
 			registerWebviewPanel: (id, options) => {
 					const resolvedOptions = resolveDesktopWebviewPanelOptions(options, this.cwd, (resource) => this.registerWebviewResource(resource));
-					this.emitUiProjection({
-						type: "extensionPanel.registered",
-						threadId: this.threadId,
+				this.emitUiProjection({
+					type: "extensionPanel.registered",
+					threadId: this.threadId,
 					panel: { id, viewType: resolvedOptions.viewType ?? id, ...resolvedOptions },
 				});
-				},
+			},
 				updateWebviewPanel: (panelId, patch) => {
 					const resolvedPatch = resolveDesktopWebviewPanelPatch(patch, this.cwd, (resource) => this.registerWebviewResource(resource));
-					this.emitUiProjection({
-						type: "extensionPanel.updated",
-						threadId: this.threadId,
+				this.emitUiProjection({
+					type: "extensionPanel.updated",
+					threadId: this.threadId,
 					panelId,
 					patch: resolvedPatch,
 				});
@@ -173,8 +179,8 @@ export class ExtensionUiBridge {
 					panelId,
 				});
 			},
-			};
-		}
+		};
+	}
 
 	private registerWebviewResource(resource: DesktopWebviewResourceReference): string {
 		const token = crypto.randomUUID();
@@ -197,6 +203,7 @@ export class ExtensionUiBridge {
 				this.requestDialog<string | undefined>(
 					{ type: "select", id: crypto.randomUUID(), title, options, timeoutMs: opts?.timeout },
 					opts,
+					undefined,
 					(response) =>
 						"cancelled" in response ? undefined : "value" in response && typeof response.value === "string" ? response.value : undefined,
 				),
@@ -204,12 +211,14 @@ export class ExtensionUiBridge {
 				this.requestDialog<boolean>(
 					{ type: "confirm", id: crypto.randomUUID(), title, message, timeoutMs: opts?.timeout },
 					opts,
+					false,
 					(response) => ("cancelled" in response ? false : "confirmed" in response ? response.confirmed : false),
 				),
 			input: (title, placeholder, opts) =>
 				this.requestDialog<string | undefined>(
 					{ type: "input", id: crypto.randomUUID(), title, placeholder, timeoutMs: opts?.timeout },
 					opts,
+					undefined,
 					(response) =>
 						"cancelled" in response ? undefined : "value" in response && typeof response.value === "string" ? response.value : undefined,
 				),
@@ -256,6 +265,7 @@ export class ExtensionUiBridge {
 			editor: (title, prefill) =>
 				this.requestDialog<string | undefined>(
 					{ type: "editor", id: crypto.randomUUID(), title, prefill },
+					undefined,
 					undefined,
 					(response) =>
 						"cancelled" in response ? undefined : "value" in response && typeof response.value === "string" ? response.value : undefined,
@@ -323,32 +333,102 @@ export class ExtensionUiBridge {
 		if (!pending) {
 			throw new Error(`extension UI request not found: ${response.id}`);
 		}
-		if (pending.timer) {
-			clearTimeout(pending.timer);
-		}
-		this.pending.delete(response.id);
-		if (this.activeDialogRequestId === response.id) {
-			this.activeDialogRequestId = undefined;
-		}
-		pending.resolve(response);
+		this.cleanupPending(response.id, pending);
+		pending.resolveResponse(response);
 		this.emitNextDialogRequest();
 	}
 
+	/** 获取当前 active dialog 和后续等待队列。 */
+	listPendingDialogs(): ExtensionDialogRequest[] {
+		const requestIds = [
+			...(this.activeDialogRequestId ? [this.activeDialogRequestId] : []),
+			...this.dialogQueue,
+		];
+		return requestIds.flatMap((requestId) => {
+			const pending = this.pending.get(requestId);
+			return pending ? [pending.request] : [];
+		});
+	}
+
+	cancelAll(reason: "sessionInvalidated" | "workerStopped"): void {
+		for (const requestId of [...this.pending.keys()]) {
+			this.cancelRequest(requestId, reason, false);
+		}
+	}
+
+	dispose(): void {
+		this.disposed = true;
+		this.cancelAll("workerStopped");
+		this.terminalInputHandlers.clear();
+	}
+
 	private requestDialog<T>(
-		request: ExtensionUiRequest,
+		request: ExtensionDialogRequest,
 		options: ExtensionUIDialogOptions | undefined,
+		cancelledValue: T,
 		parse: (response: ExtensionUiResponse) => T,
 	): Promise<T> {
-		return new Promise<T>((resolve, reject) => {
-			this.pending.set(request.id, {
+		if (this.disposed || options?.signal?.aborted) {
+			return Promise.resolve(cancelledValue);
+		}
+		return new Promise<T>((resolve) => {
+			const pending: PendingUiRequest = {
 				request,
 				options,
-				resolve: (value) => resolve(parse(value as ExtensionUiResponse)),
-				reject,
-			});
+				resolveResponse: (response) => resolve(parse(response)),
+				resolveCancelled: () => resolve(cancelledValue),
+			};
+			if (options?.signal) {
+				pending.abortHandler = () => this.cancelRequest(request.id, "aborted");
+				options.signal.addEventListener("abort", pending.abortHandler, { once: true });
+			}
+			this.pending.set(request.id, pending);
 			this.dialogQueue.push(request.id);
+			if (options?.signal?.aborted) {
+				this.cancelRequest(request.id, "aborted");
+				return;
+			}
 			this.emitNextDialogRequest();
 		});
+	}
+
+	private cleanupPending(requestId: string, pending: PendingUiRequest): void {
+		if (pending.timer) {
+			clearTimeout(pending.timer);
+		}
+		if (pending.abortHandler) {
+			pending.options?.signal?.removeEventListener("abort", pending.abortHandler);
+		}
+		this.pending.delete(requestId);
+		const queuedIndex = this.dialogQueue.indexOf(requestId);
+		if (queuedIndex >= 0) {
+			this.dialogQueue.splice(queuedIndex, 1);
+		}
+		if (this.activeDialogRequestId === requestId) {
+			this.activeDialogRequestId = undefined;
+		}
+	}
+
+	private cancelRequest(
+		requestId: string,
+		reason: "aborted" | "timeout" | "sessionInvalidated" | "workerStopped",
+		advance = true,
+	): void {
+		const pending = this.pending.get(requestId);
+		if (!pending) {
+			return;
+		}
+		this.cleanupPending(requestId, pending);
+		pending.resolveCancelled();
+		this.emitUiProjection({
+			type: "extensionUi.dismissed",
+			threadId: this.threadId,
+			requestId,
+			reason,
+		});
+		if (advance) {
+			this.emitNextDialogRequest();
+		}
 	}
 
 	private emitNextDialogRequest(): void {
@@ -364,12 +444,7 @@ export class ExtensionUiBridge {
 		this.activeDialogRequestId = requestId;
 		if (pending.options?.timeout) {
 			pending.timer = setTimeout(() => {
-				this.pending.delete(requestId);
-				if (this.activeDialogRequestId === requestId) {
-					this.activeDialogRequestId = undefined;
-				}
-				pending.reject(new Error(`extension UI request timed out: ${requestId}`));
-				this.emitNextDialogRequest();
+				this.cancelRequest(requestId, "timeout");
 			}, pending.options.timeout);
 		}
 		this.emitUi(pending.request);

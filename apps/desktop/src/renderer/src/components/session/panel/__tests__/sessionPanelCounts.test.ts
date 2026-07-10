@@ -15,11 +15,9 @@ describe('createStableSessionPanelTabCounts', () => {
         sync: 'Ready',
         empty: undefined
       },
+      extensionDialogs: 1,
       extensionNotifications: 1,
       extensionTitle: 'Review helper',
-      extensionUiRequests: {
-        requestA: {}
-      },
       extensionWorking: true,
       tree: 0
     })

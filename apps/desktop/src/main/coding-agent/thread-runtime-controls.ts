@@ -171,4 +171,5 @@ export async function respondApproval(
   input: ApprovalResponseInput
 ): Promise<void> {
   await core.sendOk(input.threadId, { type: 'approval.respond', response: input.response })
+  core.getStore()?.resolveApproval(input.response.approvalId, input.response)
 }

@@ -8,6 +8,7 @@ import type { WorkerEventEnvelope } from "../protocol/envelope.ts";
 
 /** 等待中的审批请求。 */
 interface PendingApproval {
+	request: ApprovalRequest;
 	resolve: (response: ApprovalResponse) => void;
 	reject: (error: Error) => void;
 	timer?: ReturnType<typeof setTimeout>;
@@ -46,16 +47,25 @@ export class ApprovalBridge {
 			const timer = approval.timeoutMs
 				? setTimeout(() => {
 						this.pending.delete(approval.approvalId);
+						this.emitDismissed(approval.approvalId, "timeout");
 						reject(new Error(`approval request timed out: ${approval.approvalId}`));
 					}, approval.timeoutMs)
 				: undefined;
-			this.pending.set(approval.approvalId, { resolve, reject, timer });
+			this.pending.set(approval.approvalId, { request: approval, resolve, reject, timer });
 			this.emit({
 				kind: "event",
 				eventType: "projection",
 				threadId: this.threadId,
 				event: { type: "approval.requested", threadId: this.threadId, approval },
 			});
+		});
+	}
+
+	/** 获取当前等待响应的审批请求。 */
+	listPending(): ApprovalRequest[] {
+		return [...this.pending.keys()].flatMap((approvalId) => {
+			const pending = this.pending.get(approvalId);
+			return pending?.request ? [pending.request] : [];
 		});
 	}
 
@@ -77,15 +87,28 @@ export class ApprovalBridge {
 
 	/**
 	 * 拒绝所有等待中的审批请求。
-	 * @param reason - 拒绝原因。
+	 * @param reason - 对外投影的取消原因。
 	 */
-	rejectAll(reason: string): void {
+	rejectAll(reason: "sessionInvalidated" | "workerStopped"): void {
 		for (const [id, pending] of this.pending) {
 			if (pending.timer) {
 				clearTimeout(pending.timer);
 			}
 			this.pending.delete(id);
+			this.emitDismissed(id, reason);
 			pending.reject(new Error(reason));
 		}
+	}
+
+	private emitDismissed(
+		approvalId: string,
+		reason: "timeout" | "sessionInvalidated" | "workerStopped",
+	): void {
+		this.emit({
+			kind: "event",
+			eventType: "projection",
+			threadId: this.threadId,
+			event: { type: "approval.dismissed", threadId: this.threadId, approvalId, reason },
+		});
 	}
 }

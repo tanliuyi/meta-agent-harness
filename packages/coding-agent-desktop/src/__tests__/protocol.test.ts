@@ -21,9 +21,13 @@ describe("desktop protocol command guards", () => {
 	});
 
 	/** 验证 desktop control 命令的识别。 */
-	it("识别 desktop control 命令", () => {
-		expect(isDesktopControlCommand({ type: "worker.snapshot" })).toBe(true);
+	it("仅识别 runtime service 实际支持的 desktop control 命令", () => {
+		expect(isDesktopControlCommand({ type: "worker.startThread" })).toBe(true);
+		expect(isDesktopControlCommand({ type: "worker.ping" })).toBe(true);
 		expect(isDesktopControlCommand({ type: "approval.respond" })).toBe(true);
+		expect(isDesktopControlCommand({ type: "worker.stopThread" })).toBe(false);
+		expect(isDesktopControlCommand({ type: "worker.snapshot" })).toBe(false);
+		expect(isDesktopControlCommand({ type: "worker.reset" })).toBe(false);
 		expect(isDesktopControlCommand({ type: "prompt" })).toBe(false);
 	});
 });

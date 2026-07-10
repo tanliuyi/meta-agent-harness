@@ -63,9 +63,7 @@ const {
 const pendingApprovalsCount = computed(() =>
   countRecordKeys(workspaceSession.activePendingApprovals)
 )
-const extensionUiRequestCount = computed(() =>
-  countRecordKeys(workspaceSession.activeExtensionUiRequests)
-)
+const extensionDialogCount = computed(() => workspaceSession.activeExtensionDialogs.length)
 const tabCounts = computed<SessionPanelTabCountMap>((previous) =>
   createStableSessionPanelTabCounts(
     {
@@ -75,9 +73,9 @@ const tabCounts = computed<SessionPanelTabCountMap>((previous) =>
         ? workspaceSession.activeCommands.length
         : undefined,
       extensionStatuses: workspaceSession.activeExtensionStatuses,
+      extensionDialogs: workspaceSession.activeExtensionDialogs.length,
       extensionNotifications: workspaceSession.activeExtensionNotifications.length,
       extensionTitle: workspaceSession.activeExtensionTitle,
-      extensionUiRequests: workspaceSession.activeExtensionUiRequests,
       extensionWorking:
         Boolean(workspaceSession.activeExtensionWorkingMessage) ||
         workspaceSession.activeExtensionWorkingVisible === false ||
@@ -100,7 +98,8 @@ const activeExtensionPanel = computed(() =>
     : undefined
 )
 const shouldKeepActiveTabAlive = computed(
-  () => !activeExtensionPanelId.value || shouldRetainExtensionPanelContext(activeExtensionPanel.value)
+  () =>
+    !activeExtensionPanelId.value || shouldRetainExtensionPanelContext(activeExtensionPanel.value)
 )
 
 const activeTabComponent = computed(() => {
@@ -146,7 +145,7 @@ watch(pendingApprovalsCount, (count, previousCount) => {
   }
 })
 
-watch(extensionUiRequestCount, (count, previousCount) => {
+watch(extensionDialogCount, (count, previousCount) => {
   if (count > previousCount) {
     markTabAttention('extensions')
   }
@@ -203,8 +202,8 @@ function handleCloseTab(tabInstanceId: string): void {
         />
       </KeepAlive>
       <component
-        v-else-if="!isAddPanelActive && activeTabComponent"
         :is="activeTabComponent"
+        v-else-if="!isAddPanelActive && activeTabComponent"
         :key="activeTabKey"
         :panel-id="activeExtensionPanelId"
       />

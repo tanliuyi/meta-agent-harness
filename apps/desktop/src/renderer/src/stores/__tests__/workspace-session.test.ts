@@ -12,6 +12,7 @@ import type {
   ExtensionUiRequest,
   ThreadSnapshot
 } from '@shared/coding-agent/types'
+import type { Model } from '@earendil-works/pi-ai'
 import type { AgentMessage } from '../../../../../../../packages/agent/src/types'
 
 const toastMock = vi.hoisted(() => ({
@@ -232,7 +233,7 @@ describe('applyEventToSessions', () => {
         raw: {
           role: 'assistant',
           stopReason: 'error',
-          content: [{ type: 'text', text: '正在编辑文件。' }]
+          content: [{ type: 'text', text: '准备编辑文件。' }]
         }
       }
     ])
@@ -1359,6 +1360,40 @@ describe('workspace-session Project-first actions', () => {
     expect(store.activeSessionPanel).toEqual({ panelOpen: true, panelWidth: 560 })
   })
 
+  it('刷新 live snapshot 时恢复等待中的审批与扩展对话框', async () => {
+    const snapshot = {
+      ...createSnapshot(),
+      approvals: [
+        {
+          approvalId: 'approval-live',
+          threadId: 'thread-a',
+          action: 'bash',
+          risk: 'medium' as const,
+          scope: 'once' as const,
+          defaultAction: 'deny' as const,
+          createdAt: '2026-07-10T00:00:00.000Z'
+        }
+      ],
+      extensionDialogs: [
+        {
+          type: 'confirm' as const,
+          id: 'dialog-live',
+          title: 'Continue',
+          message: 'Resume extension?'
+        }
+      ]
+    }
+    installCodingAgentApi({ getSnapshot: vi.fn().mockResolvedValue(snapshot) })
+    const store = useWorkspaceSessionStore()
+    store.sessions['thread-a'] = snapshotToWorkspaceSession(createSnapshot())
+    await store.setActiveSessionId('thread-a')
+
+    await store.refreshSnapshot('thread-a')
+
+    expect(Object.keys(store.activePendingApprovals)).toEqual(['approval-live'])
+    expect(store.activeExtensionDialog?.id).toBe('dialog-live')
+  })
+
   it('右侧栏运行态只暴露 active thread 的审批与事件', async () => {
     const snapshotA = createSnapshot()
     const snapshotB = {
@@ -1377,7 +1412,19 @@ describe('workspace-session Project-first actions', () => {
     capturedEventListener?.(createApprovalRequestedEvent('thread-b', 'approval-b'))
 
     expect(Object.keys(store.activePendingApprovals)).toEqual(['approval-a'])
+    capturedEventListener?.({
+      type: 'projection',
+      threadId: 'thread-a',
+      event: {
+        type: 'approval.dismissed',
+        threadId: 'thread-a',
+        approvalId: 'approval-a',
+        reason: 'timeout'
+      }
+    })
+    expect(store.activePendingApprovals).toEqual({})
     expect(store.activeEvents.map((event) => ('threadId' in event ? event.threadId : ''))).toEqual([
+      'thread-a',
       'thread-a'
     ])
 
@@ -1502,13 +1549,34 @@ describe('workspace-session Project-first actions', () => {
       })
     )
 
-    expect(Object.keys(store.activeExtensionUiRequests)).toEqual(['ui-input'])
+    expect(store.activeExtensionDialogs.map((request) => request.id)).toEqual(['ui-input'])
+    expect(store.activeExtensionDialog?.id).toBe('ui-input')
     expect(store.activeExtensionStatuses).toEqual({ sync: 'Ready' })
     expect(store.activeExtensionWorkingMessage).toBe('Indexing')
     expect(store.activeExtensionWorkingVisible).toBe(false)
     expect(store.activeExtensionWorkingIndicator).toEqual({ frames: ['-', '+'], intervalMs: 100 })
     expect(store.activeExtensionHiddenThinkingLabel).toBe('Hidden reasoning')
     expect(store.activeExtensionToolsExpanded).toBe(true)
+
+    capturedEventListener?.({
+      type: 'projection',
+      threadId: 'thread-a',
+      event: {
+        type: 'extensionUi.dismissed',
+        threadId: 'thread-a',
+        requestId: 'ui-input',
+        reason: 'aborted'
+      }
+    })
+    expect(store.activeExtensionDialogs).toEqual([])
+    capturedEventListener?.(
+      createExtensionUiRequestedEvent('thread-a', {
+        type: 'input',
+        id: 'ui-input',
+        title: 'Project name',
+        placeholder: 'Name'
+      })
+    )
 
     capturedEventListener?.(
       createExtensionPanelRegisteredEvent('thread-a', {
@@ -1604,13 +1672,22 @@ describe('workspace-session Project-first actions', () => {
     expect(store.draftMessage).toEqual(createComposerContentWithHardBreak('hello', 'world'))
     expect(toastMock.warning).toHaveBeenCalledWith('扩展', 'Extension finished')
 
-    await store.respondExtensionUi('thread-a', { id: 'ui-input', value: 'Meta Agent' })
+    const inputRequest = store.activeExtensionDialog
+    expect(inputRequest?.type).toBe('input')
+    if (!inputRequest) {
+      throw new Error('expected active extension dialog')
+    }
+    await store.respondExtensionDialog(inputRequest, 'Meta Agent')
 
     expect(respondUi).toHaveBeenCalledWith({
       threadId: 'thread-a',
       response: { id: 'ui-input', value: 'Meta Agent' }
     })
-    expect(store.activeExtensionUiRequests).toEqual({})
+    expect(store.activeExtensionDialogs).toEqual([])
+    expect(store.activeExtensionDialog).toBeUndefined()
+
+    await store.respondExtensionDialog(inputRequest, 'Duplicate')
+    expect(respondUi).toHaveBeenCalledTimes(1)
   })
 
   it('长 extension notify 只在 toast 提示摘要并将完整内容放入右侧栏', async () => {
@@ -3448,7 +3525,7 @@ function createSnapshot(): ThreadSnapshot {
  * @param id - 模型 ID。
  * @returns model fixture。
  */
-function createModel(id: string) {
+function createModel(id: string): Model<'openai-responses'> {
   return {
     id,
     name: id,

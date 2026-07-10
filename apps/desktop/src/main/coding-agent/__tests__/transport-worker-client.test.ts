@@ -146,14 +146,14 @@ describe('TransportWorkerClient', () => {
     )
   })
 
-  it('长时间无消息时触发 onHang 并停止 worker', async () => {
+  it('长时间无消息且 ping 超时时触发 onHang 并停止 worker', async () => {
     let now = 0
     const transport = createFakeTransport()
     const hangInfo: WorkerHangInfo[] = []
     const client = new TransportWorkerClient({
       workerId: 'worker-1',
       transport,
-      requestTimeoutMs: 1000,
+      requestTimeoutMs: 20,
       inactivityTimeoutMs: 100,
       now: () => now,
       onHang: (info) => hangInfo.push(info)
@@ -171,6 +171,59 @@ describe('TransportWorkerClient', () => {
       silentMs: 150
     })
     expect(transport.isClosed()).toBe(true)
+  })
+
+  it('长时静默工具仍响应 ping 时不判定为 hang', async () => {
+    let now = 0
+    const transport = createFakeTransport()
+    const hangInfo: WorkerHangInfo[] = []
+    const client = new TransportWorkerClient({
+      workerId: 'worker-1',
+      transport,
+      requestTimeoutMs: 20,
+      inactivityTimeoutMs: 100,
+      now: () => now,
+      onHang: (info) => hangInfo.push(info)
+    })
+
+    transport.respondTo('worker.startThread', { success: true })
+    await client.startThread({ threadId: 'thread-a', cwd: '/tmp' })
+    transport.respondTo('worker.ping', { success: true })
+    now = 150
+    await waitMs(150)
+
+    expect(hangInfo).toHaveLength(0)
+    expect(transport.isClosed()).toBe(false)
+  })
+
+  it('ping 等待期间收到普通事件时不误判为 hang', async () => {
+    let now = 0
+    const transport = createFakeTransport()
+    const hangInfo: WorkerHangInfo[] = []
+    const client = new TransportWorkerClient({
+      workerId: 'worker-1',
+      transport,
+      requestTimeoutMs: 40,
+      inactivityTimeoutMs: 100,
+      now: () => now,
+      onHang: (info) => hangInfo.push(info)
+    })
+
+    transport.respondTo('worker.startThread', { success: true })
+    await client.startThread({ threadId: 'thread-a', cwd: '/tmp' })
+    now = 150
+    await waitMs(110)
+    now = 160
+    transport.emitEvent({
+      kind: 'event',
+      eventType: 'projection',
+      threadId: 'thread-a',
+      event: { type: 'thread.stateChanged', threadId: 'thread-a', status: 'running' }
+    })
+    await waitMs(80)
+
+    expect(hangInfo).toHaveLength(0)
+    expect(transport.isClosed()).toBe(false)
   })
 
   it('收到任何消息后重置无消息计时器', async () => {

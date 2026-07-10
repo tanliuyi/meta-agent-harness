@@ -39,15 +39,9 @@ withDefaults(
 <style lang="scss" scoped>
 .base-panel {
   min-width: 0;
-  overflow: hidden;
-  background: var(--color-panel);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
-  box-shadow: var(--shadow-sm);
-  backdrop-filter: blur(12px);
 
   & + & {
-    margin-top: var(--space-4);
+    margin-top: 36px;
   }
 }
 
@@ -56,43 +50,44 @@ withDefaults(
   align-items: center;
   justify-content: space-between;
   gap: var(--space-3);
-  min-height: 42px;
-  padding: var(--space-3);
-  border-bottom: 1px solid var(--color-border);
+  min-height: 28px;
+  padding: 0 0 var(--space-3);
 }
 
 .base-panel__heading {
-  min-width: 0;
   display: flex;
+  min-width: 0;
   flex-direction: column;
-  gap: var(--space-1);
 }
 
 .base-panel__eyebrow {
-  margin: 0;
-  color: var(--color-primary);
-  font-size: var(--font-size-ui-2xs);
-  font-weight: 750;
+  display: none;
 }
 
 .base-panel__title {
   margin: 0;
   overflow: hidden;
   color: var(--color-text);
-  font-size: var(--font-size-ui);
-  line-height: 1.25;
+  font-size: var(--font-size-ui-sm);
+  font-weight: 650;
+  line-height: 1.4;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .base-panel__actions {
   display: flex;
+  flex: 0 0 auto;
   align-items: center;
   gap: var(--space-2);
-  flex: 0 0 auto;
 }
 
 .base-panel__body {
-  padding: var(--space-3);
+  min-width: 0;
+  overflow: hidden;
+  padding: var(--space-4);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
 }
 </style>

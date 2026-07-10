@@ -7,6 +7,7 @@ import type { CwdPath, SessionFile, ThreadId, WorkerId } from "./identity.ts";
 import type { AgentMessage, ThinkingLevel } from "@earendil-works/pi-agent-core";
 import type { ModelIdentity } from "./model.ts";
 import type { ApprovalRequest } from "./approval.ts";
+import type { ExtensionDialogRequest } from "./extension-ui.ts";
 import type { DesktopFileChange, DesktopToolCall } from "./tool.ts";
 import type { ThreadRuntimeState } from "./thread.ts";
 
@@ -94,6 +95,8 @@ export interface ThreadSnapshot {
 	fileChanges: DesktopFileChange[];
 	/** 待审批请求列表。 */
 	approvals: ApprovalRequest[];
+	/** 等待用户响应的扩展对话框。 */
+	extensionDialogs?: ExtensionDialogRequest[];
 	/** 队列信息。 */
 	queue: {
 		/** Steering 队列。 */

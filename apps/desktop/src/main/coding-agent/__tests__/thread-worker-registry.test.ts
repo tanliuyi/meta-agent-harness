@@ -276,7 +276,7 @@ describe('ThreadWorkerRegistry', () => {
     })
   })
 
-  it('running 状态线程即使 idle 超时也不被回收', async () => {
+  it('canonical agent_start 后即使 idle 超时也不回收 running worker', async () => {
     let now = 0
     const stopReasons: string[] = []
     let eventListener: ((event: WorkerEnvelope) => void) | undefined
@@ -301,15 +301,27 @@ describe('ThreadWorkerRegistry', () => {
     await registry.acquireThreadWorker({ threadId: 'thread-a', cwd: '/tmp/project-a' })
     eventListener?.({
       kind: 'event',
-      eventType: 'projection',
+      eventType: 'canonical',
       threadId: 'thread-a',
-      event: { type: 'thread.stateChanged', threadId: 'thread-a', status: 'running' }
+      event: { type: 'agent_start' }
     })
     now = 1200
     await waitMs(500)
 
     expect(registry.listLeases()).toHaveLength(1)
     expect(stopReasons).toHaveLength(0)
+
+    eventListener?.({
+      kind: 'event',
+      eventType: 'canonical',
+      threadId: 'thread-a',
+      event: { type: 'agent_end', messages: [], willRetry: false }
+    })
+    now = 2400
+    await waitMs(500)
+
+    expect(registry.listLeases()).toHaveLength(0)
+    expect(stopReasons).toEqual(['idle'])
   })
 
   it('idle 扫描遇到已并发释放的 worker 时继续完成回收', async () => {

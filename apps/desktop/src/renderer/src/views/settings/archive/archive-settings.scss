@@ -23,7 +23,16 @@
 
 .archive-groups {
   display: grid;
-  gap: var(--space-4);
+  gap: 0;
+}
+
+.archive-summary + .archive-toolbar {
+  margin-top: var(--space-6);
+}
+
+.archive-toolbar + .archive-groups,
+.archive-toolbar + .archive-empty {
+  margin-top: var(--space-10);
 }
 
 .archive-summary {
@@ -67,19 +76,14 @@
 
 .archive-toolbar {
   display: grid;
-  max-width: 520px;
+  width: min(520px, 100%);
 }
 
 .archive-thread-list {
   display: grid;
-  gap: 1px;
   padding: 0;
   margin: 0;
-  overflow: hidden;
   list-style: none;
-  background: var(--color-border);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
 
   li {
     display: grid;
@@ -87,8 +91,17 @@
     gap: var(--space-3);
     align-items: center;
     min-width: 0;
-    padding: var(--space-3);
-    background: var(--color-surface);
+    padding: var(--space-4) 0;
+    border-bottom: 1px solid var(--color-border-muted);
+
+    &:first-child {
+      padding-top: 0;
+    }
+
+    &:last-child {
+      padding-bottom: 0;
+      border-bottom: 0;
+    }
   }
 }
 

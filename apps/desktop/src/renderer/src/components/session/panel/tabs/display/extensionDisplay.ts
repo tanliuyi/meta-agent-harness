@@ -1,28 +1,17 @@
-import type { ExtensionUiRequest } from '@shared/coding-agent/types'
+import type { ExtensionDialogRequest } from '@shared/coding-agent/types'
 
-export const extensionRequestTypeLabels: Record<ExtensionUiRequest['type'], string> = {
+export const extensionDialogTypeLabels: Record<ExtensionDialogRequest['type'], string> = {
   select: '选择请求',
   confirm: '确认请求',
   input: '输入请求',
-  editor: '编辑请求',
-  notify: '通知',
-  setStatus: '状态更新',
-  setTitle: '标题更新',
-  setEditorText: '编辑器文本更新',
-  getEditorText: '读取编辑器文本',
-  setWorkingMessage: '工作消息更新',
-  setWorkingVisible: '工作行可见性更新',
-  setWorkingIndicator: '工作指示器更新',
-  setHiddenThinkingLabel: '隐藏思考标签更新',
-  getToolsExpanded: '读取工具展开状态',
-  setToolsExpanded: '工具展开状态更新'
+  editor: '编辑请求'
 }
 
-export function getExtensionRequestTitle(request: ExtensionUiRequest): string {
-  return 'title' in request ? request.title : extensionRequestTypeLabels[request.type]
+export function getExtensionRequestTitle(request: ExtensionDialogRequest): string {
+  return request.title
 }
 
-export function getExtensionRequestDescription(request: ExtensionUiRequest): string {
+export function getExtensionRequestDescription(request: ExtensionDialogRequest): string {
   if (request.type === 'confirm') {
     return request.message
   }
@@ -30,9 +19,9 @@ export function getExtensionRequestDescription(request: ExtensionUiRequest): str
     return `${request.options.length} 个选项`
   }
   if (request.type === 'input') {
-    return request.placeholder || extensionRequestTypeLabels[request.type]
+    return request.placeholder || extensionDialogTypeLabels[request.type]
   }
-  return extensionRequestTypeLabels[request.type]
+  return extensionDialogTypeLabels[request.type]
 }
 
 const legacyExtensionDisplayText: Record<string, string> = {
@@ -56,11 +45,11 @@ const legacyExtensionDisplayText: Record<string, string> = {
   'Default indicator': '默认指示器'
 }
 
-export function getExtensionRequestTypeLabel(request: ExtensionUiRequest): string {
-  return extensionRequestTypeLabels[request.type]
+export function getExtensionRequestTypeLabel(request: ExtensionDialogRequest): string {
+  return extensionDialogTypeLabels[request.type]
 }
 
-export function getExtensionInitialDraft(request: ExtensionUiRequest): string {
+export function getExtensionInitialDraft(request: ExtensionDialogRequest): string {
   return request.type === 'editor' ? (request.prefill ?? '') : ''
 }
 

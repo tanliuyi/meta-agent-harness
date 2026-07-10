@@ -16,8 +16,8 @@ export type TokenUsage = {
   contextWindow: number
   /** 使用百分比（0-100）；undefined 表示尚未估算出。 */
   percent?: number
-  /** 是否启用自动上下文压缩。 */
-  autoCompactionEnabled: boolean
+  /** 是否启用自动上下文压缩；undefined 表示运行态尚未加载。 */
+  autoCompactionEnabled?: boolean
 }
 
 const props = defineProps<{
@@ -87,7 +87,13 @@ const percentText = computed(() => {
   return `${percent.value.toFixed(1)}%`
 })
 
-const autoIndicator = computed(() => (props.usage?.autoCompactionEnabled ? ' (auto)' : ''))
+const autoIndicator = computed(() => (props.usage?.autoCompactionEnabled === true ? ' (auto)' : ''))
+const autoCompactionText = computed(() => {
+  if (props.usage?.autoCompactionEnabled === undefined) {
+    return '未知'
+  }
+  return props.usage.autoCompactionEnabled ? '开启' : '关闭'
+})
 
 const displayText = computed(() => {
   return `${percentText.value}/${formatTokens(contextWindow.value)}${autoIndicator.value}`
@@ -141,7 +147,7 @@ const usedTokensText = computed(() => (isUnknown.value ? '?' : formatTokens(used
             使用率：<strong>{{ percentText }}</strong>
           </p>
           <p class="usage__tooltip-row">
-            自动压缩：<strong>{{ usage?.autoCompactionEnabled ? '开启' : '关闭' }}</strong>
+            自动压缩：<strong>{{ autoCompactionText }}</strong>
           </p>
         </div>
       </TooltipContent>

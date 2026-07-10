@@ -17,22 +17,6 @@ export type DesktopControlCommand =
 			input: StartThreadInput;
 	  }
 	| {
-			/** 命令类型：停止线程。 */
-			type: "worker.stopThread";
-			/** 停止原因。 */
-			reason?: string;
-	  }
-	| {
-			/** 命令类型：生成快照。 */
-			type: "worker.snapshot";
-	  }
-	| {
-			/** 命令类型：重置线程。 */
-			type: "worker.reset";
-			/** 重置线程的输入参数。 */
-			input: StartThreadInput;
-	  }
-	| {
 			/** 命令类型：心跳检测。 */
 			type: "worker.ping";
 	  }
@@ -99,9 +83,6 @@ export function isDesktopControlCommand(command: { type: string }): command is D
 /** 预定义的 control 命令类型集合。 */
 const controlCommandTypes = new Set<string>([
 	"worker.startThread",
-	"worker.stopThread",
-	"worker.snapshot",
-	"worker.reset",
 	"worker.ping",
 	"ui.respond",
 	"approval.respond",

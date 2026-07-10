@@ -180,6 +180,18 @@ export class CodingThreadStore {
     })
   }
 
+  dismissApproval(approvalId: string): void {
+    const record = this.approvals.get(approvalId)
+    if (!record) {
+      return
+    }
+    this.approvals.set(approvalId, {
+      ...record,
+      status: 'dismissed',
+      resolvedAt: new Date().toISOString()
+    })
+  }
+
   listApprovals(input: { threadId?: string; status?: string } = {}): ApprovalRecord[] {
     return [...this.approvals.values()]
       .filter((record) => !input.threadId || record.threadId === input.threadId)

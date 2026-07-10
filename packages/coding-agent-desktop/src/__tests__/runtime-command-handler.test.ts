@@ -11,6 +11,20 @@ describe("handleRuntimeCommand", () => {
 	/** 验证返回 Pi 同构的 session state。 */
 	it("返回 Pi 同构 session state", async () => {
 		const host = createHost();
+		host.getPendingApprovals = () => [
+			{
+				approvalId: "approval-1",
+				threadId: "thread-1",
+				action: "edit",
+				risk: "high",
+				scope: "once",
+				defaultAction: "deny",
+				createdAt: "2026-07-10T00:00:00.000Z",
+			},
+		];
+		host.getPendingExtensionDialogs = () => [
+			{ type: "confirm", id: "dialog-1", title: "Confirm", message: "Continue?" },
+		];
 
 		const response = await handleRuntimeCommand(host, command("1", { type: "get_state" }));
 
@@ -19,7 +33,10 @@ describe("handleRuntimeCommand", () => {
 			sessionId: "session-1",
 			sessionName: "Desktop",
 			messageCount: 0,
-			pendingMessageCount: 0,
+			pendingMessageCount: 2,
+			queue: { steering: ["redirect"], followUp: ["verify"] },
+			approvals: [expect.objectContaining({ approvalId: "approval-1" })],
+			extensionDialogs: [expect.objectContaining({ id: "dialog-1", type: "confirm" })],
 			autoRetryEnabled: true,
 		});
 	});
@@ -461,7 +478,9 @@ function createSession(overrides: Record<string, unknown> = {}): RuntimeCommandH
 		autoCompactionEnabled: true,
 		autoRetryEnabled: true,
 		messages: [],
-		pendingMessageCount: 0,
+		pendingMessageCount: 2,
+		getSteeringMessages: () => ["redirect"],
+		getFollowUpMessages: () => ["verify"],
 		getContextUsage: () => undefined,
 		modelRegistry: {
 			getAvailable: async () => [{ provider: "openai", id: "gpt-test" }],

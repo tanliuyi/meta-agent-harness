@@ -166,7 +166,10 @@ export class ThreadManagerCore {
     }
     switch (event.event.type) {
       case 'extensionPanel.registered':
-        this.ensureExtensionPanelSnapshot(event.threadId).set(event.event.panel.id, event.event.panel)
+        this.ensureExtensionPanelSnapshot(event.threadId).set(
+          event.event.panel.id,
+          event.event.panel
+        )
         return
       case 'extensionPanel.updated': {
         const panels = this.extensionPanelSnapshots.get(event.threadId)
@@ -593,8 +596,9 @@ export class ThreadManagerCore {
       currentEntryId: state.currentEntryId,
       toolCalls: state.toolCalls ?? [],
       fileChanges: state.fileChanges ?? [],
-      approvals: [],
-      queue: {
+      approvals: state.approvals ?? [],
+      extensionDialogs: state.extensionDialogs ?? [],
+      queue: state.queue ?? {
         steering: [],
         followUp: []
       },

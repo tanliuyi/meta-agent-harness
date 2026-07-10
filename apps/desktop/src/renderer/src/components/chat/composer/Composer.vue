@@ -7,7 +7,7 @@ import type { JSONContent } from '@tiptap/vue-3'
 import { computed, defineAsyncComponent, nextTick, ref, watch } from 'vue'
 import { autoUpdate, offset, size, useFloating } from '@floating-ui/vue'
 import { onClickOutside } from '@vueuse/core'
-import { BaseButton, BaseIconButton } from '@renderer/components/base'
+import { BaseIconButton } from '@renderer/components/base'
 import SendIcon from '@renderer/components/icons/SendIcon.vue'
 import { Command } from '@renderer/components/ui/command'
 import ScrollArea from '@renderer/components/ui/scroll-area/ScrollArea.vue'
@@ -48,7 +48,6 @@ import {
 import { useToast } from '@renderer/composables/useToast'
 import type {
   CommandInfo,
-  ExtensionUiRequest,
   ProjectSummary,
   PromptFileReferenceCandidate,
   ThinkingLevel,
@@ -164,8 +163,8 @@ const props = withDefaults(
     commands?: CommandInfo[]
     /** 是否正在加载 commands。 */
     loadingCommands?: boolean
-    /** 待响应的 extension UI 请求。 */
-    extensionRequests?: Record<string, ExtensionUiRequest>
+    /** 是否禁用输入表单。 */
+    disabled?: boolean
     /** Agent 运行中提交消息时的交付方式。 */
     runningDelivery?: RunningMessageDelivery
     /** 输入提示。 */
@@ -190,7 +189,7 @@ const props = withDefaults(
     thinkingSelectDisabled: false,
     commands: () => [],
     loadingCommands: false,
-    extensionRequests: () => ({}),
+    disabled: false,
     runningDelivery: 'steer',
     placeholder: ''
   }
@@ -231,10 +230,6 @@ const emit = defineEmits<{
   'load-commands': []
   /** 运行 command。 */
   'run-command': [command: string, args?: string]
-  /** 响应 extension UI 请求。 */
-  'respond-extension-request': [request: ExtensionUiRequest, value?: string | boolean]
-  /** 取消 extension UI 请求。 */
-  'cancel-extension-request': [request: ExtensionUiRequest]
   /** 中止当前任务。 */
   abort: []
 }>()
@@ -267,7 +262,6 @@ const dragDepth = ref(0)
 const isDraggingFiles = ref(false)
 const nameCommandDialogOpen = ref(false)
 const nameCommandDraft = ref('')
-const extensionDrafts = ref<Record<string, string>>({})
 const fileReferenceCompletion = ref<FileReferenceCompletionState>({
   candidates: [],
   selectedIndex: 0
@@ -295,9 +289,7 @@ const imagePreviewItems = computed<ImagePreviewItem[]>(() =>
   }))
 )
 
-const extensionRequestEntries = computed(() => Object.values(props.extensionRequests))
-const visibleExtensionRequest = computed(() => extensionRequestEntries.value[0])
-const isComposerFormDisabled = computed(() => Boolean(visibleExtensionRequest.value))
+const isComposerFormDisabled = computed(() => props.disabled)
 const isDropTargetActive = computed(() => isDraggingFiles.value && !props.selectingImages)
 const hasOpenComposerPopup = computed(
   () =>
@@ -1276,44 +1268,6 @@ function parseModelValue(value: string): { provider: string; modelId: string } |
 function formatModelLabel(model: Pick<SessionModel, 'provider' | 'id'>): string {
   return `${model.provider}/${model.id}`
 }
-
-function getExtensionRequestTitle(request: ExtensionUiRequest): string {
-  return 'title' in request ? request.title : request.type
-}
-
-function getExtensionDraft(request: ExtensionUiRequest): string {
-  if (extensionDrafts.value[request.id] === undefined) {
-    extensionDrafts.value[request.id] = request.type === 'editor' ? (request.prefill ?? '') : ''
-  }
-  return extensionDrafts.value[request.id]
-}
-
-function setExtensionDraft(id: string, value: string): void {
-  extensionDrafts.value = {
-    ...extensionDrafts.value,
-    [id]: value
-  }
-}
-
-function submitExtensionRequest(request: ExtensionUiRequest, value?: string | boolean): void {
-  emit(
-    'respond-extension-request',
-    request,
-    typeof value === 'string' || typeof value === 'boolean' ? value : getExtensionDraft(request)
-  )
-  clearExtensionDraft(request.id)
-}
-
-function cancelExtensionRequest(request: ExtensionUiRequest): void {
-  emit('cancel-extension-request', request)
-  clearExtensionDraft(request.id)
-}
-
-function clearExtensionDraft(id: string): void {
-  const next = { ...extensionDrafts.value }
-  delete next[id]
-  extensionDrafts.value = next
-}
 </script>
 
 <template>
@@ -1433,108 +1387,8 @@ function clearExtensionDraft(id: string): void {
       </div>
     </Teleport>
     <div class="composer-stack">
-      <div
-        v-if="visibleExtensionRequest"
-        :key="visibleExtensionRequest.id"
-        class="composer__extension-requests"
-      >
-        <article class="composer__extension-request">
-          <header class="composer__extension-request-header">
-            <div>
-              <strong>{{ getExtensionRequestTitle(visibleExtensionRequest) }}</strong>
-              <span>{{ visibleExtensionRequest.type }}</span>
-            </div>
-            <BaseButton
-              type="button"
-              size="sm"
-              variant="ghost"
-              @click="cancelExtensionRequest(visibleExtensionRequest)"
-            >
-              取消
-            </BaseButton>
-          </header>
-
-          <div class="composer__extension-request-body">
-            <p
-              v-if="visibleExtensionRequest.type === 'confirm'"
-              class="composer__extension-request-message"
-            >
-              {{ visibleExtensionRequest.message }}
-            </p>
-
-            <div
-              v-if="visibleExtensionRequest.type === 'select'"
-              class="composer__extension-request-options"
-            >
-              <BaseButton
-                v-for="option in visibleExtensionRequest.options"
-                :key="option"
-                type="button"
-                size="sm"
-                variant="secondary"
-                @click="submitExtensionRequest(visibleExtensionRequest, option)"
-              >
-                {{ option }}
-              </BaseButton>
-            </div>
-
-            <input
-              v-if="visibleExtensionRequest.type === 'input'"
-              class="composer__extension-request-input"
-              :value="getExtensionDraft(visibleExtensionRequest)"
-              :placeholder="visibleExtensionRequest.placeholder"
-              :aria-label="getExtensionRequestTitle(visibleExtensionRequest)"
-              @input="
-                setExtensionDraft(
-                  visibleExtensionRequest.id,
-                  ($event.target as HTMLInputElement).value
-                )
-              "
-              @keydown.enter.prevent="submitExtensionRequest(visibleExtensionRequest)"
-            />
-
-            <textarea
-              v-if="visibleExtensionRequest.type === 'editor'"
-              class="composer__extension-request-editor"
-              :value="getExtensionDraft(visibleExtensionRequest)"
-              :aria-label="getExtensionRequestTitle(visibleExtensionRequest)"
-              @input="
-                setExtensionDraft(
-                  visibleExtensionRequest.id,
-                  ($event.target as HTMLTextAreaElement).value
-                )
-              "
-            />
-          </div>
-
-          <div
-            v-if="
-              visibleExtensionRequest.type === 'confirm' ||
-              visibleExtensionRequest.type === 'input' ||
-              visibleExtensionRequest.type === 'editor'
-            "
-            class="composer__extension-request-actions"
-          >
-            <BaseButton
-              v-if="visibleExtensionRequest.type === 'confirm'"
-              type="button"
-              size="sm"
-              variant="primary"
-              @click="submitExtensionRequest(visibleExtensionRequest, true)"
-            >
-              确认
-            </BaseButton>
-            <BaseButton
-              v-else
-              type="button"
-              size="sm"
-              variant="primary"
-              @click="submitExtensionRequest(visibleExtensionRequest)"
-            >
-              提交
-            </BaseButton>
-          </div>
-        </article>
+      <div v-if="$slots.overlay" class="composer__overlay">
+        <slot name="overlay" />
       </div>
 
       <form
@@ -2239,6 +2093,7 @@ function clearExtensionDraft(id: string): void {
 
 .composer__project-label {
   gap: 6px;
+  line-height: 1.4;
 
   svg {
     flex: 0 0 auto;
@@ -2503,7 +2358,7 @@ function clearExtensionDraft(id: string): void {
   }
 }
 
-.composer__extension-requests {
+.composer__overlay {
   position: relative;
   z-index: 30;
   box-sizing: border-box;
@@ -2514,137 +2369,6 @@ function clearExtensionDraft(id: string): void {
   overflow: visible;
   background: color-mix(in srgb, var(--color-canvas) 36%, transparent);
   pointer-events: none;
-}
-
-.composer__extension-request {
-  box-sizing: border-box;
-  display: grid;
-  grid-template-rows: auto auto auto;
-  gap: var(--space-3);
-  width: 100%;
-  min-width: 0;
-  min-height: 0;
-  padding: var(--space-4);
-  overflow: visible;
-  color: var(--color-text);
-  background: color-mix(in srgb, var(--color-surface-raised) 98%, var(--color-canvas));
-  border: 1px solid color-mix(in srgb, var(--color-primary) 42%, var(--color-border));
-  border-radius: var(--radius-lg);
-  box-shadow:
-    var(--shadow-md),
-    0 18px 48px color-mix(in srgb, var(--color-canvas) 36%, transparent);
-  pointer-events: auto;
-  backdrop-filter: blur(18px);
-}
-
-.composer__extension-request-header {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  min-width: 0;
-  padding-bottom: var(--space-2);
-  border-bottom: 1px solid color-mix(in srgb, var(--color-border) 72%, transparent);
-
-  > div {
-    display: flex;
-    flex: 1 1 auto;
-    align-items: center;
-    gap: var(--space-2);
-    min-width: 0;
-  }
-
-  strong,
-  span {
-    min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-  strong {
-    color: var(--color-text);
-    font-size: var(--font-size-ui-sm);
-    font-weight: 700;
-  }
-
-  span {
-    flex: 0 0 auto;
-    padding: 2px 6px;
-    color: var(--color-text-muted);
-    background: color-mix(in srgb, var(--color-canvas) 72%, transparent);
-    border: 1px solid var(--color-border);
-    border-radius: var(--radius-sm);
-    font-size: var(--font-size-ui-2xs);
-    font-weight: 650;
-    line-height: 1.2;
-    text-transform: uppercase;
-  }
-}
-
-.composer__extension-request-body {
-  display: grid;
-  align-content: start;
-  gap: var(--space-3);
-  min-width: 0;
-  min-height: 0;
-  overflow: visible;
-}
-
-.composer__extension-request-message {
-  margin: 0;
-  color: var(--color-text-muted);
-  font-size: var(--font-size-ui-sm);
-  line-height: 1.45;
-  overflow-wrap: anywhere;
-  white-space: pre-wrap;
-}
-
-.composer__extension-request-options,
-.composer__extension-request-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-1);
-  min-width: 0;
-}
-
-.composer__extension-request-actions {
-  justify-content: flex-end;
-  padding-top: var(--space-1);
-}
-
-.composer__extension-request-input,
-.composer__extension-request-editor {
-  width: 100%;
-  min-width: 0;
-  color: var(--color-text);
-  background: color-mix(in srgb, var(--color-canvas) 88%, transparent);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
-  font: inherit;
-  font-size: var(--font-size-ui-sm);
-  transition:
-    border-color var(--duration-fast) var(--ease-standard),
-    box-shadow var(--duration-fast) var(--ease-standard),
-    background var(--duration-fast) var(--ease-standard);
-
-  &:focus {
-    outline: none;
-    background: var(--color-canvas);
-    border-color: color-mix(in srgb, var(--color-primary) 55%, var(--color-border));
-    box-shadow: var(--shadow-focus);
-  }
-}
-
-.composer__extension-request-input {
-  height: 34px;
-  padding: 0 var(--space-2);
-}
-
-.composer__extension-request-editor {
-  min-height: 92px;
-  padding: var(--space-2);
-  resize: vertical;
-  line-height: 1.45;
 }
 
 .composer__action {

@@ -46,16 +46,25 @@ describe("RuntimeDesktopWorkerService", () => {
 	});
 
 	/** 验证 stop 会释放 runtime。 */
-	it("stop 会释放 runtime", async () => {
+	it("stop 会释放 runtime 并取消等待中的 extension dialog", async () => {
 		let disposed = false;
+		let bindings: ExtensionBindings | undefined;
+		const events: WorkerEventEnvelope[] = [];
 		const service = new RuntimeDesktopWorkerService(async () =>
 			createRuntime({
 				dispose: async () => {
 					disposed = true;
 				},
+				session: {
+					bindExtensions: async (nextBindings: ExtensionBindings) => {
+						bindings = nextBindings;
+					},
+				},
 			}),
 		);
+		service.setEventSink((event) => events.push(event));
 		await service.startThread({ threadId: "thread-1", cwd: "H:/repo" });
+		const pendingDialog = bindings?.uiContext?.confirm("Stop", "Stop worker?");
 
 		await service.stop("test");
 		const response = await service.handle({
@@ -65,7 +74,41 @@ describe("RuntimeDesktopWorkerService", () => {
 		});
 
 		expect(disposed).toBe(true);
+		await expect(pendingDialog).resolves.toBe(false);
+		expect(events.at(-1)).toMatchObject({
+			eventType: "projection",
+			event: { type: "extensionUi.dismissed", reason: "workerStopped" },
+		});
 		expect(response.success).toBe(true);
+	});
+
+	it("session 失效时取消旧 session 等待中的 extension dialog", async () => {
+		let bindings: ExtensionBindings | undefined;
+		let beforeSessionInvalidate: (() => void) | undefined;
+		const events: WorkerEventEnvelope[] = [];
+		const service = new RuntimeDesktopWorkerService(async () =>
+			createRuntime({
+				setBeforeSessionInvalidate: (callback) => {
+					beforeSessionInvalidate = callback;
+				},
+				session: {
+					bindExtensions: async (nextBindings: ExtensionBindings) => {
+						bindings = nextBindings;
+					},
+				},
+			}),
+		);
+		service.setEventSink((event) => events.push(event));
+		await service.startThread({ threadId: "thread-1", cwd: "H:/repo" });
+		const pendingDialog = bindings?.uiContext?.input("Old session");
+
+		beforeSessionInvalidate?.();
+
+		await expect(pendingDialog).resolves.toBeUndefined();
+		expect(events.at(-1)).toMatchObject({
+			eventType: "projection",
+			event: { type: "extensionUi.dismissed", reason: "sessionInvalidated" },
+		});
 	});
 
 	/** 验证绑定 runtime 后原样转发 canonical event。 */
@@ -385,7 +428,11 @@ describe("RuntimeDesktopWorkerService", () => {
 			id: "panel-restore",
 			command: {
 				type: "desktop.panelRestore",
-				restore: { panelId: "deploy", viewType: "demo.deploy", state: { selectedDeploymentId: "prod" } },
+				restore: {
+					panelId: "deploy",
+					viewType: "demo.deploy",
+					state: { selectedDeploymentId: "prod" },
+				},
 			},
 		});
 

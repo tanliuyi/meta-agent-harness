@@ -52,9 +52,10 @@ const activeSessionFile = computed(() => workspaceSession.activeSnapshot?.sessio
 const activeSessionFileName = computed(() =>
   activeSessionFile.value ? getFileName(activeSessionFile.value) : '-'
 )
-const autoCompactionValue = computed<OnOffValue>(() =>
-  workspaceSession.activeSnapshot?.autoCompactionEnabled === false ? 'off' : 'on'
-)
+const autoCompactionValue = computed<OnOffValue | undefined>(() => {
+  const enabled = workspaceSession.activeSnapshot?.autoCompactionEnabled
+  return enabled === undefined ? undefined : enabled ? 'on' : 'off'
+})
 const autoRetryValue = computed<OnOffValue>(() =>
   workspaceSession.activeSnapshot?.autoRetryEnabled === false ? 'off' : 'on'
 )
@@ -310,18 +311,23 @@ async function runSessionAction(actionId: string): Promise<void> {
 
       <CollapsibleContent class="runtime-advanced__content">
         <div class="runtime-control-list">
-          <div class="runtime-toggle-row" :class="{ 'is-disabled': !hasActiveThread }">
+          <div
+            class="runtime-toggle-row"
+            :class="{ 'is-disabled': !hasActiveThread || autoCompactionValue === undefined }"
+          >
             <div>
               <span>Auto compact</span>
               <small>上下文接近上限时自动压缩</small>
             </div>
             <BaseSegmentedControl
+              v-if="autoCompactionValue !== undefined"
               label="Auto compact"
               size="small"
               :model-value="autoCompactionValue"
               :options="onOffOptions"
               @update:model-value="setAutoCompactionValue"
             />
+            <span v-else>{{ hasActiveThread ? 'Unknown' : '-' }}</span>
           </div>
           <div class="runtime-toggle-row" :class="{ 'is-disabled': !hasActiveThread }">
             <div>

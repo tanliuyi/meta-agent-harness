@@ -4,6 +4,8 @@
 
 import type { AgentSessionRuntime } from "@earendil-works/pi-coding-agent";
 import type { ProjectTrustContext } from "@earendil-works/pi-coding-agent";
+import type { ApprovalRequest } from "../protocol/approval.ts";
+import type { ExtensionDialogRequest } from "../protocol/extension-ui.ts";
 
 /** Runtime 命令 handler 共享的 host。 */
 export interface RuntimeCommandHandlerHost {
@@ -13,6 +15,10 @@ export interface RuntimeCommandHandlerHost {
 	rebindSession?: () => Promise<void>;
 	/** 为 session replacement 后的新 cwd 创建 Project trust 上下文。 */
 	projectTrustContextFactory?: (cwd: string) => ProjectTrustContext;
+	/** 读取当前 worker 中等待响应的审批。 */
+	getPendingApprovals?: () => ApprovalRequest[];
+	/** 读取当前 worker 中等待响应的扩展对话框。 */
+	getPendingExtensionDialogs?: () => ExtensionDialogRequest[];
 }
 
 /**

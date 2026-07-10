@@ -6,8 +6,9 @@
 import type { CSSProperties } from 'vue'
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useElementSize, useResizeObserver } from '@vueuse/core'
-import { ChevronDown, MapPin, Undo2, X } from 'lucide-vue-next'
+import { ChevronDown, CornerDownRight, ListEnd, MapPin, Undo2, X } from 'lucide-vue-next'
 import Composer from './composer/Composer.vue'
+import ExtensionDialogHost from './ExtensionDialogHost.vue'
 import AssistantMessage from './messages/AssistantMessage.vue'
 import CompactionDivider from './messages/CompactionDivider.vue'
 import ThinkingMessage from './messages/ThinkingMessage.vue'
@@ -43,13 +44,13 @@ import {
   getToolResultMessageToolCall,
   isCollapsedHistoryItem,
   resolveTimelineToolCall as resolveTimelineToolCallFromState,
+  stabilizeTimelineItems,
   type CollapsedHistoryTimelineItem,
   type ProcessingCollapseContext,
   type ProcessingCollapseResult,
   type TimelineItem
 } from './timeline/chatTimelineDisplay'
 import type {
-  ExtensionUiRequest,
   PromptImageAttachment,
   PromptImageDraft,
   ThreadMessage,
@@ -144,7 +145,7 @@ const tokenUsage = computed<TokenUsage | undefined>(() => {
     tokens: context.tokens,
     contextWindow: context.contextWindow,
     percent: context.percent,
-    autoCompactionEnabled: snapshot?.autoCompactionEnabled ?? false
+    autoCompactionEnabled: snapshot?.autoCompactionEnabled
   }
 })
 
@@ -263,16 +264,19 @@ const activityIndicatorLabel = computed(() => {
 const processingNow = ref(Date.now())
 
 /** 当前会话的统一时间线。 */
-const timelineItems = computed<TimelineItem[]>(() =>
-  createTimelineItems({
-    messages: messages.value,
-    toolCallStructures: toolCallStructures.value,
-    runtimeEvents: runtimeTimelineEvents.value,
-    getMessageRenderState,
-    resolveTimelineToolCall,
-    getToolResultMessageToolCall: resolveToolResultMessageToolCall,
-    hideThinkingBlock: hideThinkingBlock.value
-  })
+const timelineItems = computed<TimelineItem[]>((previous) =>
+  stabilizeTimelineItems(
+    createTimelineItems({
+      messages: messages.value,
+      toolCallStructures: toolCallStructures.value,
+      runtimeEvents: runtimeTimelineEvents.value,
+      getMessageRenderState,
+      resolveTimelineToolCall,
+      getToolResultMessageToolCall: resolveToolResultMessageToolCall,
+      hideThinkingBlock: hideThinkingBlock.value
+    }),
+    previous
+  )
 )
 
 /** 当前会话内所有 user prompt/steer/follow-up 对应的处理段。 */
@@ -773,9 +777,12 @@ function createStableTimelineViewItems(
   const next: TimelineViewItem[] = []
   const previousByKey = new Map(previous?.map((item) => [item.key, item]))
 
-  for (const item of items) {
+  for (const [index, item] of items.entries()) {
     const viewItem = toTimelineViewItem(item)
     const previousItem = previousByKey.get(viewItem.key)
+    if (previous?.[index]?.key !== viewItem.key) {
+      hasChanged = true
+    }
     if (previousItem && isSameTimelineViewItem(previousItem, viewItem)) {
       next.push(previousItem)
     } else {
@@ -1096,41 +1103,6 @@ async function handleSelectThinkingLevel(level: ThinkingLevel): Promise<void> {
   await workspaceSession.setActiveThinkingLevel(level)
 }
 
-async function handleRespondExtensionRequest(
-  request: ExtensionUiRequest,
-  value?: string | boolean
-): Promise<void> {
-  const threadId = workspaceSession.activeSessionId
-  if (!threadId) {
-    return
-  }
-  if (request.type === 'confirm') {
-    await workspaceSession.respondExtensionUi(threadId, {
-      id: request.id,
-      confirmed: value === true
-    })
-    return
-  }
-  if (typeof value !== 'string') {
-    return
-  }
-  await workspaceSession.respondExtensionUi(threadId, {
-    id: request.id,
-    value
-  })
-}
-
-async function handleCancelExtensionRequest(request: ExtensionUiRequest): Promise<void> {
-  const threadId = workspaceSession.activeSessionId
-  if (!threadId) {
-    return
-  }
-  await workspaceSession.respondExtensionUi(threadId, {
-    id: request.id,
-    cancelled: true
-  })
-}
-
 /**
  * 处理 extension 全局快捷键。
  * @param event - 键盘事件。
@@ -1381,6 +1353,13 @@ function getTimelineItemRevision(item: TimelineItem | undefined): unknown[] {
         <div
           v-for="viewItem in displayTimelineViewItems"
           :key="viewItem.key"
+          v-memo="[
+            viewItem,
+            workspaceSession.activeNavigatingTreeEntryId,
+            workspaceSession.activeExtensionHiddenThinkingLabel,
+            workspaceSession.activeExtensionToolsExpanded,
+            toolOpenByKey
+          ]"
           class="chat-view__message"
           :class="viewItem.className"
         >
@@ -1497,50 +1476,82 @@ function getTimelineItemRevision(item: TimelineItem | undefined): unknown[] {
         </div>
       </TransitionGroup>
 
-      <div v-if="workspaceSession.activeSessionActionMessage" class="chat-view__session-action">
-        <span class="chat-view__session-action-text">
-          {{ workspaceSession.activeSessionActionMessage }}
-        </span>
-        <TooltipProvider>
-          <div class="chat-view__session-action-buttons">
-            <Tooltip v-if="workspaceSession.activePreviousLeafEntryId">
-              <TooltipTrigger as-child>
-                <BaseIconButton
-                  label="返回之前位置"
-                  size="small"
-                  @click="workspaceSession.navigateBackToPreviousLeaf"
-                >
-                  <Undo2 :size="14" />
-                </BaseIconButton>
-              </TooltipTrigger>
-              <TooltipContent>返回之前位置</TooltipContent>
-            </Tooltip>
-            <Tooltip v-if="workspaceSession.activeSnapshot?.currentEntryId">
-              <TooltipTrigger as-child>
-                <BaseIconButton
-                  label="在 Tree 中定位"
-                  size="small"
-                  @click="locateCurrentLeafInTree"
-                >
-                  <MapPin :size="14" />
-                </BaseIconButton>
-              </TooltipTrigger>
-              <TooltipContent>在 Tree 中定位</TooltipContent>
-            </Tooltip>
-            <Tooltip>
-              <TooltipTrigger as-child>
-                <BaseIconButton
-                  label="关闭提示"
-                  size="small"
-                  @click="workspaceSession.clearActiveSessionAction"
-                >
-                  <X :size="14" />
-                </BaseIconButton>
-              </TooltipTrigger>
-              <TooltipContent>关闭提示</TooltipContent>
-            </Tooltip>
-          </div>
-        </TooltipProvider>
+      <div
+        v-if="workspaceSession.activeSessionActionMessage || hasPendingQueue"
+        class="chat-view__session-action"
+      >
+        <div
+          v-if="workspaceSession.activeSessionActionMessage"
+          class="chat-view__session-action-row"
+        >
+          <span class="chat-view__session-action-text">
+            {{ workspaceSession.activeSessionActionMessage }}
+          </span>
+          <TooltipProvider>
+            <div class="chat-view__session-action-buttons">
+              <Tooltip v-if="workspaceSession.activePreviousLeafEntryId">
+                <TooltipTrigger as-child>
+                  <BaseIconButton
+                    label="返回之前位置"
+                    size="small"
+                    @click="workspaceSession.navigateBackToPreviousLeaf"
+                  >
+                    <Undo2 :size="14" />
+                  </BaseIconButton>
+                </TooltipTrigger>
+                <TooltipContent>返回之前位置</TooltipContent>
+              </Tooltip>
+              <Tooltip v-if="workspaceSession.activeSnapshot?.currentEntryId">
+                <TooltipTrigger as-child>
+                  <BaseIconButton
+                    label="在 Tree 中定位"
+                    size="small"
+                    @click="locateCurrentLeafInTree"
+                  >
+                    <MapPin :size="14" />
+                  </BaseIconButton>
+                </TooltipTrigger>
+                <TooltipContent>在 Tree 中定位</TooltipContent>
+              </Tooltip>
+              <Tooltip>
+                <TooltipTrigger as-child>
+                  <BaseIconButton
+                    label="关闭提示"
+                    size="small"
+                    @click="workspaceSession.clearActiveSessionAction"
+                  >
+                    <X :size="14" />
+                  </BaseIconButton>
+                </TooltipTrigger>
+                <TooltipContent>关闭提示</TooltipContent>
+              </Tooltip>
+            </div>
+          </TooltipProvider>
+        </div>
+        <div
+          v-for="(message, index) in pendingQueue.steering"
+          :key="`steering-${index}-${message}`"
+          class="chat-view__session-action-row"
+        >
+          <CornerDownRight
+            :size="14"
+            class="chat-view__session-action-type-icon"
+            aria-hidden="true"
+          />
+          <span class="chat-view__session-action-text" :title="`引导消息：${message}`">
+            {{ message }}
+          </span>
+        </div>
+        <div
+          v-for="(message, index) in pendingQueue.followUp"
+          :key="`follow-up-${index}-${message}`"
+          class="chat-view__session-action-row"
+        >
+          <ListEnd :size="14" class="chat-view__session-action-type-icon" aria-hidden="true" />
+          <span class="chat-view__session-action-text" :title="`后续消息：${message}`">
+            {{ message }}
+          </span>
+        </div>
       </div>
       <Composer
         v-model="workspaceSession.draftMessage"
@@ -1561,7 +1572,7 @@ function getTimelineItemRevision(item: TimelineItem | undefined): unknown[] {
         :loading-model-options="loadingModelOptions"
         :commands="workspaceSession.activeCommands"
         :loading-commands="workspaceSession.activeCommandsLoading"
-        :extension-requests="workspaceSession.activeExtensionUiRequests"
+        :disabled="Boolean(workspaceSession.activeExtensionDialog)"
         :model-select-disabled="
           isRunning || (!workspaceSession.activeSessionId && !workspaceSession.activeProjectId)
         "
@@ -1585,10 +1596,16 @@ function getTimelineItemRevision(item: TimelineItem | undefined): unknown[] {
         @load-commands="workspaceSession.loadCommands()"
         @run-command="workspaceSession.runCommand"
         @text-change="workspaceSession.syncActiveEditorText"
-        @respond-extension-request="handleRespondExtensionRequest"
-        @cancel-extension-request="handleCancelExtensionRequest"
         @abort="workspaceSession.abortActive"
-      />
+      >
+        <template v-if="workspaceSession.activeExtensionDialog" #overlay>
+          <ExtensionDialogHost
+            :request="workspaceSession.activeExtensionDialog"
+            @submit="workspaceSession.respondExtensionDialog"
+            @cancel="workspaceSession.cancelExtensionDialog"
+          />
+        </template>
+      </Composer>
     </div>
   </div>
 </template>
@@ -1713,9 +1730,8 @@ function getTimelineItemRevision(item: TimelineItem | undefined): unknown[] {
 
 .chat-view__session-action {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--space-3);
+  flex-direction: column;
+  gap: var(--space-1);
   width: calc(100% - 32px);
   margin: 0 auto -12px;
   padding: var(--space-1) var(--space-3) calc(var(--space-1) + 12px) var(--space-3);
@@ -1725,6 +1741,18 @@ function getTimelineItemRevision(item: TimelineItem | undefined): unknown[] {
   background: var(--color-surface);
   border: 1px solid var(--color-border);
   border-radius: 12px 12px 0 0;
+}
+
+.chat-view__session-action-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.chat-view__session-action-type-icon {
+  flex: 0 0 auto;
+  color: var(--color-text-subtle);
 }
 
 .chat-view__session-action-text {
@@ -1738,6 +1766,7 @@ function getTimelineItemRevision(item: TimelineItem | undefined): unknown[] {
   display: flex;
   flex: 0 0 auto;
   align-items: center;
+  margin-left: auto;
   gap: var(--space-1);
 }
 
