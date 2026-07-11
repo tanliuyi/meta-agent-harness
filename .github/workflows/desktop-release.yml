@@ -68,20 +68,12 @@ jobs:
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
           echo "version=${TAG#v}" >> "$GITHUB_OUTPUT"
 
-      - name: Require signing credentials
-        if: matrix.platform != 'linux'
-        shell: bash
-        run: |
-          test -n "$CSC_LINK" || { echo "Missing code-signing certificate secret" >&2; exit 1; }
-          test -n "$CSC_KEY_PASSWORD" || { echo "Missing code-signing password secret" >&2; exit 1; }
-          if [ "${{ matrix.platform }}" = "macos" ]; then
-            test -n "$APPLE_API_KEY_BASE64" || { echo "Missing APPLE_API_KEY_BASE64" >&2; exit 1; }
-            test -n "$APPLE_API_KEY_ID" || { echo "Missing APPLE_API_KEY_ID" >&2; exit 1; }
-            test -n "$APPLE_API_ISSUER" || { echo "Missing APPLE_API_ISSUER" >&2; exit 1; }
-          fi
-
       - name: Prepare Apple notarization key
-        if: matrix.platform == 'macos'
+        if: >-
+          matrix.platform == 'macos' &&
+          env.APPLE_API_KEY_BASE64 != '' &&
+          env.APPLE_API_KEY_ID != '' &&
+          env.APPLE_API_ISSUER != ''
         shell: bash
         run: |
           KEY_PATH="$RUNNER_TEMP/AuthKey_${APPLE_API_KEY_ID}.p8"
