@@ -44,6 +44,8 @@ dmg:
   artifactName: meta-agent-desktop-${version}.${ext}
 linux:
   icon: resources/icon.png
+  executableName: meta-agent-desktop
+  artifactName: meta-agent-desktop-${version}-${arch}.${ext}
   target:
     - AppImage
     - snap
