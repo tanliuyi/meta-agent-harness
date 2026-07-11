@@ -45,6 +45,9 @@ export function setupAutoUpdater(): void {
 
   autoUpdater.autoDownload = false
   autoUpdater.autoInstallOnAppQuit = true
+  if (process.platform === 'darwin' && process.arch === 'arm64') {
+    autoUpdater.channel = 'latest-arm64'
+  }
 
   autoUpdater.on('update-available', (info: UpdateInfo) => {
     publishState({

@@ -16,21 +16,32 @@ permissions:
 
 jobs:
   build:
-    name: Build ${{ matrix.platform }}
+    name: Build ${{ matrix.platform }} ${{ matrix.arch }}
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
         include:
           - platform: windows
+            arch: x64
             os: windows-latest
             builder_args: --win --x64
+            update_channel: latest
           - platform: macos
+            arch: x64
             os: macos-latest
             builder_args: --mac --x64
+            update_channel: latest
+          - platform: macos
+            arch: arm64
+            os: macos-latest
+            builder_args: --mac --arm64
+            update_channel: latest-arm64
           - platform: linux
+            arch: x64
             os: ubuntu-latest
             builder_args: --linux --x64
+            update_channel: latest
 
     env:
       MAC_CSC_LINK: ${{ secrets.MAC_CSC_LINK }}
@@ -108,6 +119,7 @@ jobs:
           ${{ matrix.builder_args }}
           --publish never
           -c.extraMetadata.version=${{ steps.release.outputs.version }}
+          -c.publish.channel=${{ matrix.update_channel }}
 
       - name: Collect release assets
         shell: bash

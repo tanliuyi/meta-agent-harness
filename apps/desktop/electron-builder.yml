@@ -31,6 +31,7 @@ nsis:
   createDesktopShortcut: always
 mac:
   icon: resources/icon.png
+  artifactName: meta-agent-desktop-${version}-${arch}.${ext}
   target:
     - dmg
     - zip
@@ -41,7 +42,7 @@ mac:
     - NSDocumentsFolderUsageDescription: Application requests access to the user's Documents folder.
     - NSDownloadsFolderUsageDescription: Application requests access to the user's Downloads folder.
 dmg:
-  artifactName: meta-agent-desktop-${version}.${ext}
+  artifactName: meta-agent-desktop-${version}-${arch}.${ext}
 linux:
   icon: resources/icon.png
   executableName: meta-agent-desktop
