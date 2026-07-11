@@ -1,6 +1,9 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, markRaw, ref, shallowRef, watch } from 'vue'
 import { BaseButton } from '@renderer/components/base'
+import { useTheme } from '@renderer/composables/useTheme'
+import { shikiHighlightService } from '@renderer/components/markdown/shiki-highlight-service'
+import type { HighlightTokens } from '@renderer/components/markdown/shiki-highlight.worker'
 import BaseTool from './BaseTool.vue'
 import TerminalIcon from '@renderer/components/icons/TerminalIcon.vue'
 import {
@@ -28,6 +31,9 @@ const emit = defineEmits<{
   'update:open': [open: boolean]
 }>()
 const actionError = ref<string>()
+const highlightedResult = shallowRef<HighlightTokens>()
+const { resolvedTheme } = useTheme()
+let highlightRevision = 0
 
 const args = computed(() => getToolArgs(props.toolCall))
 const details = computed(() => getToolDetails(props.toolCall))
@@ -37,6 +43,12 @@ const summary = computed(() =>
   joinSummary([command.value, timeout.value ? `timeout=${timeout.value}s` : undefined])
 )
 const result = computed(() => getToolResultText(props.message, props.toolCall))
+const highlightLanguage = computed(() =>
+  /(?:^|[;&|\s])git\s+(?:--[^\s]+\s+)*diff(?:\s|$)/.test(command.value ?? '') ? 'diff' : 'shell'
+)
+const highlightTheme = computed(() =>
+  resolvedTheme.value === 'dark' ? 'github-dark' : 'github-light'
+)
 const isError = computed(() => isToolError(props.message, props.toolCall))
 const status = computed(() => props.toolCall?.status)
 const name = computed(() =>
@@ -64,6 +76,28 @@ const hasContent = computed(() =>
   )
 )
 const truncationLabel = computed(() => getTruncationLabel(truncation.value))
+
+watch(
+  [result, highlightLanguage, highlightTheme],
+  async ([nextResult, language, theme]) => {
+    const revision = ++highlightRevision
+    highlightedResult.value = undefined
+    if (!nextResult) return
+
+    const highlighted = await shikiHighlightService.highlight({
+      messageId: props.toolCall?.toolCallId ?? 'bash-result',
+      messageRevision: revision,
+      blockIndex: 'bash-result',
+      lang: language,
+      code: nextResult,
+      theme
+    })
+    if (revision === highlightRevision && highlighted) {
+      highlightedResult.value = markRaw(highlighted.tokens)
+    }
+  },
+  { immediate: true }
+)
 
 async function openFullOutput(): Promise<void> {
   await revealFullOutput('open')
@@ -120,8 +154,10 @@ async function revealFullOutput(mode: 'open' | 'reveal'): Promise<void> {
           <BaseButton size="sm" variant="ghost" @click.stop="showFullOutput">显示</BaseButton>
         </div>
       </div>
-      <div v-if="result" class="tool-message__result">
-        <pre><code>{{ result }}</code></pre>
+      <div v-if="result" class="tool-message__result bash-tool__result">
+        <!-- prettier-ignore -->
+        <pre v-if="highlightedResult"><code><span v-for="(token, index) in highlightedResult" :key="index" :style="token.style">{{ token.content }}</span></code></pre>
+        <pre v-else><code>{{ result }}</code></pre>
       </div>
       <dl v-if="isError" class="tool-message__error">
         <dt>error</dt>
@@ -191,6 +227,15 @@ async function revealFullOutput(mode: 'open' | 'reveal'): Promise<void> {
 
 .bash-tool__error {
   color: var(--color-danger);
+}
+
+.bash-tool__result pre,
+.bash-tool__result code {
+  background: transparent;
+}
+
+.bash-tool__result span {
+  white-space: pre;
 }
 
 .bash-tool__actions {

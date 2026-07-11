@@ -255,6 +255,7 @@ const noOpTheme = {
 const noOpDesktopContext: ExtensionDesktopContext = {
 	cspSource: "",
 	registerWebviewPanel: () => {},
+	registerNativePanel: () => {},
 	updateWebviewPanel: () => {},
 	asWebviewUri: (resourcePath) => resourcePath,
 	postPanelMessage: () => {},

@@ -61,6 +61,7 @@ let layoutSessionId: string | undefined
 const layoutIndexById = new Map<string, number>()
 let indexedGeneration = 0
 let changeViewportRaf: number | undefined
+let projectionMeasureRaf: number | undefined
 let changeViewportResizeObserver: ResizeObserver | undefined
 let layoutLineScale = 1
 let projectedExpandedTotal = 0
@@ -188,6 +189,14 @@ watch(
     if (sessionId !== layoutSessionId) {
       diffDocumentIndexService.reset()
       collapsedChangeIds.value = new Set()
+      const viewport = changeListScrollRef.value?.getViewport()
+      if (viewport) {
+        viewport.scrollTop = 0
+      }
+      changeViewportMetrics.value = {
+        scrollTop: 0,
+        clientHeight: viewport?.clientHeight ?? 0
+      }
     }
     syncFileChangeProjection(sessionId, changes)
   },
@@ -210,7 +219,16 @@ const changeListOptions = computed<ChangeListVirtualizerOptions>(() => ({
 }))
 const changeListVirtualizer = useVirtualizer(changeListOptions)
 watch(projectionResetVersion, () => {
-  void nextTick(() => changeListVirtualizer.value.measure())
+  void nextTick(() => {
+    if (projectionMeasureRaf !== undefined) {
+      window.cancelAnimationFrame(projectionMeasureRaf)
+    }
+    projectionMeasureRaf = window.requestAnimationFrame(() => {
+      projectionMeasureRaf = undefined
+      changeListVirtualizer.value.measure()
+      syncChangeViewportMetrics()
+    })
+  })
 })
 const virtualChangeItems = computed(() => changeListVirtualizer.value.getVirtualItems())
 const virtualChangeTotalSize = computed(() => changeListVirtualizer.value.getTotalSize())
@@ -417,6 +435,9 @@ onBeforeUnmount(() => {
   changeViewportResizeObserver?.disconnect()
   if (changeViewportRaf !== undefined) {
     window.cancelAnimationFrame(changeViewportRaf)
+  }
+  if (projectionMeasureRaf !== undefined) {
+    window.cancelAnimationFrame(projectionMeasureRaf)
   }
 })
 </script>

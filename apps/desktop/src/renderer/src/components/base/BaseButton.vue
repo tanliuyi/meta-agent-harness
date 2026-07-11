@@ -49,15 +49,20 @@ withDefaults(
   gap: var(--space-1);
   min-width: 0;
   border: 1px solid transparent;
-  border-radius: var(--radius-md);
-  font-weight: 650;
-  letter-spacing: 0;
+  border-radius: var(--radius-sm);
+  font-weight: 700;
+  letter-spacing: 0.02em;
   cursor: pointer;
   user-select: none;
   transition:
     background var(--duration-fast) var(--ease-standard),
     border-color var(--duration-fast) var(--ease-standard),
-    color var(--duration-fast) var(--ease-standard);
+    color var(--duration-fast) var(--ease-standard),
+    transform var(--duration-fast) var(--ease-standard);
+
+  &:active:not(:disabled) {
+    transform: translateY(1px);
+  }
 
   &:disabled {
     cursor: not-allowed;
@@ -80,7 +85,7 @@ withDefaults(
 .is-primary {
   color: var(--color-primary-ink);
   background: var(--color-primary);
-  border-color: var(--color-primary);
+  border-color: var(--color-primary-strong);
 
   &:hover:not(:disabled) {
     background: var(--color-primary-strong);
@@ -90,7 +95,7 @@ withDefaults(
 .is-secondary {
   color: var(--color-text);
   background: var(--color-surface-raised);
-  border-color: var(--color-border);
+  border-color: var(--color-border-strong);
 
   &:hover:not(:disabled) {
     background: var(--color-surface-hover);

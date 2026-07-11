@@ -26,6 +26,11 @@ export interface DesktopExtensionWebviewPortMapping {
 /** Source for a desktop extension webview panel. */
 export type DesktopExtensionWebviewPanelSource =
 	| {
+			type: "native";
+			/** Host-owned renderer capability; extensions cannot provide component code. */
+			component: "memory";
+	  }
+	| {
 			type: "url";
 			url: string;
 			permissions?: DesktopExtensionWebviewPanelPermissions;

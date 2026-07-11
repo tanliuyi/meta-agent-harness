@@ -150,6 +150,8 @@ export interface DefaultResourceLoaderOptions {
 	additionalPromptTemplatePaths?: string[];
 	additionalThemePaths?: string[];
 	extensionFactories?: ExtensionFactory[];
+	/** Package sources to exclude before extension modules execute. */
+	excludedExtensionSources?: string[];
 	noExtensions?: boolean;
 	noSkills?: boolean;
 	noPromptTemplates?: boolean;
@@ -188,6 +190,7 @@ export class DefaultResourceLoader implements ResourceLoader {
 	private additionalPromptTemplatePaths: string[];
 	private additionalThemePaths: string[];
 	private extensionFactories: ExtensionFactory[];
+	private excludedExtensionSources: Set<string>;
 	private noExtensions: boolean;
 	private noSkills: boolean;
 	private noPromptTemplates: boolean;
@@ -247,6 +250,7 @@ export class DefaultResourceLoader implements ResourceLoader {
 		this.additionalPromptTemplatePaths = options.additionalPromptTemplatePaths ?? [];
 		this.additionalThemePaths = options.additionalThemePaths ?? [];
 		this.extensionFactories = options.extensionFactories ?? [];
+		this.excludedExtensionSources = new Set(options.excludedExtensionSources ?? []);
 		this.noExtensions = options.noExtensions ?? false;
 		this.noSkills = options.noSkills ?? false;
 		this.noPromptTemplates = options.noPromptTemplates ?? false;
@@ -394,7 +398,9 @@ export class DefaultResourceLoader implements ResourceLoader {
 
 		const getEnabledPaths = (resources: ResolvedResource[]): string[] =>
 			getEnabledResources(resources).map((r) => r.path);
-		const enabledExtensions = getEnabledPaths(resolvedPaths.extensions);
+		const enabledExtensions = getEnabledPaths(
+			resolvedPaths.extensions.filter((resource) => !this.isExcludedExtensionSource(resource.metadata.source)),
+		);
 		const enabledSkillResources = getEnabledResources(resolvedPaths.skills);
 		const enabledPrompts = getEnabledPaths(resolvedPaths.prompts);
 		const enabledThemes = getEnabledPaths(resolvedPaths.themes);
@@ -515,7 +521,9 @@ export class DefaultResourceLoader implements ResourceLoader {
 		const cliExtensionPaths = await this.packageManager.resolveExtensionSources(this.additionalExtensionPaths, {
 			temporary: true,
 		});
-		const enabledExtensions = resolvedPaths.extensions.filter((r) => r.enabled).map((r) => r.path);
+		const enabledExtensions = resolvedPaths.extensions
+			.filter((resource) => resource.enabled && !this.isExcludedExtensionSource(resource.metadata.source))
+			.map((resource) => resource.path);
 		const cliEnabledExtensions = cliExtensionPaths.extensions.filter((r) => r.enabled).map((r) => r.path);
 		const extensionPaths = this.noExtensions
 			? cliEnabledExtensions
@@ -529,6 +537,13 @@ export class DefaultResourceLoader implements ResourceLoader {
 		extensionsResult.extensions.push(...inlineExtensions.extensions);
 		extensionsResult.errors.push(...inlineExtensions.errors);
 		return extensionsResult;
+	}
+
+	private isExcludedExtensionSource(source: string): boolean {
+		for (const excluded of this.excludedExtensionSources) {
+			if (source === excluded || source.startsWith(`${excluded}@`)) return true;
+		}
+		return false;
 	}
 
 	private resolveExtensionLoadPath(path: string): string {

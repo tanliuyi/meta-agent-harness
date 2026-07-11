@@ -39,6 +39,37 @@ describe("DefaultResourceLoader", () => {
 			expect(loader.getThemes().themes).toEqual([]);
 		});
 
+		it("should exclude replaced npm extension sources before their modules execute", async () => {
+			const excludedPath = join(tempDir, "excluded-extension.ts");
+			writeFileSync(
+				excludedPath,
+				"export default function () { globalThis.__excludedExtensionExecuted = true; }",
+			);
+			const loader = new DefaultResourceLoader({
+				cwd,
+				agentDir,
+				excludedExtensionSources: ["npm:pi-hermes-memory"],
+			});
+			(loader as any).packageManager = {
+				resolve: async () => ({
+					extensions: [{
+						path: excludedPath,
+						enabled: true,
+						metadata: { source: "npm:pi-hermes-memory@0.7.23", scope: "user", origin: "package" },
+					}],
+					skills: [],
+					prompts: [],
+					themes: [],
+				}),
+				resolveExtensionSources: async () => ({ extensions: [], skills: [], prompts: [], themes: [] }),
+			};
+
+			await loader.reload();
+
+			expect((globalThis as any).__excludedExtensionExecuted).toBeUndefined();
+			expect(loader.getExtensions().extensions).toHaveLength(0);
+		});
+
 		it("should discover skills from agentDir", async () => {
 			const skillsDir = join(agentDir, "skills");
 			mkdirSync(skillsDir, { recursive: true });

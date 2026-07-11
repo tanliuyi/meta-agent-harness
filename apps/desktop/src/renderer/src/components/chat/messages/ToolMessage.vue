@@ -8,7 +8,9 @@ import EditTool from './tools/EditTool.vue'
 import FindTool from './tools/FindTool.vue'
 import GrepTool from './tools/GrepTool.vue'
 import LsTool from './tools/LsTool.vue'
+import MemoryTool from './tools/MemoryTool.vue'
 import ReadTool from './tools/ReadTool.vue'
+import SkillManageTool from './tools/SkillManageTool.vue'
 import WriteTool from './tools/WriteTool.vue'
 
 const props = defineProps<{
@@ -53,6 +55,10 @@ function getToolComponent(name: string): Component {
       return FindTool
     case 'ls':
       return LsTool
+    case 'memory':
+      return MemoryTool
+    case 'skill_manage':
+      return SkillManageTool
     default:
       return DefaultTool
   }

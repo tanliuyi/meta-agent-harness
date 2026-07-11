@@ -19,6 +19,7 @@ export interface MetaAgentApi {
   runtime: {
     platform: NodeJS.Platform
   }
+  updater: import('@shared/updater').UpdaterApi
   windowControl: WindowControlApi
 }
 

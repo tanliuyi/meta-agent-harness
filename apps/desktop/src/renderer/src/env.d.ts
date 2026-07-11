@@ -28,6 +28,7 @@ interface Window {
     runtime: {
       platform: string
     }
+    updater: import('@shared/updater').UpdaterApi
     windowControl: {
       minimize: () => Promise<void>
       maximize: () => Promise<void>

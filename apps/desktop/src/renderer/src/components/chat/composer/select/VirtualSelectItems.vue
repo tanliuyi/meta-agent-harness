@@ -25,7 +25,7 @@ const props = withDefaults(
     itemClass?: string
   }>(),
   {
-    itemSize: 32,
+    itemSize: 28,
     overscan: 8,
     scrollClass: undefined,
     sizeClass: undefined,

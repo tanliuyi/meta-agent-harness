@@ -32,11 +32,14 @@ const settingsGridAreas = computed(() => {
 
 /** 当前设置主菜单标题。 */
 const settingsTitle = computed(() => {
+  if (route.path.startsWith('/settings/personalization')) return '个性化'
+  if (route.path.startsWith('/settings/memory')) return '记忆'
   if (route.path.startsWith('/settings/models')) return '模型'
   if (route.path.startsWith('/settings/agent')) return '智能体'
   if (route.path.startsWith('/settings/diagnostics')) return '诊断'
   if (route.path.startsWith('/settings/extensions')) return '扩展'
   if (route.path.startsWith('/settings/archive')) return '归档'
+  if (route.path.startsWith('/settings/about')) return '关于我们'
   return '通用'
 })
 </script>
@@ -83,6 +86,7 @@ const settingsTitle = computed(() => {
   width: 100%;
   height: 100%;
   min-width: 0;
+  background: var(--color-surface);
 }
 
 .settings__drag-strip {

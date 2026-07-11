@@ -10,6 +10,7 @@ import {
   type ComponentPublicInstance
 } from 'vue'
 import { useVirtualizer, type VirtualItem } from '@tanstack/vue-virtual'
+import { GitBranch, LocateFixed, Search } from 'lucide-vue-next'
 import { BaseButton, BaseContextMenu, BaseSegmentedControl } from '@renderer/components/base'
 import BaseField from '@renderer/components/base/BaseField.vue'
 import ScrollArea from '@renderer/components/ui/scroll-area/ScrollArea.vue'
@@ -622,34 +623,44 @@ async function clearSelectedTreeLabel(): Promise<void> {
 
 <template>
   <section class="session-section session-section--tree" role="tabpanel">
-    <header class="session-section__header">
+    <header class="session-section__header session-tree-header">
       <div class="session-section__title">
-        <h3>Tree</h3>
+        <GitBranch class="session-tree-header__icon" :size="14" aria-hidden="true" />
+        <h3>SESSION TREE</h3>
         <span v-if="sessionTreeEntryCount" class="session-tree-count">
-          {{ visibleTreeEntries.length }} / {{ sessionTreeEntryCount }}
+          {{ visibleTreeEntries.length }}<span aria-hidden="true">/</span
+          >{{ sessionTreeEntryCount }}
         </span>
       </div>
       <BaseButton
+        class="session-tree-locate"
         size="sm"
         variant="ghost"
         :disabled="!currentEntryId"
+        title="定位当前节点"
         @click="locateCurrentTreeNode"
       >
-        定位当前
+        <template #icon><LocateFixed :size="14" /></template>
+        定位
       </BaseButton>
     </header>
     <div v-if="sessionTreeEntryCount === 0" class="session-empty">No session entries</div>
     <template v-else>
       <div class="session-tree-toolbar">
-        <BaseField
-          id="session-tree-search"
-          v-model="sessionTreeQuery"
-          aria-label="Search tree"
-          type="search"
-          placeholder="Search entries"
-        />
+        <div class="session-tree-search">
+          <Search :size="13" aria-hidden="true" />
+          <BaseField
+            id="session-tree-search"
+            v-model="sessionTreeQuery"
+            aria-label="搜索会话树"
+            type="search"
+            placeholder="搜索节点..."
+          />
+          <span class="session-tree-search__prompt" aria-hidden="true">_</span>
+        </div>
         <BaseSegmentedControl
-          label="Tree filter"
+          size="small"
+          label="树节点过滤器"
           :model-value="sessionTreeFilter"
           :options="sessionTreeFilterOptions"
           @update:model-value="sessionTreeFilter = $event"

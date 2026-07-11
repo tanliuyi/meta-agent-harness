@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   canReuseMarkdownAppendPrefix,
+  createVirtualMarkdownChunkRows,
   stabilizeMarkdownNodeChunks,
   stabilizeMarkdownNodes
 } from '../streamingMarkdownProjection'
@@ -83,6 +84,35 @@ describe('stabilizeMarkdownNodes', () => {
     expect(updated[2]).not.toBe(initial[2])
     expect(updated[2]?.nodes).toEqual([{ index: 32 }, { index: 34 }])
     expect(stabilizeMarkdownNodeChunks(updatedNodes, updated, 16)).toBe(updated)
+  })
+
+  it('将虚拟窗口映射到稳定 Markdown chunks', () => {
+    const chunks = stabilizeMarkdownNodeChunks(
+      Array.from({ length: 40 }, (_, index) => ({ index })),
+      undefined,
+      16
+    )
+    const virtualItems = [
+      { index: 1, start: 320 },
+      { index: 2, start: 640 }
+    ]
+
+    const rows = createVirtualMarkdownChunkRows(virtualItems, chunks)
+
+    expect(rows).toEqual([
+      { chunk: chunks[1], virtualItem: virtualItems[0] },
+      { chunk: chunks[2], virtualItem: virtualItems[1] }
+    ])
+  })
+
+  it('忽略虚拟窗口中过期的 chunk index', () => {
+    const chunks = stabilizeMarkdownNodeChunks([{ index: 0 }], undefined, 16)
+    const validItem = { index: 0, start: 0 }
+
+    expect(createVirtualMarkdownChunkRows([validItem, { index: 3, start: 960 }], chunks)).toEqual([
+      { chunk: chunks[0], virtualItem: validItem }
+    ])
+    expect(createVirtualMarkdownChunkRows([], chunks)).toEqual([])
   })
 
   it('中间节点变化时不复用后续节点', () => {

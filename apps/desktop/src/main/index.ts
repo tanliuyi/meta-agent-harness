@@ -21,6 +21,7 @@ import {
   createMainWindowNavigationTarget,
   isMainWindowNavigationAllowed
 } from './window-security'
+import { setupAutoUpdater } from './updater'
 // import { installIpcLogger } from 'electron-ipc-logger'
 
 const defaultWindowBounds = {
@@ -50,7 +51,7 @@ function getFramelessOptions(): Electron.BrowserWindowConstructorOptions {
  * 创建并加载主渲染窗口。
  * 配置窗口尺寸、菜单栏、preload 路径及外部链接打开行为。
  */
-function createWindow(): void {
+function createWindow(): BrowserWindow {
   const mainWindowState = windowStateKeeper({
     defaultWidth: defaultWindowBounds.width,
     defaultHeight: defaultWindowBounds.height
@@ -121,6 +122,8 @@ function createWindow(): void {
   } else {
     mainWindow.loadFile(rendererIndexPath, { hash: initialRendererHash })
   }
+
+  return mainWindow
 }
 
 /**
@@ -177,6 +180,7 @@ app.whenReady().then(async () => {
 
   createWindow()
   registerDeferredCodingAgentIpc()
+  setupAutoUpdater()
 
   app.on('activate', function () {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()

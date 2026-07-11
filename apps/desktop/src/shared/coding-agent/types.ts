@@ -676,6 +676,8 @@ export interface CustomProviderSummary {
   name?: string
   /** API 地址。 */
   baseUrl?: string
+  /** API key 配置值；用于二次编辑自定义 provider。 */
+  apiKey?: string
   /** API 类型。 */
   api?: string
   /** 请求 headers；用于二次编辑自定义 provider。 */
@@ -686,7 +688,7 @@ export interface CustomProviderSummary {
   authHeader?: boolean
   /** 模型数量。 */
   modelCount: number
-  /** 自定义模型列表，不包含 provider 凭据明文。 */
+  /** 自定义模型列表。 */
   models?: CustomModelConfigInput[]
   /** 内置模型 override。 */
   modelOverrides?: Record<string, CustomModelOverrideInput>
@@ -786,6 +788,8 @@ export type CustomModelOverrideInput = Partial<
 export interface UpsertCustomProviderInput {
   /** Provider ID。 */
   provider: string
+  /** 重命名前的 Provider ID；仅编辑现有 Provider 时提交。 */
+  originalProvider?: string
   /** 显示名。 */
   name?: string
   /** API 地址。 */
@@ -943,14 +947,60 @@ export interface ResourcePackageProgressEvent {
   message?: string
 }
 
+export type UiDensity = 'compact' | 'standard' | 'comfortable'
+export type ChatContentWidth = 'narrow' | 'standard' | 'wide'
+export type MessageTimeDisplay = 'always' | 'hover' | 'hidden'
+export type ToolExpansionMode = 'auto' | 'expanded' | 'collapsed'
+export type SidebarDisplayMode = 'persistent' | 'auto'
+export type MarkdownFontStyle = 'sans' | 'serif' | 'custom'
+export type MotionPreference = 'full' | 'reduced'
+export type AvatarStyle = 'pixel' | 'circle' | 'hidden'
+export type UserMessageAlignment = 'right' | 'left'
+export type ActivityDisplayMode = 'full' | 'compact' | 'hidden'
+export type ActivityIndicatorStyle = 'pixels' | 'pulse' | 'hidden'
+
 /** Desktop renderer UI 偏好。 */
 export interface DesktopUiPreferences {
   /** 外观偏好。 */
   appearance?: {
     /** UI 字体大小。 */
     uiFontSize?: number
+    /** 用户自定义 UI font-family。 */
+    customUiFontFamily?: string
     /** 代码字体大小。 */
     codeFontSize?: number
+    /** 用户自定义代码 font-family。 */
+    customCodeFontFamily?: string
+    /** 是否在聊天消息旁显示头像。 */
+    showAvatars?: boolean
+    /** 聊天界面密度。 */
+    density?: UiDensity
+    /** 聊天内容最大宽度。 */
+    chatContentWidth?: ChatContentWidth
+    /** 消息时间显示方式。 */
+    messageTimeDisplay?: MessageTimeDisplay
+    /** 代码块是否自动换行。 */
+    wrapCode?: boolean
+    /** 工具调用默认展开方式。 */
+    toolExpansion?: ToolExpansionMode
+    /** 工作区侧栏显示方式。 */
+    sidebarDisplay?: SidebarDisplayMode
+    /** Markdown 正文字体风格。 */
+    markdownFontStyle?: MarkdownFontStyle
+    /** 用户自定义 Markdown font-family。 */
+    customMarkdownFontFamily?: string
+    /** 界面动效偏好。 */
+    motion?: MotionPreference
+    /** 消息头像样式。 */
+    avatarStyle?: AvatarStyle
+    /** 用户消息对齐方式。 */
+    userMessageAlignment?: UserMessageAlignment
+    /** Agent activity 指示器显示方式。 */
+    activityDisplay?: ActivityDisplayMode
+    /** Agent activity 默认指示器样式。 */
+    activityIndicatorStyle?: ActivityIndicatorStyle
+    /** 用户自定义 Agent activity 文案。 */
+    customActivityText?: string
   }
   /** Workspace 布局偏好。 */
   workspace?: {

@@ -52,6 +52,7 @@ withDefaults(
   gap: var(--space-3);
   min-height: 28px;
   padding: 0 0 var(--space-3);
+  border-bottom: 1px solid var(--color-border-muted);
 }
 
 .base-panel__heading {
@@ -69,8 +70,9 @@ withDefaults(
   overflow: hidden;
   color: var(--color-text);
   font-size: var(--font-size-ui-sm);
-  font-weight: 650;
+  font-weight: 700;
   line-height: 1.4;
+  letter-spacing: 0.03em;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -87,7 +89,7 @@ withDefaults(
   overflow: hidden;
   padding: var(--space-4);
   background: var(--color-surface);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-lg);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-md);
 }
 </style>

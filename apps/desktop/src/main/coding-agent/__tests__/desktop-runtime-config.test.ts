@@ -54,13 +54,45 @@ describe('desktop-runtime-config', () => {
 
     expect(
       writeDesktopRuntimeConfig(
-        { uiPreferences: { appearance: { uiFontSize: 15, codeFontSize: 16 } } },
+        {
+          uiPreferences: {
+            appearance: {
+              uiFontSize: 15,
+              codeFontSize: 16,
+              showAvatars: false,
+              density: 'compact',
+              chatContentWidth: 'wide',
+              messageTimeDisplay: 'always',
+              wrapCode: true,
+              toolExpansion: 'collapsed',
+              sidebarDisplay: 'auto',
+              markdownFontStyle: 'serif',
+              motion: 'reduced',
+              avatarStyle: 'circle',
+              userMessageAlignment: 'left'
+            }
+          }
+        },
         configPath
       )
     ).toEqual({
       workerMode: 'nodeSidecar',
       uiPreferences: {
-        appearance: { uiFontSize: 15, codeFontSize: 16 }
+        appearance: {
+          uiFontSize: 15,
+          codeFontSize: 16,
+          showAvatars: false,
+          density: 'compact',
+          chatContentWidth: 'wide',
+          messageTimeDisplay: 'always',
+          wrapCode: true,
+          toolExpansion: 'collapsed',
+          sidebarDisplay: 'auto',
+          markdownFontStyle: 'serif',
+          motion: 'reduced',
+          avatarStyle: 'circle',
+          userMessageAlignment: 'left'
+        }
       }
     })
 
@@ -69,9 +101,55 @@ describe('desktop-runtime-config', () => {
     ).toEqual({
       workerMode: 'nodeSidecar',
       uiPreferences: {
-        appearance: { uiFontSize: 15, codeFontSize: 16 },
+        appearance: {
+          uiFontSize: 15,
+          codeFontSize: 16,
+          showAvatars: false,
+          density: 'compact',
+          chatContentWidth: 'wide',
+          messageTimeDisplay: 'always',
+          wrapCode: true,
+          toolExpansion: 'collapsed',
+          sidebarDisplay: 'auto',
+          markdownFontStyle: 'serif',
+          motion: 'reduced',
+          avatarStyle: 'circle',
+          userMessageAlignment: 'left'
+        },
         workspace: { sidebarWidth: 260 }
       }
+    })
+  })
+
+  it('持久化自定义字体配置', () => {
+    const dir = createTempDir()
+    const configPath = join(dir, 'desktop-runtime.json')
+
+    expect(
+      writeDesktopRuntimeConfig(
+        {
+          uiPreferences: {
+            appearance: {
+              customUiFontFamily: 'Inter, sans-serif',
+              customCodeFontFamily: 'JetBrains Mono, monospace',
+              markdownFontStyle: 'custom',
+              customMarkdownFontFamily: 'Georgia, serif',
+              activityDisplay: 'compact',
+              activityIndicatorStyle: 'pulse',
+              customActivityText: '正在构建'
+            }
+          }
+        },
+        configPath
+      ).uiPreferences?.appearance
+    ).toMatchObject({
+      customUiFontFamily: 'Inter, sans-serif',
+      customCodeFontFamily: 'JetBrains Mono, monospace',
+      markdownFontStyle: 'custom',
+      customMarkdownFontFamily: 'Georgia, serif',
+      activityDisplay: 'compact',
+      activityIndicatorStyle: 'pulse',
+      customActivityText: '正在构建'
     })
   })
 

@@ -1,5 +1,8 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, markRaw, shallowRef, watch } from 'vue'
+import { useTheme } from '@renderer/composables/useTheme'
+import { shikiHighlightService } from '@renderer/components/markdown/shiki-highlight-service'
+import type { HighlightTokens } from '@renderer/components/markdown/shiki-highlight.worker'
 import BaseTool from './BaseTool.vue'
 import {
   getFileName,
@@ -18,8 +21,13 @@ const emit = defineEmits<{
   'update:open': [open: boolean]
 }>()
 
+const highlightedResult = shallowRef<HighlightTokens>()
+const { resolvedTheme } = useTheme()
+let highlightRevision = 0
+
 const args = computed(() => getToolArgs(props.toolCall))
-const fileName = computed(() => getFileName(getStringArg(args.value, 'path')))
+const filePath = computed(() => getStringArg(args.value, 'path'))
+const fileName = computed(() => getFileName(filePath.value))
 const offset = computed(() => getNumberArg(args.value, 'offset'))
 const limit = computed(() => getNumberArg(args.value, 'limit'))
 const summary = computed(() =>
@@ -30,6 +38,10 @@ const summary = computed(() =>
   ])
 )
 const result = computed(() => getToolResultText(props.message, props.toolCall))
+const highlightLanguage = computed(() => getReadLanguage(filePath.value))
+const highlightTheme = computed(() =>
+  resolvedTheme.value === 'dark' ? 'github-dark' : 'github-light'
+)
 const isError = computed(() => isToolError(props.message, props.toolCall))
 const status = computed(() => props.toolCall?.status)
 const name = computed(() =>
@@ -41,6 +53,58 @@ const name = computed(() =>
     cancelled: '取消读取'
   })
 )
+
+watch(
+  [result, highlightLanguage, highlightTheme],
+  async ([nextResult, language, theme]) => {
+    const revision = ++highlightRevision
+    highlightedResult.value = undefined
+    if (!nextResult) return
+
+    const highlighted = await shikiHighlightService.highlight({
+      messageId: props.toolCall?.toolCallId ?? 'read-result',
+      messageRevision: revision,
+      blockIndex: 'read-result',
+      lang: language,
+      code: nextResult,
+      theme
+    })
+    if (revision === highlightRevision && highlighted) {
+      highlightedResult.value = markRaw(highlighted.tokens)
+    }
+  },
+  { immediate: true }
+)
+
+function getReadLanguage(path: string | undefined): string {
+  const extension = path
+    ?.split(/[?#]/, 1)[0]
+    ?.match(/\.([^.\\/]+)$/)?.[1]
+    ?.toLowerCase()
+  const languages: Record<string, string> = {
+    bash: 'bash',
+    css: 'css',
+    diff: 'diff',
+    go: 'go',
+    htm: 'html',
+    html: 'html',
+    js: 'javascript',
+    jsx: 'jsx',
+    json: 'json',
+    md: 'markdown',
+    mjs: 'javascript',
+    py: 'python',
+    rs: 'rust',
+    scss: 'scss',
+    sh: 'shell',
+    ts: 'typescript',
+    tsx: 'tsx',
+    vue: 'vue',
+    yaml: 'yaml',
+    yml: 'yaml'
+  }
+  return extension ? (languages[extension] ?? 'text') : 'text'
+}
 </script>
 
 <template>
@@ -60,6 +124,16 @@ const name = computed(() =>
       <span v-if="limit" class="read-tool__meta">limit={{ limit }}</span>
       <span v-if="!fileName && summary">{{ summary }}</span>
     </template>
+    <template #content>
+      <div v-if="result" class="tool-message__result read-tool__result">
+        <!-- prettier-ignore -->
+        <pre v-if="highlightedResult"><code><span v-for="(token, index) in highlightedResult" :key="index" :style="token.style">{{ token.content }}</span></code></pre>
+        <pre v-else><code>{{ result }}</code></pre>
+      </div>
+      <dl v-if="isError" class="tool-message__error">
+        <dt>error</dt>
+      </dl>
+    </template>
   </BaseTool>
 </template>
 
@@ -75,5 +149,14 @@ const name = computed(() =>
 .read-tool__path + .read-tool__meta,
 .read-tool__meta + .read-tool__meta {
   margin-left: var(--space-1);
+}
+
+.read-tool__result pre,
+.read-tool__result code {
+  background: transparent;
+}
+
+.read-tool__result span {
+  white-space: pre;
 }
 </style>

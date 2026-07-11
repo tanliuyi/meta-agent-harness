@@ -2,6 +2,7 @@
 import ConfirmDialogProvider from './components/confirm/ConfirmDialogProvider.vue'
 import TitleBar from './components/title-bar/TitleBar.vue'
 import ToastProvider from './components/toast/ToastProvider.vue'
+import UpdateBanner from './components/update/UpdateBanner.vue'
 import { useAppearanceSettings } from './composables/useAppearanceSettings'
 import { useTheme } from './composables/useTheme'
 
@@ -17,6 +18,7 @@ useAppearanceSettings()
         <RouterView />
       </div>
       <ToastProvider />
+      <UpdateBanner />
     </div>
   </ConfirmDialogProvider>
 </template>
@@ -32,13 +34,13 @@ useAppearanceSettings()
   width: 100%;
   height: 100%;
   overflow: hidden;
-  background: var(--color-canvas);
+  background: transparent;
 }
 
 .app-shell__content {
   flex: 1 1 auto;
   min-height: 0;
   overflow: hidden;
-  background: var(--color-canvas);
+  background: transparent;
 }
 </style>

@@ -15,7 +15,8 @@
 <style lang="scss" scoped>
 .window-drag-strip {
   width: 100%;
-  height: 32px;
+  height: 100%;
+  background: var(--color-surface);
   -webkit-app-region: drag;
   app-region: drag;
   pointer-events: auto;

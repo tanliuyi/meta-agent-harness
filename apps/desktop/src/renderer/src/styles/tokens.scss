@@ -9,13 +9,13 @@
   --font-size-ui-xl: 21px;
   --font-size-ui-2xl: 23px;
   --font-size-code: 13px;
-  --font-weight-code: 400;
+  --font-weight-code: 500;
 
-  --radius-xs: 3px;
-  --radius-sm: 4px;
-  --radius-md: 6px;
+  --radius-xs: 2px;
+  --radius-sm: 3px;
+  --radius-md: 5px;
   --radius-lg: 8px;
-  --radius-workspace-shell: 16px;
+  --radius-workspace-shell: 12px;
 
   --space-1: 4px;
   --space-2: 8px;
@@ -26,9 +26,9 @@
   --space-8: 20px;
   --space-10: 24px;
 
-  --duration-fast: 120ms;
-  --duration-base: 180ms;
-  --ease-standard: cubic-bezier(0.2, 0, 0, 1);
+  --duration-fast: 100ms;
+  --duration-base: 160ms;
+  --ease-standard: cubic-bezier(0.16, 1, 0.3, 1);
 
   --markdown-block-gap: var(--space-2);
   --markdown-paragraph-gap: calc(var(--space-3) * 0.75);
@@ -48,22 +48,22 @@
   --markdown-table-header-bg: color-mix(in srgb, var(--color-surface-raised) 80%, transparent);
   --markdown-table-row-alt-bg: color-mix(in srgb, var(--color-surface-raised) 35%, transparent);
   --code-block-header-bg: color-mix(in srgb, var(--color-surface) 86%, transparent);
-  --chat-history-border-muted: color-mix(in srgb, var(--color-border) 58%, transparent);
-  --chat-activity-bg: color-mix(in srgb, var(--color-control-track) 86%, transparent);
-  --chat-activity-border: color-mix(in srgb, var(--color-primary) 24%, var(--color-border));
-  --composer-selection-bg: color-mix(in srgb, var(--color-primary) 16%, transparent);
-  --composer-image-remove-bg: color-mix(in srgb, var(--color-surface) 86%, transparent);
-  --composer-stop-hover-bg: color-mix(in srgb, var(--color-danger) 88%, black);
+  --chat-history-border-muted: color-mix(in srgb, var(--color-border) 45%, transparent);
+  --chat-activity-bg: color-mix(in srgb, var(--color-control-track) 75%, transparent);
+  --chat-activity-border: color-mix(in srgb, var(--color-primary) 18%, var(--color-border));
+  --composer-selection-bg: color-mix(in srgb, var(--color-primary) 14%, transparent);
+  --composer-image-remove-bg: color-mix(in srgb, var(--color-surface) 90%, transparent);
+  --composer-stop-hover-bg: color-mix(in srgb, var(--color-danger) 85%, black);
   --usage-tooltip-row-text: color-mix(in srgb, var(--color-primary-ink) 80%, transparent);
   --overlay-backdrop-bg: rgb(0 0 0 / 72%);
   --file-reference-bg: color-mix(in srgb, var(--color-surface) 76%, transparent);
   --file-reference-selected-ring: color-mix(in srgb, var(--color-primary) 32%, transparent);
   --file-reference-icon-bg: color-mix(in srgb, var(--color-primary) 14%, transparent);
-  --user-message-bg: color-mix(in srgb, var(--color-primary) 6%, var(--color-surface));
+  --user-message-bg: color-mix(in srgb, var(--color-primary) 5%, var(--color-surface));
   --user-message-border: color-mix(in srgb, var(--color-primary) 14%, var(--color-border-muted));
   --user-message-media-border: color-mix(
     in srgb,
-    var(--color-primary) 16%,
+    var(--color-primary) 18%,
     var(--color-border-muted)
   );
   --user-message-attachment-bg: color-mix(in srgb, var(--color-surface) 88%, transparent);
@@ -72,16 +72,16 @@
     var(--color-primary) 10%,
     var(--color-border-muted)
   );
-  --color-diff-added-bg: color-mix(in srgb, var(--color-primary) 18%, var(--color-canvas));
+  --color-diff-added-bg: color-mix(in srgb, var(--color-success) 10%, transparent);
   --color-diff-added-gutter-bg: color-mix(
     in srgb,
-    var(--color-primary) 22%,
+    var(--color-success) 14%,
     var(--color-surface-raised)
   );
-  --color-diff-removed-bg: color-mix(in srgb, var(--color-danger) 18%, var(--color-canvas));
+  --color-diff-removed-bg: color-mix(in srgb, var(--color-danger) 10%, transparent);
   --color-diff-removed-gutter-bg: color-mix(
     in srgb,
-    var(--color-danger) 20%,
+    var(--color-danger) 14%,
     var(--color-surface-raised)
   );
 
@@ -89,7 +89,7 @@
   --session-panel-actions-width: 36px;
   --session-header-height: 36px;
   --field-control-height: 28px;
-  --composer-action-control-height: 28px;
+  --composer-action-control-height: 24px;
   --scrollbar-size: 6px;
 }
 
@@ -101,93 +101,101 @@
 :root[data-theme='light'] {
   color-scheme: light;
 
-  --color-canvas: #ffffff;
-  --color-canvas-start: #ffffff;
-  --color-canvas-end: #f7f7f7;
-  --color-atmosphere: rgb(196 77 77 / 10%);
-  --color-panel: rgb(247 247 247 / 80%);
+  --color-canvas: #fafcfb;
+  --color-canvas-start: #f8fbfa;
+  --color-canvas-end: #ffffff;
+  --color-atmosphere: rgb(83 120 158 / 5%);
+  --color-panel: rgb(255 255 255 / 82%);
   --color-surface: #ffffff;
-  --color-surface-raised: #f7f7f7;
-  --color-surface-hover: rgb(32 31 27 / 5%);
-  --color-item-active: rgb(32 31 27 / 8%);
-  --color-item-active-border: rgb(32 31 27 / 11%);
-  --color-control-track: rgb(32 31 27 / 6%);
-  --color-code-bg: #f6f8fa;
+  --color-surface-raised: #f3f6f8;
+  --color-surface-hover: rgb(63 94 124 / 4%);
+  --color-item-active: rgb(83 120 158 / 7%);
+  --color-item-active-border: rgb(83 120 158 / 11%);
+  --color-control-track: rgb(63 94 124 / 7%);
+  --color-code-bg: #f8fafc;
   --color-field: #ffffff;
   --color-field-focus: #ffffff;
-  --color-border-muted: rgb(32 31 27 / 8%);
-  --color-border: rgb(32 31 27 / 11%);
-  --color-border-subtle: rgb(32 31 27 / 6%);
-  --color-border-strong: rgb(32 31 27 / 18%);
-  --color-text: #201f1b;
-  --color-text-muted: #756f64;
-  --color-text-subtle: #80796d;
-  --color-primary: #c44d4d;
-  --color-primary-strong: #a63e3e;
+  --color-border-muted: rgb(63 94 124 / 8%);
+  --color-border: rgb(63 94 124 / 13%);
+  --color-border-subtle: rgb(63 94 124 / 5%);
+  --color-border-strong: rgb(63 94 124 / 20%);
+  --color-text: #202a33;
+  --color-text-muted: #657483;
+  --color-text-subtle: #84919d;
+  --color-primary: #5c86b4;
+  --color-primary-strong: #4777a6;
   --color-primary-ink: #ffffff;
-  --color-primary-outline: rgb(196 77 77 / 34%);
-  --color-primary-soft: rgb(196 77 77 / 10%);
-  --color-primary-halo: rgb(196 77 77 / 16%);
-  --color-accent: #c44d4d;
-  --color-accent-outline: rgb(196 77 77 / 34%);
-  --color-accent-soft: rgb(196 77 77 / 10%);
-  --color-danger: #8d2e2e;
+  --color-primary-outline: rgb(92 134 180 / 28%);
+  --color-primary-soft: rgb(92 134 180 / 9%);
+  --color-primary-halo: rgb(92 134 180 / 14%);
+  --color-accent: #5c86b4;
+  --color-accent-outline: rgb(92 134 180 / 28%);
+  --color-accent-soft: rgb(92 134 180 / 9%);
+  --color-danger: #d75a5a;
   --color-danger-ink: #ffffff;
   --color-danger-outline: var(--color-danger);
-  --color-info: #3d6ab0;
-  --color-info-outline: rgb(61 106 176 / 34%);
-  --color-info-soft: rgb(61 106 176 / 10%);
-  --color-badge-neutral-bg: rgb(32 31 27 / 5%);
+  --color-info: #4f93bf;
+  --color-info-outline: rgb(79 147 191 / 28%);
+  --color-info-soft: rgb(79 147 191 / 9%);
+  --color-success: #4f9b7a;
+  --color-success-outline: rgb(79 155 122 / 28%);
+  --color-success-soft: rgb(79 155 122 / 9%);
+  --color-badge-neutral-bg: rgb(63 94 124 / 6%);
 
-  --shadow-sm: 0 2px 8px rgb(0 0 0 / 4%);
-  --shadow-md: 0 4px 20px rgb(0 0 0 / 12%);
-  --shadow-focus: 0 0 0 3px rgb(196 77 77 / 20%);
+  --shadow-sm: 0 4px 12px rgb(0 0 0 / 6%);
+  --shadow-md: 0 8px 30px rgb(0 0 0 / 14%);
+  --shadow-lg: 0 16px 40px rgb(0 0 0 / 20%);
+  --shadow-focus: 0 0 0 3px rgb(92 134 180 / 18%);
   --shadow-primary-halo: 0 0 0 1px var(--color-primary-halo);
 }
 
 :root[data-theme='dark'] {
   color-scheme: dark;
 
-  --color-canvas: #0f0f0f;
-  --color-canvas-start: #0f0f0f;
-  --color-canvas-end: #161616;
-  --color-atmosphere: rgb(214 104 104 / 10%);
-  --color-panel: rgb(22 22 22 / 80%);
-  --color-surface: #161616;
-  --color-surface-raised: #1c1c1c;
-  --color-surface-hover: rgb(255 255 255 / 7%);
-  --color-item-active: rgb(255 255 255 / 8%);
-  --color-item-active-border: rgb(255 255 255 / 11%);
-  --color-control-track: rgb(255 255 255 / 7%);
-  --color-code-bg: #0d1117;
-  --color-field: #0f0f0f;
-  --color-field-focus: #161616;
-  --color-border-muted: rgb(255 255 255 / 6%);
-  --color-border: rgb(255 255 255 / 11%);
-  --color-border-subtle: rgb(255 255 255 / 4%);
-  --color-border-strong: rgb(255 255 255 / 18%);
-  --color-text: #e8e6e3;
-  --color-text-muted: #a39d91;
-  --color-text-subtle: #948f86;
-  --color-primary: #d66868;
-  --color-primary-strong: #e57c7c;
-  --color-primary-ink: #ffffff;
-  --color-primary-outline: rgb(214 104 104 / 34%);
-  --color-primary-soft: rgb(214 104 104 / 12%);
-  --color-primary-halo: rgb(214 104 104 / 18%);
-  --color-accent: #d66868;
-  --color-accent-outline: rgb(214 104 104 / 34%);
-  --color-accent-soft: rgb(214 104 104 / 12%);
-  --color-danger: #df6262;
+  --color-canvas: #0b1116;
+  --color-canvas-start: #0d141a;
+  --color-canvas-end: #070a0e;
+  --color-atmosphere: rgb(123 160 195 / 6%);
+  --color-panel: rgb(18 26 34 / 80%);
+  --color-surface: #15202a;
+  --color-surface-raised: #1d2b36;
+  --color-surface-hover: rgb(210 230 245 / 5%);
+  --color-item-active: rgb(123 160 195 / 10%);
+  --color-item-active-border: rgb(123 160 195 / 14%);
+  --color-control-track: rgb(210 230 245 / 7%);
+  --color-code-bg: #0b1116;
+  --color-field: #10171e;
+  --color-field-focus: #121a22;
+  --color-border-muted: rgb(210 230 245 / 7%);
+  --color-border: rgb(210 230 245 / 13%);
+  --color-border-subtle: rgb(210 230 245 / 5%);
+  --color-border-strong: rgb(210 230 245 / 20%);
+  --color-text: #e3ebf1;
+  --color-text-muted: #9aaab8;
+  --color-text-subtle: #728392;
+  --color-primary: #7aa6c8;
+  --color-primary-strong: #91bad9;
+  --color-primary-ink: #10202c;
+  --color-primary-outline: rgb(122 166 200 / 30%);
+  --color-primary-soft: rgb(122 166 200 / 12%);
+  --color-primary-halo: rgb(122 166 200 / 17%);
+  --color-accent: #7aa6c8;
+  --color-accent-outline: rgb(122 166 200 / 30%);
+  --color-accent-soft: rgb(122 166 200 / 12%);
+  --color-danger: #e37a7a;
   --color-danger-ink: #ffffff;
   --color-danger-outline: var(--color-danger);
-  --color-info: #7fa9e2;
-  --color-info-outline: rgb(127 169 226 / 34%);
-  --color-info-soft: rgb(127 169 226 / 12%);
-  --color-badge-neutral-bg: rgb(255 255 255 / 8%);
+  --color-info: #79b8d8;
+  --color-info-outline: rgb(121 184 216 / 30%);
+  --color-info-soft: rgb(121 184 216 / 12%);
+  --color-success: #70ad91;
+  --color-success-outline: rgb(112 173 145 / 30%);
+  --color-success-soft: rgb(112 173 145 / 12%);
+  --color-badge-neutral-bg: rgb(210 230 245 / 8%);
 
-  --shadow-sm: 0 2px 8px rgb(0 0 0 / 22%);
-  --shadow-md: 0 4px 20px rgb(0 0 0 / 34%);
-  --shadow-focus: 0 0 0 3px rgb(214 104 104 / 22%);
+  --shadow-sm: 0 4px 12px rgb(0 0 0 / 30%);
+  --shadow-md: 0 8px 30px rgb(0 0 0 / 45%);
+  --shadow-lg: 0 16px 40px rgb(0 0 0 / 55%);
+  --shadow-focus: 0 0 0 3px rgb(122 166 200 / 20%);
   --shadow-primary-halo: 0 0 0 1px var(--color-primary-halo);
 }

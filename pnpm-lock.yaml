@@ -16,6 +16,12 @@ importers:
       '@mariozechner/clipboard':
         specifier: 0.3.9
         version: 0.3.9
+      '@meta-agent/hermes-memory':
+        specifier: workspace:*
+        version: link:../../packages/hermes-memory
+      electron-updater:
+        specifier: ^6.3.9
+        version: 6.8.9
     devDependencies:
       '@chenglou/pretext':
         specifier: 0.0.8
@@ -53,6 +59,9 @@ importers:
       '@tiptap/core':
         specifier: ^3.27.1
         version: 3.27.1(@tiptap/pm@3.27.1)
+      '@tiptap/markdown':
+        specifier: ^3.27.1
+        version: 3.27.3(@tiptap/core@3.27.1(@tiptap/pm@3.27.1))(@tiptap/pm@3.27.1)
       '@tiptap/starter-kit':
         specifier: ^3.27.1
         version: 3.27.1
@@ -83,9 +92,6 @@ importers:
       electron-ipc-logger:
         specifier: ^1.2.1
         version: 1.2.1(@types/react@18.3.31)(react-dom@19.2.7(react@18.3.1))(react@18.3.1)
-      electron-updater:
-        specifier: ^6.3.9
-        version: 6.8.9
       electron-vite:
         specifier: ^5.0.0
         version: 5.0.0(vite@7.3.6(@types/node@22.20.0)(jiti@2.7.0)(lightningcss@1.32.0)(sass@1.101.0)(stylus@0.57.0)(yaml@2.9.0))
@@ -356,6 +362,37 @@ importers:
         specifier: 4.1.9
         version: 4.1.9(@opentelemetry/api@1.9.0)(@types/node@24.12.4)(@vitest/coverage-v8@4.1.9)(vite@7.3.6(@types/node@24.12.4)(jiti@2.7.0)(lightningcss@1.32.0)(sass@1.101.0)(stylus@0.57.0)(yaml@2.9.0))
 
+  packages/hermes-memory:
+    dependencies:
+      '@earendil-works/pi-tui':
+        specifier: ^0.80.2
+        version: 0.80.6
+      proper-lockfile:
+        specifier: 4.1.2
+        version: 4.1.2
+      typebox:
+        specifier: 1.1.38
+        version: 1.1.38
+    devDependencies:
+      '@earendil-works/pi-ai':
+        specifier: workspace:^
+        version: link:../ai
+      '@earendil-works/pi-coding-agent':
+        specifier: workspace:^
+        version: link:../coding-agent
+      '@types/node':
+        specifier: ^24.0.0
+        version: 24.12.4
+      '@types/proper-lockfile':
+        specifier: ^4.1.4
+        version: 4.1.4
+      typescript:
+        specifier: ^5.9.3
+        version: 5.9.3
+      vitest:
+        specifier: 4.1.9
+        version: 4.1.9(@opentelemetry/api@1.9.0)(@types/node@24.12.4)(@vitest/coverage-v8@4.1.9)(vite@7.3.6(@types/node@24.12.4)(jiti@2.7.0)(lightningcss@1.32.0)(sass@1.101.0)(stylus@0.57.0)(yaml@2.9.0))
+
 packages:
 
   '@anthropic-ai/sdk@0.91.1':
@@ -581,6 +618,10 @@ packages:
     resolution: {integrity: sha512-jPZLMeGL5kkMSEAwAklfXTMHqZvfhsJtCCpKGIr5Duk7mc0n4skjB1dugk7y0z3z8ZHIUCmPAWHdyDqgUz5vdA==}
     engines: {node: '>=22.19.0'}
     hasBin: true
+
+  '@earendil-works/pi-tui@0.80.6':
+    resolution: {integrity: sha512-bSuzS4EVSqEPj/Qr/p9eqCESfKsGuDNbl77EGci8Iaqqt/C/XCBZL1MjXaxSWW1NsT5afjp/Cb0NTPzOLv/aPA==}
+    engines: {node: '>=22.19.0'}
 
   '@electron-internal/extract-zip@1.0.4':
     resolution: {integrity: sha512-Zr1Vs7E9tpCNhZHDAbFVXc2gEVCG9RqPDjrno5+bdgB6LRAuvgyMHJut4NCVyYwtAieapMzc3fiQ3CSTi75ARg==}
@@ -1780,6 +1821,12 @@ packages:
     peerDependencies:
       '@tiptap/core': 3.27.1
       '@tiptap/pm': 3.27.1
+
+  '@tiptap/markdown@3.27.3':
+    resolution: {integrity: sha512-+hNpPsJHqiuirpaF7LD4tZPEFqCe3Uu3nRE8krtrP3zWYmWnHnfQNg+zlvrVNR3pN9S3oh4WC96Wg/otYDJHdA==}
+    peerDependencies:
+      '@tiptap/core': 3.27.3
+      '@tiptap/pm': 3.27.3
 
   '@tiptap/pm@3.27.1':
     resolution: {integrity: sha512-Ffjx+vimmBU7zH/KrpXzJid3+pziCe/VL2aexSTP63cyQwKQ65LkFkCKaIsSpFdQQuakVZBGWjCA5RoBV852pw==}
@@ -3003,6 +3050,10 @@ packages:
     resolution: {integrity: sha512-DyFP3BM/3YHTQOCUL/w0OZHR0lpKeGrxotcHWcqNEdnltqFwXVfhEBQ94eIo34AfQpo0rGki4cyIiftY06h2Fg==}
     engines: {node: 6.* || 8.* || >= 10.*}
 
+  get-east-asian-width@1.6.0:
+    resolution: {integrity: sha512-QRbvDIbx6YklUe6RxeTeleMR0yv3cYH6PsPZHcnVn7xv7zO1BHN8r0XETu8n6Ye3Q+ahtSarc3WgtNWmehIBfA==}
+    engines: {node: '>=18'}
+
   get-intrinsic@1.3.0:
     resolution: {integrity: sha512-9fSjSaos/fRIVIp+xSJlE6lfwhES7LNtKaCBIamHsjr2na1BiABJPo0mOjjz8GJDURarmCPGqaiVg5mfjb98CQ==}
     engines: {node: '>= 0.4'}
@@ -3512,6 +3563,16 @@ packages:
   markdown-it-ts@1.0.2:
     resolution: {integrity: sha512-zba9mN313K2HmKk+BOHqkO/nuZtj9M1TTnUlSbItGrCMpYzc8OHGCm+IaqxWCi2pGcgpiFC8ltxkasYWYpp/YQ==}
     engines: {node: '>=18'}
+
+  marked@17.0.6:
+    resolution: {integrity: sha512-gB0gkNafnonOw0obSTEGZTT86IuhILt2Wfx0mWH/1Au83kybTayroZ/V6nS25mN7u8ASy+5fMhgB3XPNrOZdmA==}
+    engines: {node: '>= 20'}
+    hasBin: true
+
+  marked@18.0.5:
+    resolution: {integrity: sha512-S6GcvALHg6K4ohtu4E7x0a1AqhAjp6cV8KhLSyN9qVapnzJkusVBxZRcIU9AeYsbe6P1hKDusSbEOzGyyuce6w==}
+    engines: {node: '>= 20'}
+    hasBin: true
 
   markstream-core@1.0.3:
     resolution: {integrity: sha512-QXn+yERo1q+RD6YlGDW61zc/af65uhkQEH3K8YvEKkprHbgRJ/JIeBeEQjELCTyBnPoxqtKQ7I565rylY+PePg==}
@@ -5292,6 +5353,11 @@ snapshots:
       - ws
       - zod
 
+  '@earendil-works/pi-tui@0.80.6':
+    dependencies:
+      get-east-asian-width: 1.6.0
+      marked: 18.0.5
+
   '@electron-internal/extract-zip@1.0.4': {}
 
   '@electron-toolkit/eslint-config-prettier@3.0.0(eslint@9.39.4(jiti@2.7.0))(prettier@3.9.4)':
@@ -6297,6 +6363,12 @@ snapshots:
     dependencies:
       '@tiptap/core': 3.27.1(@tiptap/pm@3.27.1)
       '@tiptap/pm': 3.27.1
+
+  '@tiptap/markdown@3.27.3(@tiptap/core@3.27.1(@tiptap/pm@3.27.1))(@tiptap/pm@3.27.1)':
+    dependencies:
+      '@tiptap/core': 3.27.1(@tiptap/pm@3.27.1)
+      '@tiptap/pm': 3.27.1
+      marked: 17.0.6
 
   '@tiptap/pm@3.27.1':
     dependencies:
@@ -7869,6 +7941,8 @@ snapshots:
 
   get-caller-file@2.0.5: {}
 
+  get-east-asian-width@1.6.0: {}
+
   get-intrinsic@1.3.0:
     dependencies:
       call-bind-apply-helpers: 1.0.2
@@ -8361,6 +8435,10 @@ snapshots:
       mdurl: 2.0.0
       punycode.js: 2.3.1
       uc.micro: 2.1.0
+
+  marked@17.0.6: {}
+
+  marked@18.0.5: {}
 
   markstream-core@1.0.3: {}
 

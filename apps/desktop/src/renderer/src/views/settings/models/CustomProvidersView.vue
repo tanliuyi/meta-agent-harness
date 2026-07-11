@@ -87,7 +87,7 @@ const customProviderDialogTitle = computed(() =>
 )
 const customProviderDialogDescription = computed(() =>
   isEditingCustomProvider.value
-    ? '更新 Pi-compatible models.json provider；API Key 保存后不会回显明文。'
+    ? '更新 Pi-compatible models.json provider；已保存的 API Key 会回填以便编辑。'
     : '添加 Pi-compatible models.json provider；可配置模型、思考等级和兼容字段。'
 )
 const customProviderItems = computed<CustomProviderListItem[]>(() =>
@@ -166,7 +166,7 @@ function createDraftFromProvider(
     name: provider.name ?? '',
     baseUrl: provider.baseUrl ?? '',
     api: provider.api ?? 'openai-completions',
-    apiKey: '',
+    apiKey: provider.apiKey ?? '',
     authHeader: provider.authHeader ?? true,
     headersJson: formatJson(provider.headers),
     compatJson: formatJson(provider.compat),
@@ -219,6 +219,7 @@ async function saveCustomProvider(): Promise<void> {
   const nextProvider = draft.provider.trim()
   await modelSettings.upsertCustomProvider({
     provider: nextProvider,
+    originalProvider: originalProvider || undefined,
     name: draft.name.trim() || undefined,
     baseUrl: draft.baseUrl.trim() || undefined,
     api: draft.api || undefined,
@@ -233,10 +234,6 @@ async function saveCustomProvider(): Promise<void> {
     models: draft.models.map(toModelConfigInput)
   })
   if (modelSettings.error) return
-  if (originalProvider && originalProvider !== nextProvider) {
-    await modelSettings.deleteCustomProvider(originalProvider)
-    if (modelSettings.error) return
-  }
   closeProviderDialog()
 }
 
@@ -437,11 +434,36 @@ function numberOrZero(value: string): number {
   grid-template-rows: auto minmax(0, 1fr) auto;
   min-width: 0;
   min-height: 0;
-  height: min(calc(100svh - 32px), 820px);
+  height: min(calc(100svh - 40px), 720px);
 }
 
 .custom-provider-dialog__header {
-  padding: var(--space-3) var(--space-3) 0;
+  position: relative;
+  gap: var(--space-1);
+  padding: var(--space-4) var(--space-5) var(--space-3) calc(var(--space-5) + 14px);
+  background: var(--color-surface-raised);
+  border-bottom: 1px solid var(--color-border);
+
+  &::before {
+    position: absolute;
+    top: var(--space-5);
+    left: var(--space-5);
+    width: 6px;
+    height: 6px;
+    background: var(--color-primary);
+    box-shadow: 0 8px 0 color-mix(in srgb, var(--color-primary) 42%, transparent);
+    content: '';
+  }
+
+  :deep([data-slot='dialog-title']) {
+    font-family: var(--font-mono);
+    font-size: var(--font-size-ui);
+    letter-spacing: 0;
+  }
+
+  :deep([data-slot='dialog-description']) {
+    font-size: var(--font-size-ui-xs);
+  }
 }
 
 .custom-provider-dialog__scroll {
@@ -456,14 +478,16 @@ function numberOrZero(value: string): number {
 
 .custom-provider-dialog__body {
   min-width: 0;
-  padding: var(--space-2) var(--space-3) var(--space-3);
+  padding: var(--space-4) var(--space-5) var(--space-6);
 }
 
 .custom-provider-dialog__footer {
   display: flex;
   justify-content: flex-end;
   gap: var(--space-2);
-  padding: var(--space-2) var(--space-3);
-  border-top: 1px solid var(--color-border);
+  padding: var(--space-3) var(--space-5);
+  background: var(--color-surface-raised);
+  border-top: 1px solid var(--color-border-strong);
+  box-shadow: 0 -4px 0 color-mix(in srgb, var(--color-border) 35%, transparent);
 }
 </style>

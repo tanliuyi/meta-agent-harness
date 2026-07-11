@@ -201,7 +201,7 @@ const {
   overflow: visible;
   background-color: var(--color-surface);
   border: 1px solid var(--color-border);
-  border-radius: var(--radius-workspace-shell) 0 0 var(--radius-workspace-shell);
+  // border-radius: var(--radius-workspace-shell) 0 0 var(--radius-workspace-shell);
 }
 
 .workspace-content__main-session {

@@ -2,6 +2,11 @@ import type { ExtensionDialogRequest, ExtensionUiResponseInput } from '@shared/c
 
 type ExtensionUiResponse = ExtensionUiResponseInput['response']
 
+/** 判断扩展请求是否应使用 Desktop Composer 编辑模式。 */
+export function isComposerEditorRequest(request: ExtensionDialogRequest | undefined): boolean {
+  return request?.type === 'editor'
+}
+
 /** 获取交互请求的初始草稿。 */
 export function getExtensionDialogInitialDraft(request: ExtensionDialogRequest): string {
   return request.type === 'editor' ? (request.prefill ?? '') : ''

@@ -7,7 +7,9 @@ import {
   dispatchExtensionShortcut,
   getCommands,
   respondApproval,
-  respondUi
+  respondUi,
+  sendExtensionPanelLifecycleEvent,
+  sendExtensionPanelMessage
 } from '../thread-runtime-controls'
 import { ThreadManagerCore } from '../thread-manager-core'
 
@@ -74,6 +76,29 @@ describe('thread-runtime-controls', () => {
 
     expect(core.sendData).not.toHaveBeenCalled()
     expect(handled).toBe(false)
+  })
+
+  it('panel mutation 消息向 renderer 传播未绑定 thread 错误', async () => {
+    const core = {
+      sendOk: vi.fn().mockRejectedValue(new Error('worker has no bound thread'))
+    } as unknown as ThreadManagerCore
+
+    await expect(sendExtensionPanelMessage(core, {
+      threadId: 'thread-a',
+      panelId: 'memory',
+      message: { type: 'hermes.add' }
+    })).rejects.toThrow('worker has no bound thread')
+  })
+
+  it('optional panel lifecycle 命令仍忽略未绑定 thread 错误', async () => {
+    const core = {
+      sendOk: vi.fn().mockRejectedValue(new Error('worker has no bound thread'))
+    } as unknown as ThreadManagerCore
+
+    await expect(sendExtensionPanelLifecycleEvent(core, {
+      threadId: 'thread-a',
+      event: { type: 'viewStateChanged', panelId: 'memory', visible: true, active: true }
+    })).resolves.toBeUndefined()
   })
 
   it('UI 响应使用可解除 lifecycle 等待的交互通道', async () => {

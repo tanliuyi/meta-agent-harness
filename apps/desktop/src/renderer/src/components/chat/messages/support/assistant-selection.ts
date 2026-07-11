@@ -24,7 +24,16 @@ export function getSelectionToolbarPosition(
   viewportWidth: number,
   viewportHeight: number
 ): SelectionToolbarPosition | undefined {
-  const visibleRects = rects.filter((rect) => rect.width > 0 && rect.height > 0)
+  if (viewportWidth <= 0 || viewportHeight <= 0) return undefined
+
+  const visibleRects = rects.flatMap((rect) => {
+    const left = clamp(rect.left, 0, viewportWidth)
+    const right = clamp(rect.right, 0, viewportWidth)
+    const top = clamp(rect.top, 0, viewportHeight)
+    const bottom = clamp(rect.bottom, 0, viewportHeight)
+    if (right <= left || bottom <= top) return []
+    return [{ left, right, top, bottom, width: right - left, height: bottom - top }]
+  })
   if (visibleRects.length === 0) return undefined
 
   const selectedWidth = visibleRects.reduce((total, rect) => total + rect.width, 0)

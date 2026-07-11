@@ -111,17 +111,19 @@ function emitMenuAction(actionId: string): void {
 
 <style lang="scss" scoped>
 .session-group__item {
+  position: relative;
   display: flex;
   align-items: center;
   gap: var(--space-2);
   min-width: 0;
   min-height: 2.4em;
-  margin: 0 var(--space-2);
+  margin: 0 calc(var(--space-2) + 6px);
   padding: var(--space-1) var(--space-3) var(--space-1)
-    calc(var(--space-8) + var(--thread-indent, 0px));
-  border: 1px solid transparent;
-  border-radius: var(--radius-lg);
+    calc(var(--space-5) + var(--thread-indent, 0px));
   color: var(--color-text-muted);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--radius-xs);
   cursor: default;
   transition:
     background var(--duration-fast) var(--ease-standard),
@@ -130,13 +132,15 @@ function emitMenuAction(actionId: string): void {
 
   &:hover {
     color: var(--color-text);
-    background: var(--color-surface-raised);
+    background: color-mix(in srgb, var(--color-surface-raised) 72%, transparent);
+    border-color: var(--color-border-muted);
   }
 
   &.is-active {
     color: var(--color-text);
-    background: var(--color-item-active);
-    border-color: var(--color-item-active-border);
+    background: color-mix(in srgb, var(--color-primary) 7%, var(--color-surface-raised));
+    border-color: transparent;
+    box-shadow: none;
   }
 
   &-content {
@@ -159,7 +163,7 @@ function emitMenuAction(actionId: string): void {
     min-width: 0;
     overflow: hidden;
     font-size: var(--font-size-ui-sm);
-    font-weight: 500;
+    font-weight: 560;
     text-overflow: ellipsis;
     white-space: nowrap;
   }
@@ -196,10 +200,10 @@ function emitMenuAction(actionId: string): void {
     min-width: 0;
     height: 22px;
     padding: 0 var(--space-2);
-    border: 1px solid var(--color-border);
-    border-radius: var(--radius-sm);
     color: var(--color-text-muted);
-    background: var(--color-surface);
+    background: color-mix(in srgb, var(--color-surface) 72%, transparent);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-xs);
     font: inherit;
     text-align: left;
 
@@ -241,6 +245,7 @@ function emitMenuAction(actionId: string): void {
 .thread-updated-at {
   flex: 0 0 auto;
   color: var(--color-text-subtle, var(--color-text-muted));
+  font-family: var(--font-mono);
   font-size: var(--font-size-ui-xs);
   font-variant-numeric: tabular-nums;
   line-height: 1;

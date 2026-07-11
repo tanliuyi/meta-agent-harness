@@ -67,7 +67,7 @@ function handleOpenChange(open: boolean): void {
         </AlertDialogDescription>
       </AlertDialogHeader>
 
-      <AlertDialogFooter>
+      <AlertDialogFooter class="confirm-dialog__footer">
         <AlertDialogCancel @click="cancelActiveDialog">
           {{ activeDialog?.cancelText }}
         </AlertDialogCancel>
@@ -130,12 +130,44 @@ function handleOpenChange(open: boolean): void {
 </template>
 
 <style lang="scss" scoped>
+.confirm-dialog {
+  width: min(calc(100% - 32px), 420px);
+  gap: 0;
+  padding: 0;
+  overflow: hidden;
+}
+
 .confirm-dialog[data-tone='destructive'] {
   border-color: var(--color-danger-outline);
 }
 
 .confirm-dialog__header {
+  position: relative;
+  gap: var(--space-1);
+  padding: var(--space-4) var(--space-5) var(--space-4) calc(var(--space-5) + 14px);
   text-align: left;
+  background: var(--color-surface-raised);
+  border-bottom: 1px solid var(--color-border);
+
+  &::before {
+    position: absolute;
+    top: var(--space-5);
+    left: var(--space-5);
+    width: 6px;
+    height: 6px;
+    background: var(--color-primary);
+    box-shadow: 0 8px 0 color-mix(in srgb, var(--color-primary) 42%, transparent);
+    content: '';
+  }
+}
+
+.confirm-dialog[data-tone='destructive'] .confirm-dialog__header::before {
+  background: var(--color-danger);
+  box-shadow: 0 8px 0 color-mix(in srgb, var(--color-danger) 42%, transparent);
+}
+
+.confirm-dialog__footer {
+  padding: var(--space-3) var(--space-5);
 }
 
 .confirm-dialog__split-action {

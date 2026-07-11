@@ -4,6 +4,7 @@ import {
   createExtensionDialogCancellation,
   createExtensionDialogResponse,
   enqueueExtensionDialog,
+  isComposerEditorRequest,
   removeExtensionDialog
 } from '../workspace-session-extension'
 
@@ -30,6 +31,17 @@ describe('workspace session extension dialogs', () => {
     expect(queue.map((request) => request.id)).toEqual(['input-a', 'confirm-b'])
     expect(queue[0]).toMatchObject({ placeholder: 'Updated name' })
     expect(removeExtensionDialog(queue, 'input-a')).toEqual([confirmRequest])
+  })
+
+  it('仅将 editor request 映射为 Composer 模式', () => {
+    const editorRequest: ExtensionDialogRequest = {
+      type: 'editor',
+      id: 'editor-mode',
+      title: '编辑配置',
+      prefill: 'Draft'
+    }
+    expect(isComposerEditorRequest(editorRequest)).toBe(true)
+    expect(isComposerEditorRequest(inputRequest)).toBe(false)
   })
 
   it('为四类对话框创建类型正确的响应', () => {

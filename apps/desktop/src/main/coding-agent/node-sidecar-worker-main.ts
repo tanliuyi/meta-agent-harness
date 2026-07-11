@@ -7,6 +7,7 @@ import { createDesktopError } from '@coding-agent-desktop-src/protocol/error'
 import { createWorkerErrorResponse } from '@coding-agent-desktop-src/protocol/envelope'
 import { installCodingAgentPackageDirEnv } from './coding-agent-package-dir'
 import { shouldRunCliCompatibilityMode } from './node-sidecar-worker-mode'
+import { createBuiltinRuntimeForThread } from './builtin-runtime'
 
 installCodingAgentPackageDirEnv()
 
@@ -51,7 +52,7 @@ function shouldDrainSuccessfulWindowsUpdate(args: readonly string[], exitCode: n
 async function runIpcWorkerMode(): Promise<void> {
   const { RuntimeDesktopWorkerService } =
     await import('@coding-agent-desktop-src/worker/runtime-service')
-  const service = new RuntimeDesktopWorkerService()
+  const service = new RuntimeDesktopWorkerService(createBuiltinRuntimeForThread)
 
   service.setEventSink?.((event) => {
     process.send?.(event)

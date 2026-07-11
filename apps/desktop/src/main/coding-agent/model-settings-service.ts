@@ -148,12 +148,35 @@ export class ModelSettingsService {
     this.validateCustomProviderInput(input)
     const config = this.readModelsJsonForWrite()
     const providers = { ...(config.providers ?? {}) }
-    const previous = providers[input.provider]
+    const originalProvider = input.originalProvider?.trim()
+    const isRename = Boolean(originalProvider && originalProvider !== input.provider)
+    const previous = providers[originalProvider || input.provider]
+
+    if (isRename && !previous) {
+      throw new Error(`custom provider not found: ${originalProvider}`)
+    }
+    if (isRename && providers[input.provider]) {
+      throw new Error(`custom provider already exists: ${input.provider}`)
+    }
+    const credential = isRename ? this.authStorage.get(originalProvider!) : undefined
+    if (credential && this.authStorage.has(input.provider)) {
+      throw new Error(`provider credential already exists: ${input.provider}`)
+    }
+
     providers[input.provider] = {
       ...this.toStoredProviderConfig(input),
       apiKey: input.apiKey ?? previous?.apiKey
     }
+    if (isRename) {
+      delete providers[originalProvider!]
+    }
     this.writeModelsJson({ providers })
+
+    if (credential) {
+      this.authStorage.set(input.provider, credential)
+      this.authStorage.remove(originalProvider!)
+    }
+
     this.modelRegistry.refresh()
     return this.getModelSettings()
   }
@@ -494,6 +517,7 @@ export class ModelSettingsService {
         provider,
         name: value.name,
         baseUrl: value.baseUrl,
+        apiKey: value.apiKey,
         api: value.api,
         headers: value.headers,
         compat: value.compat,

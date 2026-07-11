@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   CODE_FONT_SIZE_RANGE,
+  normalizeCustomFontFamily,
   normalizeFontSize,
   UI_FONT_SIZE_RANGE
 } from '../useAppearanceSettings'
@@ -43,6 +44,20 @@ describe('normalizeFontSize', () => {
   it('falls back to default for non-numeric values', () => {
     expect(normalizeFontSize('abc', UI_FONT_SIZE_RANGE)).toBe(UI_FONT_SIZE_RANGE.defaultValue)
     expect(normalizeFontSize(NaN, CODE_FONT_SIZE_RANGE)).toBe(CODE_FONT_SIZE_RANGE.defaultValue)
+  })
+})
+
+describe('normalizeCustomFontFamily', () => {
+  it('保留合法字体栈并移除危险字符', () => {
+    expect(normalizeCustomFontFamily(' Inter, "Source Han Sans SC", sans-serif ')).toBe(
+      'Inter, "Source Han Sans SC", sans-serif'
+    )
+    expect(normalizeCustomFontFamily('Inter; color: red\n{}<>')).toBe('Inter color: red')
+  })
+
+  it('非字符串输入回退为空值', () => {
+    expect(normalizeCustomFontFamily(undefined)).toBe('')
+    expect(normalizeCustomFontFamily(42)).toBe('')
   })
 })
 

@@ -28,7 +28,7 @@ const ExtensionWebviewPanelTab = defineAsyncComponent(
 const sessionPanelTabs = computed(() => {
   const builtInTabs = getSessionPanelTabRegistrations()
   const extensionTabs = Object.values(workspaceSession.activeExtensionPanels)
-    .slice()
+    .filter((panel) => !(panel.source.type === 'native' && panel.source.component === 'memory'))
     .sort(
       (left, right) =>
         (left.order ?? 0) - (right.order ?? 0) || left.title.localeCompare(right.title)
@@ -97,15 +97,14 @@ const activeExtensionPanel = computed(() =>
     ? workspaceSession.activeExtensionPanels[activeExtensionPanelId.value]
     : undefined
 )
-const shouldKeepActiveTabAlive = computed(
-  () =>
-    !activeExtensionPanelId.value || shouldRetainExtensionPanelContext(activeExtensionPanel.value)
-)
+const shouldKeepActiveTabAlive = computed(() => {
+  if (!activeExtensionPanelId.value) return true
+  if (activeExtensionPanel.value?.source.type === 'native') return true
+  return shouldRetainExtensionPanelContext(activeExtensionPanel.value)
+})
 
 const activeTabComponent = computed(() => {
-  if (activeExtensionPanelId.value) {
-    return ExtensionWebviewPanelTab
-  }
+  if (activeExtensionPanelId.value) return ExtensionWebviewPanelTab
   return activeTabId.value ? getSessionPanelTabComponent(activeTabId.value) : undefined
 })
 

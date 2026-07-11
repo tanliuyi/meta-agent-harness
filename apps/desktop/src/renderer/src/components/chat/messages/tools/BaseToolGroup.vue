@@ -66,7 +66,7 @@ const open = computed({
       <ChevronRight :size="16" class="tool-group__icon" aria-hidden="true" />
     </CollapsibleTrigger>
 
-    <CollapsibleContent v-if="open" class="tool-group__content">
+    <CollapsibleContent class="tool-group__content">
       <div class="tool-group__list">
         <slot :open="open" />
       </div>
@@ -79,7 +79,7 @@ const open = computed({
   flex: 1;
   min-width: 0;
   width: min(720px, 100%);
-  border-radius: var(--radius-lg);
+  border-radius: var(--radius-sm);
 }
 
 .tool-group__trigger {
@@ -98,6 +98,7 @@ const open = computed({
   border: 0;
   border-radius: inherit;
   cursor: pointer;
+  transition: color var(--duration-fast) var(--ease-standard);
 
   &:hover {
     color: var(--color-hover);
@@ -108,16 +109,15 @@ const open = computed({
     box-shadow: inset var(--shadow-focus);
   }
 
+  &:hover .tool-group__summary,
+  &:focus-visible .tool-group__summary {
+    color: var(--color-text);
+  }
+
   &:hover .tool-group__icon,
   &:focus-visible .tool-group__icon {
     opacity: 1;
   }
-}
-
-.tool-group[data-state='open'] .tool-group__trigger {
-  background: var(--color-canvas);
-  border-bottom-right-radius: 0;
-  border-bottom-left-radius: 0;
 }
 
 .tool-group__icon {
@@ -151,6 +151,7 @@ const open = computed({
   color: var(--color-text-subtle);
   text-overflow: ellipsis;
   white-space: nowrap;
+  transition: color var(--duration-fast) var(--ease-standard);
 }
 
 .tool-group--summary-active {
@@ -190,27 +191,71 @@ const open = computed({
 .tool-group__content {
   margin: 0;
   overflow: hidden;
-  background: var(--color-canvas);
-  border-radius: 0 0 var(--radius-lg) var(--radius-lg);
+  margin-top: var(--space-1);
+  background: transparent;
+  border-radius: 0;
+  transform-origin: top;
+  will-change: height, opacity;
+
+  &[data-state='open'] {
+    animation: tool-group-content-open var(--duration-fast) var(--ease-standard);
+  }
+
+  &[data-state='closed'] {
+    animation: tool-group-content-close var(--duration-fast) var(--ease-standard);
+  }
 }
 
 .tool-group__list {
   display: flex;
   flex-direction: column;
-  gap: var(--space-2);
+  gap: var(--space-1);
   min-width: 0;
-  padding: var(--space-2) 0;
+  padding: var(--space-1) 0;
 
   :deep(.tool-message) {
     width: 100%;
+    border-radius: 0;
   }
 
   :deep(.tool-message__trigger) {
     width: fit-content;
+    min-height: 24px;
+    padding: 0;
   }
 
   :deep(.tool-message__icon) {
     display: none;
+  }
+
+  :deep(.tool-message__content) {
+    width: 100%;
+    border: 0;
+    border-radius: 0;
+  }
+}
+
+@keyframes tool-group-content-open {
+  from {
+    height: 0;
+    opacity: 0;
+  }
+
+  to {
+    height: var(--reka-collapsible-content-height);
+    opacity: 1;
+  }
+}
+
+@keyframes tool-group-content-close {
+  from {
+    height: var(--reka-collapsible-content-height);
+    opacity: 1;
+  }
+
+  to {
+    height: 0;
+    opacity: 0;
   }
 }
 
@@ -225,6 +270,13 @@ const open = computed({
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .tool-group,
+  .tool-group__trigger,
+  .tool-group__content {
+    transition: none;
+    animation: none;
+  }
+
   .tool-group--summary-active {
     .tool-group__summary::after {
       animation: none;

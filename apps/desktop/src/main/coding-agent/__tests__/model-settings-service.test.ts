@@ -17,7 +17,7 @@ describe('ModelSettingsService', () => {
     }
   })
 
-  it('写入自定义 provider，刷新 registry，并且不回显 apiKey 明文', async () => {
+  it('写入自定义 provider，刷新 registry，并回显 models.json apiKey 以便编辑', async () => {
     const dir = createTempDir()
     const service = new ModelSettingsService({
       agentDir: join(dir, 'agent'),
@@ -55,6 +55,7 @@ describe('ModelSettingsService', () => {
       expect.arrayContaining([
         expect.objectContaining({
           provider: 'local-openai',
+          apiKey: 'ollama',
           hasApiKeyConfig: true,
           models: [
             expect.objectContaining({
@@ -66,7 +67,7 @@ describe('ModelSettingsService', () => {
         })
       ])
     )
-    expect(JSON.stringify(snapshot)).not.toContain('ollama')
+    expect(JSON.stringify(snapshot)).toContain('ollama')
 
     await service.upsertCustomProvider({
       provider: 'local-openai',
@@ -132,6 +133,65 @@ describe('ModelSettingsService', () => {
       defaultThinkingLevel: 'low',
       enabledModels: ['local-openai/qwen2.5-coder:7b']
     })
+  })
+
+  it('重命名自定义 provider 时迁移 models.json 和 auth.json 中的 API key', async () => {
+    const dir = createTempDir()
+    const agentDir = join(dir, 'agent')
+    const service = new ModelSettingsService({ agentDir, cwd: dir })
+
+    await service.upsertCustomProvider({
+      provider: 'old-provider',
+      baseUrl: 'http://localhost:11434/v1',
+      api: 'openai-completions',
+      apiKey: 'models-json-secret',
+      models: [{ id: 'local-model' }]
+    })
+    await service.setProviderApiKey({
+      provider: 'old-provider',
+      key: 'auth-json-secret'
+    })
+
+    const snapshot = await service.upsertCustomProvider({
+      provider: 'new-provider',
+      originalProvider: 'old-provider',
+      name: 'Renamed Provider',
+      baseUrl: 'http://localhost:11434/v1',
+      api: 'openai-completions',
+      models: [{ id: 'local-model' }]
+    })
+
+    const modelsJson = JSON.parse(readFileSync(join(agentDir, 'models.json'), 'utf-8'))
+    expect(modelsJson.providers['old-provider']).toBeUndefined()
+    expect(modelsJson.providers['new-provider']).toMatchObject({
+      name: 'Renamed Provider',
+      apiKey: 'models-json-secret'
+    })
+
+    const authJson = JSON.parse(readFileSync(join(agentDir, 'auth.json'), 'utf-8'))
+    expect(authJson['old-provider']).toBeUndefined()
+    expect(authJson['new-provider']).toMatchObject({
+      type: 'api_key',
+      key: 'auth-json-secret'
+    })
+    expect(snapshot.credentials).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          provider: 'new-provider',
+          status: 'configured',
+          source: 'credentialStore'
+        })
+      ])
+    )
+    expect(snapshot.customProviders).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          provider: 'new-provider',
+          apiKey: 'models-json-secret'
+        })
+      ])
+    )
+    expect(JSON.stringify(snapshot)).not.toContain('auth-json-secret')
   })
 
   it('将 provider API key 写入 Pi-compatible auth.json，snapshot 不回显明文', async () => {

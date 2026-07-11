@@ -12,6 +12,25 @@ export interface StableMarkdownNodeChunk<T> {
   nodes: T[]
 }
 
+export interface VirtualMarkdownChunkRow<T, V extends { index: number }> {
+  chunk: StableMarkdownNodeChunk<T>
+  virtualItem: V
+}
+
+export function createVirtualMarkdownChunkRows<T, V extends { index: number }>(
+  virtualItems: V[],
+  chunks: StableMarkdownNodeChunk<T>[]
+): VirtualMarkdownChunkRow<T, V>[] {
+  const rows: VirtualMarkdownChunkRow<T, V>[] = []
+  for (const virtualItem of virtualItems) {
+    const chunk = chunks[virtualItem.index]
+    if (chunk) {
+      rows.push({ chunk, virtualItem })
+    }
+  }
+  return rows
+}
+
 const REFERENCE_DEFINITION_PATTERN = /(?:^|\n)[\t ]{0,3}\[[^\]\n]+\]:/
 
 function fingerprintMarkdownNode(node: unknown): string | undefined {

@@ -302,12 +302,28 @@ export interface DesktopWebviewPanelOptions {
 	source: DesktopWebviewPanelSource;
 }
 
+/** Host-rendered native panel. Component ids are capabilities implemented by Desktop. */
+export interface DesktopNativePanelOptions {
+	/** Stable view type used for restore flows. Defaults to the panel id. */
+	viewType?: string;
+	/** User-visible tab title. */
+	title: string;
+	/** Host-owned native component capability. */
+	component: "memory";
+	/** Optional icon name understood by the desktop host. */
+	icon?: string;
+	/** Optional order among extension-provided panels. */
+	order?: number;
+}
+
 /** Desktop-only host APIs. Non-desktop hosts provide no-op implementations. */
 export interface ExtensionDesktopContext {
 	/** CSP source expression for desktop webview resources. Mirrors VS Code webview.cspSource. */
 	readonly cspSource: string;
 	/** Register or replace a webview panel in the desktop session panel. */
 	registerWebviewPanel(id: string, options: DesktopWebviewPanelOptions): void;
+	/** Register a host-rendered native panel in the desktop session panel. */
+	registerNativePanel(id: string, options: DesktopNativePanelOptions): void;
 	/** Update an existing webview panel. Unknown panels are ignored by the host. */
 	updateWebviewPanel(id: string, patch: Partial<DesktopWebviewPanelOptions>): void;
 	/** Convert a local file path into a URI that can be used from desktop webview HTML. */

@@ -1,36 +1,9 @@
 <script setup lang="ts">
 import ScrollArea from '@/components/ui/scroll-area/ScrollArea.vue'
-import { Slider } from '@/components/ui/slider'
-import { BaseButton, BasePanel, BaseSegmentedControl } from '@renderer/components/base'
-import { useAppearanceSettings } from '@renderer/composables/useAppearanceSettings'
-import { useTheme } from '@renderer/composables/useTheme'
+import { BasePanel, BaseSegmentedControl } from '@renderer/components/base'
 import { useWorkspaceViewSettings } from '@renderer/composables/useWorkspaceViewSettings'
-import { RotateCcw } from 'lucide-vue-next'
-import { computed } from 'vue'
 
-const appearanceSettings = useAppearanceSettings()
-const { setThemeMode, themeMode, themeOptions } = useTheme()
 const workspaceViewSettings = useWorkspaceViewSettings()
-
-const uiFontSizeModel = computed({
-  get: () => appearanceSettings.uiFontSize.value,
-  set: (value: number | string | null | undefined) => appearanceSettings.setUiFontSize(value)
-})
-
-const codeFontSizeModel = computed({
-  get: () => appearanceSettings.codeFontSize.value,
-  set: (value: number | string | null | undefined) => appearanceSettings.setCodeFontSize(value)
-})
-
-const uiFontSizeSliderModel = computed({
-  get: () => [uiFontSizeModel.value],
-  set: (value: number[] | undefined) => appearanceSettings.setUiFontSize(value?.[0])
-})
-
-const codeFontSizeSliderModel = computed({
-  get: () => [codeFontSizeModel.value],
-  set: (value: number[] | undefined) => appearanceSettings.setCodeFontSize(value?.[0])
-})
 </script>
 
 <template>
@@ -40,28 +13,9 @@ const codeFontSizeSliderModel = computed({
         <div>
           <p class="general-page__eyebrow">General</p>
           <h1 class="general-page__title">通用</h1>
-          <p class="general-page__subtitle">调整应用主题与阅读密度，设置会即时生效并保存在本机。</p>
+          <p class="general-page__subtitle">调整工作区的默认显示与操作方式。</p>
         </div>
-        <BaseButton size="sm" variant="secondary" @click="appearanceSettings.resetFontSizes">
-          <template #icon><RotateCcw :size="14" /></template>
-          重置字体
-        </BaseButton>
       </header>
-
-      <BasePanel title="主题" eyebrow="Theme">
-        <div class="general-field">
-          <div class="general-field__copy">
-            <strong>主题模式</strong>
-            <span>选择浅色、深色，或跟随系统外观。</span>
-          </div>
-          <BaseSegmentedControl
-            label="主题模式"
-            :model-value="themeMode"
-            :options="themeOptions"
-            @update:model-value="setThemeMode"
-          />
-        </div>
-      </BasePanel>
 
       <BasePanel title="项目视图" eyebrow="Workspace">
         <div class="general-field">
@@ -75,54 +29,6 @@ const codeFontSizeSliderModel = computed({
             :options="workspaceViewSettings.threadSortModeOptions"
             @update:model-value="workspaceViewSettings.setThreadSortMode"
           />
-        </div>
-      </BasePanel>
-
-      <BasePanel title="字体大小" eyebrow="Typography">
-        <div class="font-size-grid">
-          <label class="font-size-field">
-            <span class="font-size-field__copy">
-              <strong>UI 字体大小</strong>
-              <small>当前 {{ uiFontSizeModel }}px</small>
-            </span>
-            <span class="font-size-field__control">
-              <Slider
-                v-model="uiFontSizeSliderModel"
-                :min="appearanceSettings.uiFontSizeRange.min"
-                :max="appearanceSettings.uiFontSizeRange.max"
-                :step="appearanceSettings.uiFontSizeRange.step"
-              />
-              <input
-                v-model.number="uiFontSizeModel"
-                :min="appearanceSettings.uiFontSizeRange.min"
-                :max="appearanceSettings.uiFontSizeRange.max"
-                :step="appearanceSettings.uiFontSizeRange.step"
-                type="number"
-              />
-            </span>
-          </label>
-
-          <label class="font-size-field">
-            <span class="font-size-field__copy">
-              <strong>代码字体大小</strong>
-              <small>当前 {{ codeFontSizeModel }}px</small>
-            </span>
-            <span class="font-size-field__control">
-              <Slider
-                v-model="codeFontSizeSliderModel"
-                :min="appearanceSettings.codeFontSizeRange.min"
-                :max="appearanceSettings.codeFontSizeRange.max"
-                :step="appearanceSettings.codeFontSizeRange.step"
-              />
-              <input
-                v-model.number="codeFontSizeModel"
-                :min="appearanceSettings.codeFontSizeRange.min"
-                :max="appearanceSettings.codeFontSizeRange.max"
-                :step="appearanceSettings.codeFontSizeRange.step"
-                type="number"
-              />
-            </span>
-          </label>
         </div>
       </BasePanel>
     </div>

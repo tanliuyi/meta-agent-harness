@@ -141,8 +141,59 @@ function normalizeDesktopUiPreferences(input: DesktopUiPreferences): DesktopUiPr
     ...(isFiniteNumber(input.appearance?.uiFontSize)
       ? { uiFontSize: input.appearance.uiFontSize }
       : {}),
+    ...(typeof input.appearance?.customUiFontFamily === 'string'
+      ? { customUiFontFamily: input.appearance.customUiFontFamily.slice(0, 120) }
+      : {}),
     ...(isFiniteNumber(input.appearance?.codeFontSize)
       ? { codeFontSize: input.appearance.codeFontSize }
+      : {}),
+    ...(typeof input.appearance?.customCodeFontFamily === 'string'
+      ? { customCodeFontFamily: input.appearance.customCodeFontFamily.slice(0, 120) }
+      : {}),
+    ...(typeof input.appearance?.showAvatars === 'boolean'
+      ? { showAvatars: input.appearance.showAvatars }
+      : {}),
+    ...(isOneOf(input.appearance?.density, ['compact', 'standard', 'comfortable'])
+      ? { density: input.appearance.density }
+      : {}),
+    ...(isOneOf(input.appearance?.chatContentWidth, ['narrow', 'standard', 'wide'])
+      ? { chatContentWidth: input.appearance.chatContentWidth }
+      : {}),
+    ...(isOneOf(input.appearance?.messageTimeDisplay, ['always', 'hover', 'hidden'])
+      ? { messageTimeDisplay: input.appearance.messageTimeDisplay }
+      : {}),
+    ...(typeof input.appearance?.wrapCode === 'boolean'
+      ? { wrapCode: input.appearance.wrapCode }
+      : {}),
+    ...(isOneOf(input.appearance?.toolExpansion, ['auto', 'expanded', 'collapsed'])
+      ? { toolExpansion: input.appearance.toolExpansion }
+      : {}),
+    ...(isOneOf(input.appearance?.sidebarDisplay, ['persistent', 'auto'])
+      ? { sidebarDisplay: input.appearance.sidebarDisplay }
+      : {}),
+    ...(isOneOf(input.appearance?.markdownFontStyle, ['sans', 'serif', 'custom'])
+      ? { markdownFontStyle: input.appearance.markdownFontStyle }
+      : {}),
+    ...(typeof input.appearance?.customMarkdownFontFamily === 'string'
+      ? { customMarkdownFontFamily: input.appearance.customMarkdownFontFamily.slice(0, 120) }
+      : {}),
+    ...(isOneOf(input.appearance?.motion, ['full', 'reduced'])
+      ? { motion: input.appearance.motion }
+      : {}),
+    ...(isOneOf(input.appearance?.avatarStyle, ['pixel', 'circle', 'hidden'])
+      ? { avatarStyle: input.appearance.avatarStyle }
+      : {}),
+    ...(isOneOf(input.appearance?.userMessageAlignment, ['right', 'left'])
+      ? { userMessageAlignment: input.appearance.userMessageAlignment }
+      : {}),
+    ...(isOneOf(input.appearance?.activityDisplay, ['full', 'compact', 'hidden'])
+      ? { activityDisplay: input.appearance.activityDisplay }
+      : {}),
+    ...(isOneOf(input.appearance?.activityIndicatorStyle, ['pixels', 'pulse', 'hidden'])
+      ? { activityIndicatorStyle: input.appearance.activityIndicatorStyle }
+      : {}),
+    ...(typeof input.appearance?.customActivityText === 'string'
+      ? { customActivityText: input.appearance.customActivityText.slice(0, 80) }
       : {})
   }
   const workspace = {
@@ -158,4 +209,8 @@ function normalizeDesktopUiPreferences(input: DesktopUiPreferences): DesktopUiPr
 
 function isFiniteNumber(value: unknown): value is number {
   return typeof value === 'number' && Number.isFinite(value)
+}
+
+function isOneOf<T extends string>(value: unknown, options: readonly T[]): value is T {
+  return typeof value === 'string' && options.includes(value as T)
 }

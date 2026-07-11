@@ -1,7 +1,7 @@
 import type { VirtualItem } from '@tanstack/vue-virtual'
 import type { TimelineItem } from './chatTimelineDisplay'
 
-export const CHAT_TIMELINE_GAP = 12
+export const CHAT_TIMELINE_GAP = 10
 export const CHAT_TIMELINE_OVERSCAN = 6
 
 export interface VirtualTimelineRow<Item> {

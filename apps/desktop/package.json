@@ -1,6 +1,6 @@
 {
   "name": "@meta-agent/desktop",
-  "version": "0.0.5",
+  "version": "0.0.6",
   "description": "Meta Agent desktop workbench",
   "main": "./out/main/index.js",
   "author": "Meta Agent",
@@ -15,7 +15,7 @@
     "start": "electron-vite preview",
     "dev": "electron-vite dev --inspect=9223 --remote-debugging-port=9222",
     "sync:coding-agent-assets": "node scripts/sync-coding-agent-assets.mjs",
-    "prebuild": "npm run sync:coding-agent-assets",
+    "prebuild": "pnpm --filter @meta-agent/hermes-memory build && npm run sync:coding-agent-assets",
     "build": "npm run typecheck && electron-vite build",
     "postinstall": "electron-builder install-app-deps",
     "build:unpack": "npm run build && electron-builder --dir",
@@ -24,7 +24,9 @@
     "build:linux": "npm run build && electron-builder --linux"
   },
   "dependencies": {
-    "@mariozechner/clipboard": "0.3.9"
+    "@mariozechner/clipboard": "0.3.9",
+    "@meta-agent/hermes-memory": "workspace:*",
+    "electron-updater": "^6.3.9"
   },
   "devDependencies": {
     "@chenglou/pretext": "0.0.8",
@@ -35,12 +37,12 @@
     "@lucide/vue": "^1.23.0",
     "@shikijs/stream": "4.3.0",
     "@tiptap/core": "^3.27.1",
+    "@tiptap/markdown": "^3.27.1",
     "@tiptap/starter-kit": "^3.27.1",
     "@tiptap/vue-3": "^3.27.1",
     "@tanstack/vue-virtual": "^3.13.31",
     "@vueuse/core": "^14.3.0",
     "clsx": "^2.1.1",
-    "electron-updater": "^6.3.9",
     "electron-window-state": "^5.0.3",
     "lucide-vue-next": "^1.0.0",
     "markstream-vue": "1.0.5-beta.2",

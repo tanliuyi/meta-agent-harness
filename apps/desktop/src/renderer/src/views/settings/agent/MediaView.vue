@@ -13,7 +13,6 @@ const imageModeLabel = computed(() => {
   if (media.blockImages) return '图片不会发送给模型'
   return media.imageAutoResize ? '发送前自动压缩大图' : '按原始图片发送'
 })
-
 </script>
 
 <template>

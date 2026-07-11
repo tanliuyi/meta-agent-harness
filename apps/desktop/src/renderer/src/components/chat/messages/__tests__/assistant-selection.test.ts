@@ -35,7 +35,25 @@ describe('assistant selection toolbar', () => {
     })
   })
 
-  it('returns undefined for an empty visual selection', () => {
+  it('uses only the visible portion when a selection crosses the viewport edge', () => {
+    expect(getSelectionToolbarPosition([rect(-100, 200, 140, 20)], 320, 480)).toEqual({
+      left: 64,
+      top: 192,
+      below: false
+    })
+  })
+
+  it('keeps the toolbar inside the viewport for a selection clipped by the bottom edge', () => {
+    expect(getSelectionToolbarPosition([rect(120, 470, 80, 30)], 320, 480)).toEqual({
+      left: 160,
+      top: 462,
+      below: false
+    })
+  })
+
+  it('returns undefined for an empty or fully offscreen selection', () => {
     expect(getSelectionToolbarPosition([rect(10, 10, 0, 0)], 320, 480)).toBeUndefined()
+    expect(getSelectionToolbarPosition([rect(-100, 20, 40, 20)], 320, 480)).toBeUndefined()
+    expect(getSelectionToolbarPosition([rect(20, 500, 40, 20)], 320, 480)).toBeUndefined()
   })
 })

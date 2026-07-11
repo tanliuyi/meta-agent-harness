@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import { FolderOpen, Plus, Trash2, Search, CornerDownLeft } from 'lucide-vue-next'
+import { BaseIconButton } from '@renderer/components/base'
 import { Button } from '@/components/ui/button'
 import { Field, FieldDescription, FieldError, FieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
@@ -119,37 +120,27 @@ function normalizeItems(items: string[]): string[] {
           @update:model-value="updateItem(index, $event)"
           @blur="emit('update:modelValue', normalizeItems(values))"
         />
-        <Button
+        <BaseIconButton
           v-if="pathActions"
-          type="button"
-          variant="ghost"
-          size="icon-sm"
+          label="选择路径"
+          size="medium"
           :disabled="!item"
-          title="选择路径"
           @click="selectPath(index)"
         >
-          <FolderOpen />
-        </Button>
-        <Button
+          <FolderOpen :size="16" />
+        </BaseIconButton>
+        <BaseIconButton
           v-if="pathActions"
-          type="button"
-          variant="ghost"
-          size="icon-sm"
+          label="打开位置"
+          size="medium"
           :disabled="!item"
-          title="打开位置"
           @click="revealPath(item)"
         >
-          <Search />
-        </Button>
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon-sm"
-          title="删除"
-          @click="removeItem(index)"
-        >
-          <Trash2 />
-        </Button>
+          <Search :size="16" />
+        </BaseIconButton>
+        <BaseIconButton label="删除" size="medium" @click="removeItem(index)">
+          <Trash2 :size="16" />
+        </BaseIconButton>
       </div>
     </div>
 

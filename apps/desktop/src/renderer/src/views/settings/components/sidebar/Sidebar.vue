@@ -1,6 +1,17 @@
 <script setup lang="ts">
 import BackIcon from '@/components/icons/BackIcon.vue'
 import ScrollArea from '@/components/ui/scroll-area/ScrollArea.vue'
+import {
+  Archive,
+  Bot,
+  Boxes,
+  Brain,
+  Palette,
+  Puzzle,
+  Settings2,
+  Stethoscope,
+  Info
+} from 'lucide-vue-next'
 import { RouterLink, useRouter } from 'vue-router'
 import useWorkspaceSession from '@/stores/workspace-session'
 
@@ -23,22 +34,40 @@ const goBack = (): void => {
         <span>返回聊天</span>
       </button>
       <RouterLink class="settings-link" to="/settings/general">
+        <Settings2 :size="15" aria-hidden="true" />
         <span>通用</span>
       </RouterLink>
+      <RouterLink class="settings-link" to="/settings/personalization">
+        <Palette :size="15" aria-hidden="true" />
+        <span>个性化</span>
+      </RouterLink>
+      <RouterLink class="settings-link" to="/settings/memory">
+        <Brain :size="15" aria-hidden="true" />
+        <span>记忆</span>
+      </RouterLink>
       <RouterLink class="settings-link" to="/settings/models">
+        <Boxes :size="15" aria-hidden="true" />
         <span>模型</span>
       </RouterLink>
       <RouterLink class="settings-link" to="/settings/agent">
+        <Bot :size="15" aria-hidden="true" />
         <span>智能体</span>
       </RouterLink>
       <RouterLink class="settings-link" to="/settings/extensions">
+        <Puzzle :size="15" aria-hidden="true" />
         <span>扩展</span>
       </RouterLink>
       <RouterLink class="settings-link" to="/settings/diagnostics">
+        <Stethoscope :size="15" aria-hidden="true" />
         <span>诊断</span>
       </RouterLink>
       <RouterLink class="settings-link" to="/settings/archive">
+        <Archive :size="15" aria-hidden="true" />
         <span>归档</span>
+      </RouterLink>
+      <RouterLink class="settings-link" to="/settings/about">
+        <Info :size="15" aria-hidden="true" />
+        <span>关于我们</span>
       </RouterLink>
     </ScrollArea>
   </aside>
@@ -102,6 +131,7 @@ const goBack = (): void => {
 .settings-link {
   display: flex;
   align-items: center;
+  gap: var(--space-2);
   min-width: 0;
   height: 2.4em;
   margin: var(--space-1) var(--space-2) 0;
@@ -116,6 +146,10 @@ const goBack = (): void => {
     background var(--duration-fast) var(--ease-standard),
     border-color var(--duration-fast) var(--ease-standard),
     color var(--duration-fast) var(--ease-standard);
+
+  > svg {
+    flex: 0 0 auto;
+  }
 
   &:hover {
     color: var(--color-text);

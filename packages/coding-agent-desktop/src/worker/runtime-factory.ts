@@ -7,6 +7,7 @@ import {
 	createAgentSessionServices,
 	createAgentSessionFromServices,
 	type AgentSessionRuntime,
+	type ExtensionFactory,
 } from "@earendil-works/pi-coding-agent";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import { resolveProjectTrusted } from "@earendil-works/pi-coding-agent";
@@ -27,6 +28,12 @@ export interface DesktopRuntimeFactoryOptions {
 	approvalBridge?: ApprovalBridge;
 	/** 是否拥有 UI。 */
 	hasUI?: boolean;
+	/** Host 内置扩展工厂。 */
+	extensionFactories?: ExtensionFactory[];
+	/** 已由 Host 内置版本接管、运行时不再重复加载的 npm package 名称。 */
+	replacedExtensionPackages?: string[];
+	/** 在每次创建 cwd-bound runtime 前同步 worker 的进程 cwd。 */
+	syncProcessCwd?: boolean;
 }
 
 /**
@@ -49,6 +56,7 @@ export async function createRuntimeForThread(
 	return await createAgentSessionRuntime(
 		async (runtimeOptions) => {
 			const cwd = runtimeOptions.cwd;
+			if (options.syncProcessCwd) process.chdir(cwd);
 			const hasTrustRequiringResources = hasTrustRequiringProjectResources(cwd);
 			const cachedProjectTrust = projectTrustByCwd.get(cwd);
 			const shouldResolveProjectTrust = cachedProjectTrust === undefined && hasTrustRequiringResources;
@@ -61,6 +69,12 @@ export async function createRuntimeForThread(
 				cwd,
 				agentDir: runtimeOptions.agentDir,
 				settingsManager,
+				resourceLoaderOptions: {
+					extensionFactories: options.extensionFactories,
+					excludedExtensionSources: options.replacedExtensionPackages?.map(
+						(packageName) => `npm:${packageName}`,
+					),
+				},
 				resourceLoaderReloadOptions: shouldResolveProjectTrust && input.projectTrustOverride === undefined
 					? {
 							resolveProjectTrust: async ({ extensionsResult }) => {

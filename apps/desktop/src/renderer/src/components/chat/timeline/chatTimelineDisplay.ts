@@ -199,7 +199,7 @@ export function createTimelineProjectionCache(): TimelineProjectionCache {
     rawRefs: [],
     textValues: [],
     toolCallIdRefs: [],
-    hideThinkingBlock: false,
+    hideThinkingBlock: true,
     independentMessages: false
   }
 }

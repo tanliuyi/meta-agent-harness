@@ -1,6 +1,13 @@
 <script setup lang="ts">
 import { computed, type Component } from 'vue'
-import { FilePenLine, FileText, FolderOpen, Search } from 'lucide-vue-next'
+import {
+  BookOpenCheck,
+  BrainCircuit,
+  FilePenLine,
+  FileText,
+  FolderOpen,
+  Search
+} from 'lucide-vue-next'
 import TerminalIcon from '@renderer/components/icons/TerminalIcon.vue'
 import ToolGroupIcon from '@renderer/components/icons/ToolGroupIcon.vue'
 import ToolIcon from '@renderer/components/icons/ToolIcon.vue'
@@ -62,6 +69,10 @@ function getToolIconComponent(toolName: string | undefined): Component {
       return Search
     case 'ls':
       return FolderOpen
+    case 'memory':
+      return BrainCircuit
+    case 'skill_manage':
+      return BookOpenCheck
     default:
       return ToolIcon
   }
@@ -106,17 +117,15 @@ function getToolIconComponent(toolName: string | undefined): Component {
       </span>
       <ToolGroupIcon v-else :size="14" />
     </template>
-    <template #default="{ open: groupOpen }">
-      <template v-if="groupOpen">
-        <ToolMessage
-          v-for="toolCall in props.toolCalls"
-          :key="toolCall.toolCallId"
-          :tool-call="toolCall"
-          :default-open="props.defaultOpen"
-          :open="getToolOpen(toolCall)"
-          @update:open="emit('updateToolOpen', toolCall.toolCallId, $event)"
-        />
-      </template>
+    <template #default>
+      <ToolMessage
+        v-for="toolCall in props.toolCalls"
+        :key="toolCall.toolCallId"
+        :tool-call="toolCall"
+        :default-open="props.defaultOpen"
+        :open="getToolOpen(toolCall)"
+        @update:open="emit('updateToolOpen', toolCall.toolCallId, $event)"
+      />
     </template>
   </BaseToolGroup>
 </template>
@@ -176,6 +185,16 @@ function getToolIconComponent(toolName: string | undefined): Component {
 .tool-group-stack__item[data-tool-name='ls'] {
   --tool-group-stack-bg: color-mix(in srgb, #73777d 12%, var(--color-canvas));
   --tool-group-stack-fg: #5f6368;
+}
+
+.tool-group-stack__item[data-tool-name='memory'] {
+  --tool-group-stack-bg: color-mix(in srgb, #9a7b55 13%, var(--color-canvas));
+  --tool-group-stack-fg: #765d3f;
+}
+
+.tool-group-stack__item[data-tool-name='skill_manage'] {
+  --tool-group-stack-bg: color-mix(in srgb, #668577 13%, var(--color-canvas));
+  --tool-group-stack-fg: #4d6c5f;
 }
 
 .tool-group-stack__more {

@@ -31,13 +31,15 @@ nsis:
   createDesktopShortcut: always
 mac:
   icon: resources/icon.png
+  target:
+    - dmg
+    - zip
   entitlementsInherit: build/entitlements.mac.plist
   extendInfo:
     - NSCameraUsageDescription: Application requests access to the device's camera.
     - NSMicrophoneUsageDescription: Application requests access to the device's microphone.
     - NSDocumentsFolderUsageDescription: Application requests access to the user's Documents folder.
     - NSDownloadsFolderUsageDescription: Application requests access to the user's Downloads folder.
-  notarize: false
 dmg:
   artifactName: meta-agent-desktop-${version}.${ext}
 linux:
@@ -52,7 +54,9 @@ appImage:
   artifactName: meta-agent-desktop-${version}.${ext}
 npmRebuild: false
 publish:
-  provider: generic
-  url: https://example.com/auto-updates
+  provider: github
+  owner: tanliuyi
+  repo: meta-agent-harness
+  releaseType: release
 electronDownload:
   mirror: https://npmmirror.com/mirrors/electron/

@@ -38,8 +38,16 @@ function updateInputValue(value: string | number): void {
 
 <template>
   <Field class="settings-form-field" :data-invalid="Boolean(error)">
-    <div class="settings-slider-field__header">
-      <FieldLabel class="settings-field-label">{{ label }}</FieldLabel>
+    <FieldLabel class="settings-field-label">{{ label }}</FieldLabel>
+    <div class="settings-slider-field__control">
+      <Slider
+        v-model="sliderValue"
+        class="settings-slider-field__slider"
+        :min="min"
+        :max="max"
+        :step="step"
+        :aria-invalid="Boolean(error)"
+      />
       <Input
         class="settings-slider-field__input"
         type="number"
@@ -51,13 +59,6 @@ function updateInputValue(value: string | number): void {
         @update:model-value="updateInputValue"
       />
     </div>
-    <Slider
-      v-model="sliderValue"
-      :min="min"
-      :max="max"
-      :step="step"
-      :aria-invalid="Boolean(error)"
-    />
     <FieldDescription v-if="description">{{ description }}</FieldDescription>
     <FieldError v-if="error">{{ error }}</FieldError>
   </Field>

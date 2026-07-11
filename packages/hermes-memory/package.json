@@ -1,0 +1,38 @@
+{
+  "name": "@meta-agent/hermes-memory",
+  "version": "0.7.23-desktop.1",
+  "description": "Desktop-compatible built-in fork of pi-hermes-memory",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": "./dist/index.js",
+    "./*": "./dist/*"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "test": "vitest --run src"
+  },
+  "dependencies": {
+    "@earendil-works/pi-tui": "^0.80.2",
+    "proper-lockfile": "4.1.2",
+    "typebox": "1.1.38"
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-ai": "*",
+    "@earendil-works/pi-coding-agent": ">=0.74.0"
+  },
+  "devDependencies": {
+    "@earendil-works/pi-ai": "workspace:^",
+    "@earendil-works/pi-coding-agent": "workspace:^",
+    "@types/node": "^24.0.0",
+    "@types/proper-lockfile": "^4.1.4",
+    "typescript": "^5.9.3",
+    "vitest": "4.1.9"
+  }
+}

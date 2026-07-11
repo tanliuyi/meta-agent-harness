@@ -15,12 +15,18 @@ const props = defineProps<{
   isStreaming?: boolean
   collapseWhenResponseAppears?: boolean
   hiddenLabel?: string
+  defaultOpen?: boolean
+  open?: boolean
+}>()
+
+const emit = defineEmits<{
+  'update:open': [open: boolean]
 }>()
 
 const thinkingText = computed(
   () => props.text ?? (props.message ? getMessageThinkingText(props.message) : '') ?? ''
 )
-const label = computed(() => props.hiddenLabel ?? (props.isStreaming ? 'Thinking' : 'Thought'))
+const label = computed(() => props.hiddenLabel ?? (props.isStreaming ? 'thinking' : 'thought'))
 const firstLine = computed(() => {
   const text = thinkingText.value
   if (!text) return ''
@@ -32,7 +38,16 @@ const firstLine = computed(() => {
 })
 const revision = computed(() => props.revision ?? 1)
 const markdownMessageId = computed(() => props.messageId ?? props.message?.id ?? 'thinking')
-const open = ref(props.isStreaming ?? false)
+const localOpen = ref(props.defaultOpen ?? Boolean(props.isStreaming))
+const open = computed({
+  get: () => props.open ?? localOpen.value,
+  set: (value: boolean) => {
+    if (props.open === undefined) {
+      localOpen.value = value
+    }
+    emit('update:open', value)
+  }
+})
 const scrollAreaRef = ref<InstanceType<typeof ScrollArea> | null>(null)
 const markdownRef = ref<HTMLElement | null>(null)
 const shouldFollowBottom = ref(true)
@@ -43,6 +58,10 @@ let followBottomSettleFrames = 0
 /**
  * thinking 内部内容高度变化时同步贴底。
  */
+function getThinkingScrollElement(): HTMLElement | null {
+  return scrollAreaRef.value?.getViewport() ?? null
+}
+
 function keepBottomInCurrentFrame(): void {
   if (!shouldFollowBottom.value || !open.value) {
     return
@@ -89,17 +108,16 @@ function handleThinkingWheel(event: WheelEvent): void {
 }
 
 /**
- * 流式输出期间保持展开；正文或工具调用出现后自动收起，用户仍可手动展开。
+ * 流式输出开始时恢复内部贴底；展开状态由 Tool 相同的受控状态模式管理。
  */
 watch(
-  () => [props.isStreaming, props.collapseWhenResponseAppears],
-  ([isStreaming, collapseWhenResponseAppears]) => {
-    open.value = Boolean(isStreaming) && !collapseWhenResponseAppears
-    if (isStreaming && open.value) {
-      shouldFollowBottom.value = true
-      startFollowBottomLoop(4)
-    }
-  }
+  () => props.isStreaming,
+  (isStreaming) => {
+    if (!isStreaming || !open.value) return
+    shouldFollowBottom.value = true
+    startFollowBottomLoop(4)
+  },
+  { immediate: true }
 )
 
 /**
@@ -135,7 +153,7 @@ onBeforeUnmount(() => {
   >
     <CollapsibleTrigger class="thinking-message__header">
       <span class="thinking-message__label">{{ label }}</span>
-      <span v-if="firstLine" class="thinking-message__preview">{{ firstLine }}</span>
+      <span v-if="firstLine && !open" class="thinking-message__preview">{{ firstLine }}</span>
     </CollapsibleTrigger>
 
     <CollapsibleContent class="thinking-message__content">
@@ -150,6 +168,7 @@ onBeforeUnmount(() => {
             :revision="revision"
             :is-streaming="Boolean(isStreaming)"
             :message-id="markdownMessageId"
+            :get-virtual-scroll-element="getThinkingScrollElement"
           />
         </div>
       </ScrollArea>
@@ -159,13 +178,15 @@ onBeforeUnmount(() => {
 
 <style lang="scss" scoped>
 .thinking-message {
+  position: relative;
   width: 100%;
   color: var(--color-text-muted);
   border-radius: var(--radius-lg);
+  overflow: hidden;
+  transition: all 0.15s linear;
 
   &[data-state='open'] {
     background: var(--color-canvas);
-    border: 1px solid var(--color-border);
   }
 }
 
@@ -194,12 +215,16 @@ onBeforeUnmount(() => {
   }
 
   &[data-state='open'] {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
     width: 100%;
-    padding: var(--space-2);
-    background: var(--color-canvas);
+    padding: var(--space-3) var(--space-2) var(--space-4) var(--space-2);
+    background: linear-gradient(180deg, var(--color-canvas) 70%, transparent);
     border: 0;
-    border-bottom: 1px solid var(--color-border);
     border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+    z-index: 9;
   }
 }
 
@@ -214,7 +239,7 @@ onBeforeUnmount(() => {
   color: var(--color-text-subtle);
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: var(--font-size-ui-sm);
+  font-size: var(--font-size-ui);
 }
 
 .thinking-message__content {
@@ -224,6 +249,20 @@ onBeforeUnmount(() => {
   overflow: hidden;
   background: var(--color-canvas);
   border-radius: 0 0 var(--radius-lg) var(--radius-lg);
+  transform-origin: top;
+  will-change: height, opacity;
+
+  &[data-state='open'] {
+    animation: thinking-message-content-open var(--duration-fast) var(--ease-standard);
+
+    .thinking-message__markdown {
+      padding-top: 42px;
+    }
+  }
+
+  &[data-state='closed'] {
+    animation: thinking-message-content-close var(--duration-fast) var(--ease-standard);
+  }
 }
 
 :deep(.thinking-message__scroll) {
@@ -248,6 +287,39 @@ onBeforeUnmount(() => {
     color: var(--color-text-muted);
     font-size: var(--font-size-ui);
     line-height: 1.6;
+  }
+}
+
+@keyframes thinking-message-content-open {
+  from {
+    height: 0;
+    opacity: 0;
+  }
+
+  to {
+    height: var(--reka-collapsible-content-height);
+    opacity: 1;
+  }
+}
+
+@keyframes thinking-message-content-close {
+  from {
+    height: var(--reka-collapsible-content-height);
+    opacity: 1;
+  }
+
+  to {
+    height: 0;
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .thinking-message,
+  .thinking-message__header,
+  .thinking-message__content {
+    transition: none;
+    animation: none;
   }
 }
 </style>

@@ -38,6 +38,7 @@ interface DesktopThemeDefinition {
 interface ExtensionDesktopContext {
 	readonly cspSource: string;
 	registerWebviewPanel(id: string, options: DesktopWebviewPanelOptions): void;
+	registerNativePanel(id: string, options: { viewType?: string; title: string; component: "memory"; icon?: string; order?: number }): void;
 	updateWebviewPanel(id: string, patch: Partial<DesktopWebviewPanelOptions>): void;
 	asWebviewUri(resourcePath: string, options?: DesktopWebviewUriOptions): string;
 	postPanelMessage(panelId: string, message: unknown): void;
@@ -142,14 +143,28 @@ export class ExtensionUiBridge {
 		return {
 			cspSource: "pi-webview-resource:",
 			registerWebviewPanel: (id, options) => {
-					const resolvedOptions = resolveDesktopWebviewPanelOptions(options, this.cwd, (resource) => this.registerWebviewResource(resource));
+				const resolvedOptions = resolveDesktopWebviewPanelOptions(options, this.cwd, (resource) => this.registerWebviewResource(resource));
 				this.emitUiProjection({
 					type: "extensionPanel.registered",
 					threadId: this.threadId,
 					panel: { id, viewType: resolvedOptions.viewType ?? id, ...resolvedOptions },
 				});
 			},
-				updateWebviewPanel: (panelId, patch) => {
+			registerNativePanel: (id, options) => {
+				this.emitUiProjection({
+					type: "extensionPanel.registered",
+					threadId: this.threadId,
+					panel: {
+						id,
+						viewType: options.viewType ?? id,
+						title: options.title,
+						icon: options.icon,
+						order: options.order,
+						source: { type: "native", component: options.component },
+					},
+				});
+			},
+			updateWebviewPanel: (panelId, patch) => {
 					const resolvedPatch = resolveDesktopWebviewPanelPatch(patch, this.cwd, (resource) => this.registerWebviewResource(resource));
 				this.emitUiProjection({
 					type: "extensionPanel.updated",

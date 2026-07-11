@@ -533,7 +533,7 @@ function showGoal(ctx: StatusContext) {
 function registerDesktopPanel(ctx: StatusContext) {
 	ctx.desktop?.registerWebviewPanel(PANEL_ID, {
 		viewType: PANEL_VIEW_TYPE,
-		title: "Goal",
+		title: "目标",
 		icon: "target",
 		order: 20,
 		source: {
@@ -581,7 +581,7 @@ async function handleGoalPanelEditorAction(
 	ctx: ExtensionContext,
 ) {
 	if (goalPanelEditorOpen) {
-		ctx.ui.notify("A goal editor is already open.", "info");
+		ctx.ui.notify("目标编辑器已打开。", "info");
 		postGoalPanelState(ctx);
 		return;
 	}
@@ -590,7 +590,7 @@ async function handleGoalPanelEditorAction(
 	postGoalPanelState(ctx);
 	try {
 		const prefill = action === "edit" ? activeGoal?.text : "";
-		const objective = await ctx.ui.editor(action === "edit" ? "Edit goal" : "Start goal", prefill ?? "");
+		const objective = await ctx.ui.editor(action === "edit" ? "编辑目标" : "新建目标", prefill ?? "");
 		if (objective === undefined) {
 			postGoalPanelState(ctx);
 			return;
@@ -615,6 +615,8 @@ function postGoalPanelState(ctx: StatusContext) {
 					iteration: activeGoal.iteration,
 					elapsed: formatDuration(activeGoal.timeUsedSeconds),
 					tokens: activeGoal.tokenBudget === undefined ? formatTokenCount(activeGoal.tokensUsed) : formatBudget(activeGoal),
+					tokensUsed: activeGoal.tokensUsed,
+					tokenBudget: activeGoal.tokenBudget,
 					statusText: formatStatus(activeGoal),
 					commands: goalCommandHint(activeGoal.status),
 				}

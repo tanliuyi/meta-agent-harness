@@ -127,13 +127,11 @@ export async function sendExtensionPanelMessage(
   core: ThreadManagerCore,
   input: ExtensionPanelMessageInput
 ): Promise<void> {
-  await sendOptionalExtensionPanelCommand(() =>
-    core.sendOk(input.threadId, {
-      type: 'desktop.panelMessage',
-      panelId: input.panelId,
-      message: input.message
-    })
-  )
+  await core.sendOk(input.threadId, {
+    type: 'desktop.panelMessage',
+    panelId: input.panelId,
+    message: input.message
+  })
 }
 
 /**

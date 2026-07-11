@@ -118,7 +118,7 @@ function handleTabKeydown(event: KeyboardEvent, tabInstanceId: string): void {
       aria-label="添加面板"
       @click="$emit('openAddPanel')"
     >
-      <Plus :size="15" />
+      <Plus :size="18" />
     </button>
   </div>
 </template>

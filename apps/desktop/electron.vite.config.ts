@@ -3,7 +3,7 @@
  */
 
 import { resolve } from 'path'
-import { defineConfig } from 'electron-vite'
+import { defineConfig, externalizeDepsPlugin } from 'electron-vite'
 import vue from '@vitejs/plugin-vue'
 
 const sharedAlias = resolve('src/shared')
@@ -30,6 +30,7 @@ const commonAliases = [
 
 export default defineConfig({
   main: {
+    plugins: [externalizeDepsPlugin({ exclude: ['@meta-agent/hermes-memory'] })],
     resolve: {
       alias: commonAliases
     },
@@ -37,10 +38,7 @@ export default defineConfig({
       rollupOptions: {
         input: {
           index: resolve('src/main/index.ts'),
-          'coding-agent-utility-worker': resolve(
-            codingAgentDesktopSrcAlias,
-            'worker/worker-main.ts'
-          ),
+          'coding-agent-utility-worker': resolve('src/main/coding-agent/utility-worker-main.ts'),
           'coding-agent-node-sidecar-worker': resolve(
             'src/main/coding-agent/node-sidecar-worker-main.ts'
           )

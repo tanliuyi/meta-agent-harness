@@ -137,12 +137,7 @@ watch(
       </slot>
     </CollapsibleTrigger>
 
-    <CollapsibleContent
-      v-if="collapsibleOpen"
-      class="tool-message__content"
-      :class="contentClass"
-      :style="contentStyle"
-    >
+    <CollapsibleContent class="tool-message__content" :class="contentClass" :style="contentStyle">
       <ScrollArea v-if="scrollContent" scrollbars="both" class="tool-message__scroll">
         <slot name="content" :tool-result="result" :tool-status="status" :is-error="isError">
           <slot>
@@ -186,7 +181,6 @@ watch(
 .tool-message {
   display: flex;
   flex-direction: column;
-  gap: var(--space-2);
   flex: 1;
   min-width: 0;
   width: min(720px, 100%);
@@ -221,7 +215,7 @@ watch(
   &[data-state='open'] .tool-message__trigger {
     width: fit-content;
     // padding: var(--space-2);
-    background: var(--color-canvas);
+    // background: var(--color-canvas);
   }
 }
 
@@ -230,6 +224,17 @@ watch(
   flex-direction: column;
   max-width: 100%;
   min-height: 0;
+  transform-origin: top;
+  will-change: height, opacity;
+
+  &[data-state='open'] {
+    margin: var(--space-1) 0 0;
+    animation: tool-message-content-open var(--duration-fast) var(--ease-standard);
+  }
+
+  &[data-state='closed'] {
+    animation: tool-message-content-close var(--duration-fast) var(--ease-standard);
+  }
 }
 
 :deep(.tool-message__scroll),
@@ -401,6 +406,30 @@ watch(
   }
 }
 
+@keyframes tool-message-content-open {
+  from {
+    height: 0;
+    opacity: 0;
+  }
+
+  to {
+    height: var(--reka-collapsible-content-height);
+    opacity: 1;
+  }
+}
+
+@keyframes tool-message-content-close {
+  from {
+    height: var(--reka-collapsible-content-height);
+    opacity: 1;
+  }
+
+  to {
+    height: 0;
+    opacity: 0;
+  }
+}
+
 @keyframes tool-message-text-shimmer {
   from {
     background-position: -220px 0;
@@ -412,6 +441,10 @@ watch(
 }
 
 @media (prefers-reduced-motion: reduce) {
+  :deep(.tool-message__content) {
+    animation: none;
+  }
+
   .tool-message[data-status='queued'],
   .tool-message[data-status='running'] {
     .tool-message__name::after,

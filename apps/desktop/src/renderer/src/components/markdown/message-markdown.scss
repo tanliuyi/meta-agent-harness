@@ -5,7 +5,7 @@
 
   .markstream-vue,
   [data-custom-id='meta-agent-markdown'] {
-    font-family: var(--font-sans);
+    font-family: var(--markdown-body-font, var(--font-sans));
     color: inherit;
     font-size: inherit;
     line-height: inherit;
@@ -218,5 +218,11 @@
     margin: var(--markdown-block-gap) 0;
     background: var(--color-border-muted);
     border: 0;
+  }
+
+  .list-node {
+    margin-block-start: 0.4em;
+    margin-block-end: 0.4em;
+    padding-inline-start: 2em;
   }
 }

@@ -15,7 +15,6 @@ import type { Component } from 'vue'
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import ScrollArea from '@/components/ui/scroll-area/ScrollArea.vue'
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { ShieldAlert, ShieldCheck, ShieldOff } from '@lucide/vue'
 import { RouterLink } from 'vue-router'
 import NameCommandDialog from '@renderer/components/chat/composer/dialogs/NameCommandDialog.vue'
@@ -352,131 +351,119 @@ function getProjectTrustIcon(project: ProjectSummary): Component | undefined {
 
 <template>
   <aside class="workspace__sidebar">
-    <TooltipProvider :delay-duration="150">
-      <div class="sidebar-section__header">
-        <span>工作空间</span>
-        <Tooltip>
-          <TooltipTrigger as-child>
-            <span class="sidebar-tooltip-trigger project-tree__add-btn">
-              <BaseIconButton label="打开项目" size="small" @click="createProject">
-                <PlusIcon :size="14" />
-              </BaseIconButton>
-            </span>
-          </TooltipTrigger>
-          <TooltipContent side="top">添加项目</TooltipContent>
-        </Tooltip>
-      </div>
-      <ScrollArea class="sidebar-section">
-        <template v-if="workspaceProject.errorMessage">
-          <p class="sidebar-error">
-            {{ workspaceProject.errorMessage }}
-          </p>
-        </template>
+    <div class="sidebar-section__header">
+      <span>工作空间</span>
+      <span class="sidebar-tooltip-trigger project-tree__add-btn">
+        <BaseIconButton label="添加项目" size="small" @click="createProject">
+          <PlusIcon :size="14" />
+        </BaseIconButton>
+      </span>
+    </div>
+    <ScrollArea class="sidebar-section">
+      <template v-if="workspaceProject.errorMessage">
+        <p class="sidebar-error">
+          {{ workspaceProject.errorMessage }}
+        </p>
+      </template>
 
-        <ul class="project-tree">
-          <Collapsible
-            v-for="projectItem in projectListItems"
-            :key="projectItem.project.projectId"
-            v-slot="{ open }"
-            :open="workspaceUi.isProjectOpen(projectItem.project.projectId)"
-            class="project-tree__item"
-            @update:open="(open) => workspaceUi.setProjectOpen(projectItem.project.projectId, open)"
+      <ul class="project-tree">
+        <Collapsible
+          v-for="projectItem in projectListItems"
+          :key="projectItem.project.projectId"
+          v-slot="{ open }"
+          :open="workspaceUi.isProjectOpen(projectItem.project.projectId)"
+          class="project-tree__item"
+          @update:open="(open) => workspaceUi.setProjectOpen(projectItem.project.projectId, open)"
+        >
+          <BaseContextMenu
+            :sections="getProjectMenuSections(projectItem.project)"
+            @select="(item) => runProjectMenuAction(item.id, projectItem.project)"
           >
-            <BaseContextMenu
-              :sections="getProjectMenuSections(projectItem.project)"
-              @select="(item) => runProjectMenuAction(item.id, projectItem.project)"
-            >
-              <CollapsibleTrigger>
-                <!-- Project row only toggles the tree; thread selection belongs to thread items. -->
-                <div class="project-tree__project">
-                  <FolderIcon v-if="!open" :size="12" />
-                  <FolderOpenIcon v-else :size="12" />
-                  <span class="project-tree__project-name">{{ projectItem.project.name }}</span>
-                  <span
-                    v-if="!open && projectItem.hasRunningThread"
-                    class="thread-status project-tree__running-status is-running"
-                    aria-label="运行中"
-                    role="img"
+            <CollapsibleTrigger>
+              <!-- Project row only toggles the tree; thread selection belongs to thread items. -->
+              <div class="project-tree__project">
+                <FolderIcon v-if="!open" :size="12" />
+                <FolderOpenIcon v-else :size="12" />
+                <span class="project-tree__project-name">{{ projectItem.project.name }}</span>
+                <span
+                  v-if="!open && projectItem.hasRunningThread"
+                  class="thread-status project-tree__running-status is-running"
+                  aria-label="运行中"
+                  role="img"
+                >
+                  <svg class="thread-status__svg" viewBox="0 0 16 16" aria-hidden="true">
+                    <circle class="thread-status__track" cx="8" cy="8" r="6.25" />
+                    <circle class="thread-status__runner" cx="8" cy="8" r="6.25" />
+                  </svg>
+                </span>
+                <span class="sidebar-tooltip-trigger thread__add-btn">
+                  <BaseIconButton
+                    label="添加会话"
+                    size="small"
+                    :disabled="projectItem.project.status !== 'available'"
+                    @click.stop="createThreadInProject(projectItem.project.projectId)"
                   >
-                    <svg class="thread-status__svg" viewBox="0 0 16 16" aria-hidden="true">
-                      <circle class="thread-status__track" cx="8" cy="8" r="6.25" />
-                      <circle class="thread-status__runner" cx="8" cy="8" r="6.25" />
-                    </svg>
-                  </span>
-                  <Tooltip>
-                    <TooltipTrigger as-child>
-                      <span class="sidebar-tooltip-trigger thread__add-btn">
-                        <BaseIconButton
-                          label="创建 Thread"
-                          size="small"
-                          :disabled="projectItem.project.status !== 'available'"
-                          @click.stop="createThreadInProject(projectItem.project.projectId)"
-                        >
-                          <PlusIcon :size="14" />
-                        </BaseIconButton>
-                      </span>
-                    </TooltipTrigger>
-                    <TooltipContent side="top">添加会话</TooltipContent>
-                  </Tooltip>
-                </div>
-              </CollapsibleTrigger>
-            </BaseContextMenu>
+                    <PlusIcon :size="14" />
+                  </BaseIconButton>
+                </span>
+              </div>
+            </CollapsibleTrigger>
+          </BaseContextMenu>
 
-            <CollapsibleContent>
-              <ul class="session-group">
-                <template v-if="projectItem.threads.length === 0">
-                  <li class="session-group__item is-empty">
-                    <span class="session-group__item-title">暂无会话</span>
-                  </li>
-                </template>
+          <CollapsibleContent>
+            <ul class="session-group">
+              <template v-if="projectItem.threads.length === 0">
+                <li class="session-group__item is-empty">
+                  <span class="session-group__item-title">暂无会话</span>
+                </li>
+              </template>
 
-                <template v-else>
-                  <SidebarThreadItem
-                    v-for="threadItem in projectItem.visibleThreads"
-                    :key="threadItem.thread.threadId"
-                    :active="threadItem.thread.threadId === workspaceSession.activeSessionId"
-                    :current-time="currentTime"
-                    :depth="threadItem.depth"
-                    :thread="threadItem.thread"
-                    @menu-action="runThreadMenuAction"
-                    @navigate-leaf="navigateThreadLeaf"
-                    @select-thread="workspaceSession.setActiveSessionId"
-                  />
+              <template v-else>
+                <SidebarThreadItem
+                  v-for="threadItem in projectItem.visibleThreads"
+                  :key="threadItem.thread.threadId"
+                  :active="threadItem.thread.threadId === workspaceSession.activeSessionId"
+                  :current-time="currentTime"
+                  :depth="threadItem.depth"
+                  :thread="threadItem.thread"
+                  @menu-action="runThreadMenuAction"
+                  @navigate-leaf="navigateThreadLeaf"
+                  @select-thread="workspaceSession.setActiveSessionId"
+                />
 
-                  <li
-                    v-if="projectItem.canExpand || projectItem.canCollapse"
-                    class="session-group__expand-collapse"
+                <li
+                  v-if="projectItem.canExpand || projectItem.canCollapse"
+                  class="session-group__expand-collapse"
+                >
+                  <button
+                    v-if="projectItem.canExpand"
+                    class="expand-collapse-btn"
+                    @click="
+                      expandProject(projectItem.project.projectId, projectItem.threads.length)
+                    "
                   >
-                    <button
-                      v-if="projectItem.canExpand"
-                      class="expand-collapse-btn"
-                      @click="
-                        expandProject(projectItem.project.projectId, projectItem.threads.length)
-                      "
-                    >
-                      {{ projectItem.expandButtonText }}
-                    </button>
-                    <button
-                      v-if="projectItem.canCollapse"
-                      class="expand-collapse-btn collapse-btn"
-                      @click="collapseProject(projectItem.project.projectId)"
-                    >
-                      收起
-                    </button>
-                  </li>
-                </template>
-              </ul>
-            </CollapsibleContent>
-          </Collapsible>
-        </ul>
-      </ScrollArea>
-      <div class="sidebar-section is-footer">
-        <RouterLink to="/settings" class="button-cell">
-          <SettingIcon :size="12" />
-          <span>设置</span>
-        </RouterLink>
-      </div>
-    </TooltipProvider>
+                    {{ projectItem.expandButtonText }}
+                  </button>
+                  <button
+                    v-if="projectItem.canCollapse"
+                    class="expand-collapse-btn collapse-btn"
+                    @click="collapseProject(projectItem.project.projectId)"
+                  >
+                    收起
+                  </button>
+                </li>
+              </template>
+            </ul>
+          </CollapsibleContent>
+        </Collapsible>
+      </ul>
+    </ScrollArea>
+    <div class="sidebar-section is-footer">
+      <RouterLink to="/settings" class="button-cell">
+        <SettingIcon :size="12" />
+        <span>设置</span>
+      </RouterLink>
+    </div>
   </aside>
 
   <NameCommandDialog
@@ -488,9 +475,12 @@ function getProjectTrustIcon(project: ProjectSummary): Component | undefined {
 
 <style lang="scss" scoped>
 .workspace__sidebar {
-  flex-shrink: 0;
+  --sidebar-cyan: color-mix(in srgb, var(--color-primary) 82%, #35f2e5);
+  --sidebar-amber: color-mix(in srgb, var(--color-warning, #ffcc4a) 84%, #ff4fd8);
+
   position: relative;
   display: flex;
+  flex-shrink: 0;
   flex-direction: column;
   gap: var(--space-2);
   min-width: 0;
@@ -498,8 +488,7 @@ function getProjectTrustIcon(project: ProjectSummary): Component | undefined {
   padding: var(--space-4) 0 0;
   overflow: hidden;
   color: var(--color-text);
-  background: var(--color-canvas);
-  backdrop-filter: blur(16px);
+  background: var(--color-surface);
 }
 
 .sidebar-section {
@@ -523,13 +512,14 @@ function getProjectTrustIcon(project: ProjectSummary): Component | undefined {
 
 .sidebar-section__header {
   position: relative;
-  flex-shrink: 0;
   display: flex;
+  flex-shrink: 0;
   align-items: center;
   justify-content: space-between;
   gap: var(--space-2);
   height: 2.4em;
   padding: 0 var(--space-6);
+  font-family: var(--font-mono);
 
   span {
     min-width: 0;
@@ -537,8 +527,13 @@ function getProjectTrustIcon(project: ProjectSummary): Component | undefined {
     color: var(--color-text);
     font-size: var(--font-size-ui-sm);
     font-weight: 750;
+    letter-spacing: 0;
     text-overflow: ellipsis;
     white-space: nowrap;
+
+    &:first-child {
+      margin-right: auto;
+    }
   }
 
   .project-tree__add-btn {
@@ -581,6 +576,7 @@ function getProjectTrustIcon(project: ProjectSummary): Component | undefined {
 }
 
 .project-tree__item {
+  position: relative;
   display: flex;
   flex-direction: column;
   gap: 2px;
@@ -595,8 +591,22 @@ function getProjectTrustIcon(project: ProjectSummary): Component | undefined {
   gap: var(--space-2);
   min-width: 0;
   height: 2.2em;
-  padding: 0 var(--space-3);
+  margin: 0 var(--space-2);
+  padding: 0 var(--space-1);
   color: var(--color-text-muted);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--radius-xs);
+  transition:
+    color var(--duration-fast) var(--ease-standard),
+    background-color var(--duration-fast) var(--ease-standard),
+    border-color var(--duration-fast) var(--ease-standard);
+
+  &:hover {
+    color: var(--color-text);
+    background: color-mix(in srgb, var(--sidebar-cyan) 7%, var(--color-surface-raised));
+    border-color: color-mix(in srgb, var(--sidebar-cyan) 30%, var(--color-border));
+  }
 
   svg {
     width: 1.2em;
@@ -635,9 +645,10 @@ function getProjectTrustIcon(project: ProjectSummary): Component | undefined {
   margin: 0 var(--space-2);
   padding: var(--space-1) var(--space-3) var(--space-1)
     calc(var(--space-8) + var(--thread-indent, 0px));
-  border: 1px solid transparent;
-  border-radius: var(--radius-lg);
   color: var(--color-text-muted);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--radius-xs);
   cursor: default;
   transition:
     background var(--duration-fast) var(--ease-standard),
@@ -646,13 +657,15 @@ function getProjectTrustIcon(project: ProjectSummary): Component | undefined {
 
   &:not(.is-empty):hover {
     color: var(--color-text);
-    background: var(--color-surface-raised);
+    background: color-mix(in srgb, var(--color-surface-raised) 72%, transparent);
+    border-color: var(--color-border-muted);
   }
 
   &.is-active {
     color: var(--color-text);
-    background: var(--color-item-active);
-    border-color: var(--color-item-active-border);
+    background: color-mix(in srgb, var(--sidebar-cyan) 9%, var(--color-surface-raised));
+    border-color: color-mix(in srgb, var(--sidebar-cyan) 34%, var(--color-border));
+    box-shadow: inset 2px 0 0 var(--sidebar-cyan);
   }
 
   &-content {
@@ -759,20 +772,20 @@ function getProjectTrustIcon(project: ProjectSummary): Component | undefined {
   justify-content: flex-start;
   gap: var(--space-2);
   height: 2.4em;
-  margin: 0 var(--space-2);
-  padding: 0 var(--space-3) 0 var(--space-8);
+  margin: 0 calc(var(--space-2) + 6px);
+  padding: 0 var(--space-3) 0 var(--space-5);
 }
 
 .expand-collapse-btn {
-  background: none;
-  border: none;
   padding: 0;
   margin: 0;
   color: var(--color-text-muted);
-  font-size: var(--font-size-ui-sm);
+  font-family: var(--font-mono);
+  font-size: var(--font-size-ui-xs);
+  background: none;
+  border: none;
   cursor: pointer;
-  text-decoration: underline;
-  text-underline-offset: 2px;
+  text-decoration: none;
 
   &:hover {
     color: var(--color-text);
@@ -896,11 +909,13 @@ function getProjectTrustIcon(project: ProjectSummary): Component | undefined {
   align-items: center;
   gap: var(--space-2);
   height: 2.4em;
-  margin: 0 var(--space-2) var(--space-2);
+  margin: 0 var(--space-2) var(--space-5);
   padding: 0 var(--space-3);
-  border: 1px solid transparent;
-  border-radius: var(--radius-lg);
   color: var(--color-text-muted);
+  font-family: var(--font-mono);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--radius-xs);
   font: inherit;
   text-decoration: none;
   transition:
@@ -910,13 +925,14 @@ function getProjectTrustIcon(project: ProjectSummary): Component | undefined {
 
   &:hover {
     color: var(--color-text);
-    background: var(--color-surface-raised);
+    background: color-mix(in srgb, var(--sidebar-cyan) 7%, var(--color-surface-raised));
+    border-color: color-mix(in srgb, var(--sidebar-cyan) 28%, var(--color-border));
   }
 
   &.router-link-active {
-    color: var(--color-text);
-    background: var(--color-item-active);
-    border-color: var(--color-item-active-border);
+    color: var(--sidebar-cyan);
+    background: color-mix(in srgb, var(--sidebar-cyan) 9%, transparent);
+    border-color: color-mix(in srgb, var(--sidebar-cyan) 36%, var(--color-border));
   }
 }
 </style>

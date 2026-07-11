@@ -5,6 +5,7 @@
 
 import type { ComponentPublicInstance, CSSProperties } from 'vue'
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import type { JSONContent } from '@tiptap/vue-3'
 import { useElementSize, useResizeObserver } from '@vueuse/core'
 import { useVirtualizer, type VirtualItem, type Virtualizer } from '@tanstack/vue-virtual'
 import { ChevronDown, CornerDownRight, ListEnd, MapPin, Undo2, X } from 'lucide-vue-next'
@@ -26,12 +27,14 @@ import {
 import useAgentSettingsStore from '@renderer/stores/agent-settings'
 import useModelSettingsStore from '@renderer/stores/model-settings'
 import useWorkspaceSessionStore from '@renderer/stores/workspace-session'
+import { createComposerContentFromText } from '@renderer/stores/workspace-session-composer'
+import { isComposerEditorRequest } from '@renderer/stores/workspace-session-extension'
 import useWorkspaceProjectStore from '@renderer/stores/workspace-project'
 import { useSessionContext } from '@renderer/composables/useSessionContext'
+import { useAppearanceSettings } from '@renderer/composables/useAppearanceSettings'
 import type { DesktopToolCall } from '@coding-agent-desktop-src/protocol/tool'
 import ScrollArea from '../ui/scroll-area/ScrollArea.vue'
 import BaseIconButton from '@/components/base/BaseIconButton.vue'
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import type {
   ComposerFileAttachment,
   ComposerImageAttachment,
@@ -73,10 +76,22 @@ import {
 } from './timeline/chatTimelineVirtualization'
 
 const workspaceSession = useWorkspaceSessionStore()
+const appearanceSettings = useAppearanceSettings()
 const { openPanelTab } = useSessionContext()
 const workspaceProject = useWorkspaceProjectStore()
 const agentSettings = useAgentSettingsStore()
 const modelSettings = useModelSettingsStore()
+const chatAppearanceStyle = computed<CSSProperties>(() => {
+  if (appearanceSettings.markdownFontStyle.value !== 'custom') return {}
+  return {
+    '--markdown-body-font': appearanceSettings.customMarkdownFontFamily.value || 'var(--font-sans)'
+  } as CSSProperties
+})
+const defaultToolOpen = computed(() => {
+  if (appearanceSettings.toolExpansion.value === 'expanded') return true
+  if (appearanceSettings.toolExpansion.value === 'collapsed') return false
+  return workspaceSession.activeExtensionToolsExpanded
+})
 let initialSettingsLoadSchedule: InitialSettingsLoadSchedule | undefined
 
 const SESSION_ACTION_AUTO_DISMISS_MS = 5000
@@ -115,10 +130,15 @@ type TimelineViewItem = {
   toolCalls?: ToolCall[]
   summary?: string
   status?: ToolGroupStatus
+  avatarLane?: 'user' | 'assistant'
+  avatarKind?: 'user' | 'assistant'
 }
 
 /** 已折叠处理段的展开状态。 */
 const collapsedHistoryOpenByKey = ref<Record<string, boolean>>({})
+
+/** Thinking 展开状态，按稳定 timeline key 保存。 */
+const thinkingOpenByKey = ref<Record<string, boolean>>({})
 
 /** 工具组展开状态，按稳定 timeline key 保存。 */
 const toolGroupOpenByKey = ref<Record<string, boolean>>({})
@@ -210,12 +230,7 @@ const activeThinkingLevel = computed<ThinkingLevel>(() => {
 })
 
 /** 是否隐藏 assistant thinking block。 */
-const hideThinkingBlock = computed(() => agentSettings.snapshot?.display.hideThinkingBlock ?? false)
-
-/** 是否存在待交付队列消息。 */
-const hasPendingQueue = computed(
-  () => pendingQueue.value.steering.length > 0 || pendingQueue.value.followUp.length > 0
-)
+const hideThinkingBlock = computed(() => agentSettings.snapshot?.display.hideThinkingBlock ?? true)
 
 /** Composer session actions 中可展示的引导消息。 */
 const pendingSteeringPrompts = computed(() =>
@@ -252,15 +267,24 @@ const isCompacting = computed(() => Boolean(workspaceSession.activeCompactionSta
 const isRunning = computed(() => isThreadRunning.value || isCompacting.value)
 
 /** 当前会话 activity 文案。 */
-const activityLabel = computed(() =>
-  isCompacting.value
+const activityLabel = computed(() => {
+  if (appearanceSettings.customActivityText.value) {
+    return appearanceSettings.customActivityText.value
+  }
+  return isCompacting.value
     ? '正在压缩上下文'
     : (workspaceSession.activeExtensionWorkingMessage ?? '正在工作')
-)
+})
 
 /** extension 是否允许显示工作行。 */
 const activityVisible = computed(
-  () => isRunning.value && workspaceSession.activeExtensionWorkingVisible !== false
+  () =>
+    appearanceSettings.activityDisplay.value !== 'hidden' &&
+    isRunning.value &&
+    workspaceSession.activeExtensionWorkingVisible !== false
+)
+const activityIndicatorVisible = computed(
+  () => activityVisible.value && appearanceSettings.activityIndicatorStyle.value !== 'hidden'
 )
 
 /** extension 自定义工作指示器帧。 */
@@ -357,6 +381,12 @@ watch(processingCollapseContexts, (contexts) => {
 })
 
 watch(timelineItems, (items) => {
+  for (const key of Object.keys(thinkingOpenByKey.value)) {
+    if (!items.some((item) => item.type === 'thinking' && item.key === key)) {
+      delete thinkingOpenByKey.value[key]
+    }
+  }
+
   for (const key of Object.keys(toolGroupOpenByKey.value)) {
     if (!items.some((item) => item.type === 'tool-group' && item.key === key)) {
       delete toolGroupOpenByKey.value[key]
@@ -420,6 +450,9 @@ const virtualTimelineRows = computed(() =>
 const timelineListStyle = computed<CSSProperties>(() => ({
   height: `${virtualTimelineTotalSize.value}px`
 }))
+const timelineWindowStyle = computed<CSSProperties>(() => ({
+  top: `${virtualTimelineItems.value[0]?.start ?? 0}px`
+}))
 
 function measureTimelineItem(refValue: Element | ComponentPublicInstance | null): void {
   const element = refValue instanceof Element ? refValue : refValue?.$el
@@ -455,8 +488,15 @@ const timelineStyle = computed<CSSProperties>(() => ({
   paddingBottom: `${Math.ceil(composerHeight.value) + 32}px`
 }))
 
+const sessionNotificationsRef = ref<HTMLElement | null>(null)
+const { height: sessionNotificationsHeight } = useElementSize(sessionNotificationsRef, undefined, {
+  box: 'border-box'
+})
+
 const jumpBtnStyle = computed<CSSProperties>(() => ({
-  bottom: `${Math.ceil(composerHeight.value) + 24}px`
+  bottom: `${
+    Math.ceil(composerHeight.value) + Math.max(24, Math.ceil(sessionNotificationsHeight.value) + 20)
+  }px`
 }))
 
 const imageSelectionError = ref<string>()
@@ -464,10 +504,144 @@ const selectingImages = ref(false)
 let processingTimerId: number | null = null
 let activityIndicatorTimerId: number | null = null
 
-/** 是否允许发送消息。 */
-const canSend = computed(() =>
-  Boolean(workspaceSession.activeProjectId && workspaceSession.hasDraftMessage)
+/** Editor request 使用独立草稿，避免覆盖普通 Composer 内容。 */
+const composerEditorRequest = computed(() =>
+  isComposerEditorRequest(workspaceSession.activeExtensionDialog)
+    ? workspaceSession.activeExtensionDialog
+    : undefined
 )
+const extensionComposerDraft = ref<JSONContent>(createComposerContentFromText(''))
+const extensionComposerText = ref('')
+
+watch(
+  () => composerEditorRequest.value?.id,
+  () => {
+    const request = composerEditorRequest.value
+    const draft = request
+      ? (workspaceSession.activeExtensionDialogDrafts[request.id] ??
+        (request.type === 'editor' ? request.prefill : '') ??
+        '')
+      : ''
+    extensionComposerDraft.value = createComposerContentFromText(draft)
+    extensionComposerText.value = draft
+  },
+  { immediate: true }
+)
+
+const activeComposerDraft = computed<JSONContent>({
+  get: () =>
+    composerEditorRequest.value ? extensionComposerDraft.value : workspaceSession.draftMessage,
+  set: (value) => {
+    if (composerEditorRequest.value) extensionComposerDraft.value = value
+    else workspaceSession.draftMessage = value
+  }
+})
+
+// ---------------------------------------------------------------------------
+// 俏皮话 Placeholder 轮换
+// ---------------------------------------------------------------------------
+
+/** 不同状态下展示的 Composer placeholder 文案组。 */
+const PLACEHOLDER_GROUPS: Record<string, string[]> = {
+  noProject: [
+    '选个项目，咱们开始搞事？',
+    '先挑个项目吧，不然我帮你写空气？',
+    '项目选好了吗？我等不及要大展身手了',
+    '选个项目，让我看看你的野心有多大',
+    '没项目怎么干活？点上面选一个',
+  ],
+  newSession: [
+    '新会话已就绪，请下达指令',
+    '说吧，这次又想折腾什么？',
+    '又开了个新坑？我喜欢',
+    '来吧，空白的画布交给你了',
+    '新的一轮，你想创造什么？',
+    '请开始你的表演',
+  ],
+  idle: [
+    '我就在这里，不躲不藏，稳稳的接住你',
+    '又卡在哪了？放马过来',
+    '有什么尽管问，我扛得住',
+    '说吧，这次想让我帮你写啥',
+    '别愣着，有问题尽管砸过来',
+    '又遇到 bug 了？来吧',
+    '代码写得不错？让我康康',
+    '来，把你的难题甩给我',
+    '放心问，我代码写得比情书还认真',
+    '别客气，尽管使唤',
+    '又来了？我喜欢你的求知欲',
+    '有 bug 就有我吧，正常',
+  ],
+  running: [
+    '先打着，我听着呢',
+    '你说你的，我干我的，不耽误',
+    '在想呢，你可以先打着',
+    '有话先说着，我忙完就来',
+    '排队有效，尽管输入',
+    '我先忙，你先说，两不误',
+    '你可以继续打，我一会儿看',
+    '别停，你的消息我排队处理',
+  ]
+}
+
+/** 当前应该使用哪组 placeholder。 */
+const placeholderGroup = computed<string | null>(() => {
+  if (composerEditorRequest.value) return null
+  if (!workspaceSession.activeProjectId) return 'noProject'
+  if (!workspaceSession.activeSessionId) return 'newSession'
+  if (isRunning.value) return 'running'
+  return 'idle'
+})
+
+/** 当前组内取第几个文案。每次状态切换随机重选。 */
+const placeholderIndex = ref(0)
+
+/** 最终 computed placeholder，状态切换时自动轮换。 */
+const composerPlaceholder = computed(() => {
+  const group = placeholderGroup.value
+  if (!group) return ''
+  const texts = PLACEHOLDER_GROUPS[group]
+  return texts[placeholderIndex.value % texts.length] ?? texts[0]
+})
+
+watch(placeholderGroup, (group, prevGroup) => {
+  if (!group || group === prevGroup) return
+  const texts = PLACEHOLDER_GROUPS[group]
+  placeholderIndex.value = Math.floor(Math.random() * texts.length)
+})
+
+/** 是否允许发送消息或提交扩展 editor request。 */
+const canSend = computed(() =>
+  composerEditorRequest.value
+    ? true
+    : Boolean(workspaceSession.activeProjectId && workspaceSession.hasDraftMessage)
+)
+
+function handleComposerTextChange(value: string): void {
+  const request = composerEditorRequest.value
+  if (request) {
+    extensionComposerText.value = value
+    workspaceSession.setExtensionDialogDraft(request, value)
+  } else {
+    workspaceSession.syncActiveEditorText(value)
+  }
+}
+
+async function submitExtensionComposer(): Promise<void> {
+  const request = composerEditorRequest.value
+  if (!request) return
+  await workspaceSession.respondExtensionDialog(request, extensionComposerText.value)
+}
+
+function submitActiveComposer(): void {
+  if (composerEditorRequest.value) void submitExtensionComposer()
+  else void sendComposerPrompt()
+}
+
+function exitExtensionComposer(): void {
+  const request = composerEditorRequest.value
+  if (request) void workspaceSession.cancelExtensionDialog(request)
+}
 
 /**
  * 获取消息 role 对应组件。
@@ -683,6 +857,22 @@ function getTimelineItemComponent(item: TimelineItem): TimelineItemComponent {
  * @param item - timeline 项。
  * @returns class 后缀。
  */
+function getTimelineItemAvatarLane(item: TimelineItem | undefined): TimelineViewItem['avatarLane'] {
+  if (!item) {
+    return undefined
+  }
+  if (item.type === 'thinking' || item.type === 'tool' || item.type === 'tool-group') {
+    return 'assistant'
+  }
+  if (item.type !== 'message') {
+    return undefined
+  }
+  if (item.message.role === 'user') {
+    return 'user'
+  }
+  return item.message.role === 'assistant' || item.message.role === 'tool' ? 'assistant' : undefined
+}
+
 function getTimelineItemClassSuffix(item: TimelineItem): string {
   if (item.type === 'collapsed-history') {
     return 'collapsed-history'
@@ -799,6 +989,24 @@ function getTimelineItemToolGroupSummary(item: TimelineItem): string | undefined
 }
 
 /**
+ * 获取 Thinking 展开状态；未手动操作时，流式阶段默认展开。
+ * @param item - timeline 项。
+ * @returns 是否展开。
+ */
+function getTimelineItemThinkingOpen(item: TimelineItem): boolean | undefined {
+  if (item.type !== 'thinking') {
+    return undefined
+  }
+  return thinkingOpenByKey.value[item.key] ?? item.renderState === 'streaming'
+}
+
+function getTimelineItemOpen(item: TimelineItem): boolean | undefined {
+  return item.type === 'thinking'
+    ? getTimelineItemThinkingOpen(item)
+    : getTimelineItemToolOpen(item)
+}
+
+/**
  * 获取工具组展开状态。
  * @param item - timeline 项。
  * @returns 是否展开。
@@ -807,7 +1015,7 @@ function getTimelineItemToolGroupOpen(item: TimelineItem): boolean | undefined {
   if (item.type !== 'tool-group') {
     return undefined
   }
-  return toolGroupOpenByKey.value[item.key] ?? workspaceSession.activeExtensionToolsExpanded
+  return toolGroupOpenByKey.value[item.key] ?? defaultToolOpen.value
 }
 
 /**
@@ -820,7 +1028,7 @@ function getTimelineItemToolOpen(item: TimelineItem): boolean | undefined {
   if (!toolCall) {
     return undefined
   }
-  return toolOpenByKey.value[toolCall.toolCallId] ?? workspaceSession.activeExtensionToolsExpanded
+  return toolOpenByKey.value[toolCall.toolCallId] ?? defaultToolOpen.value
 }
 
 function getTimelineItemToolCallIdsForOpenState(item: TimelineItem): string[] {
@@ -836,9 +1044,15 @@ function getTimelineItemToolCallIdsForOpenState(item: TimelineItem): string[] {
  * @param item - timeline 项。
  * @returns timeline 视图模型。
  */
-function toTimelineViewItem(item: TimelineItem): TimelineViewItem {
+function toTimelineViewItem(
+  item: TimelineItem,
+  previousItem: TimelineItem | undefined
+): TimelineViewItem {
   const isCollapsedHistory = isCollapsedHistoryItem(item)
   const isStreaming = getTimelineItemStreaming(item)
+  const avatarLane = getTimelineItemAvatarLane(item)
+  const avatarKind =
+    avatarLane && avatarLane !== getTimelineItemAvatarLane(previousItem) ? avatarLane : undefined
   return {
     key: item.key,
     item,
@@ -857,7 +1071,9 @@ function toTimelineViewItem(item: TimelineItem): TimelineViewItem {
     toolCallIds: getTimelineItemToolCallIds(item),
     toolCalls: getTimelineItemToolCalls(item),
     summary: getTimelineItemToolGroupSummary(item),
-    status: getTimelineItemToolGroupStatus(item)
+    status: getTimelineItemToolGroupStatus(item),
+    avatarLane,
+    avatarKind
   }
 }
 
@@ -876,7 +1092,17 @@ function createStableTimelineViewItems(
       continue
     }
     const previousItem = previous?.[index]
-    next.push(previousItem?.item === item ? previousItem : toTimelineViewItem(item))
+    const precedingTimelineItem = items[index - 1]
+    const avatarLane = getTimelineItemAvatarLane(item)
+    const avatarKind =
+      avatarLane && avatarLane !== getTimelineItemAvatarLane(precedingTimelineItem)
+        ? avatarLane
+        : undefined
+    const canReuse =
+      previousItem?.item === item &&
+      previousItem.avatarLane === avatarLane &&
+      previousItem.avatarKind === avatarKind
+    next.push(canReuse ? previousItem : toTimelineViewItem(item, precedingTimelineItem))
   }
 
   return next
@@ -917,6 +1143,19 @@ function getCollapsedHistoryIconClass(item: Extract<TimelineItem, { type: 'colla
   }
 }
 
+function setThinkingOpen(viewItem: TimelineViewItem, open: boolean): void {
+  if (viewItem.item.type !== 'thinking') {
+    return
+  }
+  holdUserScroll()
+  const anchor = captureTimelineRowAnchor(viewItem.key)
+  thinkingOpenByKey.value = {
+    ...thinkingOpenByKey.value,
+    [viewItem.item.key]: open
+  }
+  settleTimelineRowAnchor(anchor)
+}
+
 function setToolGroupOpen(viewItem: TimelineViewItem, open: boolean): void {
   if (viewItem.item.type !== 'tool-group') {
     return
@@ -935,6 +1174,13 @@ function setToolOpen(toolCallId: string, open: boolean): void {
     ...toolOpenByKey.value,
     [toolCallId]: open
   }
+}
+
+function setToolGroupItemOpen(viewItem: TimelineViewItem, toolCallId: string, open: boolean): void {
+  holdUserScroll()
+  const anchor = captureTimelineRowAnchor(viewItem.key)
+  setToolOpen(toolCallId, open)
+  settleTimelineRowAnchor(anchor)
 }
 
 function setTimelineItemToolOpen(viewItem: TimelineViewItem, open: boolean): void {
@@ -1004,7 +1250,10 @@ function updateScrollState(): void {
   }
 
   const nextIsNearBottom = distanceToBottom < NEAR_BOTTOM_DISTANCE
-  if (distanceToBottom <= STICKY_BOTTOM_DISTANCE) {
+  if (isTimelineScrollbarDragging) {
+    isNearBottom.value = nextIsNearBottom
+    shouldFollowBottom.value = false
+  } else if (distanceToBottom <= STICKY_BOTTOM_DISTANCE) {
     isUserScrollLocked = false
     isNearBottom.value = true
     shouldFollowBottom.value = true
@@ -1043,6 +1292,7 @@ let timelineAnchorRafId: number | null = null
 let timelineAnchorGeneration = 0
 let timelineSessionGeneration = 0
 let isUserScrollLocked = false
+let isTimelineScrollbarDragging = false
 
 function findTimelineRow(key: string): HTMLElement | undefined {
   return [
@@ -1203,7 +1453,26 @@ function handleTimelineWheel(event: WheelEvent): void {
  * 用户拖动滚动条时退出自动跟随。
  */
 function handleTimelineScrollbarPointerDown(): void {
+  isTimelineScrollbarDragging = true
   holdUserScroll()
+  window.addEventListener('pointerup', handleTimelineScrollbarPointerEnd, { capture: true })
+  window.addEventListener('pointercancel', handleTimelineScrollbarPointerEnd, { capture: true })
+}
+
+/**
+ * 滚动条拖动结束后，按最终位置决定是否恢复追底。
+ */
+function handleTimelineScrollbarPointerEnd(): void {
+  if (!isTimelineScrollbarDragging) {
+    return
+  }
+  isTimelineScrollbarDragging = false
+  window.removeEventListener('pointerup', handleTimelineScrollbarPointerEnd, { capture: true })
+  window.removeEventListener('pointercancel', handleTimelineScrollbarPointerEnd, { capture: true })
+  updateScrollState()
+  if (shouldFollowBottom.value) {
+    startFollowBottomLoop(2)
+  }
 }
 
 /**
@@ -1334,6 +1603,11 @@ watch(
     }
     followBottomSettleFrames = 0
     isUserScrollLocked = false
+    isTimelineScrollbarDragging = false
+    window.removeEventListener('pointerup', handleTimelineScrollbarPointerEnd, { capture: true })
+    window.removeEventListener('pointercancel', handleTimelineScrollbarPointerEnd, {
+      capture: true
+    })
     shouldFollowBottom.value = true
     isNearBottom.value = true
 
@@ -1446,7 +1720,7 @@ watch(
 )
 
 watch(
-  [activityIndicatorFrames, activityIndicatorIntervalMs, activityVisible],
+  [activityIndicatorFrames, activityIndicatorIntervalMs, activityIndicatorVisible],
   ([frames, intervalMs, visible]) => {
     activityIndicatorFrameIndex.value = 0
     if (activityIndicatorTimerId !== null) {
@@ -1484,6 +1758,8 @@ onMounted(async () => {
 
 onBeforeUnmount(() => {
   window.removeEventListener('keydown', handleExtensionShortcutKeyDown, { capture: true })
+  window.removeEventListener('pointerup', handleTimelineScrollbarPointerEnd, { capture: true })
+  window.removeEventListener('pointercancel', handleTimelineScrollbarPointerEnd, { capture: true })
   initialSettingsLoadSchedule?.cancel()
   initialSettingsLoadSchedule = undefined
   if (scrollRafId !== null) {
@@ -1517,7 +1793,23 @@ function getTimelineItemRevision(item: TimelineItem | undefined): unknown[] {
 </script>
 
 <template>
-  <div class="chat-view">
+  <div
+    class="chat-view"
+    :class="[
+      `chat-view--density-${appearanceSettings.density.value}`,
+      `chat-view--width-${appearanceSettings.chatContentWidth.value}`,
+      `chat-view--time-${appearanceSettings.messageTimeDisplay.value}`,
+      `chat-view--avatar-${appearanceSettings.avatarStyle.value}`,
+      `chat-view--markdown-${appearanceSettings.markdownFontStyle.value}`,
+      {
+        'chat-view--avatars-hidden': !appearanceSettings.showAvatars.value,
+        'chat-view--motion-reduced': appearanceSettings.motion.value === 'reduced',
+        'chat-view--user-left': appearanceSettings.userMessageAlignment.value === 'left',
+        'chat-view--wrap-code': appearanceSettings.wrapCode.value
+      }
+    ]"
+    :style="chatAppearanceStyle"
+  >
     <ScrollArea
       ref="timelineRef"
       class="chat-view__timeline"
@@ -1530,120 +1822,187 @@ function getTimelineItemRevision(item: TimelineItem | undefined): unknown[] {
     >
       <div ref="timelineInnerRef" class="chat-view__timeline-inner" :style="timelineStyle">
         <div class="chat-view__timeline-list" :style="timelineListStyle">
-          <div
-            v-for="{ item: viewItem, virtualItem } in virtualTimelineRows"
-            :key="`${workspaceSession.activeSessionId ?? 'draft'}:${viewItem.key}`"
-            :ref="measureTimelineItem"
-            v-memo="[
-              viewItem,
-              virtualItem.start,
-              workspaceSession.activeNavigatingTreeEntryId,
-              workspaceSession.activeExtensionHiddenThinkingLabel,
-              workspaceSession.activeExtensionToolsExpanded,
-              viewItem.collapsedItem ? isCollapsedHistoryOpen(viewItem.collapsedItem) : false,
-              finalReplyKeys.has(viewItem.key),
-              toolGroupOpenByKey,
-              toolOpenByKey
-            ]"
-            :data-index="virtualItem.index"
-            :data-timeline-key="viewItem.key"
-            :style="{ top: `${virtualItem.start}px` }"
-            class="chat-view__message"
-            :class="viewItem.className"
-          >
-            <button
-              v-if="viewItem.isCollapsedHistory && viewItem.collapsedItem"
-              type="button"
-              class="chat-view__collapsed-history"
-              :class="{ 'is-pending': !viewItem.collapsedItem.collapsible }"
-              :aria-expanded="isCollapsedHistoryOpen(viewItem.collapsedItem)"
-              :aria-disabled="!viewItem.collapsedItem.collapsible"
-              @click="toggleCollapsedHistory(viewItem.collapsedItem)"
+          <div class="chat-view__timeline-window" :style="timelineWindowStyle">
+            <div
+              v-for="{ item: viewItem, virtualItem } in virtualTimelineRows"
+              :key="`${workspaceSession.activeSessionId ?? 'draft'}:${viewItem.key}`"
+              :ref="measureTimelineItem"
+              v-memo="[
+                viewItem,
+                virtualItem.start,
+                workspaceSession.activeNavigatingTreeEntryId,
+                workspaceSession.activeExtensionHiddenThinkingLabel,
+                workspaceSession.activeExtensionToolsExpanded,
+                viewItem.collapsedItem ? isCollapsedHistoryOpen(viewItem.collapsedItem) : false,
+                finalReplyKeys.has(viewItem.key),
+                appearanceSettings.showAvatars.value,
+                appearanceSettings.density.value,
+                appearanceSettings.chatContentWidth.value,
+                appearanceSettings.messageTimeDisplay.value,
+                appearanceSettings.wrapCode.value,
+                appearanceSettings.toolExpansion.value,
+                appearanceSettings.avatarStyle.value,
+                appearanceSettings.markdownFontStyle.value,
+                appearanceSettings.customMarkdownFontFamily.value,
+                appearanceSettings.motion.value,
+                appearanceSettings.userMessageAlignment.value,
+                thinkingOpenByKey,
+                toolGroupOpenByKey,
+                toolOpenByKey
+              ]"
+              :data-index="virtualItem.index"
+              :data-timeline-key="viewItem.key"
+              class="chat-view__message"
+              :class="[
+                viewItem.className,
+                appearanceSettings.showAvatars.value &&
+                  viewItem.avatarLane &&
+                  `chat-view__message--${viewItem.avatarLane}-lane`,
+                appearanceSettings.showAvatars.value &&
+                  viewItem.avatarLane &&
+                  !viewItem.avatarKind &&
+                  'chat-view__message--avatar-continuation'
+              ]"
             >
-              <span class="chat-view__collapsed-history-label">
-                已处理<span v-if="viewItem.collapsedItem.durationLabel"
-                  >&nbsp;{{ viewItem.collapsedItem.durationLabel }}</span
-                >
+              <span
+                v-if="appearanceSettings.showAvatars.value && viewItem.avatarKind"
+                class="chat-view__avatar"
+                :class="`chat-view__avatar--${viewItem.avatarKind}`"
+                aria-hidden="true"
+              >
+                <span class="chat-view__avatar-glyph">
+                  {{ viewItem.avatarKind === 'assistant' ? 'AI' : 'U' }}
+                </span>
               </span>
-              <ChevronDown
-                v-if="viewItem.collapsedItem.collapsible"
-                :size="16"
-                class="chat-view__collapsed-history-icon"
-                :class="getCollapsedHistoryIconClass(viewItem.collapsedItem)"
-              />
-            </button>
-            <ToolGroup
-              v-else-if="viewItem.item.type === 'tool-group'"
-              :open="getTimelineItemToolGroupOpen(viewItem.item)"
-              :tool-call-ids="viewItem.toolCallIds ?? []"
-              :tool-calls="viewItem.toolCalls ?? []"
-              :default-open="workspaceSession.activeExtensionToolsExpanded"
-              :tool-open-by-key="toolOpenByKey"
-              :summary="viewItem.summary ?? ''"
-              :status="viewItem.status"
-              @update:open="setToolGroupOpen(viewItem, $event)"
-              @update-tool-open="setToolOpen"
-            />
-            <component
-              :is="viewItem.component"
-              v-else
-              :message="viewItem.message"
-              :message-id="viewItem.messageId"
-              :text="viewItem.text"
-              :revision="viewItem.revision"
-              :is-streaming="viewItem.isStreaming"
-              :is-final-reply="finalReplyKeys.has(viewItem.key)"
-              :is-done="viewItem.isDone"
-              :is-navigating-tree="
-                viewItem.message?.sessionEntryId === workspaceSession.activeNavigatingTreeEntryId
-              "
-              :collapse-when-response-appears="viewItem.collapseWhenResponseAppears"
-              :hidden-label="workspaceSession.activeExtensionHiddenThinkingLabel"
-              :tool-call="viewItem.toolCall"
-              :tool-call-ids="viewItem.toolCallIds"
-              :tool-calls="viewItem.toolCalls"
-              :default-open="workspaceSession.activeExtensionToolsExpanded"
-              :open="getTimelineItemToolOpen(viewItem.item)"
-              :summary="viewItem.summary"
-              :status="viewItem.status"
-              @update:open="setTimelineItemToolOpen(viewItem, $event)"
-              @fork-from-message="forkFromMessage"
-              @locate-in-tree="locateMessageInTree"
-              @navigate-tree="navigateMessageTree"
-              @quote-selection="handleQuoteSelection"
-              @content-height-change="handleTimelineItemHeightChange(virtualItem.index)"
-            />
+              <div class="chat-view__message-content">
+                <button
+                  v-if="viewItem.isCollapsedHistory && viewItem.collapsedItem"
+                  type="button"
+                  class="chat-view__collapsed-history"
+                  :class="{ 'is-pending': !viewItem.collapsedItem.collapsible }"
+                  :aria-expanded="isCollapsedHistoryOpen(viewItem.collapsedItem)"
+                  :aria-disabled="!viewItem.collapsedItem.collapsible"
+                  @click="toggleCollapsedHistory(viewItem.collapsedItem)"
+                >
+                  <span class="chat-view__collapsed-history-label">
+                    已处理<span v-if="viewItem.collapsedItem.durationLabel"
+                      >&nbsp;{{ viewItem.collapsedItem.durationLabel }}</span
+                    >
+                  </span>
+                  <ChevronDown
+                    v-if="viewItem.collapsedItem.collapsible"
+                    :size="16"
+                    class="chat-view__collapsed-history-icon"
+                    :class="getCollapsedHistoryIconClass(viewItem.collapsedItem)"
+                  />
+                </button>
+                <ToolGroup
+                  v-else-if="viewItem.item.type === 'tool-group'"
+                  :open="getTimelineItemToolGroupOpen(viewItem.item)"
+                  :tool-call-ids="viewItem.toolCallIds ?? []"
+                  :tool-calls="viewItem.toolCalls ?? []"
+                  :default-open="defaultToolOpen"
+                  :tool-open-by-key="toolOpenByKey"
+                  :summary="viewItem.summary ?? ''"
+                  :status="viewItem.status"
+                  @update:open="setToolGroupOpen(viewItem, $event)"
+                  @update-tool-open="
+                    (toolCallId, open) => setToolGroupItemOpen(viewItem, toolCallId, open)
+                  "
+                />
+                <component
+                  :is="viewItem.component"
+                  v-else
+                  :message="viewItem.message"
+                  :message-id="viewItem.messageId"
+                  :text="viewItem.text"
+                  :revision="viewItem.revision"
+                  :is-streaming="viewItem.isStreaming"
+                  :is-final-reply="finalReplyKeys.has(viewItem.key)"
+                  :is-done="viewItem.isDone"
+                  :is-navigating-tree="
+                    viewItem.message?.sessionEntryId ===
+                    workspaceSession.activeNavigatingTreeEntryId
+                  "
+                  :collapse-when-response-appears="viewItem.collapseWhenResponseAppears"
+                  :hidden-label="workspaceSession.activeExtensionHiddenThinkingLabel"
+                  :tool-call="viewItem.toolCall"
+                  :tool-call-ids="viewItem.toolCallIds"
+                  :tool-calls="viewItem.toolCalls"
+                  :default-open="defaultToolOpen"
+                  :open="getTimelineItemOpen(viewItem.item)"
+                  :summary="viewItem.summary"
+                  :status="viewItem.status"
+                  @update:open="
+                    viewItem.item.type === 'thinking'
+                      ? setThinkingOpen(viewItem, $event)
+                      : setTimelineItemToolOpen(viewItem, $event)
+                  "
+                  @fork-from-message="forkFromMessage"
+                  @locate-in-tree="locateMessageInTree"
+                  @navigate-tree="navigateMessageTree"
+                  @quote-selection="handleQuoteSelection"
+                  @content-height-change="handleTimelineItemHeightChange(virtualItem.index)"
+                />
+              </div>
+            </div>
           </div>
         </div>
 
         <div v-if="activityVisible" class="chat-view__activity" aria-live="polite">
-          <span v-if="showDefaultActivityIndicator" class="chat-view__activity-dot" />
-          <span v-else-if="activityIndicatorLabel" class="chat-view__activity-indicator">
-            {{ activityIndicatorLabel }}
-          </span>
-          <span>
+          <template v-if="appearanceSettings.activityIndicatorStyle.value !== 'hidden'">
+            <span
+              v-if="
+                showDefaultActivityIndicator &&
+                appearanceSettings.activityIndicatorStyle.value === 'pixels'
+              "
+              class="chat-view__activity-pixels"
+              aria-hidden="true"
+            >
+              <i />
+              <i />
+              <i />
+            </span>
+            <span
+              v-else-if="showDefaultActivityIndicator"
+              class="chat-view__activity-pulse"
+              aria-hidden="true"
+            />
+            <span v-else-if="activityIndicatorLabel" class="chat-view__activity-indicator">
+              {{ activityIndicatorLabel }}
+            </span>
+          </template>
+          <span
+            v-if="appearanceSettings.activityDisplay.value === 'full'"
+            class="chat-view__activity-label"
+          >
             {{ activityLabel }}
-            <template v-if="hasPendingQueue">
-              · 已排队 {{ pendingQueue.steering.length }} 条引导消息 /
-              {{ pendingQueue.followUp.length }} 条后续消息
-            </template>
           </span>
         </div>
       </div>
     </ScrollArea>
 
-    <button
-      v-if="workspaceSession.activeSession && messages.length > 0 && !isNearBottom"
-      type="button"
-      class="chat-view__jump"
-      :style="jumpBtnStyle"
-      @click="scrollToLatest()"
-    >
-      回到最新
-    </button>
+    <Transition name="jump-latest">
+      <button
+        v-if="workspaceSession.activeSession && messages.length > 0 && !isNearBottom"
+        type="button"
+        class="chat-view__jump"
+        :style="jumpBtnStyle"
+        @click="scrollToLatest()"
+      >
+        回到最新
+      </button>
+    </Transition>
+
+    <div
+      class="chat-view__composer-backdrop"
+      :style="{ height: `${Math.ceil(composerHeight) + 32}px` }"
+      aria-hidden="true"
+    />
 
     <div ref="composerRef" class="chat-view__composer">
       <TransitionGroup
+        ref="sessionNotificationsRef"
         name="session-notification"
         tag="div"
         class="chat-view__session-notifications"
@@ -1678,46 +2037,31 @@ function getTimelineItemRevision(item: TimelineItem | undefined): unknown[] {
           <span class="chat-view__session-action-text">
             {{ workspaceSession.activeSessionActionMessage }}
           </span>
-          <TooltipProvider>
-            <div class="chat-view__session-action-buttons">
-              <Tooltip v-if="workspaceSession.activePreviousLeafEntryId">
-                <TooltipTrigger as-child>
-                  <BaseIconButton
-                    label="返回之前位置"
-                    size="small"
-                    @click="workspaceSession.navigateBackToPreviousLeaf"
-                  >
-                    <Undo2 :size="14" />
-                  </BaseIconButton>
-                </TooltipTrigger>
-                <TooltipContent>返回之前位置</TooltipContent>
-              </Tooltip>
-              <Tooltip v-if="workspaceSession.activeSnapshot?.currentEntryId">
-                <TooltipTrigger as-child>
-                  <BaseIconButton
-                    label="在 Tree 中定位"
-                    size="small"
-                    @click="locateCurrentLeafInTree"
-                  >
-                    <MapPin :size="14" />
-                  </BaseIconButton>
-                </TooltipTrigger>
-                <TooltipContent>在 Tree 中定位</TooltipContent>
-              </Tooltip>
-              <Tooltip>
-                <TooltipTrigger as-child>
-                  <BaseIconButton
-                    label="关闭提示"
-                    size="small"
-                    @click="workspaceSession.clearActiveSessionAction"
-                  >
-                    <X :size="14" />
-                  </BaseIconButton>
-                </TooltipTrigger>
-                <TooltipContent>关闭提示</TooltipContent>
-              </Tooltip>
-            </div>
-          </TooltipProvider>
+          <div class="chat-view__session-action-buttons">
+            <BaseIconButton
+              v-if="workspaceSession.activePreviousLeafEntryId"
+              label="返回之前位置"
+              size="small"
+              @click="workspaceSession.navigateBackToPreviousLeaf"
+            >
+              <Undo2 :size="14" />
+            </BaseIconButton>
+            <BaseIconButton
+              v-if="workspaceSession.activeSnapshot?.currentEntryId"
+              label="在 Tree 中定位"
+              size="small"
+              @click="locateCurrentLeafInTree"
+            >
+              <MapPin :size="14" />
+            </BaseIconButton>
+            <BaseIconButton
+              label="关闭提示"
+              size="small"
+              @click="workspaceSession.clearActiveSessionAction"
+            >
+              <X :size="14" />
+            </BaseIconButton>
+          </div>
         </div>
         <div
           v-for="(message, index) in pendingSteeringPrompts"
@@ -1745,26 +2089,30 @@ function getTimelineItemRevision(item: TimelineItem | undefined): unknown[] {
         </div>
       </div>
       <Composer
-        v-model="workspaceSession.draftMessage"
+        v-model="activeComposerDraft"
         v-model:running-delivery="workspaceSession.runningDelivery"
         :is-running="isRunning"
         :can-send="canSend"
-        :submitting="workspaceSession.isSendingPrompt"
+        :submitting="
+          composerEditorRequest
+            ? Boolean(workspaceSession.activeExtensionDialogResponding[composerEditorRequest.id])
+            : workspaceSession.isSendingPrompt
+        "
         :thread-id="workspaceSession.activeSessionId"
         :project-id="workspaceSession.activeProjectId"
         :projects="workspaceProject.projectList"
-        :images="workspaceSession.draftImages"
-        :files="workspaceSession.draftFiles"
-        :quotes="workspaceSession.draftQuotes"
-        :image-error="imageSelectionError"
-        :selecting-images="selectingImages"
+        :images="composerEditorRequest ? [] : workspaceSession.draftImages"
+        :files="composerEditorRequest ? [] : workspaceSession.draftFiles"
+        :quotes="composerEditorRequest ? [] : workspaceSession.draftQuotes"
+        :image-error="composerEditorRequest ? undefined : imageSelectionError"
+        :selecting-images="composerEditorRequest ? false : selectingImages"
         :usage="tokenUsage"
         :current-model="activeModel"
         :model-options="modelOptions"
         :loading-model-options="loadingModelOptions"
-        :commands="workspaceSession.activeCommands"
-        :loading-commands="workspaceSession.activeCommandsLoading"
-        :disabled="Boolean(workspaceSession.activeExtensionDialog)"
+        :commands="composerEditorRequest ? [] : workspaceSession.activeCommands"
+        :loading-commands="composerEditorRequest ? false : workspaceSession.activeCommandsLoading"
+        :disabled="Boolean(workspaceSession.activeExtensionDialog && !composerEditorRequest)"
         :model-select-disabled="
           isRunning || (!workspaceSession.activeSessionId && !workspaceSession.activeProjectId)
         "
@@ -1772,8 +2120,14 @@ function getTimelineItemRevision(item: TimelineItem | undefined): unknown[] {
         :thinking-select-disabled="
           isRunning || (!workspaceSession.activeSessionId && !workspaceSession.activeProjectId)
         "
-        placeholder="描述你想让 Agent 完成的事"
-        @submit="sendComposerPrompt"
+        :placeholder="composerEditorRequest ? composerEditorRequest.title : composerPlaceholder"
+        :mode-label="composerEditorRequest?.title"
+        :mode-error="
+          composerEditorRequest
+            ? workspaceSession.activeExtensionDialogErrors[composerEditorRequest.id]
+            : undefined
+        "
+        @submit="submitActiveComposer"
         @select-model="handleSelectModel"
         @select-thinking-level="handleSelectThinkingLevel"
         @select-project="workspaceSession.startNewSession"
@@ -1788,10 +2142,11 @@ function getTimelineItemRevision(item: TimelineItem | undefined): unknown[] {
         @dismiss-image-error="handleDismissImageError"
         @load-commands="workspaceSession.loadCommands()"
         @run-command="workspaceSession.runCommand"
-        @text-change="workspaceSession.syncActiveEditorText"
+        @text-change="handleComposerTextChange"
         @abort="workspaceSession.abortActive"
+        @exit-mode="exitExtensionComposer"
       >
-        <template v-if="workspaceSession.activeExtensionDialog" #overlay>
+        <template v-if="workspaceSession.activeExtensionDialog && !composerEditorRequest" #overlay>
           <ExtensionDialogHost
             :request="workspaceSession.activeExtensionDialog"
             :draft="
@@ -1821,11 +2176,104 @@ function getTimelineItemRevision(item: TimelineItem | undefined): unknown[] {
 
 <style lang="scss" scoped>
 .chat-view {
+  --chat-content-max-width: 768px;
+  --chat-avatar-gutter-width: 38px;
+  --chat-active-avatar-gutter-width: var(--chat-avatar-gutter-width);
+  --chat-message-gap: var(--space-3);
+  --chat-timeline-padding-y: var(--space-6);
+  --chat-composer-padding-bottom: 24px;
+
   position: relative;
   display: flex;
   flex-direction: column;
   min-width: 0;
   min-height: 0;
+  container-type: inline-size;
+}
+
+.chat-view--avatars-hidden {
+  --chat-active-avatar-gutter-width: 0px;
+}
+
+.chat-view--avatar-circle .chat-view__avatar {
+  clip-path: none;
+  border-radius: 50%;
+}
+
+.chat-view--avatar-circle .chat-view__avatar::after {
+  display: none;
+}
+
+.chat-view--markdown-serif {
+  --markdown-body-font: Georgia, 'Times New Roman', serif;
+}
+
+.chat-view--motion-reduced,
+.chat-view--motion-reduced :deep(*) {
+  scroll-behavior: auto !important;
+  transition-duration: 0.01ms !important;
+  animation-duration: 0.01ms !important;
+  animation-iteration-count: 1 !important;
+}
+
+.chat-view--user-left :deep(.user-message-stack) {
+  align-items: flex-start;
+}
+
+.chat-view--user-left :deep(.is-user-message .message__actions) {
+  justify-content: flex-start;
+}
+
+.chat-view--user-left .chat-view__message--user-lane .chat-view__avatar {
+  right: auto;
+  left: calc(var(--chat-avatar-gutter-width) * -1);
+}
+
+.chat-view--width-narrow {
+  --chat-content-max-width: 640px;
+}
+
+.chat-view--width-wide {
+  --chat-content-max-width: 960px;
+}
+
+.chat-view--density-compact {
+  --chat-message-gap: var(--space-2);
+  --chat-timeline-padding-y: var(--space-3);
+  --chat-composer-padding-bottom: var(--space-3);
+}
+
+.chat-view--density-comfortable {
+  --chat-message-gap: var(--space-5);
+  --chat-timeline-padding-y: var(--space-8);
+  --chat-composer-padding-bottom: var(--space-8);
+}
+
+.chat-view--time-hidden :deep(.message__time) {
+  display: none;
+}
+
+.chat-view--time-always :deep(.message__actions) {
+  opacity: 1;
+}
+
+.chat-view--time-always :deep(.message__action-btn) {
+  opacity: 0;
+}
+
+.chat-view--time-always :deep(.message:hover .message__action-btn),
+.chat-view--time-always :deep(.message__action-btn:focus-visible) {
+  opacity: 1;
+}
+
+.chat-view--wrap-code :deep(.streaming-code-block__pre),
+.chat-view--wrap-code :deep(.streaming-code-block__highlight),
+.chat-view--wrap-code :deep(.streaming-code-block__highlight code),
+.chat-view--wrap-code :deep(.streaming-code-block__token) {
+  width: auto;
+  max-width: 100%;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 
 .chat-view__timeline {
@@ -1844,11 +2292,15 @@ function getTimelineItemRevision(item: TimelineItem | undefined): unknown[] {
 .chat-view__timeline-inner {
   display: flex;
   flex-direction: column;
-  gap: var(--space-3);
-  max-width: 768px;
+  gap: var(--chat-message-gap);
+  width: 100%;
+  max-width: var(--chat-content-max-width);
   min-height: 100%;
   margin: 0 auto;
-  padding: var(--space-6) var(--space-8) var(--space-8);
+  padding: var(--chat-timeline-padding-y) var(--space-8) var(--space-8);
+  transition:
+    max-width var(--duration-base) var(--ease-standard),
+    padding-inline var(--duration-base) var(--ease-standard);
 }
 
 .chat-view__session-notifications {
@@ -1869,16 +2321,20 @@ function getTimelineItemRevision(item: TimelineItem | undefined): unknown[] {
   align-items: center;
   gap: var(--space-2);
   box-sizing: border-box;
-  max-width: min(100%, 640px);
-  padding: var(--space-2) var(--space-2) var(--space-2) var(--space-4);
+  width: fit-content;
+  max-width: min(100%, 480px);
+  min-height: 36px;
+  padding: 6px 7px 6px 11px;
   overflow: hidden;
   color: var(--color-text);
   font-size: var(--font-size-ui-sm);
-  line-height: 1.4;
-  background: var(--color-surface);
+  line-height: 1.35;
+  background: color-mix(in srgb, var(--color-surface) 97%, transparent);
   border: 1px solid var(--color-border);
-  border-radius: 8px;
-  box-shadow: var(--shadow-md);
+  border-radius: var(--radius-sm);
+  box-shadow: 0 6px 18px rgb(20 35 48 / 9%);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
 }
 
 .chat-view__session-notification-text {
@@ -1893,13 +2349,13 @@ function getTimelineItemRevision(item: TimelineItem | undefined): unknown[] {
   flex: 0 0 auto;
   align-items: center;
   justify-content: center;
-  width: 22px;
-  height: 22px;
+  width: 20px;
+  height: 20px;
   padding: 0;
-  color: var(--color-text-muted);
+  color: var(--color-text-subtle);
   background: transparent;
   border: 0;
-  border-radius: 6px;
+  border-radius: var(--radius-xs);
   cursor: pointer;
   pointer-events: auto;
   transition:
@@ -1928,13 +2384,13 @@ function getTimelineItemRevision(item: TimelineItem | undefined): unknown[] {
 .session-notification-enter-from,
 .session-notification-leave-to {
   opacity: 0;
-  transform: translateY(8px) scale(0.98);
+  transform: translateY(4px);
 }
 
 .session-notification-enter-to,
 .session-notification-leave-from {
   opacity: 1;
-  transform: translateY(0) scale(1);
+  transform: translateY(0);
 }
 
 .session-notification-leave-active {
@@ -1952,8 +2408,9 @@ function getTimelineItemRevision(item: TimelineItem | undefined): unknown[] {
   font-size: var(--font-size-ui-sm);
   line-height: 1.4;
   background: var(--color-surface);
-  border: 1px solid var(--color-border);
-  border-radius: 12px 12px 0 0;
+  border: 1px solid var(--color-border-strong);
+  border-bottom: 0;
+  border-radius: var(--radius-lg) var(--radius-lg) 0 0;
 }
 
 .chat-view__session-action-row {
@@ -2000,16 +2457,78 @@ function getTimelineItemRevision(item: TimelineItem | undefined): unknown[] {
   width: 100%;
 }
 
-.chat-view__message {
+.chat-view__timeline-window {
   position: absolute;
   left: 0;
   display: flex;
+  flex-direction: column;
+  gap: var(--chat-message-gap);
+  width: 100%;
+}
+
+.chat-view__message {
+  position: relative;
+  display: flex;
+  align-items: flex-start;
   width: 100%;
   min-width: 0;
 }
 
-.chat-view__message--user {
-  justify-content: flex-end;
+.chat-view__message-content {
+  flex: 1 1 auto;
+  width: 100%;
+  min-width: 0;
+}
+
+.chat-view__message--user-lane .chat-view__avatar {
+  right: calc(var(--chat-avatar-gutter-width) * -1);
+  left: auto;
+}
+
+.chat-view__avatar {
+  --avatar-accent: color-mix(in srgb, var(--color-primary) 82%, #35f2e5);
+
+  position: absolute;
+  top: 0;
+  left: calc(var(--chat-avatar-gutter-width) * -1);
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  margin-top: 1px;
+  color: var(--avatar-accent);
+  background:
+    linear-gradient(90deg, var(--avatar-accent) 2px, transparent 2px) 4px 4px / 6px 2px no-repeat,
+    color-mix(in srgb, var(--color-surface-raised) 88%, var(--avatar-accent));
+  border: 1px solid color-mix(in srgb, var(--avatar-accent) 68%, var(--color-border));
+  clip-path: polygon(0 5px, 5px 0, 100% 0, 100% 23px, 23px 100%, 0 100%);
+  box-shadow:
+    inset 0 0 0 2px color-mix(in srgb, var(--avatar-accent) 8%, transparent),
+    0 0 10px color-mix(in srgb, var(--avatar-accent) 14%, transparent);
+}
+
+.chat-view__avatar::after {
+  position: absolute;
+  right: 3px;
+  bottom: 3px;
+  width: 3px;
+  height: 3px;
+  content: '';
+  background: var(--avatar-accent);
+  box-shadow: -4px 0 0 color-mix(in srgb, var(--avatar-accent) 45%, transparent);
+}
+
+.chat-view__avatar--user {
+  --avatar-accent: color-mix(in srgb, var(--color-warning, #ffcc4a) 84%, #ff4fd8);
+}
+
+.chat-view__avatar-glyph {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 800;
+  line-height: 1;
+  letter-spacing: 0;
+  text-shadow: 1px 0 0 color-mix(in srgb, var(--avatar-accent) 30%, transparent);
 }
 
 .chat-view__message--assistant,
@@ -2109,28 +2628,63 @@ function getTimelineItemRevision(item: TimelineItem | undefined): unknown[] {
 }
 
 .chat-view__activity {
-  flex-shrink: 0;
   display: inline-flex;
   align-items: center;
-  gap: var(--space-2);
+  gap: 7px;
   align-self: flex-start;
-  padding: var(--space-1) 0;
+  min-width: 0;
+  max-width: 100%;
+  padding: 3px 0;
   color: var(--color-text-muted);
-  font-size: var(--font-size-ui);
+  font-size: var(--font-size-ui-sm);
+  line-height: 1.3;
+}
 
-  .chat-view__activity-dot {
-    width: 8px;
-    height: 8px;
+.chat-view__activity-pixels {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  width: 14px;
+  flex: 0 0 auto;
+
+  i {
+    width: 3px;
+    height: 3px;
     background: var(--color-primary);
-    border-radius: 50%;
-    animation: pulse 1.1s var(--ease-standard) infinite;
+    animation: activity-pixel-hop 900ms steps(2, end) infinite;
   }
 
-  .chat-view__activity-indicator {
-    min-width: 1ch;
-    color: var(--color-primary);
-    font-family: var(--font-mono) !important;
+  i:nth-child(2) {
+    animation-delay: 120ms;
   }
+
+  i:nth-child(3) {
+    animation-delay: 240ms;
+  }
+}
+
+.chat-view__activity-pulse {
+  width: 8px;
+  height: 8px;
+  flex: 0 0 auto;
+  background: var(--color-primary);
+  border-radius: 50%;
+  animation: pulse 900ms var(--ease-standard) infinite;
+}
+
+.chat-view__activity-indicator {
+  min-width: 1ch;
+  flex: 0 0 auto;
+  color: var(--color-primary-strong);
+  font-family: var(--font-mono);
+  font-size: var(--font-size-ui-xs);
+}
+
+.chat-view__activity-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .chat-view__jump {
@@ -2138,14 +2692,15 @@ function getTimelineItemRevision(item: TimelineItem | undefined): unknown[] {
   left: 50%;
   transform: translate(-50%, 0);
   z-index: 4;
-  padding: 6px var(--space-3);
+  padding: 7px var(--space-3);
   color: var(--color-primary-ink);
   font: inherit;
   font-size: var(--font-size-ui-sm);
-  font-weight: 650;
+  font-weight: 700;
+  letter-spacing: 0.02em;
   background: var(--color-primary);
-  border: 1px solid var(--color-primary);
-  border-radius: 999px;
+  border: 1px solid var(--color-primary-strong);
+  border-radius: var(--radius-sm);
   box-shadow: var(--shadow-md);
   cursor: pointer;
   transition:
@@ -2163,17 +2718,77 @@ function getTimelineItemRevision(item: TimelineItem | undefined): unknown[] {
   }
 }
 
+.jump-latest-enter-active,
+.jump-latest-leave-active {
+  transition:
+    opacity var(--duration-base) var(--ease-standard),
+    transform var(--duration-base) var(--ease-standard);
+}
+
+.jump-latest-enter-from,
+.jump-latest-leave-to {
+  opacity: 0;
+  transform: translate(-50%, 6px);
+}
+
+.jump-latest-enter-to,
+.jump-latest-leave-from {
+  opacity: 1;
+  transform: translate(-50%, 0);
+}
+
+.chat-view__composer-backdrop {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  z-index: 10;
+  background: linear-gradient(to bottom, transparent, var(--color-surface) 32px);
+  pointer-events: none;
+}
+
 .chat-view__composer {
   position: absolute;
   bottom: 0;
   left: 50%;
   transform: translate(-50%, 0);
   width: 100%;
-  max-width: min(768px, 100%);
+  max-width: min(
+    calc(var(--chat-content-max-width) + var(--chat-active-avatar-gutter-width) * 2),
+    100%
+  );
   min-width: 0;
-  padding: 0 var(--space-8) 24px;
+  padding: 0 var(--space-8) var(--chat-composer-padding-bottom);
   margin: 0 auto;
-  z-index: 9;
+  z-index: 30;
+  transition:
+    max-width var(--duration-base) var(--ease-standard),
+    padding-inline var(--duration-base) var(--ease-standard);
+}
+
+@keyframes activity-pixel-hop {
+  0%,
+  100% {
+    opacity: 0.35;
+    transform: translateY(1px);
+  }
+
+  45% {
+    opacity: 1;
+    transform: translateY(-2px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .chat-view__activity-pixels i {
+    opacity: 0.72;
+    animation: none;
+  }
+
+  .jump-latest-enter-active,
+  .jump-latest-leave-active {
+    transition: none;
+  }
 }
 
 @keyframes pulse {
@@ -2186,6 +2801,64 @@ function getTimelineItemRevision(item: TimelineItem | undefined): unknown[] {
   50% {
     opacity: 1;
     transform: scale(1);
+  }
+}
+
+@container (width <= 860px) {
+  .chat-view__timeline-inner,
+  .chat-view__composer {
+    padding-inline: calc(var(--chat-active-avatar-gutter-width) + var(--space-2));
+  }
+}
+
+@container (width <= 520px) {
+  .chat-view {
+    --chat-avatar-gutter-width: 30px;
+  }
+
+  .chat-view__timeline-inner,
+  .chat-view__composer {
+    padding-inline: calc(var(--chat-active-avatar-gutter-width) + var(--space-1));
+  }
+
+  .chat-view__avatar {
+    width: 24px;
+    height: 24px;
+    clip-path: polygon(0 4px, 4px 0, 100% 0, 100% 20px, 20px 100%, 0 100%);
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--avatar-accent) 8%, transparent);
+  }
+
+  .chat-view__avatar::after {
+    right: 2px;
+    bottom: 2px;
+    width: 2px;
+    height: 2px;
+    box-shadow: -3px 0 0 color-mix(in srgb, var(--avatar-accent) 45%, transparent);
+  }
+
+  .chat-view__avatar-glyph {
+    font-size: 8px;
+  }
+}
+
+@container (width <= 360px) {
+  .chat-view {
+    --chat-avatar-gutter-width: 25px;
+  }
+
+  .chat-view__timeline-inner,
+  .chat-view__composer {
+    padding-inline: calc(var(--chat-active-avatar-gutter-width) + 2px);
+  }
+
+  .chat-view__avatar {
+    width: 20px;
+    height: 20px;
+    clip-path: polygon(0 3px, 3px 0, 100% 0, 100% 17px, 17px 100%, 0 100%);
+  }
+
+  .chat-view__avatar::after {
+    display: none;
   }
 }
 

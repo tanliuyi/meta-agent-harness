@@ -20,12 +20,19 @@ body {
   overflow: hidden;
   color: var(--color-text);
   background-color: var(--color-canvas);
+  background-image: linear-gradient(
+    to bottom,
+    var(--color-canvas-start),
+    var(--color-canvas-end)
+  );
+  background-attachment: fixed;
   font-family: var(--font-sans);
   font-size: var(--font-size-ui);
-  line-height: 1.4;
-  letter-spacing: 0;
+  line-height: 1.5;
+  letter-spacing: 0.01em;
   text-rendering: geometricPrecision;
   -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
   transition:
     color var(--duration-base) var(--ease-standard),
     background var(--duration-base) var(--ease-standard);

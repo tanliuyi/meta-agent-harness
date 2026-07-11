@@ -22,8 +22,15 @@ import {
 import type { ImagePreviewItem } from '../ImagePreviewDialog.vue'
 import BaseIconButton from '@/components/base/BaseIconButton.vue'
 import SkillIcon from '@/components/icons/SkillIcon.vue'
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
-import { Check, Copy, File as FileIcon, GitFork, MapPin, Pencil, Quote } from 'lucide-vue-next'
+import {
+  Check,
+  Copy,
+  File as FileIcon,
+  GitFork,
+  MapPin,
+  Quote,
+  TextCursorInput
+} from 'lucide-vue-next'
 
 const COLLAPSED_MAX_HEIGHT = 320
 const USER_MESSAGE_MAX_WIDTH = 640
@@ -586,50 +593,39 @@ function toggleExpand(): void {
     </div>
     <div class="message__actions">
       <span class="message__time">{{ formattedTime }}</span>
-      <TooltipProvider>
-        <Tooltip v-if="message.sessionEntryId">
-          <TooltipTrigger as-child>
-            <BaseIconButton
-              :label="isNavigatingTree ? '正在从这里编辑' : '从这里编辑'"
-              size="small"
-              :disabled="isNavigatingTree"
-              @click="navigateTree"
-            >
-              <Pencil :size="14" />
-            </BaseIconButton>
-          </TooltipTrigger>
-          <TooltipContent>{{ isNavigatingTree ? '正在从这里编辑' : '从这里编辑' }}</TooltipContent>
-        </Tooltip>
-        <Tooltip v-if="message.sessionEntryId">
-          <TooltipTrigger as-child>
-            <BaseIconButton label="在 Tree 中定位" size="small" @click="locateInTree">
-              <MapPin :size="14" />
-            </BaseIconButton>
-          </TooltipTrigger>
-          <TooltipContent>在 Tree 中定位</TooltipContent>
-        </Tooltip>
-        <Tooltip v-if="message.sessionEntryId">
-          <TooltipTrigger as-child>
-            <BaseIconButton label="创建分支会话" size="small" @click="forkFromMessage">
-              <GitFork :size="14" />
-            </BaseIconButton>
-          </TooltipTrigger>
-          <TooltipContent>创建分支会话</TooltipContent>
-        </Tooltip>
-        <Tooltip>
-          <TooltipTrigger as-child>
-            <BaseIconButton
-              :label="isCopied ? '已复制' : '复制消息'"
-              size="small"
-              @click="copyMessageText"
-            >
-              <Check v-if="isCopied" :size="14" />
-              <Copy v-else :size="14" />
-            </BaseIconButton>
-          </TooltipTrigger>
-          <TooltipContent>{{ isCopied ? '已复制' : '复制消息' }}</TooltipContent>
-        </Tooltip>
-      </TooltipProvider>
+      <BaseIconButton
+        v-if="message.sessionEntryId"
+        :label="isNavigatingTree ? '正在从这里编辑' : '从这里编辑'"
+        class="message__action-btn"
+        :disabled="isNavigatingTree"
+        @click="navigateTree"
+      >
+        <TextCursorInput :size="13" />
+      </BaseIconButton>
+      <BaseIconButton
+        v-if="message.sessionEntryId"
+        label="在 Tree 中定位"
+        class="message__action-btn"
+        @click="locateInTree"
+      >
+        <MapPin :size="13" />
+      </BaseIconButton>
+      <BaseIconButton
+        v-if="message.sessionEntryId"
+        label="创建分支会话"
+        class="message__action-btn"
+        @click="forkFromMessage"
+      >
+        <GitFork :size="13" />
+      </BaseIconButton>
+      <BaseIconButton
+        :label="isCopied ? '已复制' : '复制消息'"
+        class="message__action-btn"
+        @click="copyMessageText"
+      >
+        <Check v-if="isCopied" :size="13" />
+        <Copy v-else :size="13" />
+      </BaseIconButton>
     </div>
   </div>
 </template>
@@ -656,10 +652,10 @@ function toggleExpand(): void {
 .message__actions {
   display: flex;
   align-items: center;
-  gap: var(--space-1);
-  padding: var(--space-1) 0;
+  gap: 2px;
+  padding: 0;
   opacity: 0;
-  margin-top: var(--space-1);
+  margin-top: var(--space-2);
   transition: opacity var(--duration-fast) var(--ease-standard);
 
   .message:hover & {
@@ -667,10 +663,22 @@ function toggleExpand(): void {
   }
 }
 
+:deep(.message__action-btn) {
+  width: 24px;
+  height: 24px;
+  color: var(--color-text-subtle);
+  border-radius: var(--radius-sm);
+
+  &:hover {
+    color: var(--color-text);
+    background: var(--color-surface-raised);
+  }
+}
+
 .message__time {
-  margin-right: var(--space-1);
-  font-size: var(--font-size-ui-sm);
-  color: var(--color-text-muted);
+  margin-right: 6px;
+  font-size: 11px;
+  color: var(--color-text-subtle);
 }
 
 .user-message-stack {

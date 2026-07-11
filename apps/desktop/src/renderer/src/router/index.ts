@@ -35,6 +35,17 @@ const router = createRouter({
           component: () => import('../views/settings/general/GeneralSettingsView.vue')
         },
         {
+          path: 'personalization',
+          name: 'SettingsPersonalization',
+          component: () =>
+            import('../views/settings/personalization/PersonalizationSettingsView.vue')
+        },
+        {
+          path: 'memory',
+          name: 'SettingsMemory',
+          component: () => import('../views/settings/memory/MemorySettingsView.vue')
+        },
+        {
           path: 'agent',
           name: 'SettingsAgent',
           component: () => import('../views/settings/agent/AgentSettingsView.vue'),
@@ -156,6 +167,11 @@ const router = createRouter({
           path: 'archive',
           name: 'SettingsArchive',
           component: () => import('../views/settings/archive/ArchiveView.vue')
+        },
+        {
+          path: 'about',
+          name: 'SettingsAbout',
+          component: () => import('../views/settings/about/AboutView.vue')
         }
       ]
     }

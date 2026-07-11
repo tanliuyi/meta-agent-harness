@@ -33,6 +33,7 @@ import {
   Folder as FolderIcon,
   LoaderCircle,
   Quote,
+  Target,
   X
 } from 'lucide-vue-next'
 import type { ImagePreviewItem } from '../ImagePreviewDialog.vue'
@@ -89,12 +90,12 @@ type SessionModel = NonNullable<ThreadSnapshot['model']>
 type SessionModelOption = Pick<SessionModel, 'provider' | 'id' | 'displayName'>
 
 const thinkingOptions: Array<{ label: string; value: ThinkingLevel }> = [
-  { label: 'Off', value: 'off' },
-  { label: 'Minimal', value: 'minimal' },
-  { label: 'Low', value: 'low' },
-  { label: 'Medium', value: 'medium' },
-  { label: 'High', value: 'high' },
-  { label: 'XHigh', value: 'xhigh' }
+  { label: '关闭', value: 'off' },
+  { label: '最低', value: 'minimal' },
+  { label: '低', value: 'low' },
+  { label: '中', value: 'medium' },
+  { label: '高', value: 'high' },
+  { label: '最高', value: 'xhigh' }
 ]
 
 const supportedImageMimeTypes = new Set([
@@ -173,6 +174,10 @@ const props = withDefaults(
     runningDelivery?: RunningMessageDelivery
     /** 输入提示。 */
     placeholder?: string
+    /** 当前 Composer 的临时模式标签。 */
+    modeLabel?: string
+    /** 临时模式的提交错误。 */
+    modeError?: string
   }>(),
   {
     isRunning: false,
@@ -196,7 +201,9 @@ const props = withDefaults(
     loadingCommands: false,
     disabled: false,
     runningDelivery: 'steer',
-    placeholder: ''
+    placeholder: '',
+    modeLabel: undefined,
+    modeError: undefined
   }
 )
 
@@ -239,6 +246,8 @@ const emit = defineEmits<{
   'run-command': [command: string, args?: string]
   /** 中止当前任务。 */
   abort: []
+  /** 退出当前临时 Composer 模式。 */
+  'exit-mode': []
 }>()
 
 const editorRef = ref<{
@@ -391,7 +400,9 @@ const currentThinkingLabel = computed(
 )
 
 /** command palette 是否可用。 */
-const canOpenCommandPalette = computed(() => Boolean(props.threadId || props.projectId))
+const canOpenCommandPalette = computed(
+  () => !props.modeLabel && Boolean(props.threadId || props.projectId)
+)
 
 /** command palette 过滤结果。 */
 const filteredCommands = computed(() => {
@@ -1039,7 +1050,7 @@ function handleThinkingLevelChange(value: unknown): void {
  * 打开图片选择器。
  */
 function openImagePicker(): void {
-  if (isComposerFormDisabled.value) {
+  if (isComposerFormDisabled.value || props.modeLabel) {
     return
   }
   emit('select-images', props.threadId)
@@ -1050,7 +1061,7 @@ function openImagePicker(): void {
  * @param event - 拖拽事件。
  */
 function handleDragEnter(event: DragEvent): void {
-  if (!hasDraggedFiles(event)) {
+  if (props.modeLabel || !hasDraggedFiles(event)) {
     return
   }
   event.preventDefault()
@@ -1063,7 +1074,7 @@ function handleDragEnter(event: DragEvent): void {
  * @param event - 拖拽事件。
  */
 function handleDragOver(event: DragEvent): void {
-  if (!hasDraggedFiles(event)) {
+  if (props.modeLabel || !hasDraggedFiles(event)) {
     return
   }
   event.preventDefault()
@@ -1090,7 +1101,7 @@ function handleDragLeave(event: DragEvent): void {
  * @param event - 拖拽事件。
  */
 function handleDrop(event: DragEvent): void {
-  if (!hasDraggedFiles(event)) {
+  if (props.modeLabel || !hasDraggedFiles(event)) {
     return
   }
   event.preventDefault()
@@ -1475,13 +1486,16 @@ function formatModelLabel(model: Pick<SessionModel, 'provider' | 'id'>): string 
           :commands="commands"
           @update:model-value="emit('update:modelValue', $event)"
           @text-change="handleEditorTextChange"
-          @paste-images="emit('paste-images', $event, threadId)"
+          @paste-images="!modeLabel && emit('paste-images', $event, threadId)"
           @file-reference-completion="handleFileReferenceCompletion"
           @skill-reference-completion="handleSkillReferenceCompletion"
           @focus-change="handleEditorFocusChange"
           @submit="handleSubmit"
         />
         <div class="composer__actions">
+          <div v-if="modeError" class="composer__image-error" role="alert">
+            <span>{{ modeError }}</span>
+          </div>
           <div v-if="imageError" class="composer__image-error" role="alert">
             <span>{{ imageError }}</span>
             <button type="button" aria-label="关闭图片错误" @click="emit('dismiss-image-error')">
@@ -1490,41 +1504,40 @@ function formatModelLabel(model: Pick<SessionModel, 'provider' | 'id'>): string 
           </div>
           <div class="composer__primary-actions">
             <div class="composer__left-actions">
-              <TooltipProvider>
-                <Tooltip>
-                  <TooltipTrigger as-child>
-                    <BaseIconButton
-                      type="button"
-                      size="medium"
-                      class="composer__attach"
-                      label="添加图片"
-                      :disabled="selectingImages"
-                      @click="openImagePicker"
-                    >
-                      <PlusIcon :size="16" />
-                    </BaseIconButton>
-                  </TooltipTrigger>
-                  <TooltipContent>添加图片</TooltipContent>
-                </Tooltip>
-              </TooltipProvider>
-              <TooltipProvider>
-                <Tooltip>
-                  <TooltipTrigger as-child>
-                    <BaseIconButton
-                      type="button"
-                      size="medium"
-                      class="composer__commands"
-                      label="打开命令面板"
-                      :active="commandPaletteOpen"
-                      :disabled="!canOpenCommandPalette"
-                      @click="toggleCommandPalette"
-                    >
-                      <CommandIcon :size="15" />
-                    </BaseIconButton>
-                  </TooltipTrigger>
-                  <TooltipContent>命令面板 (⌘K)</TooltipContent>
-                </Tooltip>
-              </TooltipProvider>
+              <BaseIconButton
+                v-if="!modeLabel"
+                type="button"
+                size="medium"
+                class="composer__attach"
+                label="添加图片"
+                :disabled="selectingImages"
+                @click="openImagePicker"
+              >
+                <PlusIcon :size="16" />
+              </BaseIconButton>
+              <BaseIconButton
+                v-if="!modeLabel"
+                type="button"
+                size="medium"
+                class="composer__commands"
+                label="命令面板 (⌘K)"
+                :active="commandPaletteOpen"
+                :disabled="!canOpenCommandPalette"
+                @click="toggleCommandPalette"
+              >
+                <CommandIcon :size="15" />
+              </BaseIconButton>
+              <div v-if="modeLabel" class="composer__mode-chip">
+                <Target :size="13" aria-hidden="true" />
+                <span>{{ modeLabel }}</span>
+                <button
+                  type="button"
+                  :aria-label="`退出 ${modeLabel} 模式`"
+                  @click="emit('exit-mode')"
+                >
+                  <X :size="12" />
+                </button>
+              </div>
             </div>
           </div>
           <Select
@@ -1583,19 +1596,23 @@ function formatModelLabel(model: Pick<SessionModel, 'provider' | 'id'>): string 
                   </SelectTrigger>
                 </TooltipTrigger>
 
-                <SelectContent :content-style="{ width: '128px', minWidth: '128px' }">
-                  <SelectGroup>
+                <SelectContent
+                  class="composer__thinking-select-content"
+                  :content-style="{ width: '172px', minWidth: '172px' }"
+                >
+                  <SelectGroup class="composer__thinking-select-list">
                     <SelectItem
                       v-for="option in thinkingOptions"
                       :key="option.value"
                       :value="option.value"
+                      class="composer__thinking-select-item"
                     >
-                      {{ option.label }}
+                      <span class="composer__thinking-option-label">{{ option.label }}</span>
                     </SelectItem>
                   </SelectGroup>
                 </SelectContent>
               </Select>
-              <TooltipContent>Thinking level: {{ currentThinkingLabel }}</TooltipContent>
+              <TooltipContent>思考强度：{{ currentThinkingLabel }}</TooltipContent>
             </Tooltip>
           </TooltipProvider>
 
@@ -1752,7 +1769,7 @@ function formatModelLabel(model: Pick<SessionModel, 'provider' | 'id'>): string 
   max-width: 100%;
   min-width: 0;
   overflow: visible;
-  border-radius: 18px;
+  border-radius: var(--radius-lg);
 }
 
 .composer {
@@ -1763,12 +1780,22 @@ function formatModelLabel(model: Pick<SessionModel, 'provider' | 'id'>): string 
   max-width: 100%;
   min-width: 0;
   gap: var(--space-2);
-  padding: var(--space-4);
-  background: var(--color-surface-raised);
-  border: 1px solid var(--color-border);
-  border-radius: 18px;
+  padding: var(--space-4) var(--space-5) var(--space-3);
+  background: color-mix(in srgb, var(--color-surface) 88%, var(--color-surface-raised));
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-lg);
   box-shadow: var(--shadow-sm);
   z-index: 2;
+  transition:
+    border-color var(--duration-fast) var(--ease-standard),
+    box-shadow var(--duration-fast) var(--ease-standard);
+
+  &:focus-within {
+    border-color: var(--color-primary-outline);
+    box-shadow:
+      var(--shadow-sm),
+      0 0 0 2px var(--color-primary-soft);
+  }
 
   &::after {
     position: absolute;
@@ -1780,9 +1807,9 @@ function formatModelLabel(model: Pick<SessionModel, 'provider' | 'id'>): string 
     font-size: var(--font-size-ui-sm);
     font-weight: 650;
     content: '释放以添加附件';
-    background: color-mix(in srgb, var(--color-primary) 8%, transparent);
+    background: color-mix(in srgb, var(--color-primary) 7%, transparent);
     border: 1px dashed var(--color-primary);
-    border-radius: 18px;
+    border-radius: inherit;
     opacity: 0;
     pointer-events: none;
     transition: opacity var(--duration-fast) var(--ease-standard);
@@ -1830,6 +1857,16 @@ function formatModelLabel(model: Pick<SessionModel, 'provider' | 'id'>): string 
   min-height: 184px;
 }
 
+.composer__file-completion,
+.composer__command-palette {
+  background: color-mix(in srgb, var(--color-surface) 92%, transparent);
+  border-color: var(--color-border-strong);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+}
+
 .composer__file-completion-scroll {
   width: 100%;
   height: 100%;
@@ -1862,12 +1899,18 @@ function formatModelLabel(model: Pick<SessionModel, 'provider' | 'id'>): string 
   color: var(--color-text);
   text-align: left;
   background: transparent;
-  border: 0;
-  border-radius: var(--radius-md);
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
   cursor: pointer;
+  transition:
+    background-color var(--duration-fast) var(--ease-standard),
+    border-color var(--duration-fast) var(--ease-standard),
+    color var(--duration-fast) var(--ease-standard);
 
   &.is-selected {
+    color: var(--color-primary-strong);
     background: var(--composer-selection-bg);
+    border-color: var(--color-primary-outline);
   }
 }
 
@@ -1877,6 +1920,7 @@ function formatModelLabel(model: Pick<SessionModel, 'provider' | 'id'>): string 
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  font-size: var(--font-size-ui-sm);
 }
 
 .composer__file-completion-description {
@@ -1905,6 +1949,7 @@ function formatModelLabel(model: Pick<SessionModel, 'provider' | 'id'>): string 
   overflow: hidden;
   font-weight: 500;
   text-overflow: ellipsis;
+  font-size: var(--font-size-ui-sm);
 }
 
 .composer__skill-completion-description {
@@ -1995,14 +2040,20 @@ function formatModelLabel(model: Pick<SessionModel, 'provider' | 'id'>): string 
   padding: 7px 8px;
   text-align: left;
   background: transparent;
-  border: 0;
-  border-radius: var(--radius-md);
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
   cursor: pointer;
+  transition:
+    background-color var(--duration-fast) var(--ease-standard),
+    border-color var(--duration-fast) var(--ease-standard),
+    color var(--duration-fast) var(--ease-standard);
 }
 
 .composer__command-item:hover,
 .composer__command-item.is-selected {
+  color: var(--color-primary-strong);
   background: var(--composer-selection-bg);
+  border-color: var(--color-primary-outline);
 }
 
 .composer__command-item span,
@@ -2037,6 +2088,8 @@ function formatModelLabel(model: Pick<SessionModel, 'provider' | 'id'>): string 
   width: 100%;
   min-width: 0;
   min-height: var(--composer-action-control-height);
+  padding-top: var(--space-2);
+  border-top: 1px solid var(--color-border-muted);
 }
 
 .composer__primary-actions {
@@ -2048,6 +2101,47 @@ function formatModelLabel(model: Pick<SessionModel, 'provider' | 'id'>): string 
   display: flex;
   align-items: center;
   gap: var(--space-1);
+}
+
+.composer__mode-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: var(--composer-action-control-height);
+  padding: 0 5px 0 8px;
+  border: 1px solid color-mix(in srgb, var(--color-accent) 45%, var(--color-border));
+  border-radius: var(--radius-sm);
+  color: var(--color-accent);
+  background: color-mix(in srgb, var(--color-accent) 10%, transparent);
+  font-size: var(--font-size-ui-sm);
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  min-width: 0;
+  max-width: min(240px, 40vw);
+  white-space: nowrap;
+}
+
+.composer__mode-chip > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.composer__mode-chip button {
+  display: inline-grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  color: inherit;
+  background: transparent;
+  cursor: pointer;
+}
+
+.composer__mode-chip button:hover {
+  background: color-mix(in srgb, var(--color-accent) 16%, transparent);
 }
 
 .composer__project-select,
@@ -2070,6 +2164,9 @@ function formatModelLabel(model: Pick<SessionModel, 'provider' | 'id'>): string 
   align-items: center;
   height: var(--composer-action-control-height);
   padding: 0 8px;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-ui-xs);
+  letter-spacing: 0.01em;
   line-height: 1;
 }
 
@@ -2117,6 +2214,40 @@ function formatModelLabel(model: Pick<SessionModel, 'provider' | 'id'>): string 
 
 .composer__thinking-select {
   flex: 0 0 auto;
+}
+
+.composer__thinking-select-content {
+  border-radius: var(--radius-md);
+}
+
+.composer__thinking-select-list {
+  display: grid;
+  gap: 1px;
+}
+
+.composer__thinking-select-item {
+  min-height: 34px;
+  font-size: var(--font-size-ui-xs);
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  letter-spacing: 0;
+
+  &[data-state='checked'] {
+    color: var(--color-primary-strong);
+    background: var(--color-primary-soft);
+    border-color: color-mix(in srgb, var(--color-primary-outline) 72%, transparent);
+  }
+
+  &:focus,
+  &[data-highlighted] {
+    border-color: var(--color-border-strong);
+  }
+}
+
+.composer__thinking-option-label {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-weight: 500;
 }
 
 .composer__project-label,
@@ -2171,10 +2302,14 @@ function formatModelLabel(model: Pick<SessionModel, 'provider' | 'id'>): string 
   width: var(--composer-action-control-height) !important;
   height: var(--composer-action-control-height) !important;
   line-height: 1 !important;
+  border: 1px solid transparent;
+  border-radius: var(--radius-xs) !important;
 
   &:hover,
   &.is-active {
-    background: var(--color-surface-hover);
+    color: var(--color-primary-strong);
+    background: var(--color-primary-soft);
+    border-color: var(--color-primary-outline);
   }
 }
 
@@ -2246,8 +2381,8 @@ function formatModelLabel(model: Pick<SessionModel, 'provider' | 'id'>): string 
   color: var(--color-text);
   font-size: var(--font-size-ui-sm);
   background: var(--color-control-track);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-lg);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-sm);
 }
 
 .composer__quote-remove {
@@ -2259,7 +2394,7 @@ function formatModelLabel(model: Pick<SessionModel, 'provider' | 'id'>): string 
   color: var(--color-text-muted);
   background: transparent;
   border: 0;
-  border-radius: 99px;
+  border-radius: var(--radius-xs);
   cursor: pointer;
 
   &:hover,
@@ -2287,8 +2422,8 @@ function formatModelLabel(model: Pick<SessionModel, 'provider' | 'id'>): string 
   padding: 0 var(--space-1) 0 var(--space-2);
   color: var(--color-text);
   background: var(--color-control-track);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-lg);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-sm);
 }
 
 .composer__file-icon {
@@ -2330,7 +2465,7 @@ function formatModelLabel(model: Pick<SessionModel, 'provider' | 'id'>): string 
   color: var(--color-text-muted);
   background: transparent;
   border: 0;
-  border-radius: 99px;
+  border-radius: var(--radius-xs);
   cursor: pointer;
 
   &:hover,
@@ -2361,8 +2496,8 @@ function formatModelLabel(model: Pick<SessionModel, 'provider' | 'id'>): string 
   padding: 0;
   overflow: hidden;
   background: var(--color-control-track);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-sm);
   cursor: zoom-in;
 
   img {
@@ -2416,8 +2551,7 @@ function formatModelLabel(model: Pick<SessionModel, 'provider' | 'id'>): string 
   color: var(--color-text);
   background: var(--composer-image-remove-bg);
   border: 1px solid var(--color-border);
-  border-radius: 50%;
-  box-shadow: var(--shadow-sm);
+  border-radius: var(--radius-xs);
   cursor: pointer;
   transition:
     opacity var(--duration-fast) var(--ease-standard),
@@ -2449,11 +2583,14 @@ function formatModelLabel(model: Pick<SessionModel, 'provider' | 'id'>): string 
 .composer__action {
   color: var(--color-primary-ink);
   background: var(--color-primary) !important;
-  border-color: var(--color-primary);
-  border-radius: 50%;
+  border-color: var(--color-primary-strong);
+  border-radius: var(--radius-xs);
+  box-shadow: 2px 2px 0 color-mix(in srgb, var(--color-primary) 24%, transparent);
 
   &:hover:not(:disabled) {
+    color: var(--color-primary-ink);
     background: var(--color-primary-strong);
+    transform: translate(-1px, -1px);
   }
 
   &.is-stop {
@@ -2503,10 +2640,12 @@ function formatModelLabel(model: Pick<SessionModel, 'provider' | 'id'>): string 
 
 .composer-footer {
   background: var(--color-surface-raised);
-  margin-top: -22px;
-  padding-top: 18px;
+  margin-top: -16px;
+  padding-top: 14px;
   padding-bottom: var(--space-2);
   padding-left: var(--space-4);
-  border-radius: 0 0 18px 18px;
+  border: 1px solid var(--color-border-muted);
+  border-top: 0;
+  border-radius: 0 0 var(--radius-lg) var(--radius-lg);
 }
 </style>

@@ -1,11 +1,14 @@
 <script setup lang="ts">
 import { BaseButton, BasePanel } from '@renderer/components/base'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { SettingsArrayField } from '@renderer/views/settings/components/form'
 import useAgentSettingsStore from '@renderer/stores/agent-settings'
 import { Boxes, Save } from 'lucide-vue-next'
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 
 const agentSettings = useAgentSettingsStore()
+
+const activeTab = ref<'skills' | 'prompts'>('skills')
 
 const resourceStats = computed(() => {
   const resources = agentSettings.draft?.resources
@@ -57,30 +60,46 @@ const resourceStats = computed(() => {
     </BasePanel>
 
     <BasePanel v-if="agentSettings.draft" title="资源路径" eyebrow="资源">
-      <div class="resource-grid">
-        <SettingsArrayField
-          v-model="agentSettings.draft.resources.skills"
-          label="技能"
-          description="每个技能目录单独一项。"
-          placeholder="例如 /path/to/skill"
-          select-title="选择技能目录"
-          path-actions
-        />
-        <SettingsArrayField
-          v-model="agentSettings.draft.resources.prompts"
-          label="提示词"
-          description="每个提示词资源路径单独一项。"
-          placeholder="例如 /path/to/prompts"
-          select-title="选择提示词路径"
-          path-actions
-          path-mode="any"
-        />
-      </div>
+      <Tabs v-model="activeTab" class="resource-tabs">
+        <TabsList>
+          <TabsTrigger value="skills">技能</TabsTrigger>
+          <TabsTrigger value="prompts">提示词</TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="skills">
+          <SettingsArrayField
+            v-model="agentSettings.draft.resources.skills"
+            label="技能"
+            description="每个技能目录单独一项。"
+            placeholder="例如 /path/to/skill"
+            select-title="选择技能目录"
+            path-actions
+          />
+        </TabsContent>
+
+        <TabsContent value="prompts">
+          <SettingsArrayField
+            v-model="agentSettings.draft.resources.prompts"
+            label="提示词"
+            description="每个提示词资源路径单独一项。"
+            placeholder="例如 /path/to/prompts"
+            select-title="选择提示词路径"
+            path-actions
+            path-mode="any"
+          />
+        </TabsContent>
+      </Tabs>
     </BasePanel>
   </div>
 </template>
 
 <style lang="scss" scoped>
+.resource-tabs {
+  display: grid;
+  gap: var(--space-3);
+  min-width: 0;
+}
+
 .resource-summary {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);

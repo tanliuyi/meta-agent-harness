@@ -18,8 +18,18 @@ setCustomComponents('meta-agent-markdown', {
 </script>
 
 <script setup lang="ts">
-import { computed, onBeforeUnmount, provide, ref, shallowRef, watch } from 'vue'
+import {
+  computed,
+  onBeforeUnmount,
+  provide,
+  ref,
+  shallowRef,
+  watch,
+  type ComponentPublicInstance,
+  type CSSProperties
+} from 'vue'
 import { useResizeObserver } from '@vueuse/core'
+import { useVirtualizer } from '@tanstack/vue-virtual'
 import MarkdownRender, {
   getMarkdown,
   parseMarkdownToStructure,
@@ -28,6 +38,7 @@ import MarkdownRender, {
 import { MarkdownContextKey, type StreamingMarkdownContext } from './markdown-context'
 import {
   canReuseMarkdownAppendPrefix,
+  createVirtualMarkdownChunkRows,
   stabilizeMarkdownNodeChunks,
   stabilizeMarkdownNodes,
   type StableMarkdownNodeChunk,
@@ -49,6 +60,8 @@ const props = defineProps<{
   isStreaming: boolean
   /** 消息 ID。 */
   messageId: string
+  /** 可选的受限滚动 viewport，仅 Thinking 使用。 */
+  getVirtualScrollElement?: () => HTMLElement | null | undefined
 }>()
 
 const emit = defineEmits<{
@@ -74,9 +87,12 @@ type ParsedMarkdownNode = ParsedMarkdownNodes[number]
 
 const PARSE_COALESCE_MS = 80
 const STREAMING_CHUNK_SIZE = 16
+const VIRTUAL_CHUNK_THRESHOLD = 4
+const VIRTUAL_CHUNK_ESTIMATED_SIZE = 320
+const VIRTUAL_CHUNK_OVERSCAN = 2
 const markdown = getMarkdown()
 const markdownRootRef = ref<HTMLElement>()
-const usesChunkedRendering = props.isStreaming
+const usesChunkedRendering = ref(props.isStreaming || Boolean(props.getVirtualScrollElement))
 const parsedNodes = shallowRef<ParsedMarkdownNodes>([])
 const parsedNodeChunks = shallowRef<StableMarkdownNodeChunk<ParsedMarkdownNode>[]>([])
 let stableProjection: StableMarkdownNodes<ParsedMarkdownNode> | undefined
@@ -85,6 +101,42 @@ let parseTimerId: ReturnType<typeof setTimeout> | undefined
 let lastParsedSource = ''
 let lastParseWasStreaming = false
 let lastParseAt = Number.NEGATIVE_INFINITY
+
+const shouldVirtualizeChunks = computed(
+  () =>
+    usesChunkedRendering.value &&
+    Boolean(props.getVirtualScrollElement) &&
+    parsedNodeChunks.value.length >= VIRTUAL_CHUNK_THRESHOLD
+)
+const chunkVirtualizer = useVirtualizer(
+  computed(() => ({
+    count: shouldVirtualizeChunks.value ? parsedNodeChunks.value.length : 0,
+    getScrollElement: () => props.getVirtualScrollElement?.() ?? null,
+    getItemKey: (index: number) => parsedNodeChunks.value[index]?.key ?? index,
+    estimateSize: () => VIRTUAL_CHUNK_ESTIMATED_SIZE,
+    overscan: VIRTUAL_CHUNK_OVERSCAN,
+    scrollMargin: markdownRootRef.value?.offsetTop ?? 0
+  }))
+)
+const virtualChunkRows = computed(() =>
+  createVirtualMarkdownChunkRows(chunkVirtualizer.value.getVirtualItems(), parsedNodeChunks.value)
+)
+const virtualChunkContainerStyle = computed<CSSProperties>(() => ({
+  height: `${chunkVirtualizer.value.getTotalSize()}px`
+}))
+
+function measureVirtualChunk(refValue: Element | ComponentPublicInstance | null): void {
+  const element = refValue instanceof Element ? refValue : refValue?.$el
+  if (element instanceof Element) {
+    chunkVirtualizer.value.measureElement(element)
+  }
+}
+
+function getVirtualChunkStyle(start: number): CSSProperties {
+  return {
+    transform: `translateY(${start - (chunkVirtualizer.value.options.scrollMargin ?? 0)}px)`
+  }
+}
 
 function parseLatestSource(): void {
   parseTimerId = undefined
@@ -133,6 +185,16 @@ watch(
   { immediate: true, flush: 'sync' }
 )
 
+watch(
+  () => props.getVirtualScrollElement,
+  (getVirtualScrollElement) => {
+    if (getVirtualScrollElement) {
+      usesChunkedRendering.value = true
+    }
+  },
+  { immediate: true }
+)
+
 useResizeObserver(markdownRootRef, () => emit('heightChange'))
 
 onBeforeUnmount(() => {
@@ -145,23 +207,55 @@ onBeforeUnmount(() => {
 <template>
   <div ref="markdownRootRef" class="streaming-markdown">
     <template v-if="usesChunkedRendering">
-      <MarkdownRender
-        v-for="chunk in parsedNodeChunks"
-        :key="chunk.key"
-        v-memo="[chunk, isStreaming, isDark]"
-        custom-id="meta-agent-markdown"
-        mode="chat"
-        :nodes="chunk.nodes"
-        :index-key="`${messageId}:${chunk.key}`"
-        :final="!isStreaming"
-        html-policy="escape"
-        :is-dark="isDark"
-        :render-as-fragment="true"
-        :max-live-nodes="0"
-        :smooth-streaming="false"
-        :batch-rendering="false"
-        :fade="false"
-      />
+      <div
+        v-if="shouldVirtualizeChunks"
+        class="streaming-markdown__virtual-size"
+        :style="virtualChunkContainerStyle"
+      >
+        <div
+          v-for="{ chunk, virtualItem } in virtualChunkRows"
+          :key="chunk.key"
+          :ref="measureVirtualChunk"
+          v-memo="[chunk, virtualItem.start, isStreaming, isDark]"
+          :data-index="virtualItem.index"
+          class="streaming-markdown__virtual-chunk"
+          :style="getVirtualChunkStyle(virtualItem.start)"
+        >
+          <MarkdownRender
+            custom-id="meta-agent-markdown"
+            mode="chat"
+            :nodes="chunk.nodes"
+            :index-key="`${messageId}:${chunk.key}`"
+            :final="!isStreaming"
+            html-policy="escape"
+            :is-dark="isDark"
+            :render-as-fragment="true"
+            :max-live-nodes="0"
+            :smooth-streaming="false"
+            :batch-rendering="false"
+            :fade="false"
+          />
+        </div>
+      </div>
+      <template v-else>
+        <MarkdownRender
+          v-for="chunk in parsedNodeChunks"
+          :key="chunk.key"
+          v-memo="[chunk, isStreaming, isDark]"
+          custom-id="meta-agent-markdown"
+          mode="chat"
+          :nodes="chunk.nodes"
+          :index-key="`${messageId}:${chunk.key}`"
+          :final="!isStreaming"
+          html-policy="escape"
+          :is-dark="isDark"
+          :render-as-fragment="true"
+          :max-live-nodes="0"
+          :smooth-streaming="false"
+          :batch-rendering="false"
+          :fade="false"
+        />
+      </template>
     </template>
     <MarkdownRender
       v-else
@@ -187,5 +281,17 @@ onBeforeUnmount(() => {
 .streaming-markdown {
   min-width: 0;
   color: var(--color-text);
+}
+
+.streaming-markdown__virtual-size {
+  position: relative;
+  width: 100%;
+}
+
+.streaming-markdown__virtual-chunk {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
 }
 </style>

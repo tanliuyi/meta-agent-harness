@@ -324,6 +324,36 @@ describe("ExtensionUiBridge", () => {
 		]);
 	});
 
+	/** 验证受控 native panel 只投影 host capability。 */
+	it("desktop native panel API 通过 projection event 投影", () => {
+		const events: WorkerEventEnvelope[] = [];
+		const bridge = new ExtensionUiBridge("thread-1", (event) => events.push(event));
+		const desktop = bridge.createDesktopContext();
+
+		desktop.registerNativePanel("hermes-memory", {
+			title: "记忆",
+			component: "memory",
+			order: 35,
+		});
+
+		expect(events).toEqual([
+			expect.objectContaining({
+				eventType: "projection",
+				event: expect.objectContaining({
+					type: "extensionPanel.registered",
+					panel: {
+						id: "hermes-memory",
+						viewType: "hermes-memory",
+						title: "记忆",
+						icon: undefined,
+						order: 35,
+						source: { type: "native", component: "memory" },
+					},
+				}),
+			}),
+		]);
+	});
+
 	/** 验证 desktop webview panel 拒绝非法 URL。 */
 	it("desktop webview panel 拒绝非法 URL", () => {
 		const bridge = new ExtensionUiBridge("thread-1", () => {});

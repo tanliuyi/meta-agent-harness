@@ -246,7 +246,9 @@ function normalizeCssValue(value: string | undefined, fallback: string): string 
 }
 
 /** 判断消息是否为 host-reserved webview state 同步消息。 */
-export function isExtensionPanelStatePayload(message: unknown): message is ExtensionPanelStatePayload {
+export function isExtensionPanelStatePayload(
+  message: unknown
+): message is ExtensionPanelStatePayload {
   return (
     typeof message === 'object' &&
     message !== null &&
@@ -317,10 +319,7 @@ export function createExtensionPanelThemePayload(input: {
     tokens: {
       foreground: normalizeCssValue(input.tokens?.foreground, defaults.foreground),
       background: normalizeCssValue(input.tokens?.background, defaults.background),
-      mutedForeground: normalizeCssValue(
-        input.tokens?.mutedForeground,
-        defaults.mutedForeground
-      ),
+      mutedForeground: normalizeCssValue(input.tokens?.mutedForeground, defaults.mutedForeground),
       border: normalizeCssValue(input.tokens?.border, defaults.border),
       accent: normalizeCssValue(input.tokens?.accent, defaults.accent),
       focusBorder: normalizeCssValue(input.tokens?.focusBorder, defaults.focusBorder),
@@ -399,7 +398,8 @@ function createExtensionPanelThemeStyle(theme: ExtensionPanelThemePayload): stri
 /** 获取 panel iframe sandbox token。 */
 export function getExtensionPanelSandbox(panel: DesktopExtensionWebviewPanel | undefined): string {
   const source = panel?.source
-  const permissions = source?.permissions
+  if (!source || source.type === 'native') return ''
+  const permissions = source.permissions
   const tokens: string[] = []
   if (permissions?.enableScripts) tokens.push('allow-scripts')
   if (permissions?.forms) tokens.push('allow-forms')
@@ -446,6 +446,7 @@ function resolveExtensionPanelUrlWithPortMapping(
   panel: DesktopExtensionWebviewPanel,
   urlText: string
 ): string | undefined {
+  if (panel.source.type !== 'url') return undefined
   const url = new URL(urlText)
   if (url.protocol !== 'http:' && url.protocol !== 'https:') {
     return undefined
@@ -571,12 +572,12 @@ export function injectExtensionPanelCsp(html: string, nonce: string): string {
   }
   const csp = [
     "default-src 'none'",
-    "img-src pi-webview-resource: data: https: http:",
-    "font-src pi-webview-resource: data:",
+    'img-src pi-webview-resource: data: https: http:',
+    'font-src pi-webview-resource: data:',
     "style-src 'unsafe-inline' pi-webview-resource:",
     `script-src 'nonce-${nonce}' pi-webview-resource:`,
-    "connect-src pi-webview-resource: https: http:",
-    "media-src pi-webview-resource: data:",
+    'connect-src pi-webview-resource: https: http:',
+    'media-src pi-webview-resource: data:',
     "base-uri 'none'",
     "form-action 'none'"
   ].join('; ')

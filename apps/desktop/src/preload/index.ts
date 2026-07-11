@@ -6,6 +6,7 @@ import { contextBridge, ipcRenderer, webUtils } from 'electron'
 import type { CodingAgentApi, CodingAgentIpcEvent } from '@shared/coding-agent/types'
 import { codingAgentChannels } from '@shared/coding-agent/channels'
 import { unwrapIpcResult } from '@shared/coding-agent/ipc-contract'
+import { updaterChannels, type UpdaterApi, type UpdaterState } from '@shared/updater'
 
 /**
  * 窗口控制 API 类型。
@@ -210,7 +211,20 @@ const runtime: RuntimeApi = {
   platform: process.platform
 }
 
-const api = { codingAgent, fileSystem, runtime, windowControl }
+const updater: UpdaterApi = {
+  getState: () => ipcRenderer.invoke(updaterChannels.getState),
+  check: () => ipcRenderer.invoke(updaterChannels.check),
+  download: () => ipcRenderer.invoke(updaterChannels.download),
+  install: () => ipcRenderer.invoke(updaterChannels.install),
+  onStateChanged: (listener) => {
+    const handler = (_event: Electron.IpcRendererEvent, nextState: UpdaterState): void =>
+      listener(nextState)
+    ipcRenderer.on(updaterChannels.stateChanged, handler)
+    return () => ipcRenderer.off(updaterChannels.stateChanged, handler)
+  }
+}
+
+const api = { codingAgent, fileSystem, runtime, updater, windowControl }
 
 if (process.contextIsolated) {
   try {

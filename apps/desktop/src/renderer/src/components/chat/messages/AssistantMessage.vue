@@ -5,7 +5,6 @@ import { formatMessageTime, getMessageText } from './support/message-format'
 import { getSelectionToolbarPosition } from './support/assistant-selection'
 import StreamingMarkdown from '../../markdown/StreamingMarkdown.vue'
 import BaseIconButton from '@/components/base/BaseIconButton.vue'
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { Check, Copy, CornerDownRight, GitFork, MapPin, Quote } from 'lucide-vue-next'
 
 const props = defineProps<{
@@ -75,10 +74,6 @@ function navigateTree(): void {
 }
 
 function captureSelection(): void {
-  if (props.isStreaming) {
-    closeSelectionToolbar()
-    return
-  }
   const root = messageRootRef.value
   const selection = window.getSelection()
   if (!root || !selection || selection.rangeCount !== 1 || selection.isCollapsed) {
@@ -91,11 +86,10 @@ function captureSelection(): void {
     return
   }
   const text = range.toString().trim()
-  const position = getSelectionToolbarPosition(
-    Array.from(range.getClientRects()),
-    window.innerWidth,
-    window.innerHeight
+  const exposedRects = Array.from(range.getClientRects()).filter((rect) =>
+    isSelectionRectExposed(rect, root)
   )
+  const position = getSelectionToolbarPosition(exposedRects, window.innerWidth, window.innerHeight)
   if (!text || !position) {
     closeSelectionToolbar()
     return
@@ -130,8 +124,27 @@ function isRangeWithinRoot(range: Range, root: HTMLElement): boolean {
   return root.contains(range.startContainer) && root.contains(range.endContainer)
 }
 
+function isSelectionRectExposed(rect: DOMRect, root: HTMLElement): boolean {
+  const left = Math.max(0, rect.left)
+  const right = Math.min(window.innerWidth, rect.right)
+  const top = Math.max(0, rect.top)
+  const bottom = Math.min(window.innerHeight, rect.bottom)
+  if (right <= left || bottom <= top) return false
+
+  const xPoints = [left + 1, (left + right) / 2, right - 1]
+  const yPoints = [top + 1, (top + bottom) / 2, bottom - 1]
+  return xPoints.some((x) =>
+    yPoints.some((y) => {
+      const coveringElement = document
+        .elementsFromPoint(x, y)
+        .find((element) => !element.closest('.assistant-selection-toolbar'))
+      return Boolean(coveringElement && root.contains(coveringElement))
+    })
+  )
+}
+
 function handleSelectionChange(): void {
-  closeSelectionToolbar()
+  scheduleSelectionCapture()
 }
 
 function handleDocumentPointerdown(event: PointerEvent): void {
@@ -140,23 +153,10 @@ function handleDocumentPointerdown(event: PointerEvent): void {
   dismissSelectionToolbar()
 }
 
-function handleMessagePointerup(event: PointerEvent): void {
-  if (event.button !== 0) return
-  scheduleSelectionCapture()
-}
-
 function handleDocumentKeydown(event: KeyboardEvent): void {
   if (event.key === 'Escape') {
     dismissSelectionToolbar()
   }
-}
-
-function handleDocumentKeyup(event: KeyboardEvent): void {
-  if (event.key !== 'Shift' && event.key !== 'Control' && event.key !== 'Meta') return
-  const root = messageRootRef.value
-  const selection = window.getSelection()
-  if (!root || !selection || selection.rangeCount !== 1) return
-  if (isRangeWithinRoot(selection.getRangeAt(0), root)) scheduleSelectionCapture()
 }
 
 function quoteSelectedText(): void {
@@ -175,28 +175,26 @@ onMounted(() => {
   document.addEventListener('selectionchange', handleSelectionChange)
   document.addEventListener('pointerdown', handleDocumentPointerdown)
   document.addEventListener('keydown', handleDocumentKeydown)
-  document.addEventListener('keyup', handleDocumentKeyup)
-  document.addEventListener('scroll', dismissSelectionToolbar, true)
-  window.addEventListener('resize', dismissSelectionToolbar)
+  document.addEventListener('scroll', scheduleSelectionCapture, true)
+  window.addEventListener('resize', scheduleSelectionCapture)
 })
 
 onBeforeUnmount(() => {
   document.removeEventListener('selectionchange', handleSelectionChange)
   document.removeEventListener('pointerdown', handleDocumentPointerdown)
   document.removeEventListener('keydown', handleDocumentKeydown)
-  document.removeEventListener('keyup', handleDocumentKeyup)
-  document.removeEventListener('scroll', dismissSelectionToolbar, true)
-  window.removeEventListener('resize', dismissSelectionToolbar)
+  document.removeEventListener('scroll', scheduleSelectionCapture, true)
+  window.removeEventListener('resize', scheduleSelectionCapture)
   cancelScheduledSelectionCapture()
   if (copyTimeout) clearTimeout(copyTimeout)
 })
 
-watch(() => [props.revision, props.isStreaming], dismissSelectionToolbar)
+watch(() => [props.revision, props.isStreaming], scheduleSelectionCapture)
 </script>
 
 <template>
   <div class="message is-assistant">
-    <div ref="messageRootRef" class="assistant-message" @pointerup="handleMessagePointerup">
+    <div ref="messageRootRef" class="assistant-message">
       <StreamingMarkdown
         :source="source"
         :revision="revision ?? 1"
@@ -221,50 +219,39 @@ watch(() => [props.revision, props.isStreaming], dismissSelectionToolbar)
       </div>
     </Teleport>
     <div v-if="isFinalReply && isDone" class="message__actions">
-      <TooltipProvider>
-        <Tooltip v-if="message.sessionEntryId">
-          <TooltipTrigger as-child>
-            <BaseIconButton
-              :label="isNavigatingTree ? '正在从这里继续' : '从这里继续'"
-              size="small"
-              :disabled="isNavigatingTree"
-              @click="navigateTree"
-            >
-              <CornerDownRight :size="14" />
-            </BaseIconButton>
-          </TooltipTrigger>
-          <TooltipContent>{{ isNavigatingTree ? '正在从这里继续' : '从这里继续' }}</TooltipContent>
-        </Tooltip>
-        <Tooltip v-if="message.sessionEntryId">
-          <TooltipTrigger as-child>
-            <BaseIconButton label="在 Tree 中定位" size="small" @click="locateInTree">
-              <MapPin :size="14" />
-            </BaseIconButton>
-          </TooltipTrigger>
-          <TooltipContent>在 Tree 中定位</TooltipContent>
-        </Tooltip>
-        <Tooltip v-if="message.sessionEntryId">
-          <TooltipTrigger as-child>
-            <BaseIconButton label="创建分支会话" size="small" @click="forkFromMessage">
-              <GitFork :size="14" />
-            </BaseIconButton>
-          </TooltipTrigger>
-          <TooltipContent>创建分支会话</TooltipContent>
-        </Tooltip>
-        <Tooltip>
-          <TooltipTrigger as-child>
-            <BaseIconButton
-              :label="isCopied ? '已复制' : '复制消息'"
-              size="small"
-              @click="copyMessageText"
-            >
-              <Check v-if="isCopied" :size="14" />
-              <Copy v-else :size="14" />
-            </BaseIconButton>
-          </TooltipTrigger>
-          <TooltipContent>{{ isCopied ? '已复制' : '复制消息' }}</TooltipContent>
-        </Tooltip>
-      </TooltipProvider>
+      <BaseIconButton
+        v-if="message.sessionEntryId"
+        :label="isNavigatingTree ? '正在从这里继续' : '从这里继续'"
+        class="message__action-btn"
+        :disabled="isNavigatingTree"
+        @click="navigateTree"
+      >
+        <CornerDownRight :size="13" />
+      </BaseIconButton>
+      <BaseIconButton
+        v-if="message.sessionEntryId"
+        label="在 Tree 中定位"
+        class="message__action-btn"
+        @click="locateInTree"
+      >
+        <MapPin :size="13" />
+      </BaseIconButton>
+      <BaseIconButton
+        v-if="message.sessionEntryId"
+        label="创建分支会话"
+        class="message__action-btn"
+        @click="forkFromMessage"
+      >
+        <GitFork :size="13" />
+      </BaseIconButton>
+      <BaseIconButton
+        :label="isCopied ? '已复制' : '复制消息'"
+        class="message__action-btn"
+        @click="copyMessageText"
+      >
+        <Check v-if="isCopied" :size="13" />
+        <Copy v-else :size="13" />
+      </BaseIconButton>
       <span class="message__time">{{ formattedTime }}</span>
     </div>
   </div>
@@ -293,10 +280,10 @@ watch(() => [props.revision, props.isStreaming], dismissSelectionToolbar)
 .message__actions {
   display: flex;
   align-items: center;
-  gap: var(--space-1);
-  padding: var(--space-1) 0;
+  gap: 2px;
+  padding: 0;
   opacity: 0;
-  margin-top: var(--space-1);
+  margin-top: var(--space-2);
   transition: opacity var(--duration-fast) var(--ease-standard);
 
   .message:hover & {
@@ -304,21 +291,37 @@ watch(() => [props.revision, props.isStreaming], dismissSelectionToolbar)
   }
 }
 
+:deep(.message__action-btn) {
+  width: 24px;
+  height: 24px;
+  color: var(--color-text-subtle);
+  border-radius: var(--radius-sm);
+
+  &:hover {
+    color: var(--color-text);
+    background: var(--color-surface-raised);
+  }
+}
+
 .message__time {
-  margin-left: var(--space-1);
-  font-size: var(--font-size-ui-sm);
-  color: var(--color-text-muted);
+  margin-left: 6px;
+  font-size: 11px;
+  color: var(--color-text-subtle);
 }
 
 .assistant-selection-toolbar {
   position: fixed;
-  z-index: 1000;
+  z-index: 20;
   transform: translate(-50%, -100%);
   padding: 3px;
   background: var(--color-surface-raised);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-md);
+  transition:
+    left var(--duration-fast) var(--ease-standard),
+    top var(--duration-fast) var(--ease-standard),
+    transform var(--duration-fast) var(--ease-standard);
 
   &.is-below {
     transform: translateX(-50%);
@@ -343,6 +346,12 @@ watch(() => [props.revision, props.isStreaming], dismissSelectionToolbar)
       background: var(--color-surface-hover);
       outline: none;
     }
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .assistant-selection-toolbar {
+    transition: none;
   }
 }
 </style>
