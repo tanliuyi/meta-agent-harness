@@ -68,6 +68,7 @@ import {
   CHAT_TIMELINE_OVERSCAN,
   createVirtualTimelineRows,
   estimateTimelineItemSize,
+  resetTimelineVirtualizerForSession,
   shouldAdjustTimelineScrollForItemResize
 } from './timeline/chatTimelineVirtualization'
 
@@ -1040,6 +1041,7 @@ let followBottomRafId: number | null = null
 let followBottomSettleFrames = 0
 let timelineAnchorRafId: number | null = null
 let timelineAnchorGeneration = 0
+let timelineSessionGeneration = 0
 let isUserScrollLocked = false
 
 function findTimelineRow(key: string): HTMLElement | undefined {
@@ -1312,13 +1314,43 @@ function isFunctionShortcutKey(key: string): boolean {
 
 watch(
   () => workspaceSession.activeSessionId,
-  (threadId, previousThreadId) => {
-    if (threadId !== previousThreadId) {
-      void nextTick(() => timelineVirtualizer.value.measure())
-    }
+  async (threadId, previousThreadId) => {
     if (threadId) {
       void workspaceSession.loadModelOptions(threadId)
     }
+    if (threadId === previousThreadId) {
+      return
+    }
+
+    const generation = ++timelineSessionGeneration
+    cancelTimelineRowAnchor()
+    if (scrollRafId !== null) {
+      cancelAnimationFrame(scrollRafId)
+      scrollRafId = null
+    }
+    if (followBottomRafId !== null) {
+      cancelAnimationFrame(followBottomRafId)
+      followBottomRafId = null
+    }
+    followBottomSettleFrames = 0
+    isUserScrollLocked = false
+    shouldFollowBottom.value = true
+    isNearBottom.value = true
+
+    await nextTick()
+    if (generation !== timelineSessionGeneration) {
+      return
+    }
+    resetTimelineVirtualizerForSession(
+      timelineRef.value?.getViewport() ?? null,
+      timelineVirtualizer.value
+    )
+    await nextTick()
+    if (generation !== timelineSessionGeneration) {
+      return
+    }
+    scrollToLatest('auto')
+    startFollowBottomLoop(2)
   },
   { immediate: true }
 )
@@ -1379,10 +1411,11 @@ watch(
     const shouldFollow = isSessionChanged || shouldFollowBottom.value
     await nextTick()
 
+    if (isSessionChanged) {
+      return
+    }
     if (shouldFollow) {
-      if (isSessionChanged) {
-        scheduleScrollToLatest('auto')
-      } else if (isRunning.value) {
+      if (isRunning.value) {
         startFollowBottomLoop(4)
       } else {
         scheduleScrollToLatest('smooth')

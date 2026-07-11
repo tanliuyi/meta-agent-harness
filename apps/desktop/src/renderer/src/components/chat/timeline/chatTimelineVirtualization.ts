@@ -30,6 +30,16 @@ export function shouldAdjustTimelineScrollForItemResize(
   return item.end <= scrollOffset
 }
 
+export function resetTimelineVirtualizerForSession(
+  viewport: Pick<HTMLElement, 'scrollTop'> | null,
+  virtualizer: Pick<{ measure(): void }, 'measure'>
+): void {
+  if (viewport) {
+    viewport.scrollTop = 0
+  }
+  virtualizer.measure()
+}
+
 export function estimateTimelineItemSize(item: TimelineItem | undefined): number {
   if (!item) {
     return 120

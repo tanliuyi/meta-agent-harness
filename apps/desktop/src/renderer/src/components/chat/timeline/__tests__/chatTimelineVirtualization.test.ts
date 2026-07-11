@@ -5,6 +5,7 @@ import type { TimelineItem } from '../chatTimelineDisplay'
 import {
   createVirtualTimelineRows,
   estimateTimelineItemSize,
+  resetTimelineVirtualizerForSession,
   shouldAdjustTimelineScrollForItemResize
 } from '../chatTimelineVirtualization'
 
@@ -41,6 +42,20 @@ describe('chat timeline virtualization', () => {
     expect(shouldAdjustTimelineScrollForItemResize(aboveViewport, 250)).toBe(true)
     expect(shouldAdjustTimelineScrollForItemResize(containingViewport, 250)).toBe(false)
     expect(shouldAdjustTimelineScrollForItemResize(createVirtualItem(3), 250)).toBe(false)
+  })
+
+  it('clears the previous session scroll offset before resetting measurements', () => {
+    const viewport = { scrollTop: 2400 }
+    let scrollTopWhenMeasured = -1
+
+    resetTimelineVirtualizerForSession(viewport, {
+      measure: () => {
+        scrollTopWhenMeasured = viewport.scrollTop
+      }
+    })
+
+    expect(viewport.scrollTop).toBe(0)
+    expect(scrollTopWhenMeasured).toBe(0)
   })
 
   it('uses compact estimates for short rows and larger estimates for assistant content', () => {
