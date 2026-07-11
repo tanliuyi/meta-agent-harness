@@ -1,7 +1,8 @@
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import lockfile from "proper-lockfile";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { hasTrustRequiringProjectResources, ProjectTrustStore } from "../src/core/trust-manager.ts";
 
 describe("ProjectTrustStore", () => {
@@ -19,6 +20,26 @@ describe("ProjectTrustStore", () => {
 
 	afterEach(() => {
 		rmSync(tempDir, { recursive: true, force: true });
+		vi.restoreAllMocks();
+	});
+
+	it("reads decisions without acquiring the exclusive trust lock", () => {
+		const store = new ProjectTrustStore(agentDir);
+		store.set(cwd, true);
+		const lockSpy = vi.spyOn(lockfile, "lockSync");
+
+		expect(store.get(cwd)).toBe(true);
+		expect(lockSpy).not.toHaveBeenCalled();
+	});
+
+	it("writes decisions while holding the exclusive trust lock", () => {
+		const lockSpy = vi.spyOn(lockfile, "lockSync");
+		const store = new ProjectTrustStore(agentDir);
+
+		store.set(cwd, true);
+
+		expect(lockSpy).toHaveBeenCalled();
+		expect(store.get(cwd)).toBe(true);
 	});
 
 	it("stores decisions and inherits from parent directories", () => {

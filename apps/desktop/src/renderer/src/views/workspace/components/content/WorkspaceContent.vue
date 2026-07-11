@@ -15,15 +15,14 @@ import {
 import { useResizablePane } from '@renderer/composables/useResizablePane'
 import useWorkspaceProjectStore from '@renderer/stores/workspace-project'
 import useWorkspaceSessionStore from '@renderer/stores/workspace-session'
+import { useElementSize } from '@vueuse/core'
 import { computed, defineAsyncComponent, onBeforeUnmount, onMounted, ref } from 'vue'
+import { MIN_WORKSPACE_MAIN_SESSION_WIDTH, WORKSPACE_RESIZER_WIDTH } from '../../workspace-layout'
 import {
   createStableSessionInfo,
   createStableSessionPanelState
 } from './state/workspace-content-state'
 import { loadWorkspaceStartupData } from './state/workspace-startup'
-
-/** 分隔条宽度（像素）。 */
-const RESIZER_WIDTH = 1
 
 const workspaceSession = useWorkspaceSessionStore()
 const workspaceProject = useWorkspaceProjectStore()
@@ -33,6 +32,7 @@ const SessionPanel = defineAsyncComponent(
 
 /** 内容区容器元素引用。 */
 const workspaceContentRef = ref<HTMLElement | null>(null)
+const { width: workspaceContentWidth } = useElementSize(workspaceContentRef)
 const shouldRenderSessionPanel = ref(false)
 let sessionPanelRenderRaf: number | undefined
 
@@ -58,23 +58,33 @@ const sessionInfo = computed<SessionInfo>((previous) =>
 const hasActiveSession = computed(() => Boolean(activeSession.value))
 const isSessionPanelOpen = computed(() => hasActiveSession.value && sessionPanel.value.open)
 
-/** 内容区布局变量。 */
-const workspaceContentStyle = computed(() => ({
-  '--session-panel-resizer-width': `${RESIZER_WIDTH}px`,
-  '--session-panel-width': `${sessionPanel.value.width}px`
-}))
-
-function getSessionPanelLayoutMaxWidth(): number {
-  const contentWidth = workspaceContentRef.value?.getBoundingClientRect().width
-  if (!contentWidth) {
-    return Number.MAX_SAFE_INTEGER
+/** SessionPanel 在保留主会话最小宽度后可使用的最大宽度。 */
+const sessionPanelLayoutMaxWidth = computed(() => {
+  if (!workspaceContentWidth.value) {
+    return sessionPanel.value.maxWidth ?? Number.MAX_SAFE_INTEGER
   }
-  return Math.max(sessionPanel.value.minWidth, contentWidth - RESIZER_WIDTH)
-}
+
+  const availableWidth =
+    workspaceContentWidth.value - WORKSPACE_RESIZER_WIDTH - MIN_WORKSPACE_MAIN_SESSION_WIDTH
+
+  return Math.max(0, Math.min(sessionPanel.value.maxWidth ?? availableWidth, availableWidth))
+})
 
 function clampSessionPanelWidth(width: number): number {
-  return Math.min(getSessionPanelLayoutMaxWidth(), Math.max(sessionPanel.value.minWidth, width))
+  return Math.min(sessionPanelLayoutMaxWidth.value, Math.max(sessionPanel.value.minWidth, width))
 }
+
+const sessionPanelLayoutWidth = computed(() => clampSessionPanelWidth(sessionPanel.value.width))
+const sessionPanelLayoutMinWidth = computed(() =>
+  Math.min(sessionPanel.value.minWidth, sessionPanelLayoutMaxWidth.value)
+)
+
+/** 内容区布局变量。 */
+const workspaceContentStyle = computed(() => ({
+  '--workspace-main-session-min-width': `${MIN_WORKSPACE_MAIN_SESSION_WIDTH}px`,
+  '--session-panel-resizer-width': `${WORKSPACE_RESIZER_WIDTH}px`,
+  '--session-panel-width': `${sessionPanelLayoutWidth.value}px`
+}))
 
 /**
  * 向子组件提供会话上下文。
@@ -83,7 +93,8 @@ provideSessionContext({
   panel: sessionPanel,
   session: sessionInfo,
   setPanelOpen: workspaceSession.setActiveSessionPanelOpen,
-  setPanelWidth: workspaceSession.setActiveSessionPanelWidth
+  setPanelWidth: (width) =>
+    workspaceSession.setActiveSessionPanelWidth(clampSessionPanelWidth(width))
 })
 
 /** 组件挂载时加载 Project 与当前 Project 下的 thread。 */
@@ -149,9 +160,9 @@ const {
       role="separator"
       aria-label="调整会话面板宽度"
       aria-orientation="vertical"
-      :aria-valuemin="sessionPanel.minWidth"
-      :aria-valuemax="sessionPanel.maxWidth ?? undefined"
-      :aria-valuenow="sessionPanel.width"
+      :aria-valuemin="sessionPanelLayoutMinWidth"
+      :aria-valuemax="sessionPanelLayoutMaxWidth"
+      :aria-valuenow="sessionPanelLayoutWidth"
       tabindex="0"
       @pointerdown="startSessionPanelResize"
       @keydown="handleSessionPanelResizerKeydown"
@@ -171,7 +182,15 @@ const {
 .workspace-content {
   --session-panel-layout-width: min(
     var(--session-panel-width, 420px),
-    calc(100% - var(--session-panel-resizer-width, 1px))
+    max(
+      0px,
+      calc(
+        100% - var(--workspace-main-session-min-width, 360px) - var(
+            --session-panel-resizer-width,
+            1px
+          )
+      )
+    )
   );
 
   position: relative;
@@ -189,8 +208,10 @@ const {
   display: grid;
   grid-template-rows: var(--session-header-height) minmax(0, 1fr);
   width: 100%;
-  min-width: 0;
+  max-width: 100%;
+  min-width: min(100%, var(--workspace-main-session-min-width, 360px));
   min-height: 0;
+  overflow: hidden;
 }
 
 .workspace-content--session-panel-open .workspace-content__main-session {

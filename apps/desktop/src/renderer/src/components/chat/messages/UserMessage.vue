@@ -537,7 +537,7 @@ function toggleExpand(): void {
       <div v-if="quoteSegments.length > 0" class="user-message user-message--quotes">
         <div class="user-message__quotes">
           <div v-for="(segment, index) in quoteSegments" :key="index" class="quote-reference-node">
-            <Quote :size="14" aria-hidden="true" />
+            <Quote :size="12" aria-hidden="true" />
             <div class="quote-reference-node__text">{{ segment.text }}</div>
           </div>
         </div>
@@ -710,11 +710,6 @@ function toggleExpand(): void {
 
   &--quotes {
     inline-size: max-content;
-    padding: 6px;
-    background: var(--color-surface-raised);
-    border: 0;
-    border-radius: 12px;
-    box-shadow: var(--shadow-md);
   }
 
   &--collapsed {

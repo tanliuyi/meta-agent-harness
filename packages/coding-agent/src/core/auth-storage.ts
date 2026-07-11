@@ -14,7 +14,8 @@ import {
 	type OAuthProviderId,
 } from "@earendil-works/pi-ai/compat";
 import { getOAuthApiKey, getOAuthProvider, getOAuthProviders } from "@earendil-works/pi-ai/oauth";
-import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
+import { randomUUID } from "crypto";
+import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "fs";
 import { dirname, join } from "path";
 import lockfile from "proper-lockfile";
 import { getAgentDir } from "../config.ts";
@@ -52,6 +53,17 @@ type LockResult<T> = {
 
 const AUTH_FILE_WRITE_OPTIONS = { encoding: "utf-8", mode: 0o600 } as const;
 
+function writeAuthFileAtomically(path: string, content: string): void {
+	const temporaryPath = `${path}.${process.pid}.${randomUUID()}.tmp`;
+	try {
+		writeFileSync(temporaryPath, content, AUTH_FILE_WRITE_OPTIONS);
+		renameSync(temporaryPath, path);
+		chmodSync(path, 0o600);
+	} finally {
+		rmSync(temporaryPath, { force: true });
+	}
+}
+
 export interface AuthStorageBackend {
 	withLock<T>(fn: (current: string | undefined) => LockResult<T>): T;
 	withLockAsync<T>(fn: (current: string | undefined) => Promise<LockResult<T>>): Promise<T>;
@@ -72,14 +84,25 @@ export class FileAuthStorageBackend implements AuthStorageBackend {
 	}
 
 	private ensureFileExists(): void {
-		if (!existsSync(this.authPath)) {
-			writeFileSync(this.authPath, "{}", AUTH_FILE_WRITE_OPTIONS);
+		if (existsSync(this.authPath)) {
+			return;
+		}
+		try {
+			writeFileSync(this.authPath, "{}", { ...AUTH_FILE_WRITE_OPTIONS, flag: "wx" });
 			chmodSync(this.authPath, 0o600);
+		} catch (error) {
+			const code =
+				typeof error === "object" && error !== null && "code" in error
+					? String((error as { code?: unknown }).code)
+					: undefined;
+			if (code !== "EEXIST") {
+				throw error;
+			}
 		}
 	}
 
 	private acquireLockSyncWithRetry(path: string): () => void {
-		const maxAttempts = 10;
+		const maxAttempts = 100;
 		const delayMs = 20;
 		let lastError: unknown;
 
@@ -109,20 +132,23 @@ export class FileAuthStorageBackend implements AuthStorageBackend {
 		this.ensureParentDir();
 		this.ensureFileExists();
 
-		let release: (() => void) | undefined;
+		const current = readFileSync(this.authPath, "utf-8");
+		const initial = fn(current);
+		if (initial.next === undefined) {
+			return initial.result;
+		}
+
+		const release = this.acquireLockSyncWithRetry(this.authPath);
 		try {
-			release = this.acquireLockSyncWithRetry(this.authPath);
-			const current = existsSync(this.authPath) ? readFileSync(this.authPath, "utf-8") : undefined;
-			const { result, next } = fn(current);
+			// 写入前在锁内重新读取并合并，纯读取则不再争抢全局排他锁。
+			const lockedCurrent = readFileSync(this.authPath, "utf-8");
+			const { result, next } = fn(lockedCurrent);
 			if (next !== undefined) {
-				writeFileSync(this.authPath, next, AUTH_FILE_WRITE_OPTIONS);
-				chmodSync(this.authPath, 0o600);
+				writeAuthFileAtomically(this.authPath, next);
 			}
 			return result;
 		} finally {
-			if (release) {
-				release();
-			}
+			release();
 		}
 	}
 
@@ -160,8 +186,7 @@ export class FileAuthStorageBackend implements AuthStorageBackend {
 			const { result, next } = await fn(current);
 			throwIfCompromised();
 			if (next !== undefined) {
-				writeFileSync(this.authPath, next, AUTH_FILE_WRITE_OPTIONS);
-				chmodSync(this.authPath, 0o600);
+				writeAuthFileAtomically(this.authPath, next);
 			}
 			throwIfCompromised();
 			return result;

@@ -29,6 +29,10 @@ import { resolveSessionCwdLazy } from './session-manager-lazy'
 type MaybePromise<T> = T | Promise<T>
 type ServiceProvider<T> = T | (() => MaybePromise<T>)
 type SessionSnapshotModule = typeof import('./session-snapshot')
+type InteractionResponseCommand = Extract<
+  WorkerCommand,
+  { type: 'ui.respond' | 'approval.respond' }
+>
 
 export interface ExtensionPanelRestoreRequest {
   panelId: string
@@ -554,6 +558,21 @@ export class ThreadManagerCore {
         }
       })
     )
+  }
+
+  /**
+   * 发送解除当前扩展或审批等待所需的响应，不进入 lifecycle 串行队列。
+   * 交互请求只可能来自已绑定 worker，因此这里不创建或重启 worker。
+   */
+  async sendInteractionResponse(
+    threadId: string,
+    command: InteractionResponseCommand
+  ): Promise<void> {
+    this.requireThread(threadId)
+    const response = await this.workers.send(threadId, command)
+    if (!response.success) {
+      throwResponseError(response)
+    }
   }
 
   /**

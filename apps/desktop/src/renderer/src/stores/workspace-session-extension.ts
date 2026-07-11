@@ -2,6 +2,11 @@ import type { ExtensionDialogRequest, ExtensionUiResponseInput } from '@shared/c
 
 type ExtensionUiResponse = ExtensionUiResponseInput['response']
 
+/** 获取交互请求的初始草稿。 */
+export function getExtensionDialogInitialDraft(request: ExtensionDialogRequest): string {
+  return request.type === 'editor' ? (request.prefill ?? '') : ''
+}
+
 /** 将请求加入有序队列；相同 ID 的更新保留原有位置。 */
 export function enqueueExtensionDialog(
   queue: ExtensionDialogRequest[],

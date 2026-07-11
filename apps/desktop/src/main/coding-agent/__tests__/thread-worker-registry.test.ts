@@ -234,7 +234,10 @@ describe('ThreadWorkerRegistry', () => {
     await expect(send).resolves.toMatchObject({
       success: false,
       command: 'get_commands',
-      error: { code: 'thread_not_found' }
+      error: {
+        code: 'runtime_error',
+        message: 'worker hang: no message for 1000ms'
+      }
     })
     expect(await acquire).toBeInstanceOf(Error)
     expect(stopReasons).toEqual(['crash'])

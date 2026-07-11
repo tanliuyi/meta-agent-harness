@@ -17,6 +17,7 @@ describe("desktop protocol command guards", () => {
 		expect(isCanonicalAgentCommand({ type: "get_session_tree_path" })).toBe(true);
 		expect(isCanonicalAgentCommand({ type: "set_session_entry_label" })).toBe(true);
 		expect(isCanonicalAgentCommand({ type: "create_fork_session" })).toBe(true);
+		expect(isCanonicalAgentCommand({ type: "refresh_model_registry" })).toBe(true);
 		expect(isCanonicalAgentCommand({ type: "worker.snapshot" })).toBe(false);
 	});
 

@@ -269,8 +269,9 @@ describe('extensionPanelDisplay', () => {
     expect(withCsp).toContain("style-src 'unsafe-inline' pi-webview-resource:")
     expect(withCsp).toContain("script-src 'nonce-nonce-a' pi-webview-resource:")
     expect(withCsp).toContain("connect-src pi-webview-resource: https: http:")
+    expect(withCsp).toContain("base-uri 'none'")
     expect(withCsp).toContain("form-action 'none'")
-    expect(withCsp).toContain("navigate-to 'none'")
+    expect(withCsp).not.toContain('navigate-to')
   })
 
   it('准备 srcdoc HTML 时按脚本权限注入 helper 和 CSP', () => {

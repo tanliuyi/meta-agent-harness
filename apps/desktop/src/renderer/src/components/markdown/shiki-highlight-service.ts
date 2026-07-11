@@ -1,4 +1,9 @@
-import type { HighlightJob, HighlightResponse, HighlightTokens } from './shiki-highlight.worker'
+import type {
+  HighlightJob,
+  HighlightResponse,
+  HighlightResponseJob,
+  HighlightTokens
+} from './shiki-highlight.worker'
 
 /**
  * Shiki 高亮服务。
@@ -30,18 +35,32 @@ export interface HighlightResult {
   /** 需要从现有 token 流尾部撤回的 token 数。 */
   recall: number
   /** 对应的任务 key。 */
-  job: HighlightJob
+  job: HighlightResponseJob
 }
 
 const MAX_CODE_SIZE = 200 * 1024
+const MAX_STREAM_HASH_ENTRIES = 128
 const TASK_TIMEOUT_MS = 3000
 
-function computeCodeHash(code: string): string {
-  let hash = 0
-  for (let i = 0; i < code.length; i++) {
-    hash = ((hash << 5) - hash + code.charCodeAt(i)) | 0
+interface StreamHashEntry {
+  code: string
+  hash: number
+}
+
+function appendCodeHash(hash: number, code: string, startIndex = 0): number {
+  let nextHash = hash
+  for (let index = startIndex; index < code.length; index += 1) {
+    nextHash = ((nextHash << 5) - nextHash + code.charCodeAt(index)) | 0
   }
+  return nextHash
+}
+
+function formatCodeHash(hash: number): string {
   return Math.abs(hash).toString(16)
+}
+
+function computeCodeHash(code: string): string {
+  return formatCodeHash(appendCodeHash(0, code))
 }
 
 type Deferred<T> = {
@@ -66,6 +85,7 @@ class ShikiHighlightService {
     string,
     { deferred: Deferred<HighlightResult | null>; timeout: ReturnType<typeof setTimeout> }
   >()
+  private streamHashes = new Map<string, StreamHashEntry>()
 
   constructor() {
     try {
@@ -84,9 +104,34 @@ class ShikiHighlightService {
     }
   }
 
-  private getKey(request: HighlightRequest | HighlightJob): string {
-    const codeHash = 'codeHash' in request ? request.codeHash : computeCodeHash(request.code)
-    return `${request.messageId}:${request.messageRevision}:${request.blockIndex}:${request.lang}:${codeHash}:${request.theme}`
+  private getStreamHashKey(request: HighlightRequest): string {
+    return `${request.messageId}:${request.blockIndex}:${request.lang}:${request.theme}`
+  }
+
+  private computeRequestCodeHash(request: HighlightRequest): string {
+    const streamKey = this.getStreamHashKey(request)
+    if (!request.streaming) {
+      this.streamHashes.delete(streamKey)
+      return computeCodeHash(request.code)
+    }
+
+    const existing = this.streamHashes.get(streamKey)
+    const hash =
+      existing && request.code.startsWith(existing.code)
+        ? appendCodeHash(existing.hash, request.code, existing.code.length)
+        : appendCodeHash(0, request.code)
+    this.streamHashes.delete(streamKey)
+    this.streamHashes.set(streamKey, { code: request.code, hash })
+    while (this.streamHashes.size > MAX_STREAM_HASH_ENTRIES) {
+      const oldestKey = this.streamHashes.keys().next().value
+      if (oldestKey === undefined) break
+      this.streamHashes.delete(oldestKey)
+    }
+    return formatCodeHash(hash)
+  }
+
+  private getKey(request: HighlightJob | HighlightResponseJob): string {
+    return `${request.messageId}:${request.messageRevision}:${request.blockIndex}:${request.lang}:${request.codeHash}:${request.theme}`
   }
 
   private handleMessage(response: HighlightResponse): void {
@@ -122,15 +167,15 @@ class ShikiHighlightService {
     if (!this.worker) return null
     if (!request.code || request.code.length > MAX_CODE_SIZE) return null
 
-    const key = this.getKey(request)
+    const codeHash = this.computeRequestCodeHash(request)
+    const requestWithHash: HighlightJob = {
+      ...request,
+      codeHash
+    }
+    const key = this.getKey(requestWithHash)
     const existing = this.pending.get(key)
     if (existing) {
       return existing.deferred.promise
-    }
-
-    const requestWithHash: HighlightJob = {
-      ...request,
-      codeHash: computeCodeHash(request.code)
     }
 
     const deferred = createDeferred<HighlightResult | null>()
@@ -156,6 +201,7 @@ class ShikiHighlightService {
       entry.deferred.resolve(null)
     }
     this.pending.clear()
+    this.streamHashes.clear()
     this.worker?.terminate()
     this.worker = null
   }

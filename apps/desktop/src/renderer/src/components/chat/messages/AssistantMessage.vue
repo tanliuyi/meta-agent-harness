@@ -26,6 +26,7 @@ const emit = defineEmits<{
   locateInTree: [entryId: string]
   navigateTree: [entryId: string]
   quoteSelection: [quote: PromptQuoteContext]
+  contentHeightChange: []
 }>()
 
 const source = computed(() => props.text ?? getMessageText(props.message) ?? '')
@@ -201,6 +202,7 @@ watch(() => [props.revision, props.isStreaming], dismissSelectionToolbar)
         :revision="revision ?? 1"
         :is-streaming="Boolean(isStreaming)"
         :message-id="message.id"
+        @height-change="emit('contentHeightChange')"
       />
     </div>
     <Teleport to="body">
@@ -213,7 +215,7 @@ watch(() => [props.revision, props.isStreaming], dismissSelectionToolbar)
         aria-label="文本快捷操作"
       >
         <button type="button" @pointerdown.prevent @click="quoteSelectedText">
-          <Quote :size="14" />
+          <Quote :size="12" />
           <span>引用此段</span>
         </button>
       </div>

@@ -26,7 +26,7 @@ const props = defineProps<{
 }>()
 
 const RADIUS = 12
-const STROKE = 3
+const STROKE = 5
 const NORMALIZED_RADIUS = RADIUS - STROKE / 2
 const CIRCUMFERENCE = 2 * Math.PI * NORMALIZED_RADIUS
 

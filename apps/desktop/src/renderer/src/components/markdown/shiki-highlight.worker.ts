@@ -165,8 +165,10 @@ export interface HighlightJob {
   streaming?: boolean
 }
 
+export type HighlightResponseJob = Omit<HighlightJob, 'code'>
+
 export interface HighlightResponse {
-  job: HighlightJob
+  job: HighlightResponseJob
   reset?: boolean
   recall?: number
   tokens?: HighlightTokens
@@ -175,6 +177,18 @@ export interface HighlightResponse {
 
 function computeCacheKey(lang: string, theme: string, codeHash: string): string {
   return `${lang}:${theme}:${codeHash}`
+}
+
+function toHighlightResponseJob(job: HighlightJob): HighlightResponseJob {
+  return {
+    messageId: job.messageId,
+    messageRevision: job.messageRevision,
+    blockIndex: job.blockIndex,
+    lang: job.lang,
+    codeHash: job.codeHash,
+    theme: job.theme,
+    streaming: job.streaming
+  }
 }
 
 function computeStreamKey(job: HighlightJob, lang: string, theme: string): string {
@@ -231,7 +245,7 @@ async function highlightStreaming(
     await tokenizer.enqueue(job.code)
     streamSessions.set(streamKey, { code: job.code, tokenizer })
     return {
-      job,
+      job: toHighlightResponseJob(job),
       reset: true,
       tokens: serializeFlatTokens([...tokenizer.tokensStable, ...tokenizer.tokensUnstable])
     }
@@ -239,13 +253,13 @@ async function highlightStreaming(
 
   const delta = job.code.slice(existing.code.length)
   if (!delta) {
-    return { job, recall: 0, tokens: [] }
+    return { job: toHighlightResponseJob(job), recall: 0, tokens: [] }
   }
 
   const result = await existing.tokenizer.enqueue(delta)
   existing.code = job.code
   return {
-    job,
+    job: toHighlightResponseJob(job),
     recall: result.recall,
     tokens: serializeFlatTokens([...result.stable, ...result.unstable])
   }
@@ -256,7 +270,10 @@ self.onmessage = async (event: MessageEvent<HighlightJob>) => {
   try {
     const MAX_CODE_SIZE = 200 * 1024
     if (!job.code || job.code.length > MAX_CODE_SIZE) {
-      self.postMessage({ job, error: 'code_block_too_large' } satisfies HighlightResponse)
+      self.postMessage({
+        job: toHighlightResponseJob(job),
+        error: 'code_block_too_large'
+      } satisfies HighlightResponse)
       return
     }
 
@@ -275,7 +292,11 @@ self.onmessage = async (event: MessageEvent<HighlightJob>) => {
     const cacheKey = computeCacheKey(lang, theme, job.codeHash)
     const cached = resultCache.get(cacheKey)
     if (cached) {
-      self.postMessage({ job, reset: true, tokens: cached } satisfies HighlightResponse)
+      self.postMessage({
+        job: toHighlightResponseJob(job),
+        reset: true,
+        tokens: cached
+      } satisfies HighlightResponse)
       return
     }
 
@@ -287,10 +308,14 @@ self.onmessage = async (event: MessageEvent<HighlightJob>) => {
     )
 
     resultCache.set(cacheKey, tokens)
-    self.postMessage({ job, reset: true, tokens } satisfies HighlightResponse)
+    self.postMessage({
+      job: toHighlightResponseJob(job),
+      reset: true,
+      tokens
+    } satisfies HighlightResponse)
   } catch (error) {
     self.postMessage({
-      job,
+      job: toHighlightResponseJob(job),
       error: error instanceof Error ? error.message : String(error)
     } satisfies HighlightResponse)
   }

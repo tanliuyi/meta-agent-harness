@@ -3,14 +3,9 @@ import type {
   LoadSessionTreeBranchesInput,
   LoadSessionTreeBranchesResult,
   SessionTreeBranchEntryRow,
-  SessionTreeBranchFilter,
-  SessionTreeBranchRow,
-  SessionTreeBranchSegmentRow
+  SessionTreeBranchFilter
 } from '@shared/coding-agent/types'
-import type {
-  SessionEntry,
-  SessionTreeNode
-} from '@coding-agent-src/core/session-manager'
+import type { SessionEntry, SessionTreeNode } from '@coding-agent-src/core/session-manager'
 import { loadSessionManagerModule } from './session-manager-lazy'
 
 interface FlatSessionTreeEntry {
@@ -25,8 +20,10 @@ interface SessionTreeBranchesCacheEntry {
   flatEntries: FlatSessionTreeEntry[]
 }
 
-interface BuildSessionTreeBranchesInput
-  extends Pick<LoadSessionTreeBranchesInput, 'query' | 'filter' | 'viewMode'> {
+interface BuildSessionTreeBranchesInput extends Pick<
+  LoadSessionTreeBranchesInput,
+  'query' | 'filter'
+> {
   currentEntryId?: string | null
 }
 
@@ -48,16 +45,13 @@ export async function buildSessionTreeBranches(
     input.currentEntryId !== undefined ? input.currentEntryId : persistedCurrentEntryId
   const filter = input.filter ?? 'default'
   const query = input.query?.trim().toLowerCase() ?? ''
-  const viewMode = input.viewMode ?? 'branches'
-  const shouldReturnEntryRows =
-    viewMode === 'entries' || query.length > 0 || (filter !== 'default' && filter !== 'all')
   const visibleEntries = flatEntries.filter((entry) =>
     matchesBranchEntry(entry.node, filter, query)
   )
   const visibleEntryIds = new Set(visibleEntries.map((entry) => entry.node.entry.id))
-  const rows = shouldReturnEntryRows
-    ? visibleEntries.map((entry) => toBranchEntryRow(entry, currentEntryId, visibleEntryIds))
-    : compressBranchEntries(visibleEntries, currentEntryId, visibleEntryIds)
+  const rows = visibleEntries.map((entry) =>
+    toBranchEntryRow(entry, currentEntryId, visibleEntryIds)
+  )
   return {
     rows: normalizeBranchRowDepth(rows),
     totalEntries: flatEntries.length,
@@ -107,43 +101,7 @@ function flattenSessionTree(
   })
 }
 
-function compressBranchEntries(
-  entries: FlatSessionTreeEntry[],
-  currentEntryId: string | null,
-  visibleEntryIds: Set<string>
-): SessionTreeBranchRow[] {
-  const result: SessionTreeBranchRow[] = []
-  let segment: FlatSessionTreeEntry[] = []
-  const flushSegment = (): void => {
-    if (segment.length === 0) {
-      return
-    }
-    const first = segment[0]
-    const last = segment[segment.length - 1]
-    result.push({
-      kind: 'segment',
-      id: `segment:${first.node.entry.id}:${last.node.entry.id}`,
-      count: segment.length,
-      firstEntryId: first.node.entry.id,
-      lastEntryId: last.node.entry.id,
-      depth: first.depth,
-      visualDepth: first.visualDepth
-    } satisfies SessionTreeBranchSegmentRow)
-    segment = []
-  }
-  for (const entry of entries) {
-    if (shouldShowBranchEntry(entry.node, currentEntryId, visibleEntryIds)) {
-      flushSegment()
-      result.push(toBranchEntryRow(entry, currentEntryId, visibleEntryIds))
-      continue
-    }
-    segment.push(entry)
-  }
-  flushSegment()
-  return result
-}
-
-function normalizeBranchRowDepth(rows: SessionTreeBranchRow[]): SessionTreeBranchRow[] {
+function normalizeBranchRowDepth(rows: SessionTreeBranchEntryRow[]): SessionTreeBranchEntryRow[] {
   const stack: Array<{ originalDepth: number; visualDepth: number }> = []
   return rows.map((row) => {
     while (stack.length > 0 && stack[stack.length - 1].originalDepth >= row.visualDepth) {
@@ -181,23 +139,6 @@ function toBranchEntryRow(
     branchPoint: visibleChildCount > 1,
     current: node.entry.id === currentEntryId
   }
-}
-
-function shouldShowBranchEntry(
-  node: SessionTreeNode,
-  currentEntryId: string | null,
-  visibleEntryIds: Set<string>
-): boolean {
-  const visibleChildCount = getVisibleSessionTreeChildCount(node, visibleEntryIds)
-  return (
-    node.entry.parentId === null ||
-    node.entry.id === currentEntryId ||
-    Boolean(node.label) ||
-    visibleChildCount === 0 ||
-    visibleChildCount > 1 ||
-    node.entry.type === 'branch_summary' ||
-    node.entry.type === 'compaction'
-  )
 }
 
 function matchesBranchEntry(

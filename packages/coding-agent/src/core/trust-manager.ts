@@ -1,4 +1,5 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { randomUUID } from "node:crypto";
+import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import lockfile from "proper-lockfile";
@@ -130,13 +131,19 @@ function writeTrustFile(path: string, data: TrustFile): void {
 		}
 	}
 	mkdirSync(dirname(path), { recursive: true });
-	writeFileSync(path, `${JSON.stringify(sorted, null, 2)}\n`, "utf-8");
+	const temporaryPath = `${path}.${process.pid}.${randomUUID()}.tmp`;
+	try {
+		writeFileSync(temporaryPath, `${JSON.stringify(sorted, null, 2)}\n`, "utf-8");
+		renameSync(temporaryPath, path);
+	} finally {
+		rmSync(temporaryPath, { force: true });
+	}
 }
 
 function acquireTrustLockSync(path: string): () => void {
 	const trustDir = dirname(path);
 	mkdirSync(trustDir, { recursive: true });
-	const maxAttempts = 10;
+	const maxAttempts = 100;
 	const delayMs = 20;
 	let lastError: unknown;
 
@@ -217,10 +224,8 @@ export class ProjectTrustStore {
 	}
 
 	getEntry(cwd: string): ProjectTrustStoreEntry | null {
-		return withTrustFileLock(this.trustPath, () => {
-			const data = readTrustFile(this.trustPath);
-			return findNearestTrustEntry(data, cwd);
-		});
+		const data = readTrustFile(this.trustPath);
+		return findNearestTrustEntry(data, cwd);
 	}
 
 	set(cwd: string, decision: ProjectTrustDecision): void {

@@ -84,6 +84,28 @@ export interface ProcessingCollapseResult {
   finalReplyKeys: Set<string>
 }
 
+interface ProcessingCollapseResultMetadata {
+  items: TimelineItem[]
+  isRunning: boolean
+  activeSessionId: string | undefined
+}
+
+interface CachedMessageTimelineItem {
+  revision: number
+  renderState: MessageRenderState['renderState']
+  item: Extract<TimelineItem, { type: 'message' }>
+}
+
+interface CachedAssistantTimelineSegments {
+  revision: number
+  renderState: MessageRenderState['renderState']
+  hideThinkingBlock: boolean
+  raw: ThreadMessage['raw']
+  text: ThreadMessage['text']
+  toolCallIds: ThreadMessage['toolCallIds']
+  segments: AssistantTimelineSegment[]
+}
+
 export interface CreateTimelineItemsInput {
   messages: ThreadMessage[]
   toolCallStructures: WorkspaceToolCallStructure[]
@@ -94,29 +116,119 @@ export interface CreateTimelineItemsInput {
   hideThinkingBlock: boolean
 }
 
+export interface TimelineProjectionCache {
+  items: TimelineItem[] | undefined
+  messageRefs: ThreadMessage[]
+  revisions: number[]
+  renderStates: MessageRenderState['renderState'][]
+  rawRefs: ThreadMessage['raw'][]
+  textValues: ThreadMessage['text'][]
+  toolCallIdRefs: Array<ThreadMessage['toolCallIds']>
+  hideThinkingBlock: boolean
+  independentMessages: boolean
+}
+
+const timelineChangedStartIndexes = new WeakMap<TimelineItem[], number>()
+const processingCollapseResultMetadata = new WeakMap<
+  ProcessingCollapseResult,
+  ProcessingCollapseResultMetadata
+>()
+const messageTimelineItemCache = new WeakMap<ThreadMessage, CachedMessageTimelineItem>()
+const assistantTimelineSegmentsCache = new WeakMap<ThreadMessage, CachedAssistantTimelineSegments>()
+
+export function getTimelineChangedStartIndex(items: TimelineItem[]): number {
+  return timelineChangedStartIndexes.get(items) ?? 0
+}
+
 export function stabilizeTimelineItems(
   items: TimelineItem[],
   previous: TimelineItem[] | undefined
 ): TimelineItem[] {
   if (!previous) {
+    timelineChangedStartIndexes.set(items, 0)
     return items
   }
 
-  let hasChanged = previous.length !== items.length
-  const previousByKey = new Map(previous.map((item) => [item.key, item]))
-  const stableItems = items.map((item, index) => {
-    const previousItem = previousByKey.get(item.key)
-    if (previous[index]?.key !== item.key) {
-      hasChanged = true
-    }
-    if (previousItem && isSameTimelineItemProjection(previousItem, item)) {
-      return previousItem
-    }
-    hasChanged = true
-    return item
-  })
+  let changedStartIndex = Math.min(previous.length, items.length)
+  let hasSameOrder = true
+  const stableItems = new Array<TimelineItem>(items.length)
 
-  return hasChanged ? stableItems : previous
+  for (let index = 0; index < items.length; index += 1) {
+    const item = items[index]
+    const previousItem = previous[index]
+    if (!item || previousItem?.key !== item.key) {
+      changedStartIndex = Math.min(changedStartIndex, index)
+      hasSameOrder = false
+      break
+    }
+    if (previousItem === item || isSameTimelineItemProjection(previousItem, item)) {
+      stableItems[index] = previousItem
+    } else {
+      stableItems[index] = item
+      changedStartIndex = Math.min(changedStartIndex, index)
+    }
+  }
+
+  if (!hasSameOrder) {
+    const previousByKey = new Map(previous.map((item) => [item.key, item]))
+    for (let index = changedStartIndex; index < items.length; index += 1) {
+      const item = items[index]
+      if (!item) {
+        continue
+      }
+      const previousItem = previousByKey.get(item.key)
+      stableItems[index] =
+        previousItem && isSameTimelineItemProjection(previousItem, item) ? previousItem : item
+    }
+  }
+
+  const hasChanged = changedStartIndex < items.length || previous.length !== items.length
+  if (!hasChanged) {
+    return previous
+  }
+  timelineChangedStartIndexes.set(stableItems, changedStartIndex)
+  return stableItems
+}
+
+export function createTimelineProjectionCache(): TimelineProjectionCache {
+  return {
+    items: undefined,
+    messageRefs: [],
+    revisions: [],
+    renderStates: [],
+    rawRefs: [],
+    textValues: [],
+    toolCallIdRefs: [],
+    hideThinkingBlock: false,
+    independentMessages: false
+  }
+}
+
+export function projectTimelineItems(
+  input: CreateTimelineItemsInput,
+  previous: TimelineItem[] | undefined,
+  cache: TimelineProjectionCache
+): TimelineItem[] {
+  if (canAppendIndependentTimelineItems(input, previous, cache)) {
+    const previousMessageCount = cache.messageRefs.length
+    const appendedMessages = input.messages.slice(previousMessageCount)
+    if (appendedMessages.length === 0) {
+      return previous as TimelineItem[]
+    }
+    const appendedItems = createTimelineItems({ ...input, messages: appendedMessages })
+    appendTimelineProjectionCache(cache, input, previousMessageCount)
+    if (appendedItems.length === 0) {
+      return previous as TimelineItem[]
+    }
+    const items = [...(previous as TimelineItem[]), ...appendedItems]
+    timelineChangedStartIndexes.set(items, previous?.length ?? 0)
+    cache.items = items
+    return items
+  }
+
+  const items = stabilizeTimelineItems(createTimelineItems(input), previous)
+  replaceTimelineProjectionCache(cache, input, items)
+  return items
 }
 
 export function createTimelineItems(input: CreateTimelineItemsInput): TimelineItem[] {
@@ -135,7 +247,6 @@ export function createTimelineItems(input: CreateTimelineItemsInput): TimelineIt
   }
 
   for (const message of input.messages) {
-    const renderState = input.getMessageRenderState(message)
     if (isCompactionMessage(message)) {
       flushPendingToolGroup()
       items.push({
@@ -145,10 +256,13 @@ export function createTimelineItems(input: CreateTimelineItemsInput): TimelineIt
       })
       continue
     }
+    const renderState = input.getMessageRenderState(message)
     if (message.role === 'assistant') {
-      const assistantSegments = getAssistantTimelineSegments(message, renderState, {
-        hideThinkingBlock: input.hideThinkingBlock
-      })
+      const assistantSegments = getCachedAssistantTimelineSegments(
+        message,
+        renderState,
+        input.hideThinkingBlock
+      )
       for (const segment of assistantSegments) {
         if (segment.type !== 'assistant-tool-call') {
           flushPendingToolGroup()
@@ -172,14 +286,18 @@ export function createTimelineItems(input: CreateTimelineItemsInput): TimelineIt
     if (toolCall) {
       consumedToolCallIds.add(toolCall.toolCallId)
     }
-    items.push({
-      type: 'message',
-      key: message.id,
-      message,
-      toolCall,
-      revision: renderState.revision,
-      renderState: renderState.renderState
-    })
+    items.push(
+      toolCall
+        ? {
+            type: 'message',
+            key: message.id,
+            message,
+            toolCall,
+            revision: renderState.revision,
+            renderState: renderState.renderState
+          }
+        : getCachedMessageTimelineItem(message, renderState)
+    )
   }
 
   flushPendingToolGroup()
@@ -202,6 +320,101 @@ export function createTimelineItems(input: CreateTimelineItemsInput): TimelineIt
   insertRuntimeTimelineEvents(items, input.runtimeEvents ?? [])
 
   return groupTimelineTools(items)
+}
+
+function canAppendIndependentTimelineItems(
+  input: CreateTimelineItemsInput,
+  previous: TimelineItem[] | undefined,
+  cache: TimelineProjectionCache
+): boolean {
+  if (
+    !previous ||
+    cache.items !== previous ||
+    !cache.independentMessages ||
+    cache.hideThinkingBlock !== input.hideThinkingBlock ||
+    input.toolCallStructures.length > 0 ||
+    (input.runtimeEvents?.length ?? 0) > 0 ||
+    input.messages.length < cache.messageRefs.length
+  ) {
+    return false
+  }
+
+  for (let index = 0; index < cache.messageRefs.length; index += 1) {
+    const message = input.messages[index]
+    if (
+      message !== cache.messageRefs[index] ||
+      message.raw !== cache.rawRefs[index] ||
+      message.text !== cache.textValues[index] ||
+      message.toolCallIds !== cache.toolCallIdRefs[index]
+    ) {
+      return false
+    }
+    const renderState = input.getMessageRenderState(message)
+    if (
+      renderState.revision !== cache.revisions[index] ||
+      renderState.renderState !== cache.renderStates[index]
+    ) {
+      return false
+    }
+  }
+
+  for (let index = cache.messageRefs.length; index < input.messages.length; index += 1) {
+    const message = input.messages[index]
+    if (!message || hasPotentialToolTimelineDependency(message)) {
+      return false
+    }
+  }
+  return true
+}
+
+function replaceTimelineProjectionCache(
+  cache: TimelineProjectionCache,
+  input: CreateTimelineItemsInput,
+  items: TimelineItem[]
+): void {
+  cache.items = items
+  cache.messageRefs = input.messages.slice()
+  cache.revisions = []
+  cache.renderStates = []
+  cache.rawRefs = []
+  cache.textValues = []
+  cache.toolCallIdRefs = []
+  cache.hideThinkingBlock = input.hideThinkingBlock
+  cache.independentMessages =
+    input.toolCallStructures.length === 0 &&
+    (input.runtimeEvents?.length ?? 0) === 0 &&
+    input.messages.every((message) => !hasPotentialToolTimelineDependency(message))
+  appendTimelineProjectionCache(cache, input, 0)
+}
+
+function appendTimelineProjectionCache(
+  cache: TimelineProjectionCache,
+  input: CreateTimelineItemsInput,
+  startIndex: number
+): void {
+  for (let index = startIndex; index < input.messages.length; index += 1) {
+    const message = input.messages[index]
+    if (!message) {
+      continue
+    }
+    const renderState = input.getMessageRenderState(message)
+    cache.messageRefs[index] = message
+    cache.revisions[index] = renderState.revision
+    cache.renderStates[index] = renderState.renderState
+    cache.rawRefs[index] = message.raw
+    cache.textValues[index] = message.text
+    cache.toolCallIdRefs[index] = message.toolCallIds
+  }
+}
+
+function hasPotentialToolTimelineDependency(message: ThreadMessage): boolean {
+  if (message.role === 'tool' || (message.toolCallIds?.length ?? 0) > 0) {
+    return true
+  }
+  const content = getMessageRawRecord(message).content
+  return (
+    Array.isArray(content) && content.some((part) => isRecord(part) && part.type === 'toolCall')
+  )
 }
 
 function insertRuntimeTimelineEvents(
@@ -334,6 +547,58 @@ interface GetAssistantTimelineItemsOptions {
   hideThinkingBlock: boolean
 }
 
+function getCachedMessageTimelineItem(
+  message: ThreadMessage,
+  renderState: MessageRenderState
+): Extract<TimelineItem, { type: 'message' }> {
+  const cached = messageTimelineItemCache.get(message)
+  if (cached?.revision === renderState.revision && cached.renderState === renderState.renderState) {
+    return cached.item
+  }
+  const item: Extract<TimelineItem, { type: 'message' }> = {
+    type: 'message',
+    key: message.id,
+    message,
+    revision: renderState.revision,
+    renderState: renderState.renderState
+  }
+  messageTimelineItemCache.set(message, {
+    revision: renderState.revision,
+    renderState: renderState.renderState,
+    item
+  })
+  return item
+}
+
+function getCachedAssistantTimelineSegments(
+  message: ThreadMessage,
+  renderState: MessageRenderState,
+  hideThinkingBlock: boolean
+): AssistantTimelineSegment[] {
+  const cached = assistantTimelineSegmentsCache.get(message)
+  if (
+    cached?.revision === renderState.revision &&
+    cached.renderState === renderState.renderState &&
+    cached.hideThinkingBlock === hideThinkingBlock &&
+    cached.raw === message.raw &&
+    cached.text === message.text &&
+    cached.toolCallIds === message.toolCallIds
+  ) {
+    return cached.segments
+  }
+  const segments = getAssistantTimelineSegments(message, renderState, { hideThinkingBlock })
+  assistantTimelineSegmentsCache.set(message, {
+    revision: renderState.revision,
+    renderState: renderState.renderState,
+    hideThinkingBlock,
+    raw: message.raw,
+    text: message.text,
+    toolCallIds: message.toolCallIds,
+    segments
+  })
+  return segments
+}
+
 export function getAssistantTimelineItems(
   message: ThreadMessage,
   renderState: MessageRenderState,
@@ -430,13 +695,51 @@ function appendMissingAssistantToolCallSegments(
   }
 }
 
-export function createProcessingCollapseResult(input: {
-  items: TimelineItem[]
-  isRunning: boolean
-  activeSessionId: string | undefined
-  now: number
-}): ProcessingCollapseResult {
+export function createProcessingCollapseResult(
+  input: {
+    items: TimelineItem[]
+    isRunning: boolean
+    activeSessionId: string | undefined
+    now: number
+  },
+  previous?: ProcessingCollapseResult
+): ProcessingCollapseResult {
   const { items } = input
+  const previousMetadata = previous ? processingCollapseResultMetadata.get(previous) : undefined
+  if (
+    previous &&
+    previousMetadata?.items === items &&
+    previousMetadata.isRunning === input.isRunning &&
+    previousMetadata.activeSessionId === input.activeSessionId
+  ) {
+    const activeContextIndex = previous.contexts.findIndex((context) => !context.collapsible)
+    if (activeContextIndex < 0) {
+      return previous
+    }
+    const activeContext = previous.contexts[activeContextIndex]
+    if (activeContext) {
+      const durationLabel = formatProcessingDuration(
+        items[activeContext.boundaryIndex - 1],
+        items,
+        activeContext.boundaryIndex,
+        activeContext.processEndIndex,
+        undefined,
+        input.now
+      )
+      if (durationLabel === activeContext.durationLabel) {
+        return previous
+      }
+      const contexts = previous.contexts.slice()
+      contexts[activeContextIndex] = { ...activeContext, durationLabel }
+      const result = { contexts, finalReplyKeys: previous.finalReplyKeys }
+      processingCollapseResultMetadata.set(result, {
+        items,
+        isRunning: input.isRunning,
+        activeSessionId: input.activeSessionId
+      })
+      return result
+    }
+  }
   const contexts: ProcessingCollapseContext[] = []
   const finalReplyKeys = new Set<string>()
   for (let index = 0; index < items.length; index += 1) {
@@ -478,7 +781,13 @@ export function createProcessingCollapseResult(input: {
       collapsible: hasFinalReply || segmentEndIndex >= 0
     })
   }
-  return { contexts, finalReplyKeys }
+  const result = { contexts, finalReplyKeys }
+  processingCollapseResultMetadata.set(result, {
+    items,
+    isRunning: input.isRunning,
+    activeSessionId: input.activeSessionId
+  })
+  return result
 }
 
 export function createDisplayTimelineItems(input: {

@@ -10,7 +10,9 @@ withDefaults(
     /** 输入框 ID。 */
     id: string
     /** 字段标签。 */
-    label: string
+    label?: string
+    /** 无可见标签时使用的无障碍名称。 */
+    ariaLabel?: string
     /** 输入框当前值。 */
     modelValue?: string
     /** 占位符文本。 */
@@ -39,7 +41,7 @@ defineEmits<{
 
 <template>
   <label class="base-field" :for="id">
-    <span class="base-field__label">{{ label }}</span>
+    <span v-if="label" class="base-field__label">{{ label }}</span>
     <input
       :id="id"
       class="base-field__control"
@@ -47,6 +49,7 @@ defineEmits<{
       :value="modelValue"
       :disabled="disabled"
       :placeholder="placeholder"
+      :aria-label="ariaLabel"
       @input="$emit('update:modelValue', ($event.target as HTMLInputElement).value)"
     />
     <span v-if="hint" class="base-field__hint">{{ hint }}</span>

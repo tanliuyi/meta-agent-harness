@@ -80,6 +80,8 @@ function createDesktopTheme(definition: DesktopThemeDefinition): ExtensionTheme 
 	};
 }
 
+const MAX_SETTLED_UI_REQUEST_IDS = 100;
+
 function getDesktopTheme(name: string): DesktopThemeDefinition | undefined {
 	return desktopThemes.find((theme) => theme.name === name);
 }
@@ -110,6 +112,8 @@ export class ExtensionUiBridge {
 	private readonly emit: (event: WorkerEventEnvelope) => void;
 	private readonly pending = new Map<string, PendingUiRequest>();
 	private readonly dialogQueue: string[] = [];
+	private readonly settledRequestIds = new Set<string>();
+	private readonly settledRequestIdQueue: string[] = [];
 	private readonly terminalInputHandlers = new Set<(data: string) => unknown>();
 	private activeDialogRequestId: string | undefined;
 	private disposed = false;
@@ -331,6 +335,7 @@ export class ExtensionUiBridge {
 	respond(response: ExtensionUiResponse): void {
 		const pending = this.pending.get(response.id);
 		if (!pending) {
+			if (this.settledRequestIds.has(response.id)) return;
 			throw new Error(`extension UI request not found: ${response.id}`);
 		}
 		this.cleanupPending(response.id, pending);
@@ -400,6 +405,7 @@ export class ExtensionUiBridge {
 			pending.options?.signal?.removeEventListener("abort", pending.abortHandler);
 		}
 		this.pending.delete(requestId);
+		this.rememberSettledRequest(requestId);
 		const queuedIndex = this.dialogQueue.indexOf(requestId);
 		if (queuedIndex >= 0) {
 			this.dialogQueue.splice(queuedIndex, 1);
@@ -407,6 +413,15 @@ export class ExtensionUiBridge {
 		if (this.activeDialogRequestId === requestId) {
 			this.activeDialogRequestId = undefined;
 		}
+	}
+
+	private rememberSettledRequest(requestId: string): void {
+		if (this.settledRequestIds.has(requestId)) return;
+		this.settledRequestIds.add(requestId);
+		this.settledRequestIdQueue.push(requestId);
+		if (this.settledRequestIdQueue.length <= MAX_SETTLED_UI_REQUEST_IDS) return;
+		const expiredRequestId = this.settledRequestIdQueue.shift();
+		if (expiredRequestId) this.settledRequestIds.delete(expiredRequestId);
 	}
 
 	private cancelRequest(

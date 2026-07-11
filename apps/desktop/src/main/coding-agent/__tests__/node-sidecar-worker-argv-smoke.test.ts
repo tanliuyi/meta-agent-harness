@@ -7,6 +7,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'no
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
+import { createDesktopPiCliShim } from '../desktop-pi-cli-shim'
 
 const repoRoot = resolve(__dirname, '../../../../../..')
 const workerEntry = join(
@@ -26,6 +27,30 @@ describe.skipIf(!hasBuiltWorker)('node sidecar worker argv build smoke', () => {
     expect(result.stdout.trim()).toMatch(/^\d+\.\d+\.\d+/)
     expect(result.stderr).not.toContain('Cannot find module')
   })
+
+  it.runIf(process.platform !== 'win32')(
+    'runs the built worker through the app-owned pi command without a global CLI',
+    async () => {
+      const shim = createDesktopPiCliShim({
+        nodeExecPath: process.execPath,
+        workerEntry,
+        env: {
+          ...process.env,
+          // 只保留系统基础命令目录；测试不能意外使用用户 npm 安装的 pi。
+          PATH: '/usr/bin:/bin:/usr/sbin:/sbin',
+          PI_SUBAGENT_PI_BINARY: '/tmp/external-pi-must-not-run'
+        }
+      })
+      try {
+        const result = await runCommand('pi', ['--version'], shim.env)
+
+        expect(result.stdout.trim()).toBe('0.80.2')
+        expect(result.stderr).not.toContain('Cannot find module')
+      } finally {
+        rmSync(shim.binDir, { recursive: true, force: true })
+      }
+    }
+  )
 
   it('prints help from the built worker', async () => {
     const result = await runWorker(['--help'])
@@ -102,13 +127,21 @@ describe.skipIf(!hasBuiltWorker)('node sidecar worker argv build smoke', () => {
 })
 
 async function runWorker(args: string[]): Promise<{ stdout: string; stderr: string }> {
+  return runCommand(process.execPath, [workerEntry, ...args], {
+    ...process.env,
+    NO_COLOR: '1'
+  })
+}
+
+async function runCommand(
+  command: string,
+  args: string[],
+  env: NodeJS.ProcessEnv
+): Promise<{ stdout: string; stderr: string }> {
   return new Promise((resolvePromise, reject) => {
-    const child = spawn(process.execPath, [workerEntry, ...args], {
+    const child = spawn(command, args, {
       cwd: repoRoot,
-      env: {
-        ...process.env,
-        NO_COLOR: '1'
-      },
+      env,
       stdio: ['pipe', 'pipe', 'pipe']
     })
     child.stdin.end()
@@ -117,7 +150,7 @@ async function runWorker(args: string[]): Promise<{ stdout: string; stderr: stri
     let stderr = ''
     const timeout = setTimeout(() => {
       child.kill()
-      reject(new Error(`worker timed out: ${args.join(' ')}`))
+      reject(new Error(`command timed out: ${command} ${args.join(' ')}`))
     }, 120_000)
 
     child.stdout.setEncoding('utf8')
@@ -139,7 +172,7 @@ async function runWorker(args: string[]): Promise<{ stdout: string; stderr: stri
         resolvePromise({ stdout, stderr })
         return
       }
-      reject(new Error(`worker exited ${code}\nstdout:\n${stdout}\nstderr:\n${stderr}`))
+      reject(new Error(`command exited ${code}\nstdout:\n${stdout}\nstderr:\n${stderr}`))
     })
   })
 }

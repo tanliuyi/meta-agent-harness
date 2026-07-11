@@ -259,7 +259,14 @@ export class ThreadWorkerRegistry {
     }
     const worker = this.workers.get(lease.workerId)
     this.leases.delete(threadId)
-    this.resolveStartingThread(threadId)
+    if (lease.status === 'starting' && reason === 'crash') {
+      this.rejectStartingThread(
+        threadId,
+        new Error(diagnostic?.message ?? `worker exited while starting: ${threadId}`)
+      )
+    } else {
+      this.resolveStartingThread(threadId)
+    }
     this.startingThreads.delete(threadId)
     if (this.leases.size === 0) {
       this.stopIdleCheck()
@@ -480,6 +487,10 @@ export class ThreadWorkerRegistry {
    */
   private resolveStartingThread(threadId: string): void {
     this.startingThreads.get(threadId)?.resolve()
+  }
+
+  private rejectStartingThread(threadId: string, error: Error): void {
+    this.startingThreads.get(threadId)?.reject(error)
   }
 }
 

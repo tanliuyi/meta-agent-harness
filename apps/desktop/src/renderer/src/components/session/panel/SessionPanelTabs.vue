@@ -180,9 +180,9 @@ function handleCloseTab(tabInstanceId: string): void {
     <slot name="actions" />
   </header>
 
-  <div v-if="!collapsed" class="session-panel__body">
-    <ScrollArea class="session-panel__scroll">
-      <div v-if="isAddPanelActive" class="session-panel__tab-picker" role="tabpanel">
+  <div v-show="!collapsed" class="session-panel__body">
+    <ScrollArea v-if="isAddPanelActive" class="session-panel__tab-picker-scroll">
+      <div class="session-panel__tab-picker" role="tabpanel">
         <button
           v-for="tab in availableTabs"
           :key="tab.id"
@@ -194,19 +194,20 @@ function handleCloseTab(tabInstanceId: string): void {
           <small v-if="tabCounts[tab.id]">{{ tabCounts[tab.id] }}</small>
         </button>
       </div>
-      <KeepAlive v-if="!isAddPanelActive && activeTabComponent && shouldKeepActiveTabAlive">
-        <component
-          :is="activeTabComponent"
-          :key="activeTabKey"
-          :panel-id="activeExtensionPanelId"
-        />
-      </KeepAlive>
+    </ScrollArea>
+    <KeepAlive>
       <component
         :is="activeTabComponent"
-        v-else-if="!isAddPanelActive && activeTabComponent"
+        v-if="!collapsed && !isAddPanelActive && activeTabComponent && shouldKeepActiveTabAlive"
         :key="activeTabKey"
         :panel-id="activeExtensionPanelId"
       />
-    </ScrollArea>
+    </KeepAlive>
+    <component
+      :is="activeTabComponent"
+      v-if="!collapsed && !isAddPanelActive && activeTabComponent && !shouldKeepActiveTabAlive"
+      :key="activeTabKey"
+      :panel-id="activeExtensionPanelId"
+    />
   </div>
 </template>

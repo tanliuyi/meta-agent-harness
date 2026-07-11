@@ -3,12 +3,14 @@
  */
 
 import { fork } from 'node:child_process'
-import { existsSync } from 'node:fs'
-import { join } from 'node:path'
+import { execFileSync } from 'node:child_process'
+import { accessSync, constants, existsSync } from 'node:fs'
+import { delimiter, isAbsolute, join } from 'node:path'
 import type { WorkerClient } from './worker-types'
 import { TransportWorkerClient } from './transport-worker-client'
 import { NodeIpcWorkerTransport } from './node-ipc-worker-transport'
 import { getCodingAgentWorkerEnv } from './coding-agent-package-dir'
+import { createDesktopPiCliShim } from './desktop-pi-cli-shim'
 
 /** Node sidecar worker 客户端工厂选项。 */
 export interface NodeSidecarWorkerClientFactoryOptions {
@@ -34,9 +36,18 @@ export async function createNodeSidecarWorkerClient(
   if (!existsSync(workerEntry)) {
     throw new Error(`coding agent node sidecar worker entry not found: ${workerEntry}`)
   }
+  const nodeExecPath = options.nodeExecPath ?? resolveNodeSidecarExecPath()
+  const workerEnv = getCodingAgentWorkerEnv({ stripElectronRunAsNode: true })
+  // 扩展仍按标准 Pi 约定执行 `pi`。这里把 Desktop 私有 launcher 放到 worker
+  // PATH 最前面，保证所有扩展统一回到同一个 sidecar，而不会探测或调用全局 Pi。
+  const { env } = createDesktopPiCliShim({
+    nodeExecPath,
+    workerEntry,
+    env: workerEnv
+  })
   const child = fork(workerEntry, [], {
-    execPath: options.nodeExecPath ?? resolveNodeSidecarExecPath(),
-    env: getCodingAgentWorkerEnv(),
+    execPath: nodeExecPath,
+    env,
     stdio: ['ignore', 'pipe', 'pipe', 'ipc']
   })
   return new TransportWorkerClient({
@@ -82,6 +93,94 @@ function getUnpackedBaseDirCandidates(baseDir: string): string[] {
  * 获取普通 Node sidecar 可执行文件。
  * @returns Node 可执行文件。
  */
-export function resolveNodeSidecarExecPath(): string {
-  return process.env.CODING_AGENT_NODE_SIDECAR_EXEC_PATH ?? process.env.NODE_BINARY ?? 'node'
+export function resolveNodeSidecarExecPath(
+  env: NodeJS.ProcessEnv = process.env,
+  resolveFromLoginShell: (env: NodeJS.ProcessEnv) => string | undefined = resolveNodeFromLoginShell,
+  isElectron = Boolean(process.versions.electron)
+): string {
+  const configuredPath = env.CODING_AGENT_NODE_SIDECAR_EXEC_PATH?.trim() || env.NODE_BINARY?.trim()
+  if (configuredPath) {
+    return configuredPath
+  }
+
+  if (!isElectron && isExecutableFile(process.execPath)) {
+    return process.execPath
+  }
+
+  const pathNode = findExecutableOnPath('node', env.PATH)
+  if (pathNode) {
+    return pathNode
+  }
+
+  const windowsNode = findWindowsNodeInstallation(env)
+  if (windowsNode) {
+    return windowsNode
+  }
+
+  const shellNode = resolveFromLoginShell(env)
+  if (shellNode && isExecutableFile(shellNode)) {
+    return shellNode
+  }
+
+  throw new Error(
+    'Node sidecar runtime not found. Configure a standard Node executable in Settings > Agent > Runtime.'
+  )
+}
+
+function findExecutableOnPath(name: string, pathValue: string | undefined): string | undefined {
+  if (!pathValue) {
+    return undefined
+  }
+  const executableName = process.platform === 'win32' ? `${name}.exe` : name
+  return pathValue
+    .split(delimiter)
+    .filter(Boolean)
+    .map((directory) => join(directory, executableName))
+    .find(isExecutableFile)
+}
+
+function findWindowsNodeInstallation(env: NodeJS.ProcessEnv): string | undefined {
+  if (process.platform !== 'win32') {
+    return undefined
+  }
+  const candidates = [
+    env.NVM_SYMLINK ? join(env.NVM_SYMLINK, 'node.exe') : undefined,
+    env.VOLTA_HOME ? join(env.VOLTA_HOME, 'bin', 'node.exe') : undefined,
+    env.SCOOP ? join(env.SCOOP, 'apps', 'nodejs', 'current', 'node.exe') : undefined,
+    env.ProgramFiles ? join(env.ProgramFiles, 'nodejs', 'node.exe') : undefined,
+    env.LOCALAPPDATA ? join(env.LOCALAPPDATA, 'Programs', 'nodejs', 'node.exe') : undefined
+  ]
+  return candidates
+    .filter((candidate): candidate is string => Boolean(candidate))
+    .find(isExecutableFile)
+}
+
+function resolveNodeFromLoginShell(env: NodeJS.ProcessEnv): string | undefined {
+  if (process.platform === 'win32') {
+    return undefined
+  }
+  const shell = env.SHELL?.trim() || '/bin/sh'
+  try {
+    const output = execFileSync(shell, ['-ilc', 'command -v node'], {
+      encoding: 'utf8',
+      env,
+      stdio: ['ignore', 'pipe', 'ignore'],
+      timeout: 5000
+    })
+    return output
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .find((line) => isAbsolute(line) && isExecutableFile(line))
+  } catch {
+    return undefined
+  }
+}
+
+function isExecutableFile(path: string): boolean {
+  try {
+    accessSync(path, constants.X_OK)
+    return true
+  } catch {
+    return false
+  }
 }

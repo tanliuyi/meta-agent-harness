@@ -112,7 +112,10 @@ export async function respondUi(
   core: ThreadManagerCore,
   input: ExtensionUiResponseInput
 ): Promise<void> {
-  await core.sendOk(input.threadId, { type: 'ui.respond', response: input.response })
+  await core.sendInteractionResponse(input.threadId, {
+    type: 'ui.respond',
+    response: input.response
+  })
 }
 
 /**
@@ -170,6 +173,9 @@ export async function respondApproval(
   core: ThreadManagerCore,
   input: ApprovalResponseInput
 ): Promise<void> {
-  await core.sendOk(input.threadId, { type: 'approval.respond', response: input.response })
+  await core.sendInteractionResponse(input.threadId, {
+    type: 'approval.respond',
+    response: input.response
+  })
   core.getStore()?.resolveApproval(input.response.approvalId, input.response)
 }

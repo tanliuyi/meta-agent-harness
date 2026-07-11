@@ -1,8 +1,18 @@
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, ref, watch, type ComponentPublicInstance } from 'vue'
+import {
+  computed,
+  nextTick,
+  onActivated,
+  onBeforeUnmount,
+  onDeactivated,
+  ref,
+  watch,
+  type ComponentPublicInstance
+} from 'vue'
 import { useVirtualizer, type VirtualItem } from '@tanstack/vue-virtual'
 import { BaseButton, BaseContextMenu, BaseSegmentedControl } from '@renderer/components/base'
 import BaseField from '@renderer/components/base/BaseField.vue'
+import ScrollArea from '@renderer/components/ui/scroll-area/ScrollArea.vue'
 import { useSessionContext } from '@renderer/composables/useSessionContext'
 import {
   Dialog,
@@ -14,7 +24,7 @@ import {
 } from '@renderer/components/ui/dialog'
 import useWorkspaceSessionStore from '@renderer/stores/workspace-session'
 import useAgentSettingsStore from '@renderer/stores/agent-settings'
-import type { AgentTreeFilterMode, SessionTreeViewMode } from '@shared/coding-agent/types'
+import type { AgentTreeFilterMode } from '@shared/coding-agent/types'
 import {
   canForkTreeEntry,
   canNavigateTreeEntry,
@@ -23,31 +33,37 @@ import {
   getTreeEntryMenuSections,
   getTreeEntryTitle,
   getTreeEntryTone,
-  isCompressedTreeDepth as isCompressedTreeDepthValue,
-  toBranchEntryDisplayRow,
-  toTreeSegmentDisplayRow
+  isCompressedTreeDepth as isCompressedTreeDepthValue
 } from '../display/sessionTreeDisplay'
 import {
   sessionTreeFilterOptions,
-  sessionTreeViewOptions,
-  type SessionTreeDisplayRow,
   type SessionTreeEntryView,
   type SessionTreeFilter
 } from '../model/types'
+import {
+  estimateSessionTreeRowSize,
+  getSessionTreeVirtualItemKey,
+  resolveSessionTreeEndFollowState
+} from './display/sessionTreeVirtualization'
 
 const { panelTabRequest } = useSessionContext()
 
 const MAX_VISIBLE_TREE_DEPTH = 6
 const TREE_INDENT_PX = 8
-const TREE_ROW_ESTIMATE_PX = 42
 const TREE_ROW_GAP_PX = 2
 const TREE_LIST_PADDING_TOP_PX = 2
 const TREE_LIST_PADDING_BOTTOM_PX = 4
+const TREE_NEAR_END_DISTANCE_PX = 32
+const TREE_STICKY_END_DISTANCE_PX = 2
 
 type VirtualSessionTreeRow = {
-  displayRow: SessionTreeDisplayRow
+  entry: SessionTreeEntryView
   virtualItem: VirtualItem
   transform: string
+}
+
+type ScrollAreaInstance = {
+  getViewport: () => HTMLElement | undefined
 }
 
 const workspaceSession = useWorkspaceSessionStore()
@@ -60,23 +76,14 @@ const sessionTreeEntryCount = computed(
     workspaceSession.activeSnapshot?.sessionTree?.length ??
     0
 )
-const visibleSessionTreeRows = computed<SessionTreeDisplayRow[]>(() =>
-  (workspaceSession.activeSessionTreeBranches?.rows ?? []).map((row) =>
-    row.kind === 'segment' ? toTreeSegmentDisplayRow(row) : toBranchEntryDisplayRow(row)
-  )
-)
-const visibleTreeEntries = computed<SessionTreeEntryView[]>(() =>
-  visibleSessionTreeRows.value
-    .filter((row): row is Extract<SessionTreeDisplayRow, { kind: 'entry' }> => row.kind === 'entry')
-    .map((row) => row.row)
+const visibleTreeEntries = computed<SessionTreeEntryView[]>(
+  () => workspaceSession.activeSessionTreeBranches?.rows ?? []
 )
 const visibleTreeEntryIds = computed(() => new Set(visibleTreeEntries.value.map((row) => row.id)))
 const visibleTreeEntryIndexById = computed(() => {
   const indexById = new Map<string, number>()
-  visibleSessionTreeRows.value.forEach((row, index) => {
-    if (row.kind === 'entry') {
-      indexById.set(row.row.id, index)
-    }
+  visibleTreeEntries.value.forEach((entry, index) => {
+    indexById.set(entry.id, index)
   })
   return indexById
 })
@@ -85,25 +92,51 @@ const selectedTreeEntryId = ref<string>()
 const selectedTreeLabelDraft = ref('')
 const isTreeLabelDialogOpen = ref(false)
 const treeLabelDialogEntryId = ref<string>()
-const sessionTreeListRef = ref<HTMLElement>()
+const sessionTreeScrollRef = ref<ScrollAreaInstance>()
 const sessionTreeQuery = ref('')
 const sessionTreeFilter = ref<SessionTreeFilter>('default')
-const sessionTreeViewMode = ref<SessionTreeViewMode>('branches')
 const hasAppliedConfiguredTreeFilter = ref(false)
+const shouldFollowTreeEnd = ref(true)
 let sessionTreeQueryTimer: ReturnType<typeof setTimeout> | undefined
+let retainedSessionTreeScrollOffset = 0
+let isSessionTreeTabActive = false
+let isTreeUserScrollLocked = false
+let isProgrammaticTreeEndScroll = false
+let hasInitializedSessionTreeEnd = false
+let sessionTreeLoadSequence = 0
+let sessionTreeEndSettleSequence = 0
 
 if (!agentSettings.snapshot && !agentSettings.loading) {
   void agentSettings.load()
 }
 
+function getSessionTreeScrollElement(): HTMLElement | null {
+  return sessionTreeScrollRef.value?.getViewport() ?? null
+}
+
+function getSessionTreeItemKey(index: number): string {
+  return getSessionTreeVirtualItemKey(
+    workspaceSession.activeSessionId,
+    visibleTreeEntries.value[index],
+    index
+  )
+}
+
+function estimateSessionTreeItemSize(index: number): number {
+  return estimateSessionTreeRowSize(visibleTreeEntries.value[index])
+}
+
 const sessionTreeVirtualizer = useVirtualizer(
   computed(() => ({
-    count: visibleSessionTreeRows.value.length,
-    getScrollElement: () =>
-      sessionTreeListRef.value?.closest<HTMLElement>("[data-slot='scroll-area-viewport']") ?? null,
-    estimateSize: () => TREE_ROW_ESTIMATE_PX,
+    count: visibleTreeEntries.value.length,
+    getScrollElement: getSessionTreeScrollElement,
+    getItemKey: getSessionTreeItemKey,
+    estimateSize: estimateSessionTreeItemSize,
     overscan: 10,
     gap: TREE_ROW_GAP_PX,
+    anchorTo: shouldFollowTreeEnd.value ? ('end' as const) : ('start' as const),
+    followOnAppend: 'auto' as const,
+    scrollEndThreshold: TREE_NEAR_END_DISTANCE_PX,
     paddingStart: TREE_LIST_PADDING_TOP_PX,
     paddingEnd: TREE_LIST_PADDING_BOTTOM_PX
   }))
@@ -111,14 +144,14 @@ const sessionTreeVirtualizer = useVirtualizer(
 const virtualTreeItems = computed(() => sessionTreeVirtualizer.value.getVirtualItems())
 const virtualTreeTotalSize = computed(() => sessionTreeVirtualizer.value.getTotalSize())
 const virtualSessionTreeRows = computed<VirtualSessionTreeRow[]>(() => {
-  const rows = visibleSessionTreeRows.value
+  const entries = visibleTreeEntries.value
   const virtualRows: VirtualSessionTreeRow[] = []
 
   for (const virtualItem of virtualTreeItems.value) {
-    const displayRow = rows[virtualItem.index]
-    if (displayRow) {
+    const entry = entries[virtualItem.index]
+    if (entry) {
       virtualRows.push({
-        displayRow,
+        entry,
         virtualItem,
         transform: `translateY(${virtualItem.start}px)`
       })
@@ -169,20 +202,37 @@ watch(
     () => workspaceSession.activeSessionId,
     () => workspaceSession.activeSnapshot?.currentEntryId,
     () => workspaceSession.activeSessionTreeBranchesState?.revision,
-    sessionTreeFilter,
-    sessionTreeViewMode
+    sessionTreeFilter
   ],
-  () => {
+  ([sessionId, , , filter], previous) => {
+    if (!previous || sessionId !== previous[0] || filter !== previous[3]) {
+      resetSessionTreeEndFollow()
+    }
     queueLoadSessionTreeBranchesView()
   },
   { immediate: true }
 )
 
 watch(sessionTreeQuery, () => {
+  resetSessionTreeEndFollow()
   queueLoadSessionTreeBranchesView(180)
 })
 
+onActivated(() => {
+  isSessionTreeTabActive = true
+  void restoreSessionTreeScrollOffset()
+})
+
+onDeactivated(() => {
+  isSessionTreeTabActive = false
+  isProgrammaticTreeEndScroll = false
+  sessionTreeEndSettleSequence += 1
+})
+
 onBeforeUnmount(() => {
+  isSessionTreeTabActive = false
+  isProgrammaticTreeEndScroll = false
+  sessionTreeEndSettleSequence += 1
   clearQueuedSessionTreeBranchesView()
 })
 
@@ -239,11 +289,25 @@ watch(
 )
 
 async function loadSessionTreeBranchesView(): Promise<void> {
+  const loadSequence = ++sessionTreeLoadSequence
+  const shouldFollowAfterLoad = shouldFollowTreeEnd.value && !isTreeUserScrollLocked
+  const requiresEndInitialization = !hasInitializedSessionTreeEnd
   await workspaceSession.loadActiveSessionTreeBranches({
     query: sessionTreeQuery.value,
-    filter: sessionTreeFilter.value,
-    viewMode: sessionTreeViewMode.value
+    filter: sessionTreeFilter.value
   })
+  if (loadSequence !== sessionTreeLoadSequence) {
+    return
+  }
+  await initializeSessionTreeEndIfNeeded()
+  if (
+    !requiresEndInitialization &&
+    shouldFollowAfterLoad &&
+    !isTreeUserScrollLocked &&
+    isSessionTreeTabActive
+  ) {
+    await settleSessionTreeAtEnd()
+  }
 }
 
 function queueLoadSessionTreeBranchesView(delayMs = 0): void {
@@ -264,6 +328,140 @@ function clearQueuedSessionTreeBranchesView(): void {
   }
   clearTimeout(sessionTreeQueryTimer)
   sessionTreeQueryTimer = undefined
+}
+
+function resetSessionTreeEndFollow(): void {
+  sessionTreeLoadSequence += 1
+  sessionTreeEndSettleSequence += 1
+  retainedSessionTreeScrollOffset = 0
+  isProgrammaticTreeEndScroll = false
+  isTreeUserScrollLocked = false
+  shouldFollowTreeEnd.value = true
+  hasInitializedSessionTreeEnd = false
+}
+
+function getSessionTreeDistanceToEnd(): number | undefined {
+  const viewport = sessionTreeScrollRef.value?.getViewport()
+  if (!viewport) {
+    return undefined
+  }
+  return viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight
+}
+
+function holdSessionTreeUserScroll(): void {
+  sessionTreeEndSettleSequence += 1
+  isProgrammaticTreeEndScroll = false
+  isTreeUserScrollLocked = true
+  shouldFollowTreeEnd.value = false
+}
+
+function updateSessionTreeScrollState(event?: Event): void {
+  const eventTarget = event?.currentTarget
+  const viewport =
+    eventTarget instanceof HTMLElement ? eventTarget : sessionTreeScrollRef.value?.getViewport()
+  if (!viewport) {
+    return
+  }
+  retainedSessionTreeScrollOffset = viewport.scrollTop
+  if (isProgrammaticTreeEndScroll) {
+    return
+  }
+  const distanceToEnd = viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight
+  const followState = resolveSessionTreeEndFollowState(
+    distanceToEnd,
+    isTreeUserScrollLocked,
+    TREE_NEAR_END_DISTANCE_PX,
+    TREE_STICKY_END_DISTANCE_PX
+  )
+  isTreeUserScrollLocked = followState.userScrollLocked
+  shouldFollowTreeEnd.value = followState.shouldFollow
+}
+
+function handleSessionTreeWheel(event: WheelEvent): void {
+  if (Math.abs(event.deltaY) < 1) {
+    return
+  }
+  const distanceToEnd = getSessionTreeDistanceToEnd()
+  if (
+    event.deltaY < 0 ||
+    distanceToEnd === undefined ||
+    distanceToEnd > TREE_STICKY_END_DISTANCE_PX
+  ) {
+    holdSessionTreeUserScroll()
+  }
+}
+
+function handleSessionTreeScrollbarPointerDown(): void {
+  holdSessionTreeUserScroll()
+}
+
+function waitForSessionTreeFrame(): Promise<void> {
+  return new Promise((resolve) => requestAnimationFrame(() => resolve()))
+}
+
+async function settleSessionTreeAtEnd(): Promise<void> {
+  const settleSequence = ++sessionTreeEndSettleSequence
+  isProgrammaticTreeEndScroll = true
+  sessionTreeVirtualizer.value.measure()
+  await nextTick()
+
+  for (let frame = 0; frame < 3; frame += 1) {
+    if (
+      settleSequence !== sessionTreeEndSettleSequence ||
+      !isSessionTreeTabActive ||
+      isTreeUserScrollLocked
+    ) {
+      return
+    }
+    sessionTreeVirtualizer.value.scrollToEnd({ behavior: 'auto' })
+    await waitForSessionTreeFrame()
+  }
+
+  if (settleSequence !== sessionTreeEndSettleSequence) {
+    return
+  }
+  isProgrammaticTreeEndScroll = false
+  const viewport = sessionTreeScrollRef.value?.getViewport()
+  viewport?.dispatchEvent(new Event('scroll'))
+  await nextTick()
+}
+
+async function initializeSessionTreeEndIfNeeded(): Promise<void> {
+  if (
+    hasInitializedSessionTreeEnd ||
+    !isSessionTreeTabActive ||
+    visibleTreeEntries.value.length === 0
+  ) {
+    return
+  }
+  hasInitializedSessionTreeEnd = true
+  await settleSessionTreeAtEnd()
+}
+
+async function restoreSessionTreeScrollOffset(): Promise<void> {
+  await nextTick()
+  if (!isSessionTreeTabActive) {
+    return
+  }
+  const viewport = sessionTreeScrollRef.value?.getViewport()
+  if (!viewport) {
+    return
+  }
+  if (shouldFollowTreeEnd.value) {
+    hasInitializedSessionTreeEnd = visibleTreeEntries.value.length > 0
+    await settleSessionTreeAtEnd()
+    return
+  }
+
+  sessionTreeVirtualizer.value.measure()
+  await nextTick()
+  const maxOffset = Math.max(sessionTreeVirtualizer.value.getTotalSize() - viewport.clientHeight, 0)
+  retainedSessionTreeScrollOffset = Math.min(retainedSessionTreeScrollOffset, maxOffset)
+  sessionTreeVirtualizer.value.scrollToOffset(retainedSessionTreeScrollOffset, {
+    behavior: 'auto'
+  })
+  viewport.dispatchEvent(new Event('scroll'))
+  await nextTick()
 }
 
 function toSessionTreeFilter(mode: AgentTreeFilterMode): SessionTreeFilter {
@@ -351,7 +549,6 @@ async function locateCurrentTreeNode(): Promise<void> {
 
 async function focusSessionTreeEntry(entryId: string): Promise<void> {
   if (!visibleTreeEntryIds.value.has(entryId)) {
-    sessionTreeViewMode.value = 'entries'
     sessionTreeFilter.value = 'all'
     sessionTreeQuery.value = ''
     await loadSessionTreeBranchesView()
@@ -366,6 +563,7 @@ function scrollTreeEntryIntoView(entryId: string): void {
   if (targetIndex === -1) {
     return
   }
+  holdSessionTreeUserScroll()
   sessionTreeVirtualizer.value.scrollToIndex(targetIndex, { align: 'center', behavior: 'smooth' })
 }
 
@@ -423,12 +621,12 @@ async function clearSelectedTreeLabel(): Promise<void> {
 </script>
 
 <template>
-  <section class="session-section" role="tabpanel">
+  <section class="session-section session-section--tree" role="tabpanel">
     <header class="session-section__header">
       <div class="session-section__title">
         <h3>Tree</h3>
         <span v-if="sessionTreeEntryCount" class="session-tree-count">
-          {{ visibleSessionTreeRows.length }} / {{ sessionTreeEntryCount }}
+          {{ visibleTreeEntries.length }} / {{ sessionTreeEntryCount }}
         </span>
       </div>
       <BaseButton
@@ -446,7 +644,7 @@ async function clearSelectedTreeLabel(): Promise<void> {
         <BaseField
           id="session-tree-search"
           v-model="sessionTreeQuery"
-          label="Search tree"
+          aria-label="Search tree"
           type="search"
           placeholder="Search entries"
         />
@@ -456,111 +654,93 @@ async function clearSelectedTreeLabel(): Promise<void> {
           :options="sessionTreeFilterOptions"
           @update:model-value="sessionTreeFilter = $event"
         />
-        <BaseSegmentedControl
-          label="Tree view"
-          :model-value="sessionTreeViewMode"
-          :options="sessionTreeViewOptions"
-          @update:model-value="sessionTreeViewMode = $event"
-        />
       </div>
       <div v-if="workspaceSession.activeSessionTreeBranchesLoading" class="session-empty">
-        Loading branches...
+        Loading tree...
       </div>
       <div v-if="workspaceSession.activeSessionTreeBranchesError" class="session-empty">
         {{ workspaceSession.activeSessionTreeBranchesError }}
       </div>
-      <div v-if="visibleSessionTreeRows.length === 0" class="session-empty">
-        No matching entries
-      </div>
-      <div
+      <div v-if="visibleTreeEntries.length === 0" class="session-empty">No matching entries</div>
+      <ScrollArea
         v-else
-        ref="sessionTreeListRef"
+        ref="sessionTreeScrollRef"
         class="session-tree"
-        :style="{ height: `${virtualTreeTotalSize}px` }"
+        :vertical-size="7"
+        @scroll="updateSessionTreeScrollState"
+        @scrollbar-pointer-down="handleSessionTreeScrollbarPointerDown"
+        @wheel.passive="handleSessionTreeWheel"
       >
-        <template
-          v-for="{ displayRow, virtualItem, transform } in virtualSessionTreeRows"
-          :key="displayRow.id"
-        >
+        <div class="session-tree__virtual" :style="{ height: `${virtualTreeTotalSize}px` }">
           <BaseContextMenu
-            v-if="displayRow.kind === 'entry'"
-            :sections="getTreeEntryMenuSections(displayRow.row)"
-            @select="(item) => runTreeEntryMenuAction(item.id, displayRow.row)"
+            v-for="{ entry, virtualItem, transform } in virtualSessionTreeRows"
+            :key="entry.id"
+            v-memo="[
+              entry,
+              entry.id === selectedTreeEntryId,
+              entry.id === currentEntryId,
+              virtualItem.index === 0,
+              virtualItem.index === visibleTreeEntries.length - 1,
+              transform
+            ]"
+            :sections="getTreeEntryMenuSections(entry)"
+            @select="(item) => runTreeEntryMenuAction(item.id, entry)"
           >
             <div
               :ref="measureSessionTreeItem"
               class="session-tree__item"
               :class="{
-                'is-current': displayRow.row.id === currentEntryId,
-                'is-selected': isSelectedTreeEntry(displayRow.row),
-                'is-truncated': displayRow.row.type === 'truncated'
+                'is-first': virtualItem.index === 0,
+                'is-last': virtualItem.index === visibleTreeEntries.length - 1,
+                'is-leaf': entry.leaf,
+                'is-branch-point': entry.branchPoint,
+                'is-current': entry.id === currentEntryId,
+                'is-selected': isSelectedTreeEntry(entry),
+                'is-truncated': entry.type === 'truncated'
               }"
               :data-index="virtualItem.index"
-              :data-tree-entry-id="displayRow.row.id"
+              :data-tree-entry-id="entry.id"
               :style="{
-                '--session-tree-indent': getSessionTreeIndent(displayRow.visualDepth),
+                '--session-tree-indent': getSessionTreeIndent(entry.visualDepth),
+                '--session-tree-row-gap': `${TREE_ROW_GAP_PX}px`,
                 transform
               }"
-              :title="displayRow.depth > 0 ? `Depth ${displayRow.depth}` : undefined"
-              @dblclick="navigateTreeNode(displayRow.row)"
+              :title="entry.depth > 0 ? `Depth ${entry.depth}` : undefined"
+              @dblclick="navigateTreeNode(entry)"
             >
               <span
                 class="session-tree__marker"
                 :class="{
-                  'is-current': displayRow.row.id === currentEntryId,
-                  'is-branch-point': displayRow.row.branchPoint,
-                  'is-leaf': displayRow.row.leaf
+                  'is-current': entry.id === currentEntryId,
+                  'is-branch-point': entry.branchPoint,
+                  'is-leaf': entry.leaf
                 }"
                 aria-hidden="true"
               />
-              <button
-                type="button"
-                class="session-tree__content"
-                @click="selectTreeEntry(displayRow.row)"
-              >
+              <button type="button" class="session-tree__content" @click="selectTreeEntry(entry)">
                 <span class="session-tree__row">
                   <span
                     class="session-tree-kind"
-                    :class="`is-${getTreeEntryTone(displayRow.row, currentEntryId)}`"
+                    :class="`is-${getTreeEntryTone(entry, currentEntryId)}`"
                   >
-                    {{ getTreeEntryKindLabel(displayRow.row) }}
+                    {{ getTreeEntryKindLabel(entry) }}
                   </span>
                   <span class="session-tree__title">
-                    {{ getTreeEntryTitle(displayRow.row) }}
+                    {{ getTreeEntryTitle(entry) }}
                   </span>
-                  <span
-                    v-if="isCompressedTreeDepth(displayRow.row.visualDepth)"
-                    class="session-tree__depth"
-                    >D{{ displayRow.row.depth }}</span
+                  <span v-if="isCompressedTreeDepth(entry.visualDepth)" class="session-tree__depth"
+                    >D{{ entry.depth }}</span
                   >
-                  <span v-if="displayRow.row.id === currentEntryId" class="session-tree__current"
-                    >当前</span
-                  >
+                  <span v-if="entry.id === currentEntryId" class="session-tree__current">当前</span>
                 </span>
-                <span v-if="displayRow.row.summary" class="session-tree__summary">
-                  {{ displayRow.row.summary }}
+                <span v-if="entry.summary" class="session-tree__summary">
+                  {{ entry.summary }}
                 </span>
               </button>
             </div>
           </BaseContextMenu>
-          <div
-            v-else
-            :ref="measureSessionTreeItem"
-            class="session-tree__item is-segment"
-            :data-index="virtualItem.index"
-            :style="{
-              '--session-tree-indent': getSessionTreeIndent(displayRow.visualDepth),
-              transform
-            }"
-            :title="displayRow.depth > 0 ? `Depth ${displayRow.depth}` : undefined"
-          >
-            <span class="session-tree__segment-line" aria-hidden="true" />
-            <div class="session-tree__segment">
-              <span>折叠 {{ displayRow.count }} 条线性消息</span>
-            </div>
-          </div>
-        </template>
-      </div>
+        </div>
+      </ScrollArea>
     </template>
 
     <Dialog :open="isTreeLabelDialogOpen" @update:open="handleTreeLabelDialogOpenChange">

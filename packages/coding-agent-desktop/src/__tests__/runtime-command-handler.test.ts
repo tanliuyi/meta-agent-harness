@@ -166,6 +166,45 @@ describe("handleRuntimeCommand", () => {
 		});
 	});
 
+	/** 验证模型 registry 刷新会同时重读跨进程写入的凭据。 */
+	it("refresh_model_registry 重载 auth 和 models registry", async () => {
+		const calls: string[] = [];
+		const host = createHost(
+			createSession({
+				modelRegistry: {
+					authStorage: { reload: () => calls.push("auth") },
+					refresh: () => calls.push("models"),
+					getAvailable: async () => [],
+				},
+			}),
+		);
+
+		const response = await handleRuntimeCommand(host, command("1", { type: "refresh_model_registry" }));
+
+		expect(response?.success).toBe(true);
+		expect(calls).toEqual(["auth", "models"]);
+	});
+
+	/** 验证 Composer 获取模型列表时按 Pi /model 语义刷新 registry。 */
+	it("get_available_models 刷新 registry 后返回模型", async () => {
+		const calls: string[] = [];
+		const host = createHost(
+			createSession({
+				modelRegistry: {
+					authStorage: { reload: () => calls.push("auth") },
+					refresh: () => calls.push("models"),
+					getAvailable: async () => [{ provider: "custom", id: "new-model" }],
+				},
+			}),
+		);
+
+		const response = await handleRuntimeCommand(host, command("1", { type: "get_available_models" }));
+
+		expect(response?.success).toBe(true);
+		expect(response?.data).toEqual({ models: [{ provider: "custom", id: "new-model" }] });
+		expect(calls).toEqual(["auth", "models"]);
+	});
+
 	/** 验证 set_model 找不到模型时返回结构化错误。 */
 	it("set_model 找不到模型时返回结构化错误", async () => {
 		const host = createHost();
@@ -483,6 +522,8 @@ function createSession(overrides: Record<string, unknown> = {}): RuntimeCommandH
 		getFollowUpMessages: () => ["verify"],
 		getContextUsage: () => undefined,
 		modelRegistry: {
+			authStorage: { reload: () => {} },
+			refresh: () => {},
 			getAvailable: async () => [{ provider: "openai", id: "gpt-test" }],
 		},
 		sessionManager: {

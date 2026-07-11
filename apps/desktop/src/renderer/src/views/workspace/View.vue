@@ -8,20 +8,56 @@
 import WindowDragStrip from '@renderer/components/window-drag-strip/WindowDragStrip.vue'
 import ResizablePaneSeparator from '@renderer/components/ui/resizable-pane-separator/ResizablePaneSeparator.vue'
 import { useAppStore } from '@renderer/stores/app'
+import useWorkspaceSessionStore from '@renderer/stores/workspace-session'
 import useWorkspaceUiStore from '@renderer/stores/workspace-ui'
-import { computed } from 'vue'
+import { useElementSize } from '@vueuse/core'
+import { computed, ref } from 'vue'
 import WorkspaceContent from './components/content/WorkspaceContent.vue'
 import Sidebar from './components/sidebar/Sidebar.vue'
-
-/** 分隔条宽度（像素）。 */
-const RESIZER_WIDTH = 1
+import { MIN_WORKSPACE_MAIN_SESSION_WIDTH, WORKSPACE_RESIZER_WIDTH } from './workspace-layout'
 
 const app = useAppStore()
+const workspaceSession = useWorkspaceSessionStore()
 const workspaceUi = useWorkspaceUiStore()
+const workspaceRef = ref<HTMLElement | null>(null)
+const { width: workspaceWidth } = useElementSize(workspaceRef)
+
+const isSessionPanelOpen = computed(
+  () => Boolean(workspaceSession.activeSession) && workspaceSession.activeSessionPanel.panelOpen
+)
+
+const sessionPanelOccupiedWidth = computed(() => {
+  if (!isSessionPanelOpen.value) {
+    return 0
+  }
+
+  return workspaceSession.activeSessionPanel.panelWidth + WORKSPACE_RESIZER_WIDTH
+})
+
+const workspaceSidebarMaxWidth = computed(() => {
+  if (!workspaceWidth.value) {
+    return workspaceUi.maxSidebarWidth
+  }
+
+  const availableWidth =
+    workspaceWidth.value -
+    WORKSPACE_RESIZER_WIDTH -
+    MIN_WORKSPACE_MAIN_SESSION_WIDTH -
+    sessionPanelOccupiedWidth.value
+
+  return Math.min(
+    workspaceUi.maxSidebarWidth,
+    Math.max(workspaceUi.minSidebarWidth, availableWidth)
+  )
+})
+
+const workspaceSidebarLayoutWidth = computed(() =>
+  Math.min(workspaceUi.sidebarWidth, workspaceSidebarMaxWidth.value)
+)
 
 /** 当前工作区网格列模板。 */
 const workspaceGridColumns = computed(() => {
-  return `${workspaceUi.sidebarWidth}px ${RESIZER_WIDTH}px minmax(0, 1fr)`
+  return `${workspaceSidebarLayoutWidth.value}px ${WORKSPACE_RESIZER_WIDTH}px minmax(0, 1fr)`
 })
 
 /** 当前工作区网格行模板：macOS 留出顶部拖拽条，Windows/Linux 不需要。 */
@@ -39,6 +75,7 @@ const workspaceGridAreas = computed(() => {
 
 <template>
   <main
+    ref="workspaceRef"
     class="workspace"
     :style="{
       gridTemplateColumns: workspaceGridColumns,
@@ -51,9 +88,9 @@ const workspaceGridAreas = computed(() => {
 
     <ResizablePaneSeparator
       class="workspace__resizer"
-      :model-value="workspaceUi.sidebarWidth"
+      :model-value="workspaceSidebarLayoutWidth"
       :min="workspaceUi.minSidebarWidth"
-      :max="workspaceUi.maxSidebarWidth"
+      :max="workspaceSidebarMaxWidth"
       @update:model-value="workspaceUi.setSidebarWidth"
     />
 
@@ -87,6 +124,7 @@ const workspaceGridAreas = computed(() => {
 
 .workspace__content {
   grid-area: content;
+  box-shadow: -4px 0 12px rgba($color: #000000, $alpha: 0.03);
 }
 
 @media (width <= 820px) {

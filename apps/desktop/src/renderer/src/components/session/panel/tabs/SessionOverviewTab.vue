@@ -182,7 +182,7 @@ async function runSessionAction(actionId: string): Promise<void> {
 </script>
 
 <template>
-  <section class="session-section" role="tabpanel">
+  <section class="session-section session-section--scrollable" role="tabpanel">
     <header class="session-section__header">
       <h3>Session</h3>
       <BaseDropdownMenu
@@ -210,218 +210,217 @@ async function runSessionAction(actionId: string): Promise<void> {
         </BaseIconButton>
       </BaseDropdownMenu>
     </header>
-    <div class="session-overview">
-      <div class="session-overview__topline">
-        <div class="session-overview__project">
-          <span>Project</span>
-          <strong>{{ sessionProject?.name ?? '-' }}</strong>
-        </div>
-      </div>
+    <ScrollArea class="session-section__content-scroll" :vertical-size="7">
+      <div class="session-section__content">
+        <div class="session-overview">
+          <div class="session-overview__topline">
+            <div class="session-overview__project">
+              <span>Project</span>
+              <strong>{{ sessionProject?.name ?? '-' }}</strong>
+            </div>
+          </div>
 
-      <div class="session-overview__path">
-        <div>
-          <span>Session</span>
-          <strong :title="activeSessionFile ?? undefined">{{ activeSessionFileName }}</strong>
-        </div>
-        <BaseIconButton
-          class="session-overview__copy"
-          :class="{ 'is-copied': isSessionPathCopied }"
-          label="复制会话路径"
-          size="small"
-          :disabled="!activeSessionFile"
-          @click="copyActiveSessionPath"
-        >
-          <svg
-            v-if="isSessionPathCopied"
-            viewBox="0 0 20 20"
-            fill="none"
-            stroke="currentColor"
-            stroke-width="1.9"
-            stroke-linecap="round"
-            stroke-linejoin="round"
-            aria-hidden="true"
-          >
-            <path d="m4.5 10.5 3.3 3.2 7.7-8.2" />
-          </svg>
-          <svg
-            v-else
-            viewBox="0 0 20 20"
-            fill="none"
-            stroke="currentColor"
-            stroke-width="1.7"
-            stroke-linecap="round"
-            stroke-linejoin="round"
-            aria-hidden="true"
-          >
-            <rect x="7" y="4" width="8" height="10" rx="1.5" />
-            <path d="M5 7v7.5A1.5 1.5 0 0 0 6.5 16H12" />
-          </svg>
-        </BaseIconButton>
-      </div>
+          <div class="session-overview__path">
+            <div>
+              <span>Session</span>
+              <strong :title="activeSessionFile ?? undefined">{{ activeSessionFileName }}</strong>
+            </div>
+            <BaseIconButton
+              class="session-overview__copy"
+              :class="{ 'is-copied': isSessionPathCopied }"
+              label="复制会话路径"
+              size="small"
+              :disabled="!activeSessionFile"
+              @click="copyActiveSessionPath"
+            >
+              <svg
+                v-if="isSessionPathCopied"
+                viewBox="0 0 20 20"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.9"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                aria-hidden="true"
+              >
+                <path d="m4.5 10.5 3.3 3.2 7.7-8.2" />
+              </svg>
+              <svg
+                v-else
+                viewBox="0 0 20 20"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.7"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                aria-hidden="true"
+              >
+                <rect x="7" y="4" width="8" height="10" rx="1.5" />
+                <path d="M5 7v7.5A1.5 1.5 0 0 0 6.5 16H12" />
+              </svg>
+            </BaseIconButton>
+          </div>
 
-      <div class="session-overview__metrics">
-        <div>
-          <span>Entries</span>
-          <strong>{{ sessionTreeEntryCount }}</strong>
+          <div class="session-overview__metrics">
+            <div>
+              <span>Entries</span>
+              <strong>{{ sessionTreeEntryCount }}</strong>
+            </div>
+            <div>
+              <span>Leaf</span>
+              <strong>{{ currentEntryId ?? '-' }}</strong>
+            </div>
+          </div>
         </div>
-        <div>
-          <span>Leaf</span>
-          <strong>{{ currentEntryId ?? '-' }}</strong>
-        </div>
-      </div>
-    </div>
 
-    <ScrollArea
-      v-if="workspaceSession.activeSessionActionDetails"
-      class="session-command-details"
-    >
-      <strong>{{ workspaceSession.activeSessionActionDetails.title }}</strong>
-      <pre>{{ workspaceSession.activeSessionActionDetails.body }}</pre>
+        <div v-if="workspaceSession.activeSessionActionDetails" class="session-command-details">
+          <strong>{{ workspaceSession.activeSessionActionDetails.title }}</strong>
+          <pre>{{ workspaceSession.activeSessionActionDetails.body }}</pre>
+        </div>
+        <div v-if="workspaceSession.activeExportResult" class="export-result">
+          <div>
+            <span>HTML export</span>
+            <strong>{{ getFileName(workspaceSession.activeExportResult.path) }}</strong>
+          </div>
+          <div class="export-result__actions">
+            <BaseButton size="sm" variant="primary" @click="workspaceSession.openActiveExport()">
+              Open
+            </BaseButton>
+            <BaseButton size="sm" variant="ghost" @click="workspaceSession.revealActiveExport()">
+              Show
+            </BaseButton>
+          </div>
+        </div>
+
+        <Collapsible v-slot="{ open }" class="runtime-advanced">
+          <CollapsibleTrigger class="runtime-advanced__trigger">
+            <span>高级</span>
+            <svg
+              class="runtime-advanced__chevron"
+              :class="{ 'is-open': open }"
+              viewBox="0 0 20 20"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.8"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              aria-hidden="true"
+            >
+              <path d="m7.5 5 5 5-5 5" />
+            </svg>
+          </CollapsibleTrigger>
+
+          <CollapsibleContent class="runtime-advanced__content">
+            <div class="runtime-control-list">
+              <div
+                class="runtime-toggle-row"
+                :class="{ 'is-disabled': !hasActiveThread || autoCompactionValue === undefined }"
+              >
+                <div>
+                  <span>Auto compact</span>
+                  <small>上下文接近上限时自动压缩</small>
+                </div>
+                <BaseSegmentedControl
+                  v-if="autoCompactionValue !== undefined"
+                  label="Auto compact"
+                  size="small"
+                  :model-value="autoCompactionValue"
+                  :options="onOffOptions"
+                  @update:model-value="setAutoCompactionValue"
+                />
+                <span v-else>{{ hasActiveThread ? 'Unknown' : '-' }}</span>
+              </div>
+              <div class="runtime-toggle-row" :class="{ 'is-disabled': !hasActiveThread }">
+                <div>
+                  <span>Auto retry</span>
+                  <small>Provider 短暂失败时自动重试</small>
+                </div>
+                <BaseSegmentedControl
+                  label="Auto retry"
+                  size="small"
+                  :model-value="autoRetryValue"
+                  :options="onOffOptions"
+                  @update:model-value="setAutoRetryValue"
+                />
+              </div>
+            </div>
+          </CollapsibleContent>
+        </Collapsible>
+
+        <article v-if="workspaceSession.activeRetryState" class="retry-card">
+          <div>
+            <strong>
+              Retry {{ workspaceSession.activeRetryState.attempt }} /
+              {{ workspaceSession.activeRetryState.maxAttempts }}
+            </strong>
+            <span>
+              {{ formatRetryDelay(workspaceSession.activeRetryState.delayMs) }} ·
+              {{ workspaceSession.activeRetryState.errorMessage }}
+            </span>
+          </div>
+          <BaseButton size="sm" variant="ghost" @click="workspaceSession.abortActiveRetry()">
+            Abort retry
+          </BaseButton>
+        </article>
+      </div>
     </ScrollArea>
-    <div v-if="workspaceSession.activeExportResult" class="export-result">
-      <div>
-        <span>HTML export</span>
-        <strong>{{ getFileName(workspaceSession.activeExportResult.path) }}</strong>
-      </div>
-      <div class="export-result__actions">
-        <BaseButton size="sm" variant="primary" @click="workspaceSession.openActiveExport()">
-          Open
-        </BaseButton>
-        <BaseButton size="sm" variant="ghost" @click="workspaceSession.revealActiveExport()">
-          Show
-        </BaseButton>
-      </div>
-    </div>
-  </section>
 
-  <section class="session-section session-section--compact" role="tabpanel">
-    <Collapsible v-slot="{ open }" class="runtime-advanced">
-      <CollapsibleTrigger class="runtime-advanced__trigger">
-        <span>高级</span>
-        <svg
-          class="runtime-advanced__chevron"
-          :class="{ 'is-open': open }"
-          viewBox="0 0 20 20"
-          fill="none"
-          stroke="currentColor"
-          stroke-width="1.8"
-          stroke-linecap="round"
-          stroke-linejoin="round"
-          aria-hidden="true"
-        >
-          <path d="m7.5 5 5 5-5 5" />
-        </svg>
-      </CollapsibleTrigger>
+    <Dialog :open="isSessionPathDialogOpen" @update:open="handleSessionPathDialogOpenChange">
+      <DialogContent class="session-path-dialog">
+        <form class="session-path-dialog__form" @submit.prevent="switchSessionFromDraft">
+          <DialogHeader>
+            <DialogTitle>切换 Session 文件</DialogTitle>
+            <DialogDescription>切换到已有 Pi-compatible session JSONL 文件。</DialogDescription>
+          </DialogHeader>
 
-      <CollapsibleContent class="runtime-advanced__content">
-        <div class="runtime-control-list">
-          <div
-            class="runtime-toggle-row"
-            :class="{ 'is-disabled': !hasActiveThread || autoCompactionValue === undefined }"
-          >
-            <div>
-              <span>Auto compact</span>
-              <small>上下文接近上限时自动压缩</small>
-            </div>
-            <BaseSegmentedControl
-              v-if="autoCompactionValue !== undefined"
-              label="Auto compact"
-              size="small"
-              :model-value="autoCompactionValue"
-              :options="onOffOptions"
-              @update:model-value="setAutoCompactionValue"
-            />
-            <span v-else>{{ hasActiveThread ? 'Unknown' : '-' }}</span>
-          </div>
-          <div class="runtime-toggle-row" :class="{ 'is-disabled': !hasActiveThread }">
-            <div>
-              <span>Auto retry</span>
-              <small>Provider 短暂失败时自动重试</small>
-            </div>
-            <BaseSegmentedControl
-              label="Auto retry"
-              size="small"
-              :model-value="autoRetryValue"
-              :options="onOffOptions"
-              @update:model-value="setAutoRetryValue"
-            />
-          </div>
-        </div>
-      </CollapsibleContent>
-    </Collapsible>
+          <BaseField
+            id="session-switch-path"
+            v-model="sessionPathDraft"
+            label="Session path"
+            placeholder="/path/to/session.jsonl"
+          />
 
-    <article v-if="workspaceSession.activeRetryState" class="retry-card">
-      <div>
-        <strong>
-          Retry {{ workspaceSession.activeRetryState.attempt }} /
-          {{ workspaceSession.activeRetryState.maxAttempts }}
-        </strong>
-        <span>
-          {{ formatRetryDelay(workspaceSession.activeRetryState.delayMs) }} ·
-          {{ workspaceSession.activeRetryState.errorMessage }}
-        </span>
-      </div>
-      <BaseButton size="sm" variant="ghost" @click="workspaceSession.abortActiveRetry()">
-        Abort retry
-      </BaseButton>
-    </article>
-  </section>
+          <DialogFooter>
+            <BaseButton type="button" size="sm" variant="ghost" @click="closeSessionPathDialog">
+              Cancel
+            </BaseButton>
+            <BaseButton
+              type="submit"
+              size="sm"
+              variant="primary"
+              :disabled="!hasActiveThread || !sessionPathDraft.trim()"
+            >
+              Switch
+            </BaseButton>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
 
-  <Dialog :open="isSessionPathDialogOpen" @update:open="handleSessionPathDialogOpenChange">
-    <DialogContent class="session-path-dialog">
-      <form class="session-path-dialog__form" @submit.prevent="switchSessionFromDraft">
+    <Dialog :open="isNewSessionDialogOpen" @update:open="handleNewSessionDialogOpenChange">
+      <DialogContent class="session-confirm-dialog">
         <DialogHeader>
-          <DialogTitle>切换 Session 文件</DialogTitle>
-          <DialogDescription>切换到已有 Pi-compatible session JSONL 文件。</DialogDescription>
+          <DialogTitle>创建新的 Session</DialogTitle>
+          <DialogDescription>
+            在当前 thread 内创建一个新的空 Pi session 文件，并切换当前对话视图。
+          </DialogDescription>
         </DialogHeader>
 
-        <BaseField
-          id="session-switch-path"
-          v-model="sessionPathDraft"
-          label="Session path"
-          placeholder="/path/to/session.jsonl"
-        />
-
         <DialogFooter>
-          <BaseButton type="button" size="sm" variant="ghost" @click="closeSessionPathDialog">
+          <BaseButton type="button" size="sm" variant="ghost" @click="closeNewSessionDialog">
             Cancel
           </BaseButton>
           <BaseButton
-            type="submit"
+            type="button"
             size="sm"
             variant="primary"
-            :disabled="!hasActiveThread || !sessionPathDraft.trim()"
+            :disabled="!hasActiveThread"
+            @click="createNewSessionFromDialog"
           >
-            Switch
+            Create
           </BaseButton>
         </DialogFooter>
-      </form>
-    </DialogContent>
-  </Dialog>
-
-  <Dialog :open="isNewSessionDialogOpen" @update:open="handleNewSessionDialogOpenChange">
-    <DialogContent class="session-confirm-dialog">
-      <DialogHeader>
-        <DialogTitle>创建新的 Session</DialogTitle>
-        <DialogDescription>
-          在当前 thread 内创建一个新的空 Pi session 文件，并切换当前对话视图。
-        </DialogDescription>
-      </DialogHeader>
-
-      <DialogFooter>
-        <BaseButton type="button" size="sm" variant="ghost" @click="closeNewSessionDialog">
-          Cancel
-        </BaseButton>
-        <BaseButton
-          type="button"
-          size="sm"
-          variant="primary"
-          :disabled="!hasActiveThread"
-          @click="createNewSessionFromDialog"
-        >
-          Create
-        </BaseButton>
-      </DialogFooter>
-    </DialogContent>
-  </Dialog>
+      </DialogContent>
+    </Dialog>
+  </section>
 </template>

@@ -9,6 +9,8 @@ import type { WorkerClient } from './worker-types'
 import { TransportWorkerClient } from './transport-worker-client'
 import { UtilityProcessWorkerTransport } from './utility-process-worker-transport'
 import { getCodingAgentWorkerEnv } from './coding-agent-package-dir'
+import { createDesktopPiCliShim } from './desktop-pi-cli-shim'
+import { resolveNodeSidecarWorkerEntry } from './node-sidecar-worker-client-factory'
 
 /**
  * Utility process worker 客户端工厂选项。
@@ -16,6 +18,8 @@ import { getCodingAgentWorkerEnv } from './coding-agent-package-dir'
 export interface UtilityProcessWorkerClientFactoryOptions {
   /** 自定义 worker 入口文件路径。 */
   workerEntry?: string
+  /** 自定义扩展 `pi` 命令使用的 CLI sidecar 入口；主要用于测试与特殊打包布局。 */
+  piCliWorkerEntry?: string
   /** 请求超时毫秒数。 */
   requestTimeoutMs?: number
   /** 无消息超时毫秒数，默认 2 分钟。 */
@@ -35,8 +39,22 @@ export async function createUtilityProcessWorkerClient(
   if (!existsSync(workerEntry)) {
     throw new Error(`coding agent utility worker entry not found: ${workerEntry}`)
   }
+  const piCliWorkerEntry = options.piCliWorkerEntry ?? resolveNodeSidecarWorkerEntry()
+  if (!existsSync(piCliWorkerEntry)) {
+    throw new Error(`coding agent CLI compatibility worker entry not found: ${piCliWorkerEntry}`)
+  }
+  const workerEnv = getCodingAgentWorkerEnv()
+  const { env } = createDesktopPiCliShim({
+    // utilityProcess 本身运行在 Electron 中；launcher 通过 ELECTRON_RUN_AS_NODE
+    // 复用应用自带的可执行文件，并转到同一构建中的 Node sidecar。不能退回 PATH
+    // 查找外部 pi，否则 utilityProcess 与 nodeSidecar 会再次产生版本和资源分裂。
+    nodeExecPath: process.execPath,
+    workerEntry: piCliWorkerEntry,
+    env: workerEnv,
+    electronRunAsNode: true
+  })
   const child = utilityProcess.fork(workerEntry, [], {
-    env: getCodingAgentWorkerEnv(),
+    env,
     stdio: ['ignore', 'pipe', 'pipe'],
     serviceName: 'Coding Agent Worker'
   })

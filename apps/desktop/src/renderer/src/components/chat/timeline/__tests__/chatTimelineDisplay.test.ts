@@ -6,7 +6,11 @@ import {
   createDisplayTimelineItems,
   createProcessingCollapseResult,
   createTimelineItems,
-  stabilizeTimelineItems
+  createTimelineProjectionCache,
+  getTimelineChangedStartIndex,
+  projectTimelineItems,
+  stabilizeTimelineItems,
+  type TimelineItem
 } from '../chatTimelineDisplay'
 
 describe('chatTimelineDisplay', () => {
@@ -128,6 +132,33 @@ describe('chatTimelineDisplay', () => {
     expect(unchanged).toBe(completed)
   })
 
+  it('记录稳定 timeline 首个变化索引供下游复用前缀', () => {
+    const first = userMessage('user-a', 'first')
+    const second = userMessage('user-b', 'second')
+    const third = userMessage('user-c', 'third')
+    const project = (messages: ThreadMessage[]): TimelineItem[] =>
+      messages.map((message) => ({
+        type: 'message' as const,
+        key: message.id,
+        message,
+        revision: 1,
+        renderState: 'complete' as const
+      }))
+
+    const initial = stabilizeTimelineItems(project([first, second]), undefined)
+    const appended = stabilizeTimelineItems(project([first, second, third]), initial)
+    const changed = stabilizeTimelineItems(
+      project([first, { ...second, text: 'updated' }, third]),
+      appended
+    )
+
+    expect(getTimelineChangedStartIndex(appended)).toBe(2)
+    expect(appended[0]).toBe(initial[0])
+    expect(appended[1]).toBe(initial[1])
+    expect(getTimelineChangedStartIndex(changed)).toBe(1)
+    expect(changed[0]).toBe(appended[0])
+  })
+
   it('相同投影重新排序时保留新顺序', () => {
     const first = userMessage('user-a', 'first')
     const second = userMessage('user-b', 'second')
@@ -155,6 +186,170 @@ describe('chatTimelineDisplay', () => {
     expect(reordered.map((item) => item.key)).toEqual(['user-b', 'user-a'])
     expect(reordered[0]).toBe(initial[1])
     expect(reordered[1]).toBe(initial[0])
+  })
+
+  it('复用未变化消息的基础投影并按 revision 失效', () => {
+    const first = userMessage('user-a', 'first')
+    const reply = assistantTextMessage('assistant-a', 'reply')
+    const revisions: Record<string, number> = { 'user-a': 1, 'assistant-a': 1 }
+    const createItems = (messages: ThreadMessage[]): TimelineItem[] =>
+      createTimelineItems({
+        messages,
+        toolCallStructures: [],
+        getMessageRenderState: (message) => ({
+          revision: revisions[message.id] ?? 1,
+          renderState: 'complete'
+        }),
+        resolveTimelineToolCall: () => undefined,
+        getToolResultMessageToolCall: () => undefined,
+        hideThinkingBlock: false
+      })
+
+    const initial = createItems([first, reply])
+    const appended = createItems([first, reply, userMessage('user-b', 'second')])
+    revisions['assistant-a'] = 2
+    const revised = createItems([first, reply])
+
+    expect(appended[0]).toBe(initial[0])
+    expect(appended[1]).toBe(initial[1])
+    expect(revised[0]).toBe(initial[0])
+    expect(revised[1]).not.toBe(initial[1])
+    expect(revised[1]).toMatchObject({ revision: 2 })
+  })
+
+  it('纯消息 append 只投影新增后缀', () => {
+    const cache = createTimelineProjectionCache()
+    const first = userMessage('user-a', 'first')
+    const second = assistantTextMessage('assistant-a', 'second')
+    const third = userMessage('user-b', 'third')
+    const project = (messages: ThreadMessage[], previous?: TimelineItem[]): TimelineItem[] =>
+      projectTimelineItems(
+        {
+          messages,
+          toolCallStructures: [],
+          getMessageRenderState,
+          resolveTimelineToolCall: () => undefined,
+          getToolResultMessageToolCall: () => undefined,
+          hideThinkingBlock: false
+        },
+        previous,
+        cache
+      )
+
+    const initial = project([first, second])
+    const appended = project([first, second, third], initial)
+
+    expect(appended.slice(0, initial.length)).toEqual(initial)
+    expect(appended[0]).toBe(initial[0])
+    expect(appended[1]).toBe(initial[1])
+    expect(appended.at(-1)).toMatchObject({ key: 'user-b' })
+    expect(getTimelineChangedStartIndex(appended)).toBe(initial.length)
+  })
+
+  it('历史 revision 或工具依赖变化时回退完整投影', () => {
+    const cache = createTimelineProjectionCache()
+    const first = userMessage('user-a', 'first')
+    const revisions: Record<string, number> = { 'user-a': 1 }
+    const project = (
+      messages: ThreadMessage[],
+      previous: TimelineItem[] | undefined,
+      toolCalls: DesktopToolCall[] = []
+    ): TimelineItem[] =>
+      projectTimelineItems(
+        {
+          messages,
+          toolCallStructures: toolCalls,
+          getMessageRenderState: (message) => ({
+            revision: revisions[message.id] ?? 1,
+            renderState: 'complete'
+          }),
+          resolveTimelineToolCall: (toolCallId) =>
+            toolCalls.find((toolCall) => toolCall.toolCallId === toolCallId),
+          getToolResultMessageToolCall: () => undefined,
+          hideThinkingBlock: true
+        },
+        previous,
+        cache
+      )
+
+    const initial = project([first], undefined)
+    revisions['user-a'] = 2
+    const revised = project([first, userMessage('user-b', 'second')], initial)
+    const read = toolCall('tool-read', 'read', {})
+    const withTool = project(
+      [first, userMessage('user-b', 'second'), assistantToolMessage('assistant-a', ['tool-read'])],
+      revised,
+      [read]
+    )
+
+    expect(revised[0]).not.toBe(initial[0])
+    expect(revised[0]).toMatchObject({ revision: 2 })
+    expect(withTool.at(-1)).toMatchObject({
+      type: 'tool-group',
+      toolCallIds: ['tool-read']
+    })
+  })
+
+  it('同一 timeline 的计时更新只替换活动处理段', () => {
+    const prompt = userMessage('user-a', 'hello')
+    prompt.createdAt = '2026-07-09T00:00:00.000Z'
+    const timelineItems = createTimelineItems({
+      messages: [prompt, assistantToolMessage('assistant-a', ['tool-read'])],
+      toolCallStructures: [],
+      getMessageRenderState,
+      resolveTimelineToolCall: (toolCallId) =>
+        toolCallId === 'tool-read' ? toolCall('tool-read', 'read', {}) : undefined,
+      getToolResultMessageToolCall: () => undefined,
+      hideThinkingBlock: true
+    })
+    const initial = createProcessingCollapseResult({
+      items: timelineItems,
+      isRunning: true,
+      activeSessionId: 'thread-a',
+      now: new Date('2026-07-09T00:00:05.000Z').getTime()
+    })
+    const updated = createProcessingCollapseResult(
+      {
+        items: timelineItems,
+        isRunning: true,
+        activeSessionId: 'thread-a',
+        now: new Date('2026-07-09T00:00:06.000Z').getTime()
+      },
+      initial
+    )
+
+    expect(updated).not.toBe(initial)
+    expect(updated.contexts).toHaveLength(1)
+    expect(updated.contexts[0]?.durationLabel).toBe('6s')
+    expect(updated.finalReplyKeys).toBe(initial.finalReplyKeys)
+  })
+
+  it('无活动处理段时复用计时结果', () => {
+    const timelineItems = createTimelineItems({
+      messages: [userMessage('user-a', 'hello')],
+      toolCallStructures: [],
+      getMessageRenderState,
+      resolveTimelineToolCall: () => undefined,
+      getToolResultMessageToolCall: () => undefined,
+      hideThinkingBlock: true
+    })
+    const initial = createProcessingCollapseResult({
+      items: timelineItems,
+      isRunning: false,
+      activeSessionId: 'thread-a',
+      now: 1
+    })
+    const unchanged = createProcessingCollapseResult(
+      {
+        items: timelineItems,
+        isRunning: false,
+        activeSessionId: 'thread-a',
+        now: 2
+      },
+      initial
+    )
+
+    expect(unchanged).toBe(initial)
   })
 
   it('处理段 key 不随 user 后面的 timeline item 数量变化', () => {

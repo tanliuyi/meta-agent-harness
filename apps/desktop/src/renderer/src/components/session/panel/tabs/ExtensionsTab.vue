@@ -1,20 +1,20 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import { BaseButton } from '@renderer/components/base'
+import ExtensionRequestForm from '@renderer/components/extension/ExtensionRequestForm.vue'
 import ExtensionWidget from '@renderer/components/extension/ExtensionWidget.vue'
 import {
   Dialog,
   DialogContent,
   DialogDescription,
-  DialogFooter,
   DialogHeader,
   DialogTitle
 } from '@renderer/components/ui/dialog'
+import ScrollArea from '@renderer/components/ui/scroll-area/ScrollArea.vue'
 import useWorkspaceSessionStore from '@renderer/stores/workspace-session'
 import type { ExtensionDialogRequest } from '@shared/coding-agent/types'
 import {
   getExtensionDisplayText,
-  getExtensionInitialDraft,
   getExtensionRequestDescription,
   getExtensionRequestTitle,
   getExtensionRequestTypeLabel
@@ -22,7 +22,6 @@ import {
 
 const NOTIFICATIONS_WIDGET_KEY = '通知'
 const workspaceSession = useWorkspaceSessionStore()
-const extensionDrafts = ref<Record<string, string>>({})
 const activeExtensionRequestId = ref<string>()
 const isExtensionRequestDialogOpen = ref(false)
 
@@ -73,28 +72,15 @@ const workingIndicatorText = computed(() => {
   return '默认指示器'
 })
 
-function getExtensionDraft(request: ExtensionDialogRequest): string {
-  return extensionDrafts.value[request.id] ?? getExtensionInitialDraft(request)
-}
-
-function setExtensionDraft(id: string, value: string): void {
-  extensionDrafts.value = {
-    ...extensionDrafts.value,
-    [id]: value
-  }
-}
-
-function clearExtensionDraft(id: string): void {
-  const next = { ...extensionDrafts.value }
-  delete next[id]
-  extensionDrafts.value = next
+function isActiveExtensionRequest(request: ExtensionDialogRequest): boolean {
+  return workspaceSession.activeExtensionDialog?.id === request.id
 }
 
 function openExtensionRequestDialog(request: ExtensionDialogRequest): void {
-  activeExtensionRequestId.value = request.id
-  if (extensionDrafts.value[request.id] === undefined) {
-    setExtensionDraft(request.id, getExtensionInitialDraft(request))
+  if (!isActiveExtensionRequest(request)) {
+    return
   }
+  activeExtensionRequestId.value = request.id
   isExtensionRequestDialogOpen.value = true
 }
 
@@ -111,30 +97,19 @@ function handleExtensionRequestDialogOpenChange(open: boolean): void {
   closeExtensionRequestDialog()
 }
 
-function setActiveExtensionDraft(value: string): void {
-  const request = activeExtensionRequest.value
-  if (!request) {
-    return
-  }
-  setExtensionDraft(request.id, value)
-}
-
 async function respondExtensionRequest(
   request: ExtensionDialogRequest,
-  value?: string | boolean
+  value: string | boolean
 ): Promise<void> {
-  await workspaceSession.respondExtensionDialog(
-    request,
-    typeof value === 'string' || typeof value === 'boolean' ? value : getExtensionDraft(request)
-  )
-  clearExtensionDraft(request.id)
-  closeExtensionRequestDialog()
+  if (await workspaceSession.respondExtensionDialog(request, value)) {
+    closeExtensionRequestDialog()
+  }
 }
 
 async function cancelExtensionRequest(request: ExtensionDialogRequest): Promise<void> {
-  await workspaceSession.cancelExtensionDialog(request)
-  clearExtensionDraft(request.id)
-  closeExtensionRequestDialog()
+  if (await workspaceSession.cancelExtensionDialog(request)) {
+    closeExtensionRequestDialog()
+  }
 }
 
 watch(activeExtensionRequest, (request) => {
@@ -149,7 +124,7 @@ function clearNotifications(): void {
 </script>
 
 <template>
-  <section class="session-section" role="tabpanel">
+  <section class="session-section session-section--scrollable" role="tabpanel">
     <header class="session-section__header">
       <div class="session-section__title">
         <h3>扩展</h3>
@@ -159,78 +134,86 @@ function clearNotifications(): void {
       </div>
     </header>
 
-    <div v-if="!hasExtensionActivity" class="session-empty">暂无扩展活动</div>
+    <ScrollArea class="session-section__content-scroll" :vertical-size="7">
+      <div v-if="!hasExtensionActivity" class="session-empty">暂无扩展活动</div>
 
-    <div v-if="hasExtensionActivity" class="extension-panel-stack">
-      <section
-        v-if="workspaceSession.activeExtensionTitle || hasExtensionWorkingState"
-        class="extension-panel-group"
-      >
-        <header class="extension-panel-group__header">
-          <span>当前状态</span>
-        </header>
-        <p v-if="workspaceSession.activeExtensionTitle" class="extension-title">
-          {{ workspaceSession.activeExtensionTitle }}
-        </p>
-        <div v-if="hasExtensionWorkingState" class="extension-kv-list">
-          <div>
-            <span>工作状态</span>
-            <strong>{{ workingStateText }}</strong>
-          </div>
-          <div v-if="workingIndicatorText">
-            <span>指示器</span>
-            <strong>{{ workingIndicatorText }}</strong>
-          </div>
-        </div>
-      </section>
-
-      <section v-if="hasExtensionDialogs" class="extension-panel-group">
-        <header class="extension-panel-group__header">
-          <span>请求</span>
-          <strong>{{ extensionDialogs.length }}</strong>
-        </header>
-        <article
-          v-for="request in extensionDialogs"
-          :key="request.id"
-          class="extension-request-row"
+      <div v-if="hasExtensionActivity" class="extension-panel-stack">
+        <section
+          v-if="workspaceSession.activeExtensionTitle || hasExtensionWorkingState"
+          class="extension-panel-group"
         >
-          <div>
-            <strong>{{ getExtensionRequestTitle(request) }}</strong>
-            <span>{{ getExtensionRequestDescription(request) }}</span>
+          <header class="extension-panel-group__header">
+            <span>当前状态</span>
+          </header>
+          <p v-if="workspaceSession.activeExtensionTitle" class="extension-title">
+            {{ workspaceSession.activeExtensionTitle }}
+          </p>
+          <div v-if="hasExtensionWorkingState" class="extension-kv-list">
+            <div>
+              <span>工作状态</span>
+              <strong>{{ workingStateText }}</strong>
+            </div>
+            <div v-if="workingIndicatorText">
+              <span>指示器</span>
+              <strong>{{ workingIndicatorText }}</strong>
+            </div>
           </div>
-          <span class="extension-request-row__type">{{
-            getExtensionRequestTypeLabel(request)
-          }}</span>
-          <BaseButton size="sm" variant="secondary" @click="openExtensionRequestDialog(request)">
-            响应
-          </BaseButton>
-        </article>
-      </section>
+        </section>
 
-      <section v-if="extensionStatuses.length || notificationLines" class="extension-panel-group">
-        <header class="extension-panel-group__header">
-          <span>活动</span>
-        </header>
+        <section v-if="hasExtensionDialogs" class="extension-panel-group">
+          <header class="extension-panel-group__header">
+            <span>请求</span>
+            <strong>{{ extensionDialogs.length }}</strong>
+          </header>
+          <article
+            v-for="request in extensionDialogs"
+            :key="request.id"
+            class="extension-request-row"
+          >
+            <div>
+              <strong>{{ getExtensionRequestTitle(request) }}</strong>
+              <span>{{ getExtensionRequestDescription(request) }}</span>
+            </div>
+            <span class="extension-request-row__type">{{
+              getExtensionRequestTypeLabel(request)
+            }}</span>
+            <BaseButton
+              v-if="isActiveExtensionRequest(request)"
+              size="sm"
+              variant="secondary"
+              @click="openExtensionRequestDialog(request)"
+            >
+              响应
+            </BaseButton>
+            <span v-else class="extension-request-row__waiting">等待中</span>
+          </article>
+        </section>
 
-        <div v-if="extensionStatuses.length" class="extension-kv-list">
-          <div v-for="[key, value] in extensionStatuses" :key="key">
-            <span>{{ getExtensionDisplayText(key) }}</span>
-            <strong>{{ getExtensionDisplayText(value) }}</strong>
+        <section v-if="extensionStatuses.length || notificationLines" class="extension-panel-group">
+          <header class="extension-panel-group__header">
+            <span>活动</span>
+          </header>
+
+          <div v-if="extensionStatuses.length" class="extension-kv-list">
+            <div v-for="[key, value] in extensionStatuses" :key="key">
+              <span>{{ getExtensionDisplayText(key) }}</span>
+              <strong>{{ getExtensionDisplayText(value) }}</strong>
+            </div>
           </div>
-        </div>
 
-        <ExtensionWidget
-          v-if="notificationLines"
-          :title="NOTIFICATIONS_WIDGET_KEY"
-          :lines="notificationLines"
-          variant="detail"
-        >
-          <template #actions>
-            <BaseButton size="sm" variant="ghost" @click="clearNotifications">清除</BaseButton>
-          </template>
-        </ExtensionWidget>
-      </section>
-    </div>
+          <ExtensionWidget
+            v-if="notificationLines"
+            :title="NOTIFICATIONS_WIDGET_KEY"
+            :lines="notificationLines"
+            variant="detail"
+          >
+            <template #actions>
+              <BaseButton size="sm" variant="ghost" @click="clearNotifications">清除</BaseButton>
+            </template>
+          </ExtensionWidget>
+        </section>
+      </div>
+    </ScrollArea>
 
     <Dialog
       :open="isExtensionRequestDialogOpen"
@@ -245,73 +228,17 @@ function clearNotifications(): void {
             </DialogDescription>
           </DialogHeader>
 
-          <p
-            v-if="activeExtensionRequest.type === 'confirm'"
-            class="extension-request-dialog__copy"
-          >
-            {{ activeExtensionRequest.message }}
-          </p>
-
-          <div
-            v-if="activeExtensionRequest.type === 'select'"
-            class="extension-request-dialog__choices"
-          >
-            <BaseButton
-              v-for="option in activeExtensionRequest.options"
-              :key="option"
-              size="sm"
-              variant="secondary"
-              @click="respondExtensionRequest(activeExtensionRequest, option)"
-            >
-              {{ option }}
-            </BaseButton>
-          </div>
-
-          <input
-            v-if="activeExtensionRequest.type === 'input'"
-            :value="getExtensionDraft(activeExtensionRequest)"
-            :placeholder="activeExtensionRequest.placeholder"
-            :aria-label="getExtensionRequestTitle(activeExtensionRequest)"
-            class="extension-request-dialog__input"
-            @input="setActiveExtensionDraft(($event.target as HTMLInputElement).value)"
+          <ExtensionRequestForm
+            :request="activeExtensionRequest"
+            :draft="workspaceSession.activeExtensionDialogDrafts[activeExtensionRequest.id]"
+            :responding="
+              workspaceSession.activeExtensionDialogResponding[activeExtensionRequest.id]
+            "
+            :error="workspaceSession.activeExtensionDialogErrors[activeExtensionRequest.id]"
+            @submit="respondExtensionRequest"
+            @cancel="cancelExtensionRequest"
+            @update:draft="workspaceSession.setExtensionDialogDraft"
           />
-
-          <textarea
-            v-if="activeExtensionRequest.type === 'editor'"
-            :value="getExtensionDraft(activeExtensionRequest)"
-            :aria-label="getExtensionRequestTitle(activeExtensionRequest)"
-            class="extension-request-dialog__textarea"
-            @input="setActiveExtensionDraft(($event.target as HTMLTextAreaElement).value)"
-          />
-
-          <DialogFooter>
-            <BaseButton
-              type="button"
-              size="sm"
-              variant="ghost"
-              @click="cancelExtensionRequest(activeExtensionRequest)"
-            >
-              取消
-            </BaseButton>
-            <BaseButton
-              v-if="activeExtensionRequest.type === 'confirm'"
-              type="button"
-              size="sm"
-              variant="primary"
-              @click="respondExtensionRequest(activeExtensionRequest, true)"
-            >
-              确认
-            </BaseButton>
-            <BaseButton
-              v-else-if="activeExtensionRequest.type !== 'select'"
-              type="button"
-              size="sm"
-              variant="primary"
-              @click="respondExtensionRequest(activeExtensionRequest)"
-            >
-              提交
-            </BaseButton>
-          </DialogFooter>
         </template>
       </DialogContent>
     </Dialog>

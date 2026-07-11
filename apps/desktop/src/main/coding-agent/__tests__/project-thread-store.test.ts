@@ -1249,8 +1249,7 @@ describe('loadSessionTreeBranches', () => {
     )
 
     const result = await manager.loadSessionTreeBranches({
-      threadId: 'thread-live-branches',
-      viewMode: 'entries'
+      threadId: 'thread-live-branches'
     })
     const entryRows = result.rows.filter((row) => row.kind === 'entry')
 
@@ -1269,7 +1268,7 @@ describe('loadSessionTreeBranches', () => {
 })
 
 describe('buildSessionTreeBranches', () => {
-  it('在 main 进程把完整 session tree 压成浅层 branch rows', async () => {
+  it('在 main 进程把完整 session tree 转为可过滤的 entry rows', async () => {
     const root = createTempDir()
     const cwd = join(root, 'repo')
     const sessionDir = join(root, 'sessions')
@@ -1315,11 +1314,11 @@ describe('buildSessionTreeBranches', () => {
     }
 
     const result = await buildSessionTreeBranches(sessionFile)
-    const entryRows = result.rows.filter((row) => row.kind === 'entry')
-    const segmentRows = result.rows.filter((row) => row.kind === 'segment')
+    const entryRows = result.rows
 
     expect(result.totalEntries).toBeGreaterThan(8)
-    expect(segmentRows.some((row) => row.count > 1)).toBe(true)
+    expect(result.rows).toHaveLength(result.visibleEntries)
+    expect(result.rows.every((row) => row.kind === 'entry')).toBe(true)
     expect(linearLeafId).toBeTruthy()
     expect(entryRows.map((row) => row.entryId)).toEqual(
       expect.arrayContaining([firstUserId, firstAssistantId, branchLeafId])
@@ -1336,8 +1335,7 @@ describe('buildSessionTreeBranches', () => {
     expect(entryRows.find((row) => row.current)?.visualDepth).toBeLessThanOrEqual(2)
 
     const entriesResult = await buildSessionTreeBranches(sessionFile, {
-      filter: 'all',
-      viewMode: 'entries'
+      filter: 'all'
     })
     expect(entriesResult.rows.every((row) => row.kind === 'entry')).toBe(true)
     expect(entriesResult.rows).toHaveLength(entriesResult.visibleEntries)

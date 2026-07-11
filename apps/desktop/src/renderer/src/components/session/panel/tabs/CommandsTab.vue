@@ -2,6 +2,7 @@
 import { computed, ref, watch } from 'vue'
 import { BaseButton, BaseContextMenu } from '@renderer/components/base'
 import BaseField from '@renderer/components/base/BaseField.vue'
+import ScrollArea from '@renderer/components/ui/scroll-area/ScrollArea.vue'
 import useWorkspaceSessionStore from '@renderer/stores/workspace-session'
 import type { CommandInfo } from '@shared/coding-agent/types'
 import {
@@ -50,7 +51,7 @@ function runCommand(command: CommandInfo): void {
 </script>
 
 <template>
-  <section class="session-section" role="tabpanel">
+  <section class="session-section session-section--scrollable" role="tabpanel">
     <header class="session-section__header">
       <div class="session-section__title">
         <h3>命令</h3>
@@ -67,33 +68,39 @@ function runCommand(command: CommandInfo): void {
         刷新
       </BaseButton>
     </header>
-    <BaseField
-      id="session-command-search"
-      v-model="commandQuery"
-      label="搜索命令"
-      type="search"
-      placeholder="搜索命令，或输入 /command args"
-    />
-    <div v-if="workspaceSession.activeCommandsLoading" class="session-empty">Loading...</div>
-    <div
-      v-else-if="workspaceSession.activeCommandsLoaded && runnableCommands.length === 0"
-      class="session-empty"
-    >
-      No commands
-    </div>
-    <div v-else-if="filteredCommands.length === 0" class="session-empty">No matching commands</div>
-    <div v-else class="command-list">
-      <BaseContextMenu
-        v-for="command in filteredCommands"
-        :key="getCommandKey(command)"
-        :sections="commandMenuSections"
-        @select="(item) => runCommandMenuAction(item.id, command)"
-      >
-        <button type="button" class="command-item" @click="runCommand(command)">
-          <span>/{{ getCommandName(command) }}</span>
-          <small>{{ getCommandDescription(command) }}</small>
-        </button>
-      </BaseContextMenu>
-    </div>
+    <ScrollArea class="session-section__content-scroll" :vertical-size="7">
+      <div class="session-section__content">
+        <BaseField
+          id="session-command-search"
+          v-model="commandQuery"
+          label="搜索命令"
+          type="search"
+          placeholder="搜索命令，或输入 /command args"
+        />
+        <div v-if="workspaceSession.activeCommandsLoading" class="session-empty">Loading...</div>
+        <div
+          v-else-if="workspaceSession.activeCommandsLoaded && runnableCommands.length === 0"
+          class="session-empty"
+        >
+          No commands
+        </div>
+        <div v-else-if="filteredCommands.length === 0" class="session-empty">
+          No matching commands
+        </div>
+        <div v-else class="command-list">
+          <BaseContextMenu
+            v-for="command in filteredCommands"
+            :key="getCommandKey(command)"
+            :sections="commandMenuSections"
+            @select="(item) => runCommandMenuAction(item.id, command)"
+          >
+            <button type="button" class="command-item" @click="runCommand(command)">
+              <span>/{{ getCommandName(command) }}</span>
+              <small>{{ getCommandDescription(command) }}</small>
+            </button>
+          </BaseContextMenu>
+        </div>
+      </div>
+    </ScrollArea>
   </section>
 </template>

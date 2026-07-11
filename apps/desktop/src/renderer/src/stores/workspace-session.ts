@@ -26,6 +26,7 @@ import {
   createExtensionDialogCancellation,
   createExtensionDialogResponse,
   enqueueExtensionDialog,
+  getExtensionDialogInitialDraft,
   removeExtensionDialog
 } from './workspace-session-extension'
 import { toDesktopMessageContent } from '@shared/coding-agent/types'
@@ -47,6 +48,7 @@ import type {
   LoadSessionTreeBranchesResult,
   ModelInfo,
   RunCommandResult,
+  SessionTreeBranchEntryRow,
   ThinkingLevel,
   ThreadSnapshot,
   ThreadMessage,
@@ -154,6 +156,12 @@ export type WorkspaceSessionRuntime = {
   approvals: Record<string, ApprovalRequest>
   /** 按到达顺序等待用户响应的 extension 对话框。 */
   extensionDialogQueue: ExtensionDialogRequest[]
+  /** extension 对话框按 request ID 保存的草稿。 */
+  extensionDialogDrafts: Record<string, string>
+  /** extension 对话框提交状态。 */
+  extensionDialogResponding: Record<string, boolean>
+  /** extension 对话框最近一次提交错误。 */
+  extensionDialogErrors: Record<string, string | undefined>
   /** extension 设置的状态文本。 */
   extensionStatuses: Record<string, string | undefined>
   /** extension notify 的完整消息列表。 */
@@ -258,6 +266,60 @@ export interface WorkspaceSessionTreeBranchesState {
   requestKey?: string
   /** 最近一次错误。 */
   errorMessage?: string
+}
+
+function isSameSessionTreeEntryRow(
+  previous: SessionTreeBranchEntryRow,
+  next: SessionTreeBranchEntryRow
+): boolean {
+  return (
+    previous.kind === next.kind &&
+    previous.id === next.id &&
+    previous.entryId === next.entryId &&
+    previous.parentId === next.parentId &&
+    previous.type === next.type &&
+    previous.timestamp === next.timestamp &&
+    previous.title === next.title &&
+    previous.summary === next.summary &&
+    previous.label === next.label &&
+    previous.labelTimestamp === next.labelTimestamp &&
+    previous.depth === next.depth &&
+    previous.visualDepth === next.visualDepth &&
+    previous.childCount === next.childCount &&
+    previous.leaf === next.leaf &&
+    previous.branchPoint === next.branchPoint &&
+    previous.current === next.current
+  )
+}
+
+/**
+ * 按 entry ID 复用未变化的 Tree row，使 Vue 只 patch 实际变化的虚拟行。
+ */
+export function reconcileSessionTreeBranchesResult(
+  previous: LoadSessionTreeBranchesResult | undefined,
+  next: LoadSessionTreeBranchesResult
+): LoadSessionTreeBranchesResult {
+  if (!previous) {
+    return next
+  }
+  const previousRowsById = new Map(previous.rows.map((row) => [row.entryId, row]))
+  let rowsChanged = previous.rows.length !== next.rows.length
+  const rows = next.rows.map((nextRow, index) => {
+    const previousRow = previousRowsById.get(nextRow.entryId)
+    if (previousRow && isSameSessionTreeEntryRow(previousRow, nextRow)) {
+      if (previous.rows[index] !== previousRow) {
+        rowsChanged = true
+      }
+      return previousRow
+    }
+    rowsChanged = true
+    return nextRow
+  })
+  const metadataChanged =
+    previous.totalEntries !== next.totalEntries ||
+    previous.visibleEntries !== next.visibleEntries ||
+    previous.currentEntryId !== next.currentEntryId
+  return rowsChanged || metadataChanged ? { ...next, rows } : previous
 }
 
 /** 按 toolCallId 归一化的工具调用索引。 */
@@ -507,6 +569,9 @@ export default defineStore('workspace-session', () => {
     runtimeByThreadId[threadId] ??= reactive({
       approvals: {},
       extensionDialogQueue: [],
+      extensionDialogDrafts: {},
+      extensionDialogResponding: {},
+      extensionDialogErrors: {},
       extensionStatuses: {},
       extensionNotifications: [],
       extensionPanels: {},
@@ -527,6 +592,35 @@ export default defineStore('workspace-session', () => {
    */
   function getRuntime(threadId: string | undefined): WorkspaceSessionRuntime | undefined {
     return threadId ? runtimeByThreadId[threadId] : undefined
+  }
+
+  function initializeExtensionDialogState(
+    runtime: WorkspaceSessionRuntime,
+    request: ExtensionDialogRequest
+  ): void {
+    runtime.extensionDialogDrafts[request.id] ??= getExtensionDialogInitialDraft(request)
+  }
+
+  function clearExtensionDialogState(runtime: WorkspaceSessionRuntime, requestId: string): void {
+    delete runtime.extensionDialogDrafts[requestId]
+    delete runtime.extensionDialogResponding[requestId]
+    delete runtime.extensionDialogErrors[requestId]
+  }
+
+  function replaceExtensionDialogQueue(
+    runtime: WorkspaceSessionRuntime,
+    requests: ExtensionDialogRequest[]
+  ): void {
+    const requestIds = new Set(requests.map((request) => request.id))
+    for (const requestId of Object.keys(runtime.extensionDialogDrafts)) {
+      if (!requestIds.has(requestId)) {
+        clearExtensionDialogState(runtime, requestId)
+      }
+    }
+    for (const request of requests) {
+      initializeExtensionDialogState(runtime, request)
+    }
+    runtime.extensionDialogQueue = requests
   }
 
   /**
@@ -555,7 +649,7 @@ export default defineStore('workspace-session', () => {
    * @returns branch rows 状态。
    */
   function ensureSessionTreeBranchesState(threadId: string): WorkspaceSessionTreeBranchesState {
-    sessionTreeBranchesByThreadId[threadId] ??= reactive({
+    sessionTreeBranchesByThreadId[threadId] ??= shallowReactive({
       loading: false,
       revision: 0
     }) as WorkspaceSessionTreeBranchesState
@@ -936,6 +1030,15 @@ export default defineStore('workspace-session', () => {
         invalidateSessionTreeBranches(event.threadId)
       }
     }
+
+    // Snapshot 和 revision 在同一任务内提交，让 Vue 每个 token 批次只渲染一次。
+    if (revisionFlushId !== null) {
+      cancelAnimationFrame(revisionFlushId)
+      revisionFlushId = null
+    }
+    if (pendingRevisions.size > 0) {
+      flushRevisionUpdates()
+    }
   }
 
   /**
@@ -1044,7 +1147,7 @@ export default defineStore('workspace-session', () => {
     runtime.approvals = Object.fromEntries(
       snapshot.approvals.map((approval) => [approval.approvalId, approval])
     )
-    runtime.extensionDialogQueue = snapshot.extensionDialogs ?? []
+    replaceExtensionDialogQueue(runtime, snapshot.extensionDialogs ?? [])
   }
 
   /** 默认上下文。 */
@@ -1102,6 +1205,16 @@ export default defineStore('workspace-session', () => {
 
   /** 当前需要优先响应的 extension 对话框。 */
   const activeExtensionDialog = computed(() => activeExtensionDialogs.value[0])
+
+  const activeExtensionDialogDrafts = computed(
+    () => activeRuntime.value?.extensionDialogDrafts ?? {}
+  )
+  const activeExtensionDialogResponding = computed(
+    () => activeRuntime.value?.extensionDialogResponding ?? {}
+  )
+  const activeExtensionDialogErrors = computed(
+    () => activeRuntime.value?.extensionDialogErrors ?? {}
+  )
 
   /** 当前活跃会话的 extension 状态文本。 */
   const activeExtensionStatuses = computed(() => activeRuntime.value?.extensionStatuses ?? {})
@@ -1883,41 +1996,67 @@ export default defineStore('workspace-session', () => {
   const respondExtensionUi = async (
     threadId: string,
     response: ExtensionUiResponseInput['response']
-  ): Promise<void> => {
-    await window.api.codingAgent.respondUi({ threadId, response })
+  ): Promise<boolean> => {
     const runtime = ensureRuntime(threadId)
-    runtime.extensionDialogQueue = removeExtensionDialog(runtime.extensionDialogQueue, response.id)
+    if (runtime.extensionDialogResponding[response.id]) {
+      return false
+    }
+    runtime.extensionDialogResponding[response.id] = true
+    delete runtime.extensionDialogErrors[response.id]
+    try {
+      await window.api.codingAgent.respondUi({ threadId, response })
+      runtime.extensionDialogQueue = removeExtensionDialog(
+        runtime.extensionDialogQueue,
+        response.id
+      )
+      clearExtensionDialogState(runtime, response.id)
+      return true
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      runtime.extensionDialogErrors[response.id] = `提交扩展请求失败：${message}`
+      return false
+    } finally {
+      delete runtime.extensionDialogResponding[response.id]
+    }
   }
 
   /** 响应当前 thread 的 extension 对话框。 */
   const respondExtensionDialog = async (
     request: ExtensionDialogRequest,
     value?: string | boolean
-  ): Promise<void> => {
+  ): Promise<boolean> => {
     const threadId = getActiveExtensionDialogThreadId(request.id)
     const response = createExtensionDialogResponse(request, value)
     if (!threadId || !response) {
-      return
+      return false
     }
-    await respondExtensionUi(threadId, response)
+    return await respondExtensionUi(threadId, response)
   }
 
   /** 取消当前 thread 的 extension 对话框。 */
-  const cancelExtensionDialog = async (request: ExtensionDialogRequest): Promise<void> => {
+  const cancelExtensionDialog = async (request: ExtensionDialogRequest): Promise<boolean> => {
+    const threadId = getActiveExtensionDialogThreadId(request.id)
+    if (!threadId) {
+      return false
+    }
+    return await respondExtensionUi(threadId, createExtensionDialogCancellation(request))
+  }
+
+  const setExtensionDialogDraft = (request: ExtensionDialogRequest, value: string): void => {
     const threadId = getActiveExtensionDialogThreadId(request.id)
     if (!threadId) {
       return
     }
-    await respondExtensionUi(threadId, createExtensionDialogCancellation(request))
+    const runtime = ensureRuntime(threadId)
+    runtime.extensionDialogDrafts[request.id] = value
+    delete runtime.extensionDialogErrors[request.id]
   }
 
-  /** 仅允许响应仍属于当前 thread 队列的对话框。 */
+  /** 仅允许响应当前 active request，保持 Pi 的串行 dialog 语义。 */
   function getActiveExtensionDialogThreadId(requestId: string): string | undefined {
     const threadId = activeSessionId.value
     const runtime = getRuntime(threadId)
-    return runtime?.extensionDialogQueue.some((request) => request.id === requestId)
-      ? threadId
-      : undefined
+    return runtime?.extensionDialogQueue[0]?.id === requestId ? threadId : undefined
   }
 
   /**
@@ -1976,11 +2115,11 @@ export default defineStore('workspace-session', () => {
 
   /**
    * 加载 main 派生的扁平 tree 视图。
-   * @param options - 查询、过滤和视图模式。
+   * @param options - 查询和过滤条件。
    * @param threadId - 目标 thread ID。
    */
   const loadActiveSessionTreeBranches = async (
-    options: Pick<LoadSessionTreeBranchesInput, 'query' | 'filter' | 'viewMode'> = {},
+    options: Pick<LoadSessionTreeBranchesInput, 'query' | 'filter'> = {},
     threadId = activeSessionId.value
   ): Promise<void> => {
     if (!threadId) {
@@ -1991,24 +2130,19 @@ export default defineStore('workspace-session', () => {
       threadId,
       revision: state.revision,
       query: options.query?.trim() ?? '',
-      filter: options.filter ?? 'default',
-      viewMode: options.viewMode ?? 'branches'
+      filter: options.filter ?? 'default'
     })
     state.loading = true
     state.errorMessage = undefined
-    if (state.requestKey !== requestKey) {
-      state.result = undefined
-    }
     state.requestKey = requestKey
     try {
       const result = await window.api.codingAgent.loadSessionTreeBranches({
         threadId,
         query: options.query,
-        filter: options.filter,
-        viewMode: options.viewMode
+        filter: options.filter
       })
       if (state.requestKey === requestKey) {
-        state.result = result
+        state.result = reconcileSessionTreeBranchesResult(state.result, result)
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
@@ -3032,6 +3166,7 @@ export default defineStore('workspace-session', () => {
       case 'confirm':
       case 'input':
       case 'editor':
+        initializeExtensionDialogState(runtime, request)
         runtime.extensionDialogQueue = enqueueExtensionDialog(runtime.extensionDialogQueue, request)
         return
       case 'notify':
@@ -3292,6 +3427,7 @@ export default defineStore('workspace-session', () => {
             runtime.extensionDialogQueue,
             event.event.requestId
           )
+          clearExtensionDialogState(runtime, event.event.requestId)
         }
         if (
           event.event.type === 'extensionPanel.registered' ||
@@ -3342,6 +3478,9 @@ export default defineStore('workspace-session', () => {
     activeEvents,
     activeExportResult,
     activeExtensionDialog,
+    activeExtensionDialogDrafts,
+    activeExtensionDialogErrors,
+    activeExtensionDialogResponding,
     activeExtensionDialogs,
     activeExtensionStatuses,
     activeExtensionHiddenThinkingLabel,
@@ -3443,6 +3582,7 @@ export default defineStore('workspace-session', () => {
     sessionsByProject,
     sessions,
     setActiveComposerDraft,
+    setExtensionDialogDraft,
     syncActiveEditorText,
     exportActiveSession,
     importActiveSessionFromPicker,
@@ -4062,6 +4202,9 @@ function applyThreadWorkerEventToRuntime(
 function clearPendingRuntimeInteractions(runtime: WorkspaceSessionRuntime): void {
   runtime.approvals = {}
   runtime.extensionDialogQueue = []
+  runtime.extensionDialogDrafts = {}
+  runtime.extensionDialogResponding = {}
+  runtime.extensionDialogErrors = {}
 }
 
 function upsertRuntimeTimelineEvent(

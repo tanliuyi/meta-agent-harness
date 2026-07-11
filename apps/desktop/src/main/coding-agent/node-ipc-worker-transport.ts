@@ -33,8 +33,7 @@ export class NodeIpcWorkerTransport implements WorkerTransport {
       if (this.closingIntentionally) {
         return
       }
-      this.closed = true
-      this.emitClose(
+      this.handleUnexpectedClose(
         withDiagnosticTail(
           `node sidecar exited: code=${code} signal=${signal}`,
           this.diagnosticTail
@@ -45,8 +44,7 @@ export class NodeIpcWorkerTransport implements WorkerTransport {
       if (this.closingIntentionally) {
         return
       }
-      this.closed = true
-      this.emitClose(
+      this.handleUnexpectedClose(
         withDiagnosticTail(`node sidecar error: ${error.message}`, this.diagnosticTail)
       )
     })
@@ -60,7 +58,13 @@ export class NodeIpcWorkerTransport implements WorkerTransport {
     if (this.closed || !this.child.connected || !this.child.send) {
       throw new Error('node sidecar transport is closed')
     }
-    this.child.send(envelope)
+    this.child.send(envelope, (error) => {
+      if (error) {
+        this.handleUnexpectedClose(
+          withDiagnosticTail(`node sidecar IPC send failed: ${error.message}`, this.diagnosticTail)
+        )
+      }
+    })
   }
 
   /**
@@ -90,11 +94,15 @@ export class NodeIpcWorkerTransport implements WorkerTransport {
     }
     this.closed = true
     this.closingIntentionally = true
+    this.terminateChild()
+    this.emitClose(withDiagnosticTail('node sidecar transport closed', this.diagnosticTail))
+  }
+
+  private terminateChild(): void {
     if (this.child.connected) {
       this.child.disconnect()
     }
     this.child.kill()
-    this.emitClose(withDiagnosticTail('node sidecar transport closed', this.diagnosticTail))
   }
 
   private emitMessage(envelope: WorkerEnvelope): void {
@@ -108,6 +116,15 @@ export class NodeIpcWorkerTransport implements WorkerTransport {
       listener(reason)
     }
   }
+
+  private handleUnexpectedClose(reason: string): void {
+    if (this.closed || this.closingIntentionally) {
+      return
+    }
+    this.closed = true
+    this.terminateChild()
+    this.emitClose(reason)
+  }
 }
 
 function withDiagnosticTail(reason: string, diagnosticTail: string): string {
@@ -119,7 +136,10 @@ function filterDiagnosticTail(diagnosticTail: string): string {
   return diagnosticTail
     .split(/\r?\n/)
     .filter((line) => !line.includes('ExperimentalWarning: SQLite is an experimental feature'))
-    .filter((line) => !line.includes('Use `node --trace-warnings ...` to show where the warning was created'))
+    .filter(
+      (line) =>
+        !line.includes('Use `node --trace-warnings ...` to show where the warning was created')
+    )
     .join('\n')
     .trim()
 }

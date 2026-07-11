@@ -57,6 +57,18 @@ describe("ExtensionUiBridge", () => {
 		expect(() => bridge.respond({ id: "missing", cancelled: true })).toThrow("extension UI request not found");
 	});
 
+	it("重复响应已完成的请求时幂等忽略", async () => {
+		const events: WorkerEventEnvelope[] = [];
+		const bridge = new ExtensionUiBridge("thread-1", (event) => events.push(event));
+		const pending = bridge.createContext().input("Name");
+		const request = getProjectionRequests(events)[0];
+
+		bridge.respond({ id: request.id, value: "first" });
+		expect(() => bridge.respond({ id: request.id, value: "duplicate" })).not.toThrow();
+
+		await expect(pending).resolves.toBe("first");
+	});
+
 	/** 验证交互类 UI 请求串行投递，避免 Composer 同时出现多个输入弹窗。 */
 	it("交互类 UI 请求串行投递", async () => {
 		const events: WorkerEventEnvelope[] = [];
@@ -106,7 +118,7 @@ describe("ExtensionUiBridge", () => {
 			eventType: "projection",
 			event: { type: "extensionUi.dismissed", requestId: request.id, reason: "aborted" },
 		});
-		expect(() => bridge.respond({ id: request.id, value: "late" })).toThrow("request not found");
+		expect(() => bridge.respond({ id: request.id, value: "late" })).not.toThrow();
 	});
 
 	it("timeout 返回默认取消值、移除过期 projection 并继续下一个 dialog", async () => {

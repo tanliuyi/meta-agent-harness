@@ -1,6 +1,6 @@
 import { measureNaturalWidth, prepareWithSegments } from '@chenglou/pretext'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { measureDiffContentWidth, parseDisplayDiff } from '../diffDisplay'
+import { createStaticDiffLineRows, measureDiffContentWidth, parseDisplayDiff } from '../diffDisplay'
 
 vi.mock('@chenglou/pretext', () => ({
   measureNaturalWidth: vi.fn((prepared: { text: string }) => prepared.text.length * 10),
@@ -21,6 +21,18 @@ describe('diffDisplay', () => {
         { kind: 'skipped', marker: '', text: '...' }
       ]
     })
+  })
+
+  it('按全局行号定位窗口化的静态 diff 行', () => {
+    const lines = parseDisplayDiff('+  8 first\n+  9 second').lines
+    const rows = createStaticDiffLineRows(lines, 20, 8)
+
+    expect(rows.map((row) => row.virtualItem.index)).toEqual([8, 9])
+    expect(rows.map((row) => row.transform)).toEqual(['translateY(160px)', 'translateY(180px)'])
+    expect(createStaticDiffLineRows(lines, 20, 8, 400).map((row) => row.transform)).toEqual([
+      'translateY(400px)',
+      'translateY(420px)'
+    ])
   })
 
   it('缓存相同字体和字距下的 diff 行宽测量', async () => {

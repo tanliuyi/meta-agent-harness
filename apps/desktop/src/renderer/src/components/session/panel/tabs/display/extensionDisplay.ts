@@ -1,3 +1,4 @@
+import { getExtensionDialogInitialDraft } from '@renderer/stores/workspace-session-extension'
 import type { ExtensionDialogRequest } from '@shared/coding-agent/types'
 
 export const extensionDialogTypeLabels: Record<ExtensionDialogRequest['type'], string> = {
@@ -49,9 +50,7 @@ export function getExtensionRequestTypeLabel(request: ExtensionDialogRequest): s
   return extensionDialogTypeLabels[request.type]
 }
 
-export function getExtensionInitialDraft(request: ExtensionDialogRequest): string {
-  return request.type === 'editor' ? (request.prefill ?? '') : ''
-}
+export const getExtensionInitialDraft = getExtensionDialogInitialDraft
 
 export function getExtensionDisplayText(text: string | undefined): string {
   if (!text) {

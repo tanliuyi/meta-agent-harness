@@ -1,5 +1,5 @@
 import type { Component } from 'vue'
-import type { SessionTreeViewMode } from '@shared/coding-agent/types'
+import type { SessionTreeBranchEntryRow } from '@shared/coding-agent/types'
 
 export type OnOffValue = 'on' | 'off'
 export type SessionTreeFilter = 'default' | 'all' | 'user' | 'labeled' | 'no-tools'
@@ -24,44 +24,7 @@ export interface SessionPanelOpenTab extends SessionPanelTab {
 
 export type SessionPanelTabCountMap = Partial<Record<SessionPanelTabId, number>>
 
-export interface SessionTreeEntryView {
-  id: string
-  parentId: string | null
-  type: string
-  timestamp: string
-  title: string
-  summary?: string
-  label?: string
-  labelTimestamp?: string
-  depth: number
-  visualDepth: number
-  childCount: number
-  leaf: boolean
-  branchPoint: boolean
-  current: boolean
-  hasMoreChildren?: boolean
-}
-
-export type SessionTreeDisplayRow =
-  | {
-      kind: 'entry'
-      id: string
-      depth: number
-      visualDepth: number
-      row: SessionTreeEntryView
-    }
-  | {
-      kind: 'segment'
-      id: string
-      count: number
-      depth: number
-      visualDepth: number
-    }
-
-export const sessionTreeViewOptions: Array<{ label: string; value: SessionTreeViewMode }> = [
-  { label: 'Branches', value: 'branches' },
-  { label: 'Entries', value: 'entries' }
-]
+export type SessionTreeEntryView = SessionTreeBranchEntryRow
 
 export const sessionTreeFilterOptions: Array<{ label: string; value: SessionTreeFilter }> = [
   { label: 'Default', value: 'default' },

@@ -22,7 +22,13 @@ export async function handleRuntimeControlCommand(
 ): Promise<WorkerResponseEnvelope | undefined> {
 	const session = host.runtime.session;
 	switch (command.type) {
+		case "refresh_model_registry":
+			session.modelRegistry.authStorage.reload();
+			session.modelRegistry.refresh();
+			return createWorkerResponse(envelope.id, command.type, undefined);
 		case "set_model": {
+			session.modelRegistry.authStorage.reload();
+			session.modelRegistry.refresh();
 			const models = await session.modelRegistry.getAvailable();
 			const model = models.find((item) => item.provider === command.provider && item.id === command.modelId);
 			if (!model) {
@@ -38,7 +44,11 @@ export async function handleRuntimeControlCommand(
 		case "cycle_model":
 			return createWorkerResponse(envelope.id, command.type, await session.cycleModel());
 		case "get_available_models":
-			return createWorkerResponse(envelope.id, command.type, { models: await session.modelRegistry.getAvailable() });
+			session.modelRegistry.authStorage.reload();
+			session.modelRegistry.refresh();
+			return createWorkerResponse(envelope.id, command.type, {
+				models: await session.modelRegistry.getAvailable(),
+			});
 		case "set_thinking_level":
 			session.setThinkingLevel(command.level);
 			return createWorkerResponse(envelope.id, command.type, undefined);

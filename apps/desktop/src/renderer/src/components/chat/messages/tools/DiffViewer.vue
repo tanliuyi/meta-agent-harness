@@ -6,14 +6,16 @@ import {
   createStaticDiffLineRows,
   createVirtualDiffLineRows,
   measureDiffContentWidth,
-  parseDisplayDiff
+  parseDisplayDiff,
+  type DiffLine
 } from './display/diffDisplay'
+import { getIndexedDiffLine, type DiffDocumentIndex } from './display/diffDocumentIndex'
 
 type ScrollAreaInstance = {
   getViewport: () => HTMLElement | undefined
 }
 
-const DIFF_LINE_HEIGHT = 20
+const DEFAULT_DIFF_LINE_HEIGHT = 20
 type MaybeRefValue<T> = T extends { value: infer Value } ? Value : T
 type DiffVirtualizerOptions = MaybeRefValue<Parameters<typeof useVirtualizer>[0]>
 
@@ -21,9 +23,16 @@ const props = withDefaults(
   defineProps<{
     diff: string
     expandVertically?: boolean
+    documentIndex?: DiffDocumentIndex
+    visibleStartLine?: number
+    visibleEndLine?: number
+    visibleStartOffset?: number
+    contentHeight?: number
+    lineHeight?: number
   }>(),
   {
-    expandVertically: false
+    expandVertically: false,
+    lineHeight: DEFAULT_DIFF_LINE_HEIGHT
   }
 )
 
@@ -34,12 +43,45 @@ let measureRaf: number | null = null
 let measureGeneration = 0
 let isDisposed = false
 
-const parsedDiff = computed(() => parseDisplayDiff(props.diff))
+const indexedStartLine = computed(() =>
+  Math.max(0, Math.min(props.visibleStartLine ?? 0, props.documentIndex?.lineCount ?? 0))
+)
+const indexedEndLine = computed(() =>
+  Math.max(
+    indexedStartLine.value,
+    Math.min(
+      props.visibleEndLine ?? props.documentIndex?.lineCount ?? 0,
+      props.documentIndex?.lineCount ?? 0
+    )
+  )
+)
+const indexedLines = computed(() => {
+  if (!props.documentIndex) {
+    return undefined
+  }
+  const result: DiffLine[] = []
+  for (let index = indexedStartLine.value; index < indexedEndLine.value; index += 1) {
+    const line = getIndexedDiffLine(props.documentIndex, index)
+    if (line) {
+      result.push(line)
+    }
+  }
+  return result
+})
+const parsedDiff = computed(() =>
+  props.documentIndex
+    ? {
+        lines: indexedLines.value ?? [],
+        contentColumns: props.documentIndex.contentColumns
+      }
+    : parseDisplayDiff(props.diff)
+)
 const lines = computed(() => parsedDiff.value.lines)
+const totalLineCount = computed(() => props.documentIndex?.lineCount ?? lines.value.length)
 const getDiffScrollElement = (): HTMLElement | null => scrollAreaRef.value?.getViewport() ?? null
-const estimateDiffLineSize = (): number => DIFF_LINE_HEIGHT
+const estimateDiffLineSize = (): number => props.lineHeight
 const virtualizerOptions = computed<DiffVirtualizerOptions>((previous) => {
-  const count = lines.value.length
+  const count = props.documentIndex ? 0 : lines.value.length
   if (previous?.count === count) {
     return previous
   }
@@ -53,23 +95,34 @@ const virtualizerOptions = computed<DiffVirtualizerOptions>((previous) => {
 const virtualizer = useVirtualizer(virtualizerOptions)
 const virtualItems = computed(() => virtualizer.value.getVirtualItems())
 const virtualTotalSize = computed(() => virtualizer.value.getTotalSize())
-const diffRows = computed(() =>
-  props.expandVertically
-    ? createStaticDiffLineRows(lines.value, DIFF_LINE_HEIGHT)
+const diffRows = computed(() => {
+  if (props.documentIndex) {
+    return createStaticDiffLineRows(
+      lines.value,
+      props.lineHeight,
+      indexedStartLine.value,
+      props.visibleStartOffset
+    )
+  }
+  return props.expandVertically
+    ? createStaticDiffLineRows(lines.value, props.lineHeight)
     : createVirtualDiffLineRows(virtualItems.value, lines.value)
-)
+})
 const viewerStyle = computed<CSSProperties>(() => ({
   '--diff-content-width': measuredContentWidth.value
     ? `${measuredContentWidth.value}px`
     : `${parsedDiff.value.contentColumns}ch`,
-  '--diff-line-height': `${DIFF_LINE_HEIGHT}px`
+  '--diff-line-height': `${props.lineHeight}px`
 }))
 const tableStyle = computed<CSSProperties>(() => ({
-  height: `${props.expandVertically ? lines.value.length * DIFF_LINE_HEIGHT : virtualTotalSize.value}px`
+  height: `${
+    props.contentHeight ??
+    (props.expandVertically ? totalLineCount.value * props.lineHeight : virtualTotalSize.value)
+  }px`
 }))
 
 function scheduleMeasureContentWidth(): void {
-  if (measureRaf !== null) return
+  if (props.documentIndex || measureRaf !== null) return
   measureRaf = window.requestAnimationFrame(() => {
     measureRaf = null
     void measureContentWidth()
@@ -96,11 +149,13 @@ onMounted(() => {
 })
 
 watch(
-  lines,
+  [lines, () => props.documentIndex],
   () => {
     measureGeneration += 1
     measuredContentWidth.value = undefined
-    void nextTick(scheduleMeasureContentWidth)
+    if (!props.documentIndex) {
+      void nextTick(scheduleMeasureContentWidth)
+    }
   },
   { deep: false }
 )
@@ -130,13 +185,13 @@ onBeforeUnmount(() => {
         class="diff-viewer__table"
         role="table"
         aria-label="Diff"
-        :aria-rowcount="lines.length"
+        :aria-rowcount="totalLineCount"
         :style="tableStyle"
       >
         <div
           v-for="row in diffRows"
           :key="row.line.key"
-          v-memo="[row.line]"
+          v-memo="[row.line.key, row.line.text, row.transform]"
           class="diff-viewer__line"
           :class="`diff-viewer__line--${row.line.kind}`"
           :data-index="row.virtualItem.index"

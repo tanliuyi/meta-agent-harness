@@ -1488,7 +1488,7 @@ function formatModelLabel(model: Pick<SessionModel, 'provider' | 'id'>): string 
               <X :size="12" />
             </button>
           </div>
-          <div style="margin-right: auto">
+          <div class="composer__primary-actions">
             <div class="composer__left-actions">
               <TooltipProvider>
                 <Tooltip>
@@ -1730,7 +1730,10 @@ function formatModelLabel(model: Pick<SessionModel, 'provider' | 'id'>): string 
 .composer-shell {
   display: grid;
   gap: var(--space-3);
+  width: 100%;
+  max-width: 100%;
   min-width: 0;
+  container-type: inline-size;
 }
 
 .composer-shell {
@@ -1745,6 +1748,8 @@ function formatModelLabel(model: Pick<SessionModel, 'provider' | 'id'>): string 
 .composer-stack {
   position: relative;
   display: grid;
+  width: 100%;
+  max-width: 100%;
   min-width: 0;
   overflow: visible;
   border-radius: 18px;
@@ -1754,6 +1759,9 @@ function formatModelLabel(model: Pick<SessionModel, 'provider' | 'id'>): string 
   position: relative;
   grid-area: 1 / 1;
   display: grid;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
   gap: var(--space-2);
   padding: var(--space-4);
   background: var(--color-surface-raised);
@@ -2026,7 +2034,14 @@ function formatModelLabel(model: Pick<SessionModel, 'provider' | 'id'>): string 
   align-items: center;
   justify-content: flex-end;
   gap: var(--space-2);
+  width: 100%;
+  min-width: 0;
   min-height: var(--composer-action-control-height);
+}
+
+.composer__primary-actions {
+  flex: 0 0 auto;
+  margin-right: auto;
 }
 
 .composer__left-actions {
@@ -2039,6 +2054,7 @@ function formatModelLabel(model: Pick<SessionModel, 'provider' | 'id'>): string 
 .composer__model-select {
   min-width: 0;
   flex: 0 1 auto;
+  overflow: hidden;
 }
 
 .composer__delivery-select {
@@ -2419,7 +2435,7 @@ function formatModelLabel(model: Pick<SessionModel, 'provider' | 'id'>): string 
 
 .composer__overlay {
   position: relative;
-  z-index: 30;
+  z-index: 32;
   box-sizing: border-box;
   grid-area: 1 / 1;
   align-self: end;
@@ -2455,6 +2471,27 @@ function formatModelLabel(model: Pick<SessionModel, 'provider' | 'id'>): string 
     :deep(svg) {
       animation: composer-action-spin 0.8s linear infinite;
     }
+  }
+}
+
+@container (width <= 520px) {
+  .composer {
+    gap: var(--space-1);
+    padding: var(--space-3);
+  }
+
+  .composer__actions {
+    gap: var(--space-1);
+  }
+
+  .composer__model-select {
+    flex: 1 1 0;
+    padding-inline: var(--space-1);
+  }
+
+  .composer__thinking-select,
+  .composer__delivery-select {
+    padding-inline: var(--space-1);
   }
 }
 

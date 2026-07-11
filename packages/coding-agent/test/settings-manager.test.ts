@@ -1,7 +1,8 @@
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "fs";
 import { homedir } from "os";
 import { join } from "path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import lockfile from "proper-lockfile";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { DEFAULT_HTTP_IDLE_TIMEOUT_MS } from "../src/core/http-dispatcher.ts";
 import { SettingsManager } from "../src/core/settings-manager.ts";
 
@@ -23,6 +24,33 @@ describe("SettingsManager", () => {
 		if (existsSync(testDir)) {
 			rmSync(testDir, { recursive: true });
 		}
+		vi.restoreAllMocks();
+	});
+
+	describe("file locking", () => {
+		it("startup reads do not acquire the exclusive settings lock", () => {
+			writeFileSync(join(agentDir, "settings.json"), JSON.stringify({ theme: "dark" }));
+			const lockSpy = vi.spyOn(lockfile, "lockSync");
+
+			const manager = SettingsManager.create(projectDir, agentDir);
+
+			expect(manager.getTheme()).toBe("dark");
+			expect(lockSpy).not.toHaveBeenCalled();
+		});
+
+		it("settings writes still acquire the exclusive settings lock", async () => {
+			writeFileSync(join(agentDir, "settings.json"), JSON.stringify({ theme: "dark" }));
+			const manager = SettingsManager.create(projectDir, agentDir);
+			const lockSpy = vi.spyOn(lockfile, "lockSync");
+
+			manager.setTheme("light");
+			await manager.flush();
+
+			expect(lockSpy).toHaveBeenCalled();
+			expect(JSON.parse(readFileSync(join(agentDir, "settings.json"), "utf-8"))).toMatchObject({
+				theme: "light",
+			});
+		});
 	});
 
 	describe("preserves externally added settings", () => {

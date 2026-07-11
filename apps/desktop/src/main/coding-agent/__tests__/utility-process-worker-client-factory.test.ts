@@ -4,7 +4,7 @@
 
 import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { delimiter, join } from 'node:path'
 import { PassThrough } from 'node:stream'
 import { EventEmitter } from 'node:events'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -34,16 +34,32 @@ describe('createUtilityProcessWorkerClient', () => {
     const child = createFakeUtilityProcess()
     forkMock.mockReturnValue(child)
 
-    await createUtilityProcessWorkerClient({ workerEntry })
+    await createUtilityProcessWorkerClient({ workerEntry, piCliWorkerEntry: workerEntry })
 
     expect(forkMock).toHaveBeenCalledWith(workerEntry, [], {
       env: expect.objectContaining({
-        ...process.env,
         PI_PACKAGE_DIR: expect.any(String)
       }),
       stdio: ['ignore', 'pipe', 'pipe'],
       serviceName: 'Coding Agent Worker'
     })
+    const workerEnv = forkMock.mock.calls[0]?.[2]?.env as NodeJS.ProcessEnv
+    expect(workerEnv.PATH?.split(delimiter)[0]).toMatch(/meta-agent-desktop-pi-/)
+    expect(workerEnv.PI_SUBAGENT_PI_BINARY).toBeUndefined()
+  })
+
+  it('缺少 Desktop CLI sidecar 时启动即明确失败', async () => {
+    const fixtureDir = mkdtempSync(join(tmpdir(), 'meta-agent-worker-'))
+    const workerEntry = join(fixtureDir, 'worker.js')
+    writeFileSync(workerEntry, '')
+
+    await expect(
+      createUtilityProcessWorkerClient({
+        workerEntry,
+        piCliWorkerEntry: join(fixtureDir, 'missing-cli-worker.js')
+      })
+    ).rejects.toThrow('coding agent CLI compatibility worker entry not found')
+    expect(forkMock).not.toHaveBeenCalled()
   })
 
   it('默认接入 worker 无消息 hang 检测', async () => {
@@ -55,6 +71,7 @@ describe('createUtilityProcessWorkerClient', () => {
 
     const client = await createUtilityProcessWorkerClient({
       workerEntry,
+      piCliWorkerEntry: workerEntry,
       inactivityTimeoutMs: 20,
       requestTimeoutMs: 20
     })
@@ -76,7 +93,10 @@ describe('createUtilityProcessWorkerClient', () => {
     const exits: Array<{ reason: string }> = []
     forkMock.mockReturnValue(child)
 
-    const client = await createUtilityProcessWorkerClient({ workerEntry })
+    const client = await createUtilityProcessWorkerClient({
+      workerEntry,
+      piCliWorkerEntry: workerEntry
+    })
     client.onExit?.((info) => exits.push({ reason: info.reason }))
     await client.stop('idle')
     child.emit('exit', null)
@@ -91,9 +111,14 @@ describe('createUtilityProcessWorkerClient', () => {
     const exits: Array<{ reason: string }> = []
     forkMock.mockReturnValue(child)
 
-    const client = await createUtilityProcessWorkerClient({ workerEntry })
+    const client = await createUtilityProcessWorkerClient({
+      workerEntry,
+      piCliWorkerEntry: workerEntry
+    })
     client.onExit?.((info) => exits.push({ reason: info.reason }))
-    child.stderr.write('(node:31008) ExperimentalWarning: SQLite is an experimental feature and might change at any time\n')
+    child.stderr.write(
+      '(node:31008) ExperimentalWarning: SQLite is an experimental feature and might change at any time\n'
+    )
     child.stderr.write('(Use `node --trace-warnings ...` to show where the warning was created)\n')
     child.emit('exit', 1)
 

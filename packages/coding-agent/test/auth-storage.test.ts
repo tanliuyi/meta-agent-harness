@@ -535,6 +535,29 @@ describe("AuthStorage", () => {
 	});
 
 	describe("persistence semantics", () => {
+		test("startup reads do not acquire the exclusive auth lock", () => {
+			writeAuthJson({ anthropic: { type: "api_key", key: "key" } });
+			const lockSpy = vi.spyOn(lockfile, "lockSync");
+
+			authStorage = AuthStorage.create(authJsonPath);
+
+			expect(authStorage.get("anthropic")).toEqual({ type: "api_key", key: "key" });
+			expect(lockSpy).not.toHaveBeenCalled();
+		});
+
+		test("credential writes still acquire the exclusive auth lock", () => {
+			writeAuthJson({ anthropic: { type: "api_key", key: "old" } });
+			authStorage = AuthStorage.create(authJsonPath);
+			const lockSpy = vi.spyOn(lockfile, "lockSync");
+
+			authStorage.set("anthropic", { type: "api_key", key: "new" });
+
+			expect(lockSpy).toHaveBeenCalled();
+			expect(JSON.parse(readFileSync(authJsonPath, "utf-8"))).toMatchObject({
+				anthropic: { type: "api_key", key: "new" },
+			});
+		});
+
 		test("set preserves unrelated external edits", () => {
 			writeAuthJson({
 				anthropic: { type: "api_key", key: "old-anthropic" },

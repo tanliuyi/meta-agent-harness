@@ -1,6 +1,6 @@
 import type { Transport } from "@earendil-works/pi-ai";
 import { randomUUID } from "crypto";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
+import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "fs";
 import { dirname, join } from "path";
 import lockfile from "proper-lockfile";
 import { CONFIG_DIR_NAME, getAgentDir } from "../config.ts";
@@ -179,6 +179,16 @@ export interface SettingsError {
 	error: Error;
 }
 
+function writeTextFileAtomically(path: string, content: string): void {
+	const temporaryPath = `${path}.${process.pid}.${randomUUID()}.tmp`;
+	try {
+		writeFileSync(temporaryPath, content, "utf-8");
+		renameSync(temporaryPath, path);
+	} finally {
+		rmSync(temporaryPath, { force: true });
+	}
+}
+
 export class FileSettingsStorage implements SettingsStorage {
 	private globalSettingsPath: string;
 	private projectSettingsPath: string;
@@ -191,7 +201,7 @@ export class FileSettingsStorage implements SettingsStorage {
 	}
 
 	private acquireLockSyncWithRetry(path: string): () => void {
-		const maxAttempts = 10;
+		const maxAttempts = 100;
 		const delayMs = 20;
 		let lastError: unknown;
 
@@ -220,30 +230,25 @@ export class FileSettingsStorage implements SettingsStorage {
 	withLock(scope: SettingsScope, fn: (current: string | undefined) => string | undefined): void {
 		const path = scope === "global" ? this.globalSettingsPath : this.projectSettingsPath;
 		const dir = dirname(path);
+		const current = existsSync(path) ? readFileSync(path, "utf-8") : undefined;
+		const next = fn(current);
+		if (next === undefined) {
+			return;
+		}
 
-		let release: (() => void) | undefined;
+		if (!existsSync(dir)) {
+			mkdirSync(dir, { recursive: true });
+		}
+		const release = this.acquireLockSyncWithRetry(path);
 		try {
-			// Only create directory and lock if file exists or we need to write
-			const fileExists = existsSync(path);
-			if (fileExists) {
-				release = this.acquireLockSyncWithRetry(path);
-			}
-			const current = fileExists ? readFileSync(path, "utf-8") : undefined;
-			const next = fn(current);
-			if (next !== undefined) {
-				// Only create directory when we actually need to write
-				if (!existsSync(dir)) {
-					mkdirSync(dir, { recursive: true });
-				}
-				if (!release) {
-					release = this.acquireLockSyncWithRetry(path);
-				}
-				writeFileSync(path, next, "utf-8");
+			// 另一个进程可能在首次读取后完成了写入；锁内重新合并，避免覆盖其变更。
+			const lockedCurrent = existsSync(path) ? readFileSync(path, "utf-8") : undefined;
+			const lockedNext = fn(lockedCurrent);
+			if (lockedNext !== undefined) {
+				writeTextFileAtomically(path, lockedNext);
 			}
 		} finally {
-			if (release) {
-				release();
-			}
+			release();
 		}
 	}
 }

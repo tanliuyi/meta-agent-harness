@@ -26,11 +26,15 @@ const emit = defineEmits<{
   'update:modelValue': [value: number]
 }>()
 
-const currentValue = computed(() => props.modelValue)
+function clampValue(value: number): number {
+  return Math.min(props.max, Math.max(props.min, value))
+}
+
+const currentValue = computed(() => clampValue(props.modelValue))
 
 const { handleResizerKeydown, isResizing, startResize } = useResizablePane({
   getValue: currentValue,
-  setValue: (value) => emit('update:modelValue', value)
+  setValue: (value) => emit('update:modelValue', clampValue(value))
 })
 </script>
 

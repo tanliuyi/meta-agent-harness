@@ -577,8 +577,8 @@ export function injectExtensionPanelCsp(html: string, nonce: string): string {
     `script-src 'nonce-${nonce}' pi-webview-resource:`,
     "connect-src pi-webview-resource: https: http:",
     "media-src pi-webview-resource: data:",
-    "form-action 'none'",
-    "navigate-to 'none'",
+    "base-uri 'none'",
+    "form-action 'none'"
   ].join('; ')
   const meta = `<meta http-equiv="Content-Security-Policy" content="${csp}" ${PI_PANEL_CSP_MARKER}>`
   return injectIntoHead(html, meta)

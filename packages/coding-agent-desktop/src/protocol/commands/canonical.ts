@@ -18,6 +18,10 @@ export type CanonicalAgentCommand =
 			type: "reload";
 	  }
 	| {
+			/** 命令类型：从 auth.json 和 models.json 刷新当前 runtime 的模型 registry。 */
+			type: "refresh_model_registry";
+	  }
+	| {
 			/** 命令类型：切换会话。 */
 			type: "switch_session";
 			/** 目标会话路径。 */
@@ -111,6 +115,7 @@ const canonicalCommandTypes = new Set<string>([
 	"set_auto_retry",
 	"abort_retry",
 	"reload",
+	"refresh_model_registry",
 	"bash",
 	"abort_bash",
 	"get_session_stats",

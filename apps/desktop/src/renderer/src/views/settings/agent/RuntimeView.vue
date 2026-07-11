@@ -53,7 +53,7 @@ const runtimeSummary = computed(() => {
     {
       label: 'Worker',
       value: runtime.workerMode === 'nodeSidecar' ? 'Node sidecar' : 'Utility process',
-      detail: runtime.nodeSidecarExecPath?.trim() || 'system node',
+      detail: runtime.nodeSidecarExecPath?.trim() || 'system node (auto-detected)',
       tone: runtime.workerMode === 'nodeSidecar' ? 'info' : 'neutral',
       badgeLabel: runtime.workerMode === 'nodeSidecar' ? 'Native' : 'Default'
     }

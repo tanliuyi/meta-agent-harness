@@ -95,10 +95,13 @@ export function createVirtualDiffLineRows(
 
 export function createStaticDiffLineRows(
   lines: DiffLine[],
-  lineHeight: number
+  lineHeight: number,
+  startIndex = 0,
+  startOffset = startIndex * lineHeight
 ): VirtualDiffLineRow[] {
-  return lines.map((line, index) => {
-    const start = index * lineHeight
+  return lines.map((line, localIndex) => {
+    const index = startIndex + localIndex
+    const start = startOffset + localIndex * lineHeight
     return {
       line,
       virtualItem: {

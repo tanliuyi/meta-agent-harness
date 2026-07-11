@@ -1,13 +1,12 @@
-import type {
-  SessionTreeBranchEntryRow,
-  SessionTreeBranchSegmentRow
-} from '@shared/coding-agent/types'
-import type { SessionTreeDisplayRow, SessionTreeEntryView } from '../model/types'
+import type { Component } from 'vue'
+import { Copy, CornerDownRight, Eraser, GitFork, Tag } from 'lucide-vue-next'
+import type { SessionTreeEntryView } from '../model/types'
 
 export type TreeEntryMenuItem = {
   id: string
   label: string
   shortcut?: string
+  icon?: Component
   disabled?: boolean
   danger?: boolean
 }
@@ -15,43 +14,6 @@ export type TreeEntryMenuItem = {
 export type TreeEntryMenuSection = {
   label?: string
   items: TreeEntryMenuItem[]
-}
-
-export function toBranchEntryDisplayRow(
-  row: SessionTreeBranchEntryRow
-): Extract<SessionTreeDisplayRow, { kind: 'entry' }> {
-  return {
-    kind: 'entry',
-    id: row.id,
-    depth: row.depth,
-    visualDepth: row.visualDepth,
-    row: {
-      id: row.entryId,
-      parentId: row.parentId,
-      type: row.type,
-      timestamp: row.timestamp,
-      title: row.title,
-      summary: row.summary,
-      label: row.label,
-      labelTimestamp: row.labelTimestamp,
-      depth: row.depth,
-      visualDepth: row.visualDepth,
-      childCount: row.childCount,
-      leaf: row.leaf,
-      branchPoint: row.branchPoint,
-      current: row.current
-    }
-  }
-}
-
-export function toTreeSegmentDisplayRow(row: SessionTreeBranchSegmentRow): SessionTreeDisplayRow {
-  return {
-    kind: 'segment',
-    id: row.id,
-    count: row.count,
-    depth: row.depth,
-    visualDepth: row.visualDepth
-  }
 }
 
 export function canForkTreeEntry(entry: SessionTreeEntryView): boolean {
@@ -88,10 +50,10 @@ export function getTreeEntryTitle(entry: SessionTreeEntryView): string {
 export function getTreeEntryKindLabel(entry: SessionTreeEntryView): string {
   if (entry.type === 'message') {
     if (entry.title.startsWith('user:')) {
-      return '用户'
+      return '我'
     }
     if (entry.title.startsWith('assistant:')) {
-      return '助手'
+      return 'AI'
     }
     return '消息'
   }
@@ -144,24 +106,27 @@ export function getTreeEntryMenuSections(entry: SessionTreeEntryView): TreeEntry
         {
           id: 'navigate',
           label: getNavigateTreeActionLabel(entry),
+          icon: CornerDownRight,
           disabled: !canNavigateTreeEntry(entry)
         },
         {
           id: 'fork',
           label: '创建分支会话',
+          icon: GitFork,
           disabled: !canForkTreeEntry(entry)
         }
       ]
     },
     {
       items: [
-        { id: 'label', label: entry.label ? '编辑标签' : '添加标签' },
+        { id: 'label', label: entry.label ? '编辑标签' : '添加标签', icon: Tag },
         {
           id: 'clear-label',
           label: '清除标签',
+          icon: Eraser,
           disabled: !entry.label
         },
-        { id: 'copy-id', label: '复制 Entry ID' }
+        { id: 'copy-id', label: '复制 Entry ID', icon: Copy }
       ]
     }
   ]

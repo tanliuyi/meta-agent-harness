@@ -3,9 +3,10 @@
  * ChatView.vue - 当前活跃会话的消息流与输入区组件。
  */
 
-import type { CSSProperties } from 'vue'
+import type { ComponentPublicInstance, CSSProperties } from 'vue'
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useElementSize, useResizeObserver } from '@vueuse/core'
+import { useVirtualizer, type VirtualItem, type Virtualizer } from '@tanstack/vue-virtual'
 import { ChevronDown, CornerDownRight, ListEnd, MapPin, Undo2, X } from 'lucide-vue-next'
 import Composer from './composer/Composer.vue'
 import ExtensionDialogHost from './ExtensionDialogHost.vue'
@@ -40,11 +41,13 @@ import type {
 import {
   createDisplayTimelineItems,
   createProcessingCollapseResult,
-  createTimelineItems,
+  createTimelineProjectionCache,
+  getTimelineChangedStartIndex,
   getTimelineItemRevision as getBaseTimelineItemRevision,
   getTimelineItemToolGroupStatus,
   getToolResultMessageToolCall,
   isCollapsedHistoryItem,
+  projectTimelineItems,
   resolveTimelineToolCall as resolveTimelineToolCallFromState,
   stabilizeTimelineItems,
   type CollapsedHistoryTimelineItem,
@@ -60,6 +63,13 @@ import type {
   ThinkingLevel
 } from '@shared/coding-agent/types'
 import type { TokenUsage } from './composer/Usage.vue'
+import {
+  CHAT_TIMELINE_GAP,
+  CHAT_TIMELINE_OVERSCAN,
+  createVirtualTimelineRows,
+  estimateTimelineItemSize,
+  shouldAdjustTimelineScrollForItemResize
+} from './timeline/chatTimelineVirtualization'
 
 const workspaceSession = useWorkspaceSessionStore()
 const { openPanelTab } = useSessionContext()
@@ -90,19 +100,12 @@ type TimelineViewItem = {
   className: string
   isCollapsedHistory: boolean
   collapsedItem?: CollapsedHistoryTimelineItem
-  collapsedOpen: boolean
-  collapsedIconClass?: {
-    'is-collapsed': boolean
-    'is-pending': boolean
-  }
   component?: TimelineItemComponent
   message?: ThreadMessage
   messageId: string
   text?: string
   revision: number
   isStreaming: boolean
-  /** 是否是最终回复（无工具调用的 assistant 消息）。 */
-  isFinalReply: boolean
   /** 消息更新是否已完成。 */
   isDone: boolean
   collapseWhenResponseAppears: boolean
@@ -111,8 +114,6 @@ type TimelineViewItem = {
   toolCalls?: ToolCall[]
   summary?: string
   status?: ToolGroupStatus
-  toolGroupOpen?: boolean
-  toolOpen?: boolean
 }
 
 /** 已折叠处理段的展开状态。 */
@@ -131,6 +132,10 @@ const messages = computed<ThreadMessage[]>(() => workspaceSession.activeSnapshot
 const toolCallStructures = computed(() => workspaceSession.activeToolCallStructures)
 const toolCallsById = computed(() => workspaceSession.activeToolCallsById)
 const runtimeTimelineEvents = computed(() => workspaceSession.activeRuntimeTimelineEvents)
+const activeMessageRenderStates = computed(() => {
+  const threadId = workspaceSession.activeSnapshot?.threadId
+  return threadId ? workspaceSession.runtimeByThreadId[threadId]?.renderState : undefined
+})
 
 /** 当前会话的待交付消息队列。 */
 const pendingQueue = computed(
@@ -285,10 +290,12 @@ const activityIndicatorLabel = computed(() => {
 /** 当前处理耗时 ticker。 */
 const processingNow = ref(Date.now())
 
+const timelineProjectionCache = createTimelineProjectionCache()
+
 /** 当前会话的统一时间线。 */
 const timelineItems = computed<TimelineItem[]>((previous) =>
-  stabilizeTimelineItems(
-    createTimelineItems({
+  projectTimelineItems(
+    {
       messages: messages.value,
       toolCallStructures: toolCallStructures.value,
       runtimeEvents: runtimeTimelineEvents.value,
@@ -296,19 +303,23 @@ const timelineItems = computed<TimelineItem[]>((previous) =>
       resolveTimelineToolCall,
       getToolResultMessageToolCall: resolveToolResultMessageToolCall,
       hideThinkingBlock: hideThinkingBlock.value
-    }),
-    previous
+    },
+    previous,
+    timelineProjectionCache
   )
 )
 
 /** 当前会话内所有 user prompt/steer/follow-up 对应的处理段。 */
-const processingCollapseResult = computed<ProcessingCollapseResult>(() =>
-  createProcessingCollapseResult({
-    items: timelineItems.value,
-    isRunning: isRunning.value,
-    activeSessionId: workspaceSession.activeSessionId,
-    now: processingNow.value
-  })
+const processingCollapseResult = computed<ProcessingCollapseResult>((previous) =>
+  createProcessingCollapseResult(
+    {
+      items: timelineItems.value,
+      isRunning: isRunning.value,
+      activeSessionId: workspaceSession.activeSessionId,
+      now: processingNow.value
+    },
+    previous
+  )
 )
 
 /** 当前会话内所有 user prompt/steer/follow-up 对应的处理段。 */
@@ -320,12 +331,15 @@ const processingCollapseContexts = computed<ProcessingCollapseContext[]>(
 const finalReplyKeys = computed<Set<string>>(() => processingCollapseResult.value.finalReplyKeys)
 
 /** 实际渲染的时间线；运行开始即展示 trigger，最终回复开始后才收起过程项。 */
-const displayTimelineItems = computed<TimelineItem[]>(() =>
-  createDisplayTimelineItems({
-    timelineItems: timelineItems.value,
-    contexts: processingCollapseContexts.value,
-    isCollapsedHistoryOpen
-  })
+const displayTimelineItems = computed<TimelineItem[]>((previous) =>
+  stabilizeTimelineItems(
+    createDisplayTimelineItems({
+      timelineItems: timelineItems.value,
+      contexts: processingCollapseContexts.value,
+      isCollapsedHistoryOpen
+    }),
+    previous
+  )
 )
 
 /** 模板直接消费的时间线视图模型，避免 patch 阶段重复调用 item getter。 */
@@ -333,45 +347,103 @@ const displayTimelineViewItems = computed<TimelineViewItem[]>((previous) =>
   createStableTimelineViewItems(displayTimelineItems.value, previous)
 )
 
-watch(
-  () => processingCollapseContexts.value.map((context) => `collapsed-history:${context.key}`),
-  (keys) => {
-    const keySet = new Set(keys)
-    for (const key of Object.keys(collapsedHistoryOpenByKey.value)) {
-      if (!keySet.has(key)) {
-        delete collapsedHistoryOpenByKey.value[key]
-      }
+watch(processingCollapseContexts, (contexts) => {
+  for (const key of Object.keys(collapsedHistoryOpenByKey.value)) {
+    if (!contexts.some((context) => `collapsed-history:${context.key}` === key)) {
+      delete collapsedHistoryOpenByKey.value[key]
     }
   }
-)
+})
 
-watch(
-  () => timelineItems.value.filter((item) => item.type === 'tool-group').map((item) => item.key),
-  (keys) => {
-    const keySet = new Set(keys)
-    for (const key of Object.keys(toolGroupOpenByKey.value)) {
-      if (!keySet.has(key)) {
-        delete toolGroupOpenByKey.value[key]
-      }
+watch(timelineItems, (items) => {
+  for (const key of Object.keys(toolGroupOpenByKey.value)) {
+    if (!items.some((item) => item.type === 'tool-group' && item.key === key)) {
+      delete toolGroupOpenByKey.value[key]
     }
   }
-)
 
-watch(
-  () => timelineItems.value.flatMap(getTimelineItemToolCallIdsForOpenState),
-  (toolCallIds) => {
-    const idSet = new Set(toolCallIds)
-    for (const toolCallId of Object.keys(toolOpenByKey.value)) {
-      if (!idSet.has(toolCallId)) {
-        delete toolOpenByKey.value[toolCallId]
-      }
+  for (const toolCallId of Object.keys(toolOpenByKey.value)) {
+    if (!items.some((item) => getTimelineItemToolCallIdsForOpenState(item).includes(toolCallId))) {
+      delete toolOpenByKey.value[toolCallId]
     }
   }
-)
+})
 
 /** 消息滚动容器。 */
 const timelineRef = ref<ScrollAreaInstance | null>(null)
 const timelineInnerRef = ref<HTMLElement | null>(null)
+const isNearBottom = ref(true)
+const shouldFollowBottom = ref(true)
+
+function getTimelineScrollElement(): HTMLElement | null {
+  return timelineRef.value?.getViewport() ?? null
+}
+
+function getTimelineVirtualItemKey(index: number): string {
+  const itemKey = displayTimelineViewItems.value[index]?.key ?? index
+  return `${workspaceSession.activeSessionId ?? 'draft'}:${itemKey}`
+}
+
+function estimateTimelineVirtualItemSize(index: number): number {
+  return estimateTimelineItemSize(displayTimelineViewItems.value[index]?.item)
+}
+
+function shouldAdjustTimelineScrollPosition(
+  item: VirtualItem,
+  _delta: number,
+  instance: Virtualizer<HTMLElement, Element>
+): boolean {
+  return shouldAdjustTimelineScrollForItemResize(item, instance.scrollOffset ?? 0)
+}
+
+const timelineVirtualizer = useVirtualizer(
+  computed(() => ({
+    count: displayTimelineViewItems.value.length,
+    getScrollElement: getTimelineScrollElement,
+    getItemKey: getTimelineVirtualItemKey,
+    estimateSize: estimateTimelineVirtualItemSize,
+    gap: CHAT_TIMELINE_GAP,
+    overscan: CHAT_TIMELINE_OVERSCAN,
+    anchorTo: shouldFollowBottom.value ? ('end' as const) : ('start' as const),
+    followOnAppend: 'auto' as const,
+    scrollEndThreshold: NEAR_BOTTOM_DISTANCE
+  }))
+)
+timelineVirtualizer.value.shouldAdjustScrollPositionOnItemSizeChange =
+  shouldAdjustTimelineScrollPosition
+const virtualTimelineItems = computed(() => timelineVirtualizer.value.getVirtualItems())
+const virtualTimelineTotalSize = computed(() => timelineVirtualizer.value.getTotalSize())
+const virtualTimelineRows = computed(() =>
+  createVirtualTimelineRows(virtualTimelineItems.value, displayTimelineViewItems.value)
+)
+const timelineListStyle = computed<CSSProperties>(() => ({
+  height: `${virtualTimelineTotalSize.value}px`
+}))
+
+function measureTimelineItem(refValue: Element | ComponentPublicInstance | null): void {
+  const element = refValue instanceof Element ? refValue : refValue?.$el
+  if (element instanceof Element) {
+    timelineVirtualizer.value.measureElement(element)
+  }
+}
+
+function handleTimelineItemHeightChange(index: number): void {
+  const row = timelineInnerRef.value?.querySelector<HTMLElement>(`[data-index="${index}"]`)
+  if (!row) {
+    return
+  }
+  timelineVirtualizer.value.resizeItem(index, Math.round(row.getBoundingClientRect().height))
+  if (!shouldFollowBottom.value) {
+    return
+  }
+  void nextTick(() => {
+    if (!shouldFollowBottom.value) {
+      return
+    }
+    keepBottomInCurrentFrame()
+    startFollowBottomLoop(2)
+  })
+}
 
 /** 底部输入区容器。 */
 const composerRef = ref<HTMLElement | null>(null)
@@ -386,9 +458,6 @@ const jumpBtnStyle = computed<CSSProperties>(() => ({
   bottom: `${Math.ceil(composerHeight.value) + 24}px`
 }))
 
-/** 是否接近消息底部。 */
-const isNearBottom = ref(true)
-const shouldFollowBottom = ref(true)
 const imageSelectionError = ref<string>()
 const selectingImages = ref(false)
 let processingTimerId: number | null = null
@@ -646,10 +715,12 @@ function getTimelineItemMessage(item: TimelineItem): ThreadMessage | undefined {
  * @returns 渲染状态。
  */
 function getMessageRenderState(message: ThreadMessage): MessageRenderState {
-  const threadId = workspaceSession.activeSnapshot?.threadId
-  return threadId
-    ? workspaceSession.getMessageRenderState(threadId, message.id)
-    : { revision: 1, renderState: 'complete' }
+  return (
+    activeMessageRenderStates.value?.[message.id] ?? {
+      revision: 1,
+      renderState: 'complete'
+    }
+  )
 }
 
 /**
@@ -766,7 +837,6 @@ function getTimelineItemToolCallIdsForOpenState(item: TimelineItem): string[] {
  */
 function toTimelineViewItem(item: TimelineItem): TimelineViewItem {
   const isCollapsedHistory = isCollapsedHistoryItem(item)
-  const collapsedOpen = isCollapsedHistory ? isCollapsedHistoryOpen(item) : false
   const isStreaming = getTimelineItemStreaming(item)
   return {
     key: item.key,
@@ -774,29 +844,19 @@ function toTimelineViewItem(item: TimelineItem): TimelineViewItem {
     className: `chat-view__message--${getTimelineItemClassSuffix(item)}`,
     isCollapsedHistory,
     collapsedItem: isCollapsedHistory ? item : undefined,
-    collapsedOpen,
-    collapsedIconClass: isCollapsedHistory
-      ? {
-          'is-collapsed': item.collapsible && !collapsedOpen,
-          'is-pending': !item.collapsible
-        }
-      : undefined,
     component: isCollapsedHistory ? undefined : getTimelineItemComponent(item),
     message: getTimelineItemMessage(item),
     messageId: getTimelineItemMessageId(item),
     text: getTimelineItemText(item),
     revision: item.type === 'message' || item.type === 'thinking' ? item.revision : 1,
     isStreaming,
-    isFinalReply: finalReplyKeys.value.has(item.key),
     isDone: !isStreaming,
     collapseWhenResponseAppears: getTimelineItemCollapseWhenResponseAppears(item),
     toolCall: getTimelineItemToolCall(item),
     toolCallIds: getTimelineItemToolCallIds(item),
     toolCalls: getTimelineItemToolCalls(item),
     summary: getTimelineItemToolGroupSummary(item),
-    status: getTimelineItemToolGroupStatus(item),
-    toolGroupOpen: getTimelineItemToolGroupOpen(item),
-    toolOpen: getTimelineItemToolOpen(item)
+    status: getTimelineItemToolGroupStatus(item)
   }
 }
 
@@ -804,66 +864,21 @@ function createStableTimelineViewItems(
   items: TimelineItem[],
   previous: TimelineViewItem[] | undefined
 ): TimelineViewItem[] {
-  let hasChanged = previous?.length !== items.length
-  const next: TimelineViewItem[] = []
-  const previousByKey = new Map(previous?.map((item) => [item.key, item]))
+  const changedStartIndex = previous
+    ? Math.min(getTimelineChangedStartIndex(items), previous.length, items.length)
+    : 0
+  const next = previous?.slice(0, changedStartIndex) ?? []
 
-  for (const [index, item] of items.entries()) {
-    const viewItem = toTimelineViewItem(item)
-    const previousItem = previousByKey.get(viewItem.key)
-    if (previous?.[index]?.key !== viewItem.key) {
-      hasChanged = true
+  for (let index = changedStartIndex; index < items.length; index += 1) {
+    const item = items[index]
+    if (!item) {
+      continue
     }
-    if (previousItem && isSameTimelineViewItem(previousItem, viewItem)) {
-      next.push(previousItem)
-    } else {
-      hasChanged = true
-      next.push(viewItem)
-    }
+    const previousItem = previous?.[index]
+    next.push(previousItem?.item === item ? previousItem : toTimelineViewItem(item))
   }
 
-  return hasChanged ? next : (previous ?? next)
-}
-
-function isSameTimelineViewItem(left: TimelineViewItem, right: TimelineViewItem): boolean {
-  return (
-    left.key === right.key &&
-    left.item === right.item &&
-    left.className === right.className &&
-    left.isCollapsedHistory === right.isCollapsedHistory &&
-    left.collapsedItem === right.collapsedItem &&
-    left.collapsedOpen === right.collapsedOpen &&
-    isSameCollapsedIconClass(left.collapsedIconClass, right.collapsedIconClass) &&
-    left.component === right.component &&
-    left.message === right.message &&
-    left.messageId === right.messageId &&
-    left.text === right.text &&
-    left.revision === right.revision &&
-    left.isStreaming === right.isStreaming &&
-    left.isFinalReply === right.isFinalReply &&
-    left.isDone === right.isDone &&
-    left.collapseWhenResponseAppears === right.collapseWhenResponseAppears &&
-    left.toolCall === right.toolCall &&
-    left.toolCallIds === right.toolCallIds &&
-    left.toolCalls === right.toolCalls &&
-    left.summary === right.summary &&
-    left.status === right.status &&
-    left.toolGroupOpen === right.toolGroupOpen &&
-    left.toolOpen === right.toolOpen
-  )
-}
-
-function isSameCollapsedIconClass(
-  left: TimelineViewItem['collapsedIconClass'],
-  right: TimelineViewItem['collapsedIconClass']
-): boolean {
-  if (left === right) {
-    return true
-  }
-  return (
-    left?.['is-collapsed'] === right?.['is-collapsed'] &&
-    left?.['is-pending'] === right?.['is-pending']
-  )
+  return next
 }
 
 /**
@@ -874,7 +889,10 @@ function toggleCollapsedHistory(item: Extract<TimelineItem, { type: 'collapsed-h
   if (!item.collapsible) {
     return
   }
+  holdUserScroll()
+  const anchor = captureTimelineRowAnchor(item.key)
   collapsedHistoryOpenByKey.value[item.key] = !collapsedHistoryOpenByKey.value[item.key]
+  settleTimelineRowAnchor(anchor)
 }
 
 /**
@@ -888,14 +906,27 @@ function isCollapsedHistoryOpen(
   return !item.collapsible || Boolean(collapsedHistoryOpenByKey.value[item.key])
 }
 
+function getCollapsedHistoryIconClass(item: Extract<TimelineItem, { type: 'collapsed-history' }>): {
+  'is-collapsed': boolean
+  'is-pending': boolean
+} {
+  return {
+    'is-collapsed': item.collapsible && !isCollapsedHistoryOpen(item),
+    'is-pending': !item.collapsible
+  }
+}
+
 function setToolGroupOpen(viewItem: TimelineViewItem, open: boolean): void {
   if (viewItem.item.type !== 'tool-group') {
     return
   }
+  holdUserScroll()
+  const anchor = captureTimelineRowAnchor(viewItem.key)
   toolGroupOpenByKey.value = {
     ...toolGroupOpenByKey.value,
     [viewItem.item.key]: open
   }
+  settleTimelineRowAnchor(anchor)
 }
 
 function setToolOpen(toolCallId: string, open: boolean): void {
@@ -910,7 +941,10 @@ function setTimelineItemToolOpen(viewItem: TimelineViewItem, open: boolean): voi
   if (!toolCallId) {
     return
   }
+  holdUserScroll()
+  const anchor = captureTimelineRowAnchor(viewItem.key)
   setToolOpen(toolCallId, open)
+  settleTimelineRowAnchor(anchor)
 }
 
 async function forkFromMessage(entryId: string): Promise<void> {
@@ -994,12 +1028,82 @@ function scrollToLatest(behavior: TimelineScrollBehavior = 'smooth'): void {
   timelineRef.value?.scrollBottom(behavior)
 }
 
+type TimelineRowAnchor = {
+  key: string
+  viewportOffset: number
+}
+
 /** 滚动更新 rAF 句柄。 */
 let scrollRafId: number | null = null
 let pendingScrollBehavior: TimelineScrollBehavior = 'smooth'
 let followBottomRafId: number | null = null
 let followBottomSettleFrames = 0
+let timelineAnchorRafId: number | null = null
+let timelineAnchorGeneration = 0
 let isUserScrollLocked = false
+
+function findTimelineRow(key: string): HTMLElement | undefined {
+  return [
+    ...(timelineInnerRef.value?.querySelectorAll<HTMLElement>('[data-timeline-key]') ?? [])
+  ].find((element) => element.dataset.timelineKey === key)
+}
+
+function captureTimelineRowAnchor(key: string): TimelineRowAnchor | undefined {
+  const viewport = timelineRef.value?.getViewport()
+  const row = findTimelineRow(key)
+  if (!viewport || !row) {
+    return undefined
+  }
+  return {
+    key,
+    viewportOffset: row.getBoundingClientRect().top - viewport.getBoundingClientRect().top
+  }
+}
+
+function cancelTimelineRowAnchor(): void {
+  timelineAnchorGeneration += 1
+  if (timelineAnchorRafId !== null) {
+    cancelAnimationFrame(timelineAnchorRafId)
+    timelineAnchorRafId = null
+  }
+}
+
+function settleTimelineRowAnchor(anchor: TimelineRowAnchor | undefined): void {
+  if (!anchor) {
+    return
+  }
+  cancelTimelineRowAnchor()
+  const generation = timelineAnchorGeneration
+  let remainingFrames = 10
+
+  void nextTick(() => {
+    const correctAnchor = (): void => {
+      if (generation !== timelineAnchorGeneration) {
+        return
+      }
+      timelineAnchorRafId = null
+      const viewport = timelineRef.value?.getViewport()
+      const row = findTimelineRow(anchor.key)
+      if (viewport && row) {
+        const currentOffset = row.getBoundingClientRect().top - viewport.getBoundingClientRect().top
+        const adjustment = currentOffset - anchor.viewportOffset
+        if (Math.abs(adjustment) >= 0.5) {
+          viewport.scrollTop += adjustment
+        }
+      }
+      remainingFrames -= 1
+      if (remainingFrames > 0) {
+        timelineAnchorRafId = requestAnimationFrame(correctAnchor)
+      }
+    }
+    const row = findTimelineRow(anchor.key)
+    const index = Number(row?.dataset.index)
+    if (row && Number.isInteger(index)) {
+      timelineVirtualizer.value.resizeItem(index, Math.round(row.getBoundingClientRect().height))
+    }
+    void nextTick(correctAnchor)
+  })
+}
 
 /**
  * 获取当前距离底部的距离。
@@ -1019,6 +1123,7 @@ function getDistanceToBottom(): number | undefined {
 function holdUserScroll(): void {
   isUserScrollLocked = true
   shouldFollowBottom.value = false
+  cancelTimelineRowAnchor()
   if (scrollRafId !== null) {
     cancelAnimationFrame(scrollRafId)
     scrollRafId = null
@@ -1207,7 +1312,10 @@ function isFunctionShortcutKey(key: string): boolean {
 
 watch(
   () => workspaceSession.activeSessionId,
-  (threadId) => {
+  (threadId, previousThreadId) => {
+    if (threadId !== previousThreadId) {
+      void nextTick(() => timelineVirtualizer.value.measure())
+    }
     if (threadId) {
       void workspaceSession.loadModelOptions(threadId)
     }
@@ -1325,7 +1433,13 @@ watch(
   { immediate: true }
 )
 
-useResizeObserver(timelineInnerRef, keepBottomInCurrentFrame)
+useResizeObserver(timelineInnerRef, () => {
+  if (!shouldFollowBottom.value) {
+    return
+  }
+  keepBottomInCurrentFrame()
+  startFollowBottomLoop(2)
+})
 
 onMounted(async () => {
   window.addEventListener('keydown', handleExtensionShortcutKeyDown, { capture: true })
@@ -1345,6 +1459,7 @@ onBeforeUnmount(() => {
   if (followBottomRafId !== null) {
     cancelAnimationFrame(followBottomRafId)
   }
+  cancelTimelineRowAnchor()
   if (processingTimerId !== null) {
     window.clearInterval(processingTimerId)
   }
@@ -1381,80 +1496,91 @@ function getTimelineItemRevision(item: TimelineItem | undefined): unknown[] {
       @wheel.passive="handleTimelineWheel"
     >
       <div ref="timelineInnerRef" class="chat-view__timeline-inner" :style="timelineStyle">
-        <div
-          v-for="viewItem in displayTimelineViewItems"
-          :key="viewItem.key"
-          v-memo="[
-            viewItem,
-            workspaceSession.activeNavigatingTreeEntryId,
-            workspaceSession.activeExtensionHiddenThinkingLabel,
-            workspaceSession.activeExtensionToolsExpanded,
-            toolOpenByKey
-          ]"
-          class="chat-view__message"
-          :class="viewItem.className"
-        >
-          <button
-            v-if="viewItem.isCollapsedHistory && viewItem.collapsedItem"
-            type="button"
-            class="chat-view__collapsed-history"
-            :class="{ 'is-pending': !viewItem.collapsedItem.collapsible }"
-            :aria-expanded="viewItem.collapsedOpen"
-            :aria-disabled="!viewItem.collapsedItem.collapsible"
-            @click="toggleCollapsedHistory(viewItem.collapsedItem)"
+        <div class="chat-view__timeline-list" :style="timelineListStyle">
+          <div
+            v-for="{ item: viewItem, virtualItem } in virtualTimelineRows"
+            :key="`${workspaceSession.activeSessionId ?? 'draft'}:${viewItem.key}`"
+            :ref="measureTimelineItem"
+            v-memo="[
+              viewItem,
+              virtualItem.start,
+              workspaceSession.activeNavigatingTreeEntryId,
+              workspaceSession.activeExtensionHiddenThinkingLabel,
+              workspaceSession.activeExtensionToolsExpanded,
+              viewItem.collapsedItem ? isCollapsedHistoryOpen(viewItem.collapsedItem) : false,
+              finalReplyKeys.has(viewItem.key),
+              toolGroupOpenByKey,
+              toolOpenByKey
+            ]"
+            :data-index="virtualItem.index"
+            :data-timeline-key="viewItem.key"
+            :style="{ top: `${virtualItem.start}px` }"
+            class="chat-view__message"
+            :class="viewItem.className"
           >
-            <span class="chat-view__collapsed-history-label">
-              已处理<span v-if="viewItem.collapsedItem.durationLabel"
-                >&nbsp;{{ viewItem.collapsedItem.durationLabel }}</span
-              >
-            </span>
-            <ChevronDown
-              v-if="viewItem.collapsedItem.collapsible"
-              :size="16"
-              class="chat-view__collapsed-history-icon"
-              :class="viewItem.collapsedIconClass"
+            <button
+              v-if="viewItem.isCollapsedHistory && viewItem.collapsedItem"
+              type="button"
+              class="chat-view__collapsed-history"
+              :class="{ 'is-pending': !viewItem.collapsedItem.collapsible }"
+              :aria-expanded="isCollapsedHistoryOpen(viewItem.collapsedItem)"
+              :aria-disabled="!viewItem.collapsedItem.collapsible"
+              @click="toggleCollapsedHistory(viewItem.collapsedItem)"
+            >
+              <span class="chat-view__collapsed-history-label">
+                已处理<span v-if="viewItem.collapsedItem.durationLabel"
+                  >&nbsp;{{ viewItem.collapsedItem.durationLabel }}</span
+                >
+              </span>
+              <ChevronDown
+                v-if="viewItem.collapsedItem.collapsible"
+                :size="16"
+                class="chat-view__collapsed-history-icon"
+                :class="getCollapsedHistoryIconClass(viewItem.collapsedItem)"
+              />
+            </button>
+            <ToolGroup
+              v-else-if="viewItem.item.type === 'tool-group'"
+              :open="getTimelineItemToolGroupOpen(viewItem.item)"
+              :tool-call-ids="viewItem.toolCallIds ?? []"
+              :tool-calls="viewItem.toolCalls ?? []"
+              :default-open="workspaceSession.activeExtensionToolsExpanded"
+              :tool-open-by-key="toolOpenByKey"
+              :summary="viewItem.summary ?? ''"
+              :status="viewItem.status"
+              @update:open="setToolGroupOpen(viewItem, $event)"
+              @update-tool-open="setToolOpen"
             />
-          </button>
-          <ToolGroup
-            v-else-if="viewItem.item.type === 'tool-group'"
-            :open="viewItem.toolGroupOpen"
-            :tool-call-ids="viewItem.toolCallIds ?? []"
-            :tool-calls="viewItem.toolCalls ?? []"
-            :default-open="workspaceSession.activeExtensionToolsExpanded"
-            :tool-open-by-key="toolOpenByKey"
-            :summary="viewItem.summary ?? ''"
-            :status="viewItem.status"
-            @update:open="setToolGroupOpen(viewItem, $event)"
-            @update-tool-open="setToolOpen"
-          />
-          <component
-            :is="viewItem.component"
-            v-else
-            :message="viewItem.message"
-            :message-id="viewItem.messageId"
-            :text="viewItem.text"
-            :revision="viewItem.revision"
-            :is-streaming="viewItem.isStreaming"
-            :is-final-reply="viewItem.isFinalReply"
-            :is-done="viewItem.isDone"
-            :is-navigating-tree="
-              viewItem.message?.sessionEntryId === workspaceSession.activeNavigatingTreeEntryId
-            "
-            :collapse-when-response-appears="viewItem.collapseWhenResponseAppears"
-            :hidden-label="workspaceSession.activeExtensionHiddenThinkingLabel"
-            :tool-call="viewItem.toolCall"
-            :tool-call-ids="viewItem.toolCallIds"
-            :tool-calls="viewItem.toolCalls"
-            :default-open="workspaceSession.activeExtensionToolsExpanded"
-            :open="viewItem.toolOpen"
-            :summary="viewItem.summary"
-            :status="viewItem.status"
-            @update:open="setTimelineItemToolOpen(viewItem, $event)"
-            @fork-from-message="forkFromMessage"
-            @locate-in-tree="locateMessageInTree"
-            @navigate-tree="navigateMessageTree"
-            @quote-selection="handleQuoteSelection"
-          />
+            <component
+              :is="viewItem.component"
+              v-else
+              :message="viewItem.message"
+              :message-id="viewItem.messageId"
+              :text="viewItem.text"
+              :revision="viewItem.revision"
+              :is-streaming="viewItem.isStreaming"
+              :is-final-reply="finalReplyKeys.has(viewItem.key)"
+              :is-done="viewItem.isDone"
+              :is-navigating-tree="
+                viewItem.message?.sessionEntryId === workspaceSession.activeNavigatingTreeEntryId
+              "
+              :collapse-when-response-appears="viewItem.collapseWhenResponseAppears"
+              :hidden-label="workspaceSession.activeExtensionHiddenThinkingLabel"
+              :tool-call="viewItem.toolCall"
+              :tool-call-ids="viewItem.toolCallIds"
+              :tool-calls="viewItem.toolCalls"
+              :default-open="workspaceSession.activeExtensionToolsExpanded"
+              :open="getTimelineItemToolOpen(viewItem.item)"
+              :summary="viewItem.summary"
+              :status="viewItem.status"
+              @update:open="setTimelineItemToolOpen(viewItem, $event)"
+              @fork-from-message="forkFromMessage"
+              @locate-in-tree="locateMessageInTree"
+              @navigate-tree="navigateMessageTree"
+              @quote-selection="handleQuoteSelection"
+              @content-height-change="handleTimelineItemHeightChange(virtualItem.index)"
+            />
+          </div>
         </div>
 
         <div v-if="activityVisible" class="chat-view__activity" aria-live="polite">
@@ -1635,8 +1761,24 @@ function getTimelineItemRevision(item: TimelineItem | undefined): unknown[] {
         <template v-if="workspaceSession.activeExtensionDialog" #overlay>
           <ExtensionDialogHost
             :request="workspaceSession.activeExtensionDialog"
+            :draft="
+              workspaceSession.activeExtensionDialogDrafts[
+                workspaceSession.activeExtensionDialog.id
+              ]
+            "
+            :responding="
+              workspaceSession.activeExtensionDialogResponding[
+                workspaceSession.activeExtensionDialog.id
+              ]
+            "
+            :error="
+              workspaceSession.activeExtensionDialogErrors[
+                workspaceSession.activeExtensionDialog.id
+              ]
+            "
             @submit="workspaceSession.respondExtensionDialog"
             @cancel="workspaceSession.cancelExtensionDialog"
+            @update:draft="workspaceSession.setExtensionDialogDraft"
           />
         </template>
       </Composer>
@@ -1660,6 +1802,10 @@ function getTimelineItemRevision(item: TimelineItem | undefined): unknown[] {
   min-height: 0;
   scroll-behavior: smooth;
   scroll-padding: var(--space-8);
+
+  :deep([data-slot='scroll-area-viewport']) {
+    overflow-anchor: none;
+  }
 }
 
 .chat-view__timeline-inner {
@@ -1815,8 +1961,17 @@ function getTimelineItemRevision(item: TimelineItem | undefined): unknown[] {
   }
 }
 
+.chat-view__timeline-list {
+  position: relative;
+  flex: 0 0 auto;
+  width: 100%;
+}
+
 .chat-view__message {
+  position: absolute;
+  left: 0;
   display: flex;
+  width: 100%;
   min-width: 0;
 }
 
@@ -1981,7 +2136,8 @@ function getTimelineItemRevision(item: TimelineItem | undefined): unknown[] {
   left: 50%;
   transform: translate(-50%, 0);
   width: 100%;
-  max-width: 768px;
+  max-width: min(768px, 100%);
+  min-width: 0;
   padding: 0 var(--space-8) 24px;
   margin: 0 auto;
   z-index: 9;

@@ -53,7 +53,7 @@ const language = computed(() => props.node.language || '')
 
 function shouldHighlight(): boolean {
   const ctx = context.value
-  if (!ctx.messageId) return false
+  if (!ctx.messageId || ctx.isStreaming) return false
   if (!code.value) return false
   return true
 }

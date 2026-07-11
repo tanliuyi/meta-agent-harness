@@ -418,17 +418,12 @@ export interface LoadSessionTreeChildrenInput extends ThreadIdInput {
 /** Session tree branch 视图过滤条件。 */
 export type SessionTreeBranchFilter = 'default' | 'all' | 'user' | 'labeled' | 'no-tools'
 
-/** Session tree 扁平视图模式。 */
-export type SessionTreeViewMode = 'branches' | 'entries'
-
 /** 加载 session tree 扁平视图输入。 */
 export interface LoadSessionTreeBranchesInput extends ThreadIdInput {
   /** 搜索关键字；为空时不搜索。 */
   query?: string
   /** 过滤条件；默认 default。 */
   filter?: SessionTreeBranchFilter
-  /** 视图模式；branches 折叠线性段，entries 返回完整 entry rows。 */
-  viewMode?: SessionTreeViewMode
 }
 
 /** Session tree 扁平视图中的 entry 行。 */
@@ -467,31 +462,10 @@ export interface SessionTreeBranchEntryRow {
   current: boolean
 }
 
-/** Session tree 扁平视图中的折叠线性段，仅 branches 模式返回。 */
-export interface SessionTreeBranchSegmentRow {
-  /** 行类型。 */
-  kind: 'segment'
-  /** 行 ID。 */
-  id: string
-  /** 被折叠的 entry 数量。 */
-  count: number
-  /** 段起点 entry ID。 */
-  firstEntryId: string
-  /** 段终点 entry ID。 */
-  lastEntryId: string
-  /** 完整树深度。 */
-  depth: number
-  /** UI 缩进深度。 */
-  visualDepth: number
-}
-
-/** Session tree 扁平视图行。 */
-export type SessionTreeBranchRow = SessionTreeBranchEntryRow | SessionTreeBranchSegmentRow
-
 /** 加载 session tree 扁平视图结果。 */
 export interface LoadSessionTreeBranchesResult {
   /** 扁平展示行。 */
-  rows: SessionTreeBranchRow[]
+  rows: SessionTreeBranchEntryRow[]
   /** 完整 session entry 数。 */
   totalEntries: number
   /** 查询/过滤命中的 entry 数。 */

@@ -643,8 +643,10 @@ export class CodingThreadManager extends ThreadManagerCore {
    * @param input - provider 输入。
    * @returns 模型设置快照。
    */
-  upsertCustomProvider(input: UpsertCustomProviderInput): Promise<ModelSettingsSnapshot> {
-    return this.getModelSettingsService().then((service) => service.upsertCustomProvider(input))
+  async upsertCustomProvider(input: UpsertCustomProviderInput): Promise<ModelSettingsSnapshot> {
+    const snapshot = await (await this.getModelSettingsService()).upsertCustomProvider(input)
+    this.refreshActiveThreadModelRegistries()
+    return snapshot
   }
 
   /**
@@ -652,8 +654,10 @@ export class CodingThreadManager extends ThreadManagerCore {
    * @param provider - provider ID。
    * @returns 模型设置快照。
    */
-  deleteCustomProvider(provider: string): Promise<ModelSettingsSnapshot> {
-    return this.getModelSettingsService().then((service) => service.deleteCustomProvider(provider))
+  async deleteCustomProvider(provider: string): Promise<ModelSettingsSnapshot> {
+    const snapshot = await (await this.getModelSettingsService()).deleteCustomProvider(provider)
+    this.refreshActiveThreadModelRegistries()
+    return snapshot
   }
 
   /**
@@ -661,8 +665,10 @@ export class CodingThreadManager extends ThreadManagerCore {
    * @param input - API key 输入。
    * @returns 模型设置快照。
    */
-  setProviderApiKey(input: SetProviderApiKeyInput): Promise<ModelSettingsSnapshot> {
-    return this.getModelSettingsService().then((service) => service.setProviderApiKey(input))
+  async setProviderApiKey(input: SetProviderApiKeyInput): Promise<ModelSettingsSnapshot> {
+    const snapshot = await (await this.getModelSettingsService()).setProviderApiKey(input)
+    this.refreshActiveThreadModelRegistries()
+    return snapshot
   }
 
   /**
@@ -671,13 +677,13 @@ export class CodingThreadManager extends ThreadManagerCore {
    * @param onEvent - OAuth 登录事件回调。
    * @returns 模型设置快照。
    */
-  loginProviderOAuth(
+  async loginProviderOAuth(
     input: LoginProviderOAuthInput,
     onEvent?: (event: ModelOAuthLoginEvent) => void
   ): Promise<ModelSettingsSnapshot> {
-    return this.getModelSettingsService().then((service) =>
-      service.loginProviderOAuth(input, onEvent)
-    )
+    const snapshot = await (await this.getModelSettingsService()).loginProviderOAuth(input, onEvent)
+    this.refreshActiveThreadModelRegistries()
+    return snapshot
   }
 
   /**
@@ -692,8 +698,20 @@ export class CodingThreadManager extends ThreadManagerCore {
    * 刷新模型 registry。
    * @returns 模型设置快照。
    */
-  refreshModelRegistry(): Promise<ModelSettingsSnapshot> {
-    return this.getModelSettingsService().then((service) => service.refreshModelRegistry())
+  async refreshModelRegistry(): Promise<ModelSettingsSnapshot> {
+    const snapshot = await (await this.getModelSettingsService()).refreshModelRegistry()
+    this.refreshActiveThreadModelRegistries()
+    return snapshot
+  }
+
+  /** 将 auth.json/models.json 变更同步到当前已绑定的 thread worker。 */
+  private refreshActiveThreadModelRegistries(): void {
+    const workers = this.getWorkers()
+    for (const { threadId } of workers.listLeases()) {
+      // 设置文件已经持久化成功，worker 同步不能反向阻塞设置页或保存操作。
+      // 启动中、退出中或暂时无响应的 worker 会在后续模型查询时再次刷新 registry。
+      void workers.send(threadId, { type: 'refresh_model_registry' }).catch(() => undefined)
+    }
   }
 
   /**

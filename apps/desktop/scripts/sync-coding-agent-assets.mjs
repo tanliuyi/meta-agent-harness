@@ -1,5 +1,15 @@
-import { cpSync, existsSync, mkdirSync, rmSync } from 'node:fs'
-import { dirname, join, resolve } from 'node:path'
+/* eslint-disable @typescript-eslint/explicit-function-return-type */
+
+import {
+  cpSync,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+  writeFileSync
+} from 'node:fs'
+import { dirname, extname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const scriptDir = dirname(fileURLToPath(import.meta.url))
@@ -11,6 +21,7 @@ const codingAgentRootCandidates = [
 ]
 const codingAgentRoot = codingAgentRootCandidates.find((candidate) => existsSync(candidate))
 const targetRoot = resolve(desktopRoot, 'resources', 'pi-coding-agent')
+const textAssetExtensions = new Set(['', '.css', '.html', '.js', '.json', '.md', '.svg', '.ts'])
 
 if (!codingAgentRoot) {
   throw new Error(`missing coding-agent source; tried: ${codingAgentRootCandidates.join(', ')}`)
@@ -39,6 +50,24 @@ function copyFirstRequired(candidates, target) {
 
 function shouldCopyAsset(source) {
   return !source.split(/[\\/]/).includes('node_modules')
+}
+
+function normalizeTextAssets(directory) {
+  for (const entry of readdirSync(directory, { withFileTypes: true })) {
+    const path = join(directory, entry.name)
+    if (entry.isDirectory()) {
+      normalizeTextAssets(path)
+      continue
+    }
+    if (!entry.isFile() || !textAssetExtensions.has(extname(entry.name))) {
+      continue
+    }
+    const content = readFileSync(path, 'utf8')
+    const normalized = content.replace(/\r\n/g, '\n')
+    if (normalized !== content) {
+      writeFileSync(path, normalized)
+    }
+  }
 }
 
 rmSync(targetRoot, { recursive: true, force: true })
@@ -79,6 +108,8 @@ copyRequired(
   join(codingAgentRoot, 'src', 'core', 'export-html', 'vendor'),
   join(targetRoot, 'dist', 'core', 'export-html', 'vendor')
 )
+
+normalizeTextAssets(targetRoot)
 
 console.log(`Synced coding-agent assets from ${codingAgentRoot}`)
 console.log(`Synced coding-agent assets to ${targetRoot}`)

@@ -9,6 +9,7 @@ import {
   DialogHeader,
   DialogTitle
 } from '@renderer/components/ui/dialog'
+import ScrollArea from '@renderer/components/ui/scroll-area/ScrollArea.vue'
 import useWorkspaceSessionStore from '@renderer/stores/workspace-session'
 import type { ApprovalRequest, ApprovalResponse } from '@shared/coding-agent/types'
 import {
@@ -71,7 +72,7 @@ function handleApprovalDialogOpenChange(open: boolean): void {
 </script>
 
 <template>
-  <section class="session-section" role="tabpanel">
+  <section class="session-section session-section--scrollable" role="tabpanel">
     <header class="session-section__header">
       <div class="session-section__title">
         <h3>Approvals</h3>
@@ -80,19 +81,27 @@ function handleApprovalDialogOpenChange(open: boolean): void {
         </span>
       </div>
     </header>
-    <div v-if="!hasPendingApprovals" class="session-empty">No approvals</div>
-    <article v-for="approval in pendingApprovals" :key="approval.approvalId" class="approval-row">
-      <div>
-        <strong>{{ approval.action }}</strong>
-        <span>{{ approval.subject }}</span>
+    <ScrollArea class="session-section__content-scroll" :vertical-size="7">
+      <div class="session-section__content">
+        <div v-if="!hasPendingApprovals" class="session-empty">No approvals</div>
+        <article
+          v-for="approval in pendingApprovals"
+          :key="approval.approvalId"
+          class="approval-row"
+        >
+          <div>
+            <strong>{{ approval.action }}</strong>
+            <span>{{ approval.subject }}</span>
+          </div>
+          <span class="approval-risk" :class="`is-${approval.risk}`">
+            {{ getApprovalRiskLabel(approval.risk) }}
+          </span>
+          <BaseButton size="sm" variant="secondary" @click="openApprovalDialog(approval)">
+            Review
+          </BaseButton>
+        </article>
       </div>
-      <span class="approval-risk" :class="`is-${approval.risk}`">
-        {{ getApprovalRiskLabel(approval.risk) }}
-      </span>
-      <BaseButton size="sm" variant="secondary" @click="openApprovalDialog(approval)">
-        Review
-      </BaseButton>
-    </article>
+    </ScrollArea>
 
     <Dialog :open="isApprovalDialogOpen" @update:open="handleApprovalDialogOpenChange">
       <DialogContent class="approval-dialog">

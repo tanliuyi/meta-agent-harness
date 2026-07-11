@@ -4,13 +4,19 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
-import { applyEventToSessions, type WorkspaceSession } from '../workspace-session'
+import {
+  applyEventToSessions,
+  reconcileSessionTreeBranchesResult,
+  type WorkspaceSession
+} from '../workspace-session'
 import useWorkspaceProjectStore from '../workspace-project'
 import useWorkspaceSessionStore from '../workspace-session'
 import { createComposerContentFromText } from '../workspace-session-composer'
 import type {
   DesktopExtensionWebviewPanel,
   ExtensionUiRequest,
+  LoadSessionTreeBranchesResult,
+  SessionTreeBranchEntryRow,
   ThreadSnapshot
 } from '@shared/coding-agent/types'
 import type { Model } from '@earendil-works/pi-ai'
@@ -45,6 +51,28 @@ beforeEach(() => {
 afterEach(() => {
   vi.useRealTimers()
 })
+
+function createSessionTreeEntryRow(
+  entryId: string,
+  overrides: Partial<SessionTreeBranchEntryRow> = {}
+): SessionTreeBranchEntryRow {
+  return {
+    kind: 'entry',
+    id: entryId,
+    entryId,
+    parentId: null,
+    type: 'message',
+    timestamp: '2026-07-01T00:00:00.000Z',
+    title: `user: ${entryId}`,
+    depth: 0,
+    visualDepth: 0,
+    childCount: 0,
+    leaf: true,
+    branchPoint: false,
+    current: false,
+    ...overrides
+  }
+}
 
 function expectLastSessionNotification(
   store: ReturnType<typeof useWorkspaceSessionStore>,
@@ -1701,17 +1729,95 @@ describe('workspace-session Project-first actions', () => {
     if (!inputRequest) {
       throw new Error('expected active extension dialog')
     }
-    await store.respondExtensionDialog(inputRequest, 'Meta Agent')
+    await Promise.all([
+      store.respondExtensionDialog(inputRequest, 'Meta Agent'),
+      store.respondExtensionDialog(inputRequest, 'Duplicate while pending')
+    ])
 
     expect(respondUi).toHaveBeenCalledWith({
       threadId: 'thread-a',
       response: { id: 'ui-input', value: 'Meta Agent' }
     })
+    expect(respondUi).toHaveBeenCalledTimes(1)
     expect(store.activeExtensionDialogs).toEqual([])
     expect(store.activeExtensionDialog).toBeUndefined()
 
-    await store.respondExtensionDialog(inputRequest, 'Duplicate')
+    await store.respondExtensionDialog(inputRequest, 'Duplicate after completion')
     expect(respondUi).toHaveBeenCalledTimes(1)
+  })
+
+  it('extension UI 只允许响应队首请求并共享请求草稿', async () => {
+    const respondUi = vi.fn().mockResolvedValue(undefined)
+    installCodingAgentApi({ respondUi })
+    const store = useWorkspaceSessionStore()
+    store.sessions['thread-a'] = snapshotToWorkspaceSession(createSnapshot())
+    await store.setActiveSessionId('thread-a')
+    const first = {
+      type: 'input' as const,
+      id: 'ui-first',
+      title: 'First',
+      placeholder: 'Value'
+    }
+    const second = {
+      type: 'confirm' as const,
+      id: 'ui-second',
+      title: 'Second',
+      message: 'Continue?'
+    }
+
+    capturedEventListener?.(createExtensionUiRequestedEvent('thread-a', first))
+    capturedEventListener?.(createExtensionUiRequestedEvent('thread-a', second))
+
+    store.setExtensionDialogDraft(first, 'shared draft')
+    expect(store.activeExtensionDialogDrafts[first.id]).toBe('shared draft')
+    await expect(store.respondExtensionDialog(second, true)).resolves.toBe(false)
+    expect(respondUi).not.toHaveBeenCalled()
+
+    await expect(store.respondExtensionDialog(first, 'shared draft')).resolves.toBe(true)
+    expect(store.activeExtensionDialog?.id).toBe(second.id)
+    expect(store.activeExtensionDialogDrafts[first.id]).toBeUndefined()
+    expect(respondUi).toHaveBeenCalledWith({
+      threadId: 'thread-a',
+      response: { id: first.id, value: 'shared draft' }
+    })
+  })
+
+  it('extension UI 暴露提交状态并在 IPC 失败后保留可重试错误', async () => {
+    let rejectResponse: ((error: Error) => void) | undefined
+    const respondUi = vi.fn().mockImplementation(
+      () =>
+        new Promise<void>((_resolve, reject) => {
+          rejectResponse = reject
+        })
+    )
+    installCodingAgentApi({ respondUi })
+    const store = useWorkspaceSessionStore()
+    store.sessions['thread-a'] = snapshotToWorkspaceSession(createSnapshot())
+    await store.setActiveSessionId('thread-a')
+    const request = {
+      type: 'editor' as const,
+      id: 'ui-editor',
+      title: 'Edit',
+      prefill: 'initial'
+    }
+    capturedEventListener?.(createExtensionUiRequestedEvent('thread-a', request))
+
+    expect(store.activeExtensionDialogDrafts[request.id]).toBe('initial')
+    store.setExtensionDialogDraft(request, 'updated')
+    const responsePending = store.respondExtensionDialog(request, 'updated')
+    expect(store.activeExtensionDialogResponding[request.id]).toBe(true)
+
+    rejectResponse?.(new Error('transport offline'))
+    await expect(responsePending).resolves.toBe(false)
+    expect(store.activeExtensionDialog?.id).toBe(request.id)
+    expect(store.activeExtensionDialogResponding[request.id]).toBeUndefined()
+    expect(store.activeExtensionDialogErrors[request.id]).toContain('transport offline')
+
+    respondUi.mockResolvedValueOnce(undefined)
+    await expect(store.respondExtensionDialog(request, 'updated')).resolves.toBe(true)
+    expect(store.activeExtensionDialog).toBeUndefined()
+    expect(store.activeExtensionDialogDrafts[request.id]).toBeUndefined()
+    expect(store.activeExtensionDialogErrors[request.id]).toBeUndefined()
   })
 
   it('长 extension notify 只在 toast 提示摘要并将完整内容放入右侧栏', async () => {
@@ -2444,6 +2550,46 @@ describe('workspace-session Project-first actions', () => {
     expect(store.activeSessionActionMessage).toBe('已返回之前位置')
   })
 
+  it('Tree 刷新只替换发生变化的 entry row', () => {
+    const stableRow = createSessionTreeEntryRow('entry-a')
+    const changedRow = createSessionTreeEntryRow('entry-b', { current: true })
+    const previous: LoadSessionTreeBranchesResult = {
+      rows: [stableRow, changedRow],
+      totalEntries: 2,
+      visibleEntries: 2,
+      currentEntryId: 'entry-b'
+    }
+    const nextChangedRow = { ...changedRow, current: false }
+    const next: LoadSessionTreeBranchesResult = {
+      rows: [{ ...stableRow }, nextChangedRow],
+      totalEntries: 2,
+      visibleEntries: 2,
+      currentEntryId: null
+    }
+
+    const reconciled = reconcileSessionTreeBranchesResult(previous, next)
+
+    expect(reconciled).not.toBe(previous)
+    expect(reconciled.rows[0]).toBe(stableRow)
+    expect(reconciled.rows[1]).toBe(nextChangedRow)
+  })
+
+  it('Tree 内容未变化时复用完整结果', () => {
+    const stableRow = createSessionTreeEntryRow('entry-a', { current: true })
+    const previous: LoadSessionTreeBranchesResult = {
+      rows: [stableRow],
+      totalEntries: 1,
+      visibleEntries: 1,
+      currentEntryId: 'entry-a'
+    }
+    const next: LoadSessionTreeBranchesResult = {
+      ...previous,
+      rows: [{ ...stableRow }]
+    }
+
+    expect(reconcileSessionTreeBranchesResult(previous, next)).toBe(previous)
+  })
+
   it('加载 main 派生的扁平 branch rows', async () => {
     const branchResult = {
       rows: [
@@ -2479,15 +2625,13 @@ describe('workspace-session Project-first actions', () => {
 
     await store.loadActiveSessionTreeBranches({
       query: 'start',
-      filter: 'user',
-      viewMode: 'entries'
+      filter: 'user'
     })
 
     expect(loadSessionTreeBranches).toHaveBeenCalledWith({
       threadId: 'thread-a',
       query: 'start',
-      filter: 'user',
-      viewMode: 'entries'
+      filter: 'user'
     })
     expect(store.activeSessionTreeBranches).toEqual(branchResult)
     expect(store.activeSessionTreeBranchesLoading).toBe(false)
@@ -3693,6 +3837,54 @@ describe('workspace-session Project-first actions', () => {
       startedAt: initialStructure.startedAt,
       finishedAt: expect.any(String)
     })
+  })
+
+  it('同一 message token 批次在一帧内同时提交 snapshot 和 revision', () => {
+    const frameCallbacks = new Map<number, FrameRequestCallback>()
+    let nextFrameId = 0
+    vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
+      nextFrameId += 1
+      frameCallbacks.set(nextFrameId, callback)
+      return nextFrameId
+    })
+    const cancelAnimationFrame = vi.fn((frameId: number) => {
+      frameCallbacks.delete(frameId)
+    })
+    vi.stubGlobal('cancelAnimationFrame', cancelAnimationFrame)
+    installCodingAgentApi({})
+    const store = useWorkspaceSessionStore()
+
+    capturedEventListener?.({
+      type: 'threadSnapshot',
+      threadId: 'thread-a',
+      snapshot: createSnapshot()
+    })
+    capturedEventListener?.({
+      type: 'message_update',
+      threadId: 'thread-a',
+      message: createAssistantMessage('hello', fixtureTimestamp),
+      assistantMessageEvent: {
+        type: 'text_delta',
+        contentIndex: 0,
+        delta: 'hello',
+        partial: createAssistantMessage('hello', fixtureTimestamp)
+      }
+    })
+
+    expect(frameCallbacks.size).toBe(1)
+    const [messageFrameId, messageFrame] = [...frameCallbacks.entries()][0] ?? []
+    expect(messageFrame).toBeDefined()
+    frameCallbacks.delete(messageFrameId as number)
+    messageFrame?.(0)
+
+    const messageId = 'assistant-2026-07-01T00:00:00.000Z'
+    expect(store.activeSnapshot?.messages.at(-1)).toMatchObject({ id: messageId, text: 'hello' })
+    expect(store.getMessageRenderState('thread-a', messageId)).toEqual({
+      revision: 1,
+      renderState: 'streaming'
+    })
+    expect(frameCallbacks.size).toBe(0)
+    expect(cancelAnimationFrame).toHaveBeenCalledTimes(1)
   })
 
   it('从具名 assistant toolCall message_update 第一时间同步工具结构', async () => {
