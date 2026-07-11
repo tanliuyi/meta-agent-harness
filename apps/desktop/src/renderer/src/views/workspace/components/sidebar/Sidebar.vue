@@ -4,6 +4,7 @@ import PlusIcon from '@renderer/components/icons/PlusIcon.vue'
 import FolderIcon from '@renderer/components/icons/FolderIcon.vue'
 import FolderOpenIcon from '@renderer/components/icons/FolderOpenIcon.vue'
 import SettingIcon from '@renderer/components/icons/SettingIcon.vue'
+import UpdateBanner from '@renderer/components/update/UpdateBanner.vue'
 import { confirm } from '@renderer/composables/useConfirmDialog'
 import useWorkspaceProjectStore from '@renderer/stores/workspace-project'
 import useWorkspaceSessionStore from '@renderer/stores/workspace-session'
@@ -459,6 +460,7 @@ function getProjectTrustIcon(project: ProjectSummary): Component | undefined {
       </ul>
     </ScrollArea>
     <div class="sidebar-section is-footer">
+      <UpdateBanner />
       <RouterLink to="/settings" class="button-cell">
         <SettingIcon :size="12" />
         <span>设置</span>

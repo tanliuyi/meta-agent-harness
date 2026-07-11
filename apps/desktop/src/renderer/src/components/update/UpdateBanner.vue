@@ -13,19 +13,13 @@ const progress = computed(() => Math.max(0, Math.min(100, updater.state.value.pe
 
 <template>
   <aside v-if="visible" class="update-banner" aria-live="polite">
-    <div class="update-banner__copy">
-      <strong v-if="updater.state.value.status === 'available'">
-        Meta Agent {{ updater.state.value.availableVersion }} 可用
-      </strong>
-      <strong v-else-if="updater.state.value.status === 'downloading'">
-        正在下载更新 {{ progress.toFixed(0) }}%
-      </strong>
-      <strong v-else>更新已就绪</strong>
-      <span v-if="updater.state.value.status === 'ready'">重启应用以完成安装</span>
-      <span v-else-if="updater.state.value.status === 'available'"
-        >可在后台下载，当前工作不会中断</span
-      >
-    </div>
+    <strong v-if="updater.state.value.status === 'available'">
+      新版本 {{ updater.state.value.availableVersion }}
+    </strong>
+    <strong v-else-if="updater.state.value.status === 'downloading'">
+      下载中 {{ progress.toFixed(0) }}%
+    </strong>
+    <strong v-else>{{ updater.state.value.availableVersion }} 已就绪</strong>
 
     <progress
       v-if="updater.state.value.status === 'downloading'"
@@ -50,68 +44,44 @@ const progress = computed(() => Math.max(0, Math.min(100, updater.state.value.pe
       @click="updater.install"
     >
       <template #icon><RotateCcw :size="14" /></template>
-      重启更新
+      重启
     </BaseButton>
   </aside>
 </template>
 
 <style lang="scss" scoped>
 .update-banner {
-  position: fixed;
-  right: var(--space-4);
-  bottom: var(--space-4);
-  z-index: 45;
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: var(--space-3);
+  display: flex;
   align-items: center;
-  width: min(380px, calc(100vw - 24px));
-  min-height: 56px;
-  padding: var(--space-3) var(--space-4);
+  gap: var(--space-2);
+  min-width: 0;
+  height: 2.4em;
+  margin: 0 var(--space-2) var(--space-2);
+  padding: 0 var(--space-2) 0 var(--space-3);
   color: var(--color-text);
-  background: color-mix(in srgb, var(--color-surface) 96%, transparent);
-  border: 1px solid var(--color-border-strong);
-  border-radius: var(--radius-md);
-  box-shadow: var(--shadow-md);
-  backdrop-filter: blur(16px);
+  background: var(--color-surface-raised);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-xs);
 }
 
-.update-banner__copy {
+.update-banner > strong {
+  flex: 1 1 auto;
   min-width: 0;
-
-  strong,
-  span {
-    display: block;
-  }
-
-  strong {
-    font-size: var(--font-size-ui-sm);
-    font-weight: 650;
-  }
-
-  span {
-    margin-top: 2px;
-    color: var(--color-text-muted);
-    font-size: var(--font-size-ui-xs);
-  }
+  overflow: hidden;
+  font-size: var(--font-size-ui-xs);
+  font-weight: 650;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .update-banner__progress {
-  grid-column: 1 / -1;
-  width: 100%;
+  flex: 0 1 72px;
+  width: 72px;
   height: 4px;
   accent-color: var(--color-primary);
 }
 
-@media (width <= 520px) {
-  .update-banner {
-    right: var(--space-3);
-    bottom: var(--space-3);
-    grid-template-columns: minmax(0, 1fr);
-  }
-
-  .update-banner :deep(.base-button) {
-    justify-self: end;
-  }
+.update-banner :deep(.base-button) {
+  flex: 0 0 auto;
 }
 </style>
