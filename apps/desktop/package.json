@@ -15,7 +15,7 @@
     "start": "electron-vite preview",
     "dev": "electron-vite dev --inspect=9223 --remote-debugging-port=9222",
     "sync:coding-agent-assets": "node scripts/sync-coding-agent-assets.mjs",
-    "prebuild": "pnpm --filter @meta-agent/hermes-memory build && npm run sync:coding-agent-assets",
+    "prebuild": "pnpm --filter @earendil-works/pi-ai build && pnpm --filter @earendil-works/pi-agent-core build && pnpm --filter @earendil-works/pi-coding-agent build && pnpm --filter @meta-agent/hermes-memory build && npm run sync:coding-agent-assets",
     "build": "npm run typecheck && electron-vite build",
     "postinstall": "electron-builder install-app-deps",
     "build:unpack": "npm run build && electron-builder --dir",
