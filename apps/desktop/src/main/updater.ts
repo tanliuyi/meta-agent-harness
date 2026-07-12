@@ -18,7 +18,10 @@ function normalizeReleaseNote(note: string): string {
     .replace(/&quot;/g, '"')
     .replace(/&#39;|&apos;/g, "'")
     .replace(/&amp;/g, '&')
-    .replace(/\n{3,}/g, '\n\n')
+    .split('\n')
+    .map((line) => line.trim())
+    .filter((line, index, lines) => line.length > 0 && lines.indexOf(line) === index)
+    .join('\n')
     .trim()
 }
 
