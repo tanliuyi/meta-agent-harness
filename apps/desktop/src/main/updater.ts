@@ -8,10 +8,26 @@ let state: UpdaterState = {
 }
 let initialized = false
 
+function normalizeReleaseNote(note: string): string {
+  return note
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<\/p>/gi, '\n')
+    .replace(/<[^>]+>/g, '')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;|&apos;/g, "'")
+    .replace(/&amp;/g, '&')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim()
+}
+
 function serializeReleaseNotes(releaseNotes: UpdateInfo['releaseNotes']): string | undefined {
-  if (typeof releaseNotes === 'string') return releaseNotes
   if (!releaseNotes) return undefined
-  return releaseNotes.map((note) => `${note.version}\n${note.note ?? ''}`.trim()).join('\n\n')
+  const notes =
+    typeof releaseNotes === 'string' ? [releaseNotes] : releaseNotes.map((item) => item.note ?? '')
+  const uniqueNotes = [...new Set(notes.map(normalizeReleaseNote).filter(Boolean))]
+  return uniqueNotes.length > 0 ? uniqueNotes.join('\n\n') : undefined
 }
 
 function publishState(patch: Partial<UpdaterState>): void {

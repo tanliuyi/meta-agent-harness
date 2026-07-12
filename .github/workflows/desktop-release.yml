@@ -85,9 +85,13 @@ jobs:
         if: matrix.platform != 'linux'
         shell: bash
         run: |
-          if [ "${{ matrix.platform }}" = "macos" ] && [ -n "$MAC_CSC_LINK" ]; then
-            echo "CSC_LINK=$MAC_CSC_LINK" >> "$GITHUB_ENV"
-            echo "CSC_KEY_PASSWORD=$MAC_CSC_KEY_PASSWORD" >> "$GITHUB_ENV"
+          if [ "${{ matrix.platform }}" = "macos" ]; then
+            if [ -n "$MAC_CSC_LINK" ]; then
+              echo "CSC_LINK=$MAC_CSC_LINK" >> "$GITHUB_ENV"
+              echo "CSC_KEY_PASSWORD=$MAC_CSC_KEY_PASSWORD" >> "$GITHUB_ENV"
+            else
+              echo "MAC_IDENTITY_ARG=-c.mac.identity=-" >> "$GITHUB_ENV"
+            fi
           elif [ "${{ matrix.platform }}" = "windows" ] && [ -n "$WIN_CSC_LINK" ]; then
             echo "CSC_LINK=$WIN_CSC_LINK" >> "$GITHUB_ENV"
             echo "CSC_KEY_PASSWORD=$WIN_CSC_KEY_PASSWORD" >> "$GITHUB_ENV"
@@ -120,6 +124,7 @@ jobs:
           --publish never
           -c.extraMetadata.version=${{ steps.release.outputs.version }}
           -c.publish.channel=${{ matrix.update_channel }}
+          ${MAC_IDENTITY_ARG:-}
 
       - name: Collect release assets
         shell: bash
