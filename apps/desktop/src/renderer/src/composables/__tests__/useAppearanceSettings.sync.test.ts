@@ -2,10 +2,7 @@ import type { DesktopUiPreferences } from '@shared/coding-agent/types'
 import { nextTick } from 'vue'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { resetDesktopUiPreferencesSyncForTest } from '../desktopUiPreferencesSync'
-import {
-  resetAppearanceSettingsForTest,
-  useAppearanceSettings
-} from '../useAppearanceSettings'
+import { resetAppearanceSettingsForTest, useAppearanceSettings } from '../useAppearanceSettings'
 
 describe('useAppearanceSettings Desktop hydration', () => {
   beforeEach(() => {

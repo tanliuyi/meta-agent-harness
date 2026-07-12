@@ -348,14 +348,9 @@ async function hydrateDesktopPreferences(): Promise<void> {
     applyHydratedField('wrapCode', appearance?.wrapCode, generationsAtStart, (value) => {
       wrapCode.value = value
     })
-    applyHydratedField(
-      'toolExpansion',
-      appearance?.toolExpansion,
-      generationsAtStart,
-      (value) => {
-        toolExpansion.value = value
-      }
-    )
+    applyHydratedField('toolExpansion', appearance?.toolExpansion, generationsAtStart, (value) => {
+      toolExpansion.value = value
+    })
     applyHydratedField(
       'sidebarDisplay',
       appearance?.sidebarDisplay,
@@ -418,14 +413,9 @@ async function hydrateDesktopPreferences(): Promise<void> {
 
     const hydratedAvatarStyle =
       appearance?.avatarStyle ?? (appearance?.showAvatars === false ? 'hidden' : undefined)
-    applyHydratedField(
-      'avatarStyle',
-      hydratedAvatarStyle,
-      generationsAtStart,
-      (value) => {
-        avatarStyle.value = value
-      }
-    )
+    applyHydratedField('avatarStyle', hydratedAvatarStyle, generationsAtStart, (value) => {
+      avatarStyle.value = value
+    })
     applyHydratedField(
       'showAvatars',
       hydratedAvatarStyle === undefined
