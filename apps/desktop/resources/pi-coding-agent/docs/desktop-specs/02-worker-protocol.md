@@ -17,10 +17,7 @@ Electron `utilityProcess` transport，不走数据库。协议分为 canonical a
 - 传输对象是结构化 `WorkerEnvelope`，不是 stdin/stdout JSONL。
 
 ```ts
-type TransportEnvelope =
-  | WorkerCommandEnvelope
-  | WorkerResponseEnvelope
-  | WorkerEventEnvelope
+type TransportEnvelope = WorkerCommandEnvelope | WorkerResponseEnvelope | WorkerEventEnvelope
 ```
 
 要求：
@@ -38,7 +35,12 @@ type TransportEnvelope =
 
 ```ts
 type CanonicalCommand =
-  | { type: 'prompt'; message: string; images?: ImageInput[]; streamingBehavior?: 'steer' | 'followUp' }
+  | {
+      type: 'prompt'
+      message: string
+      images?: ImageInput[]
+      streamingBehavior?: 'steer' | 'followUp'
+    }
   | { type: 'steer'; message: string; images?: ImageInput[] }
   | { type: 'follow_up'; message: string; images?: ImageInput[] }
   | { type: 'abort' }

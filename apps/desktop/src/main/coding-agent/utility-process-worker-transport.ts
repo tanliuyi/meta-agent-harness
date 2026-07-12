@@ -136,7 +136,10 @@ function filterDiagnosticTail(diagnosticTail: string): string {
   return diagnosticTail
     .split(/\r?\n/)
     .filter((line) => !line.includes('ExperimentalWarning: SQLite is an experimental feature'))
-    .filter((line) => !line.includes('Use `node --trace-warnings ...` to show where the warning was created'))
+    .filter(
+      (line) =>
+        !line.includes('Use `node --trace-warnings ...` to show where the warning was created')
+    )
     .join('\n')
     .trim()
 }

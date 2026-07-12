@@ -70,6 +70,7 @@ function loadCodingAgentIpc(): Promise<CodingThreadManager> {
 /**
  * 获取已加载的 CodingThreadManager，不触发重型 IPC 初始化。
  */
-export function getLoadedCodingAgentManager(): Promise<CodingThreadManager | undefined> | undefined {
+export function getLoadedCodingAgentManager():
+  Promise<CodingThreadManager | undefined> | undefined {
   return managerPromise
 }

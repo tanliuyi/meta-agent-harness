@@ -21,8 +21,8 @@ const selectTextWidthCache = new Map<string, number>()
 let pretextModulePromise: Promise<PretextModule> | null = null
 
 type PretextModule = {
-  measureNaturalWidth: typeof import('@chenglou/pretext')['measureNaturalWidth']
-  prepareWithSegments: typeof import('@chenglou/pretext')['prepareWithSegments']
+  measureNaturalWidth: (typeof import('@chenglou/pretext'))['measureNaturalWidth']
+  prepareWithSegments: (typeof import('@chenglou/pretext'))['prepareWithSegments']
 }
 
 export function useSelectContentWidth(options: SelectContentWidthOptions) {

@@ -70,7 +70,6 @@ function formatTokenCount(value: number | undefined): string {
   }
   return String(value)
 }
-
 </script>
 
 <template>
@@ -79,9 +78,7 @@ function formatTokenCount(value: number | undefined): string {
       <div>
         <p class="agent-page__eyebrow">Advanced</p>
         <h1 class="agent-page__title">高级</h1>
-        <p class="agent-page__subtitle">
-          只保存 thinking token budgets。
-        </p>
+        <p class="agent-page__subtitle">只保存 thinking token budgets。</p>
       </div>
       <BaseButton
         size="sm"

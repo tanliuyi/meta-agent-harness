@@ -1,12 +1,12 @@
 #!/usr/bin/env node
-import { APP_NAME } from "../config.ts";
+import { APP_NAME } from '../config.ts'
 
-process.title = APP_NAME;
-process.emitWarning = (() => {}) as typeof process.emitWarning;
+process.title = APP_NAME
+process.emitWarning = (() => {}) as typeof process.emitWarning
 
-import { restoreSandboxEnv } from "./restore-sandbox-env.ts";
+import { restoreSandboxEnv } from './restore-sandbox-env.ts'
 
-restoreSandboxEnv();
+restoreSandboxEnv()
 
-await import("./register-bedrock.ts");
-await import("../cli.ts");
+await import('./register-bedrock.ts')
+await import('../cli.ts')

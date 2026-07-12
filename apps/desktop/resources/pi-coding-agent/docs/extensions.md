@@ -131,13 +131,13 @@ pi.on('desktop_panel_restore', (event, ctx) => {
 
 Supported methods:
 
-| Method | Behavior |
-| ------ | -------- |
-| `registerWebviewPanel(id, options)` | Register or replace a desktop session-panel tab |
-| `updateWebviewPanel(id, patch)` | Update title, order, icon, or source for an existing panel |
-| `asWebviewUri(path, options)` | Convert a local file path into a host-mediated URI for panel HTML |
-| `postPanelMessage(id, message)` | Send a JSON-serializable message to the panel iframe |
-| `removePanel(id)` | Remove the panel |
+| Method                              | Behavior                                                          |
+| ----------------------------------- | ----------------------------------------------------------------- |
+| `registerWebviewPanel(id, options)` | Register or replace a desktop session-panel tab                   |
+| `updateWebviewPanel(id, patch)`     | Update title, order, icon, or source for an existing panel        |
+| `asWebviewUri(path, options)`       | Convert a local file path into a host-mediated URI for panel HTML |
+| `postPanelMessage(id, message)`     | Send a JSON-serializable message to the panel iframe              |
+| `removePanel(id)`                   | Remove the panel                                                  |
 
 The desktop context also exposes `cspSource`, mirroring VS Code's `webview.cspSource`. Use it in custom CSP meta tags when inline HTML loads resources returned by `asWebviewUri()`:
 
@@ -160,12 +160,12 @@ ctx.desktop.registerWebviewPanel('secure-inline', {
 
 Panel sources are rendered in sandboxed iframes, not Electron `<webview>` tags. Supported sources:
 
-| Source | Use case |
-| ------ | -------- |
-| `html` | Inline demo HTML or very small tools |
-| `file` | A local HTML file plus same-folder assets, similar to VS Code webview HTML loaded through the host |
-| `bundle` | A built frontend app, for example `webview-ui/dist/index.html` from Vite |
-| `url` | Development server or trusted remote page |
+| Source   | Use case                                                                                           |
+| -------- | -------------------------------------------------------------------------------------------------- |
+| `html`   | Inline demo HTML or very small tools                                                               |
+| `file`   | A local HTML file plus same-folder assets, similar to VS Code webview HTML loaded through the host |
+| `bundle` | A built frontend app, for example `webview-ui/dist/index.html` from Vite                           |
+| `url`    | Development server or trusted remote page                                                          |
 
 `file` paths resolve relative to `basePath` when provided, otherwise the session cwd. Relative CSS, script, and media assets are resolved by the desktop host, restricted to `localResourceRoots`, registered as opaque `pi-webview-resource:` tokens, and rewritten in the final sandboxed HTML. Linked CSS and script files are served through the same resource protocol; CSS `url(...)` references and CSS/JS `sourceMappingURL` comments are rewritten as webview resource URIs too. Asset paths that start with `/` resolve against the panel root, which matches common Vite bundle output. `localResourceRoots: []` disables local resources. `bundle` works the same way, but defaults `html` to `index.html` and `localResourceRoots` to the bundle `root`.
 
@@ -243,17 +243,17 @@ ctx.desktop.registerWebviewPanel('usage-inline', {
 
 The stable Pi variables are:
 
-| Variable | Meaning |
-| -------- | ------- |
-| `--pi-panel-bg` | Panel background |
-| `--pi-panel-fg` | Primary text |
-| `--pi-panel-muted` | Muted text |
-| `--pi-panel-border` | Subtle border |
-| `--pi-panel-accent` | Accent/action color |
-| `--pi-panel-focus-border` | Focus ring/border color |
-| `--pi-panel-danger` | Error/destructive color |
-| `--pi-panel-code-bg` | Code block background |
-| `--pi-panel-scrollbar-thumb` | Scrollbar thumb |
+| Variable                           | Meaning                 |
+| ---------------------------------- | ----------------------- |
+| `--pi-panel-bg`                    | Panel background        |
+| `--pi-panel-fg`                    | Primary text            |
+| `--pi-panel-muted`                 | Muted text              |
+| `--pi-panel-border`                | Subtle border           |
+| `--pi-panel-accent`                | Accent/action color     |
+| `--pi-panel-focus-border`          | Focus ring/border color |
+| `--pi-panel-danger`                | Error/destructive color |
+| `--pi-panel-code-bg`               | Code block background   |
+| `--pi-panel-scrollbar-thumb`       | Scrollbar thumb         |
 | `--pi-panel-scrollbar-thumb-hover` | Hovered scrollbar thumb |
 
 The host also provides VS Code-compatible aliases such as `--vscode-foreground`, `--vscode-editor-background`, `--vscode-panel-border`, `--vscode-focusBorder`, `--vscode-textCodeBlock-background`, `--vscode-scrollbarSlider-background`, and `--vscode-scrollbarSlider-hoverBackground`.
@@ -289,11 +289,11 @@ window.piPanel.onMessage((message) => {
 
 Extensions can subscribe to host-facing panel lifecycle events:
 
-| Event | Behavior |
-| ----- | -------- |
-| `desktop_panel_view_state_changed` | Fired when a registered panel tab becomes visible/active or hidden/inactive in the desktop session panel |
-| `desktop_panel_disposed` | Fired when the host disposes a panel projection, including user tab close; use it to release extension-side timers or caches |
-| `desktop_panel_restore` | Fired after a worker restart for restorable panels; recreate the panel using `event.panelId`, `event.viewType`, and `event.state` |
+| Event                              | Behavior                                                                                                                          |
+| ---------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
+| `desktop_panel_view_state_changed` | Fired when a registered panel tab becomes visible/active or hidden/inactive in the desktop session panel                          |
+| `desktop_panel_disposed`           | Fired when the host disposes a panel projection, including user tab close; use it to release extension-side timers or caches      |
+| `desktop_panel_restore`            | Fired after a worker restart for restorable panels; recreate the panel using `event.panelId`, `event.viewType`, and `event.state` |
 
 When a recreated iframe has previously saved state, the host injects that state before extension-authored scripts run, so top-level code can synchronously call `window.piPanel.getState()`. The host may also send a restore lifecycle message; the injected helper applies it before user message handlers run:
 

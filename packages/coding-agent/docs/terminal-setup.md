@@ -82,6 +82,7 @@ VS Code 1.109.5 and newer enable Kitty keyboard protocol in the integrated termi
 VS Code versions older than 1.109.5 need an explicit terminal keybinding for `Shift+Enter`.
 
 `keybindings.json` locations:
+
 - macOS: `~/Library/Application Support/Code/User/keybindings.json`
 - Linux: `~/.config/Code/User/keybindings.json`
 - Windows: `%APPDATA%\\Code\\User\\keybindings.json`
@@ -127,6 +128,7 @@ If you already have an `actions` array, add the objects to it. If the old fullsc
 These terminals have limited escape sequence support. Modified Enter keys like `Ctrl+Enter` and `Shift+Enter` cannot be distinguished from plain `Enter`, preventing custom keybindings such as `submit: ["ctrl+enter"]` from working.
 
 For the best experience, use a terminal that supports the Kitty keyboard protocol:
+
 - [Kitty](https://sw.kovidgoyal.net/kitty/)
 - [Ghostty](https://ghostty.org/)
 - [WezTerm](https://wezfurlong.org/wezterm/)

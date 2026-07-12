@@ -31,32 +31,32 @@ See these complete provider examples:
 ## Quick Reference
 
 ```typescript
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI } from '@earendil-works/pi-coding-agent'
 
 export default function (pi: ExtensionAPI) {
   // Override baseUrl for existing provider
-  pi.registerProvider("anthropic", {
-    baseUrl: "https://proxy.example.com"
-  });
+  pi.registerProvider('anthropic', {
+    baseUrl: 'https://proxy.example.com'
+  })
 
   // Register new provider with models
-  pi.registerProvider("my-provider", {
-    name: "My Provider",
-    baseUrl: "https://api.example.com",
-    apiKey: "$MY_API_KEY",
-    api: "openai-completions",
+  pi.registerProvider('my-provider', {
+    name: 'My Provider',
+    baseUrl: 'https://api.example.com',
+    apiKey: '$MY_API_KEY',
+    api: 'openai-completions',
     models: [
       {
-        id: "my-model",
-        name: "My Model",
+        id: 'my-model',
+        name: 'My Model',
         reasoning: false,
-        input: ["text", "image"],
+        input: ['text', 'image'],
         cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
         contextWindow: 128000,
         maxTokens: 4096
       }
     ]
-  });
+  })
 }
 ```
 
@@ -68,24 +68,24 @@ The simplest use case: redirect an existing provider through a proxy.
 
 ```typescript
 // All Anthropic requests now go through your proxy
-pi.registerProvider("anthropic", {
-  baseUrl: "https://proxy.example.com"
-});
+pi.registerProvider('anthropic', {
+  baseUrl: 'https://proxy.example.com'
+})
 
 // Add custom headers to OpenAI requests
-pi.registerProvider("openai", {
+pi.registerProvider('openai', {
   headers: {
-    "X-Custom-Header": "value"
+    'X-Custom-Header': 'value'
   }
-});
+})
 
 // Both baseUrl and headers
-pi.registerProvider("google", {
-  baseUrl: "https://ai-gateway.corp.com/google",
+pi.registerProvider('google', {
+  baseUrl: 'https://ai-gateway.corp.com/google',
   headers: {
-    "X-Corp-Auth": "$CORP_AUTH_TOKEN"  // env var or literal
+    'X-Corp-Auth': '$CORP_AUTH_TOKEN' // env var or literal
   }
-});
+})
 ```
 
 When only `baseUrl` and/or `headers` are provided (no `models`), all existing models for that provider are preserved with the new endpoint.
@@ -97,51 +97,51 @@ To add a completely new provider, specify `models` along with the required confi
 If the model list comes from a remote endpoint, use an async extension factory:
 
 ```typescript
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI } from '@earendil-works/pi-coding-agent'
 
 export default async function (pi: ExtensionAPI) {
-  const response = await fetch("http://localhost:1234/v1/models");
+  const response = await fetch('http://localhost:1234/v1/models')
   const payload = (await response.json()) as {
     data: Array<{
-      id: string;
-      name?: string;
-      context_window?: number;
-      max_tokens?: number;
-    }>;
-  };
+      id: string
+      name?: string
+      context_window?: number
+      max_tokens?: number
+    }>
+  }
 
-  pi.registerProvider("local-openai", {
-    baseUrl: "http://localhost:1234/v1",
-    apiKey: "$LOCAL_OPENAI_API_KEY",
-    api: "openai-completions",
+  pi.registerProvider('local-openai', {
+    baseUrl: 'http://localhost:1234/v1',
+    apiKey: '$LOCAL_OPENAI_API_KEY',
+    api: 'openai-completions',
     models: payload.data.map((model) => ({
       id: model.id,
       name: model.name ?? model.id,
       reasoning: false,
-      input: ["text"],
+      input: ['text'],
       cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
       contextWindow: model.context_window ?? 128000,
-      maxTokens: model.max_tokens ?? 4096,
-    })),
-  });
+      maxTokens: model.max_tokens ?? 4096
+    }))
+  })
 }
 ```
 
 This registers the fetched models before startup finishes.
 
 ```typescript
-pi.registerProvider("my-llm", {
-  baseUrl: "https://api.my-llm.com/v1",
-  apiKey: "$MY_LLM_API_KEY",  // env var reference
-  api: "openai-completions",  // which streaming API to use
+pi.registerProvider('my-llm', {
+  baseUrl: 'https://api.my-llm.com/v1',
+  apiKey: '$MY_LLM_API_KEY', // env var reference
+  api: 'openai-completions', // which streaming API to use
   models: [
     {
-      id: "my-llm-large",
-      name: "My LLM Large",
-      reasoning: true,        // supports extended thinking
-      input: ["text", "image"],
+      id: 'my-llm-large',
+      name: 'My LLM Large',
+      reasoning: true, // supports extended thinking
+      input: ['text', 'image'],
       cost: {
-        input: 3.0,           // $/million tokens
+        input: 3.0, // $/million tokens
         output: 15.0,
         cacheRead: 0.3,
         cacheWrite: 3.75
@@ -150,7 +150,7 @@ pi.registerProvider("my-llm", {
       maxTokens: 16384
     }
   ]
-});
+})
 ```
 
 When `models` is provided, it **replaces** all existing models for that provider.
@@ -163,25 +163,25 @@ Use `pi.unregisterProvider(name)` to remove a provider that was previously regis
 
 ```typescript
 // Register
-pi.registerProvider("my-llm", {
-  baseUrl: "https://api.my-llm.com/v1",
-  apiKey: "$MY_LLM_API_KEY",
-  api: "openai-completions",
+pi.registerProvider('my-llm', {
+  baseUrl: 'https://api.my-llm.com/v1',
+  apiKey: '$MY_LLM_API_KEY',
+  api: 'openai-completions',
   models: [
     {
-      id: "my-llm-large",
-      name: "My LLM Large",
+      id: 'my-llm-large',
+      name: 'My LLM Large',
       reasoning: true,
-      input: ["text", "image"],
+      input: ['text', 'image'],
       cost: { input: 3.0, output: 15.0, cacheRead: 0.3, cacheWrite: 3.75 },
       contextWindow: 200000,
       maxTokens: 16384
     }
   ]
-});
+})
 
 // Later, remove it
-pi.unregisterProvider("my-llm");
+pi.unregisterProvider('my-llm')
 ```
 
 Unregistering removes that provider's dynamic models, API key fallback, OAuth provider registration, and custom stream handler registrations. Any built-in models or provider behavior that were overridden are restored.
@@ -192,41 +192,44 @@ Calls made after the initial extension load phase are applied immediately, so no
 
 The `api` field determines which streaming implementation is used:
 
-| API | Use for |
-|-----|---------|
-| `anthropic-messages` | Anthropic Claude API and compatibles |
-| `openai-completions` | OpenAI Chat Completions API and compatibles |
-| `openai-responses` | OpenAI Responses API |
-| `azure-openai-responses` | Azure OpenAI Responses API |
-| `openai-codex-responses` | OpenAI Codex Responses API |
-| `mistral-conversations` | Mistral SDK Conversations/Chat streaming |
-| `google-generative-ai` | Google Generative AI API |
-| `google-vertex` | Google Vertex AI API |
-| `bedrock-converse-stream` | Amazon Bedrock Converse API |
+| API                       | Use for                                     |
+| ------------------------- | ------------------------------------------- |
+| `anthropic-messages`      | Anthropic Claude API and compatibles        |
+| `openai-completions`      | OpenAI Chat Completions API and compatibles |
+| `openai-responses`        | OpenAI Responses API                        |
+| `azure-openai-responses`  | Azure OpenAI Responses API                  |
+| `openai-codex-responses`  | OpenAI Codex Responses API                  |
+| `mistral-conversations`   | Mistral SDK Conversations/Chat streaming    |
+| `google-generative-ai`    | Google Generative AI API                    |
+| `google-vertex`           | Google Vertex AI API                        |
+| `bedrock-converse-stream` | Amazon Bedrock Converse API                 |
 
 Most OpenAI-compatible providers work with `openai-completions`. Use model-level `thinkingLevelMap` for model-specific thinking levels, and `compat` for provider quirks:
 
 ```typescript
-models: [{
-  id: "custom-model",
-  // ...
-  reasoning: true,
-  thinkingLevelMap: {              // map pi levels to provider values; null hides unsupported levels
-    minimal: null,
-    low: null,
-    medium: null,
-    high: "default",
-    xhigh: "max"
-  },
-  compat: {
-    supportsDeveloperRole: false,   // use "system" instead of "developer"
-    supportsReasoningEffort: true,
-    maxTokensField: "max_tokens",   // instead of "max_completion_tokens"
-    requiresToolResultName: true,   // tool results need name field
-    thinkingFormat: "qwen",        // top-level enable_thinking: true
-    cacheControlFormat: "anthropic" // Anthropic-style cache_control markers
+models: [
+  {
+    id: 'custom-model',
+    // ...
+    reasoning: true,
+    thinkingLevelMap: {
+      // map pi levels to provider values; null hides unsupported levels
+      minimal: null,
+      low: null,
+      medium: null,
+      high: 'default',
+      xhigh: 'max'
+    },
+    compat: {
+      supportsDeveloperRole: false, // use "system" instead of "developer"
+      supportsReasoningEffort: true,
+      maxTokensField: 'max_tokens', // instead of "max_completion_tokens"
+      requiresToolResultName: true, // tool results need name field
+      thinkingFormat: 'qwen', // top-level enable_thinking: true
+      cacheControlFormat: 'anthropic' // Anthropic-style cache_control markers
+    }
   }
-}]
+]
 ```
 
 Use `openrouter` for OpenRouter-style `reasoning: { effort }` controls. Use `together` for Together-style `reasoning: { enabled }` controls; with `supportsReasoningEffort`, it also sends `reasoning_effort`. Use `qwen-chat-template` for local Qwen-compatible servers that read `chat_template_kwargs.enable_thinking` and need `preserve_thinking`.
@@ -334,24 +337,24 @@ The `callbacks` object provides three ways to authenticate:
 ```typescript
 interface OAuthLoginCallbacks {
   // Open URL in browser (for OAuth redirects)
-  onAuth(params: { url: string }): void;
+  onAuth(params: { url: string }): void
 
   // Show device code (for device authorization flow)
   onDeviceCode(params: {
-    userCode: string;
-    verificationUri: string;
-    intervalSeconds?: number;
-    expiresInSeconds?: number;
-  }): void;
+    userCode: string
+    verificationUri: string
+    intervalSeconds?: number
+    expiresInSeconds?: number
+  }): void
 
   // Prompt user for input (for manual token entry)
-  onPrompt(params: { message: string }): Promise<string>;
+  onPrompt(params: { message: string }): Promise<string>
 
   // Show an interactive selector, e.g. to choose browser OAuth vs device code
   onSelect(params: {
-    message: string;
-    options: { id: string; label: string }[];
-  }): Promise<string | undefined>;
+    message: string
+    options: { id: string; label: string }[]
+  }): Promise<string | undefined>
 }
 ```
 
@@ -361,9 +364,9 @@ Credentials are persisted in `~/.pi/agent/auth.json`:
 
 ```typescript
 interface OAuthCredentials {
-  refresh: string;   // Refresh token (for refreshToken())
-  access: string;    // Access token (returned by getApiKey())
-  expires: number;   // Expiration timestamp in milliseconds
+  refresh: string // Refresh token (for refreshToken())
+  access: string // Access token (returned by getApiKey())
+  expires: number // Expiration timestamp in milliseconds
 }
 ```
 
@@ -372,6 +375,7 @@ interface OAuthCredentials {
 For providers with non-standard APIs, implement `streamSimple`. Study the existing provider implementations before writing your own:
 
 **Reference implementations:**
+
 - [anthropic.ts](https://github.com/earendil-works/pi-mono/blob/main/packages/ai/src/providers/anthropic.ts) - Anthropic Messages API
 - [mistral.ts](https://github.com/earendil-works/pi-mono/blob/main/packages/ai/src/providers/mistral.ts) - Mistral Conversations API
 - [openai-completions.ts](https://github.com/earendil-works/pi-mono/blob/main/packages/ai/src/providers/openai-completions.ts) - OpenAI Chat Completions
@@ -391,20 +395,20 @@ import {
   type Model,
   type SimpleStreamOptions,
   calculateCost,
-  createAssistantMessageEventStream,
-} from "@earendil-works/pi-ai";
+  createAssistantMessageEventStream
+} from '@earendil-works/pi-ai'
 
 function streamMyProvider(
   model: Model<any>,
   context: Context,
   options?: SimpleStreamOptions
 ): AssistantMessageEventStream {
-  const stream = createAssistantMessageEventStream();
+  const stream = createAssistantMessageEventStream()
 
-  (async () => {
+  ;(async () => {
     // Initialize output message
     const output: AssistantMessage = {
-      role: "assistant",
+      role: 'assistant',
       content: [],
       api: model.api,
       provider: model.provider,
@@ -415,35 +419,35 @@ function streamMyProvider(
         cacheRead: 0,
         cacheWrite: 0,
         totalTokens: 0,
-        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 }
       },
-      stopReason: "stop",
-      timestamp: Date.now(),
-    };
+      stopReason: 'stop',
+      timestamp: Date.now()
+    }
 
     try {
       // Push start event
-      stream.push({ type: "start", partial: output });
+      stream.push({ type: 'start', partial: output })
 
       // Make API request and process response...
       // Push content events as they arrive...
 
       // Push done event
       stream.push({
-        type: "done",
-        reason: output.stopReason as "stop" | "length" | "toolUse",
+        type: 'done',
+        reason: output.stopReason as 'stop' | 'length' | 'toolUse',
         message: output
-      });
-      stream.end();
+      })
+      stream.end()
     } catch (error) {
-      output.stopReason = options?.signal?.aborted ? "aborted" : "error";
-      output.errorMessage = error instanceof Error ? error.message : String(error);
-      stream.push({ type: "error", reason: output.stopReason, error: output });
-      stream.end();
+      output.stopReason = options?.signal?.aborted ? 'aborted' : 'error'
+      output.errorMessage = error instanceof Error ? error.message : String(error)
+      stream.push({ type: 'error', reason: output.stopReason, error: output })
+      stream.end()
     }
-  })();
+  })()
 
-  return stream;
+  return stream
 }
 ```
 
@@ -474,18 +478,18 @@ Add content blocks to `output.content` as they arrive:
 
 ```typescript
 // Text block
-output.content.push({ type: "text", text: "" });
-stream.push({ type: "text_start", contentIndex: output.content.length - 1, partial: output });
+output.content.push({ type: 'text', text: '' })
+stream.push({ type: 'text_start', contentIndex: output.content.length - 1, partial: output })
 
 // As text arrives
-const block = output.content[contentIndex];
-if (block.type === "text") {
-  block.text += delta;
-  stream.push({ type: "text_delta", contentIndex, delta, partial: output });
+const block = output.content[contentIndex]
+if (block.type === 'text') {
+  block.text += delta
+  stream.push({ type: 'text_delta', contentIndex, delta, partial: output })
 }
 
 // When block completes
-stream.push({ type: "text_end", contentIndex, content: block.text, partial: output });
+stream.push({ type: 'text_end', contentIndex, content: block.text, partial: output })
 ```
 
 ### Tool Calls
@@ -495,28 +499,28 @@ Tool calls require accumulating JSON and parsing:
 ```typescript
 // Start tool call
 output.content.push({
-  type: "toolCall",
+  type: 'toolCall',
   id: toolCallId,
   name: toolName,
   arguments: {}
-});
-stream.push({ type: "toolcall_start", contentIndex: output.content.length - 1, partial: output });
+})
+stream.push({ type: 'toolcall_start', contentIndex: output.content.length - 1, partial: output })
 
 // Accumulate JSON
-let partialJson = "";
-partialJson += jsonDelta;
+let partialJson = ''
+partialJson += jsonDelta
 try {
-  block.arguments = JSON.parse(partialJson);
+  block.arguments = JSON.parse(partialJson)
 } catch {}
-stream.push({ type: "toolcall_delta", contentIndex, delta: jsonDelta, partial: output });
+stream.push({ type: 'toolcall_delta', contentIndex, delta: jsonDelta, partial: output })
 
 // Complete
 stream.push({
-  type: "toolcall_end",
+  type: 'toolcall_end',
   contentIndex,
-  toolCall: { type: "toolCall", id, name, arguments: block.arguments },
+  toolCall: { type: 'toolCall', id, name, arguments: block.arguments },
   partial: output
-});
+})
 ```
 
 ### Usage and Cost
@@ -524,13 +528,13 @@ stream.push({
 Update usage from API response and calculate cost:
 
 ```typescript
-output.usage.input = response.usage.input_tokens;
-output.usage.output = response.usage.output_tokens;
-output.usage.cacheRead = response.usage.cache_read_tokens ?? 0;
-output.usage.cacheWrite = response.usage.cache_write_tokens ?? 0;
-output.usage.totalTokens = output.usage.input + output.usage.output +
-                           output.usage.cacheRead + output.usage.cacheWrite;
-calculateCost(model, output.usage);
+output.usage.input = response.usage.input_tokens
+output.usage.output = response.usage.output_tokens
+output.usage.cacheRead = response.usage.cache_read_tokens ?? 0
+output.usage.cacheWrite = response.usage.cache_write_tokens ?? 0
+output.usage.totalTokens =
+  output.usage.input + output.usage.output + output.usage.cacheRead + output.usage.cacheWrite
+calculateCost(model, output.usage)
 ```
 
 ### Context Overflow Errors
@@ -545,32 +549,28 @@ Detection runs on the finalized assistant message:
 If your provider returns overflow errors with a message pi does not recognize, normalize the error from the same extension that registers the provider. Use a `message_end` handler to rewrite the assistant message so its `errorMessage` starts with a phrase pi recognizes. The generic fallback `context_length_exceeded` is the safest choice.
 
 ```typescript
-const MY_PROVIDER_OVERFLOW_PATTERN = /your provider's overflow phrase/i;
+const MY_PROVIDER_OVERFLOW_PATTERN = /your provider's overflow phrase/i
 
 export default function (pi: ExtensionAPI) {
-  pi.registerProvider("my-provider", { /* ... */ });
+  pi.registerProvider('my-provider', {/* ... */})
 
-  pi.on("message_end", (event, ctx) => {
-    const message = event.message;
-    if (message.role !== "assistant") return;
-    if (message.stopReason !== "error") return;
-    if (
-      message.provider !== "my-provider" &&
-      ctx.model?.provider !== "my-provider"
-    )
-      return;
+  pi.on('message_end', (event, ctx) => {
+    const message = event.message
+    if (message.role !== 'assistant') return
+    if (message.stopReason !== 'error') return
+    if (message.provider !== 'my-provider' && ctx.model?.provider !== 'my-provider') return
 
-    const errorMessage = message.errorMessage ?? "";
-    if (errorMessage.includes("context_length_exceeded")) return;
-    if (!MY_PROVIDER_OVERFLOW_PATTERN.test(errorMessage)) return;
+    const errorMessage = message.errorMessage ?? ''
+    if (errorMessage.includes('context_length_exceeded')) return
+    if (!MY_PROVIDER_OVERFLOW_PATTERN.test(errorMessage)) return
 
     return {
       message: {
         ...message,
-        errorMessage: `context_length_exceeded: ${errorMessage}`,
-      },
-    };
-  });
+        errorMessage: `context_length_exceeded: ${errorMessage}`
+      }
+    }
+  })
 }
 ```
 
@@ -605,19 +605,19 @@ pi.registerProvider("my-provider", {
 
 Test your provider against the same test suites used by built-in providers. Copy and adapt these test files from [packages/ai/test/](https://github.com/earendil-works/pi-mono/tree/main/packages/ai/test):
 
-| Test | Purpose |
-|------|---------|
-| `stream.test.ts` | Basic streaming, text output |
-| `tokens.test.ts` | Token counting and usage |
-| `abort.test.ts` | AbortSignal handling |
-| `empty.test.ts` | Empty/minimal responses |
-| `context-overflow.test.ts` | Context window limits |
-| `image-limits.test.ts` | Image input handling |
-| `unicode-surrogate.test.ts` | Unicode edge cases |
-| `tool-call-without-result.test.ts` | Tool call edge cases |
-| `image-tool-result.test.ts` | Images in tool results |
-| `total-tokens.test.ts` | Total token calculation |
-| `cross-provider-handoff.test.ts` | Context handoff between providers |
+| Test                               | Purpose                           |
+| ---------------------------------- | --------------------------------- |
+| `stream.test.ts`                   | Basic streaming, text output      |
+| `tokens.test.ts`                   | Token counting and usage          |
+| `abort.test.ts`                    | AbortSignal handling              |
+| `empty.test.ts`                    | Empty/minimal responses           |
+| `context-overflow.test.ts`         | Context window limits             |
+| `image-limits.test.ts`             | Image input handling              |
+| `unicode-surrogate.test.ts`        | Unicode edge cases                |
+| `tool-call-without-result.test.ts` | Tool call edge cases              |
+| `image-tool-result.test.ts`        | Images in tool results            |
+| `total-tokens.test.ts`             | Total token calculation           |
+| `cross-provider-handoff.test.ts`   | Context handoff between providers |
 
 Run tests with your provider/model pairs to verify compatibility.
 
@@ -626,41 +626,41 @@ Run tests with your provider/model pairs to verify compatibility.
 ```typescript
 interface ProviderConfig {
   /** Display name for the provider in UI such as /login. */
-  name?: string;
+  name?: string
 
   /** API endpoint URL. Required when defining models. */
-  baseUrl?: string;
+  baseUrl?: string
 
   /** API key literal, env interpolation ($ENV_VAR or ${ENV_VAR}), or !command. Required when defining models (unless oauth). */
-  apiKey?: string;
+  apiKey?: string
 
   /** API type for streaming. Required at provider or model level when defining models. */
-  api?: Api;
+  api?: Api
 
   /** Custom streaming implementation for non-standard APIs. */
   streamSimple?: (
     model: Model<Api>,
     context: Context,
     options?: SimpleStreamOptions
-  ) => AssistantMessageEventStream;
+  ) => AssistantMessageEventStream
 
   /** Custom headers to include in requests. Values use the same resolution syntax as apiKey. */
-  headers?: Record<string, string>;
+  headers?: Record<string, string>
 
   /** If true, adds Authorization: Bearer header with the resolved API key. */
-  authHeader?: boolean;
+  authHeader?: boolean
 
   /** Models to register. If provided, replaces all existing models for this provider. */
-  models?: ProviderModelConfig[];
+  models?: ProviderModelConfig[]
 
   /** OAuth provider for /login support. */
   oauth?: {
-    name: string;
-    login(callbacks: OAuthLoginCallbacks): Promise<OAuthCredentials>;
-    refreshToken(credentials: OAuthCredentials): Promise<OAuthCredentials>;
-    getApiKey(credentials: OAuthCredentials): string;
-    modifyModels?(models: Model<Api>[], credentials: OAuthCredentials): Model<Api>[];
-  };
+    name: string
+    login(callbacks: OAuthLoginCallbacks): Promise<OAuthCredentials>
+    refreshToken(credentials: OAuthCredentials): Promise<OAuthCredentials>
+    getApiKey(credentials: OAuthCredentials): string
+    modifyModels?(models: Model<Api>[], credentials: OAuthCredentials): Model<Api>[]
+  }
 }
 ```
 
@@ -669,67 +669,86 @@ interface ProviderConfig {
 ```typescript
 interface ProviderModelConfig {
   /** Model ID (e.g., "claude-sonnet-4-20250514"). */
-  id: string;
+  id: string
 
   /** Display name (e.g., "Claude 4 Sonnet"). */
-  name: string;
+  name: string
 
   /** API type override for this specific model. */
-  api?: Api;
+  api?: Api
 
   /** API endpoint URL override for this specific model. */
-  baseUrl?: string;
+  baseUrl?: string
 
   /** Whether the model supports extended thinking. */
-  reasoning: boolean;
+  reasoning: boolean
 
   /** Maps pi thinking levels to provider/model-specific values; null marks a level unsupported. */
-  thinkingLevelMap?: Partial<Record<"off" | "minimal" | "low" | "medium" | "high" | "xhigh", string | null>>;
+  thinkingLevelMap?: Partial<
+    Record<'off' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh', string | null>
+  >
 
   /** Supported input types. */
-  input: ("text" | "image")[];
+  input: ('text' | 'image')[]
 
   /** Cost per million tokens (for usage tracking). */
   cost: {
-    input: number;
-    output: number;
-    cacheRead: number;
-    cacheWrite: number;
-  };
+    input: number
+    output: number
+    cacheRead: number
+    cacheWrite: number
+  }
 
   /** Maximum context window size in tokens. */
-  contextWindow: number;
+  contextWindow: number
 
   /** Maximum output tokens. */
-  maxTokens: number;
+  maxTokens: number
 
   /** Custom headers for this specific model. */
-  headers?: Record<string, string>;
+  headers?: Record<string, string>
 
   /** Compatibility settings for the selected API. */
   compat?: {
     // openai-completions
-    supportsStore?: boolean;
-    supportsDeveloperRole?: boolean;
-    supportsReasoningEffort?: boolean;
-    supportsUsageInStreaming?: boolean;
-    maxTokensField?: "max_completion_tokens" | "max_tokens";
-    requiresToolResultName?: boolean;
-    requiresAssistantAfterToolResult?: boolean;
-    requiresThinkingAsText?: boolean;
-    requiresReasoningContentOnAssistantMessages?: boolean;
-    thinkingFormat?: "openai" | "openrouter" | "deepseek" | "together" | "zai" | "qwen" | "chat-template" | "qwen-chat-template" | "string-thinking" | "ant-ling";
-    chatTemplateKwargs?: Record<string, string | number | boolean | null | { "$var": "thinking.enabled" | "thinking.effort"; omitWhenOff?: boolean }>;
-    cacheControlFormat?: "anthropic";
+    supportsStore?: boolean
+    supportsDeveloperRole?: boolean
+    supportsReasoningEffort?: boolean
+    supportsUsageInStreaming?: boolean
+    maxTokensField?: 'max_completion_tokens' | 'max_tokens'
+    requiresToolResultName?: boolean
+    requiresAssistantAfterToolResult?: boolean
+    requiresThinkingAsText?: boolean
+    requiresReasoningContentOnAssistantMessages?: boolean
+    thinkingFormat?:
+      | 'openai'
+      | 'openrouter'
+      | 'deepseek'
+      | 'together'
+      | 'zai'
+      | 'qwen'
+      | 'chat-template'
+      | 'qwen-chat-template'
+      | 'string-thinking'
+      | 'ant-ling'
+    chatTemplateKwargs?: Record<
+      string,
+      | string
+      | number
+      | boolean
+      | null
+      | { $var: 'thinking.enabled' | 'thinking.effort'; omitWhenOff?: boolean }
+    >
+    cacheControlFormat?: 'anthropic'
 
     // anthropic-messages
-    supportsEagerToolInputStreaming?: boolean;
-    supportsLongCacheRetention?: boolean;
-    sendSessionAffinityHeaders?: boolean;
-    supportsCacheControlOnTools?: boolean;
-    forceAdaptiveThinking?: boolean;
-    allowEmptySignature?: boolean;
-  };
+    supportsEagerToolInputStreaming?: boolean
+    supportsLongCacheRetention?: boolean
+    sendSessionAffinityHeaders?: boolean
+    supportsCacheControlOnTools?: boolean
+    forceAdaptiveThinking?: boolean
+    allowEmptySignature?: boolean
+  }
 }
 ```
 

@@ -79,7 +79,12 @@ export function createSessionActionMenuSections(
     {
       label: '命令',
       items: [
-        { id: 'reload', label: '重载资源 /reload', icon: RefreshCw, disabled: !state.hasActiveThread },
+        {
+          id: 'reload',
+          label: '重载资源 /reload',
+          icon: RefreshCw,
+          disabled: !state.hasActiveThread
+        },
         { id: 'compact', label: '压缩上下文', icon: Minimize2, disabled: !state.hasActiveThread }
       ]
     },

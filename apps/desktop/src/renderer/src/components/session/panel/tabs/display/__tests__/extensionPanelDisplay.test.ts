@@ -124,9 +124,7 @@ describe('extensionPanelDisplay', () => {
       }
     }
 
-    expect(getExtensionPanelResolvedUrl(mappedPanel)).toBe(
-      'http://localhost:62100/index.html?x=1'
-    )
+    expect(getExtensionPanelResolvedUrl(mappedPanel)).toBe('http://localhost:62100/index.html?x=1')
     expect(getExtensionPanelMessageOrigin(mappedPanel)).toBe('http://localhost:62100')
     expect(getExtensionPanelTargetOrigin(mappedPanel)).toBe('http://localhost:62100')
     expect(getExtensionPanelAllowedNavigationOrigin(mappedPanel)).toBe('http://localhost:62100')
@@ -160,9 +158,7 @@ describe('extensionPanelDisplay', () => {
     expect(isExtensionPanelNavigationAllowed(htmlPanel, 'https://example.com/next')).toBe(false)
     expect(isExtensionPanelNavigationAllowed(mappedPanel, 'http://localhost:5173/next')).toBe(true)
     expect(isExtensionPanelNavigationAllowed(mappedPanel, 'http://localhost:62100/next')).toBe(true)
-    expect(isExtensionPanelNavigationAllowed(mappedPanel, 'http://127.0.0.1:5173/next')).toBe(
-      false
-    )
+    expect(isExtensionPanelNavigationAllowed(mappedPanel, 'http://127.0.0.1:5173/next')).toBe(false)
   })
 
   it('只接受当前 iframe source 且 URL origin 匹配的消息', () => {
@@ -217,7 +213,7 @@ describe('extensionPanelDisplay', () => {
       'nonce-a',
       '{"count":1}'
     )
-    expect(injected).toContain('window, \'piPanel\'')
+    expect(injected).toContain("window, 'piPanel'")
     expect(injected).toContain('data-pi-panel-helper="true"')
     expect(injected).toContain('nonce="nonce-a"')
     expect(injected).toContain('const initialStateJson = "{\\"count\\":1}"')
@@ -229,7 +225,7 @@ describe('extensionPanelDisplay', () => {
     expect(injected).toContain("event.data.type === 'pi:webview.restoreState'")
 
     const plain = injectPiPanelHelper('<h1>Panel</h1>', 'nonce-b')
-    expect(plain).toContain('window, \'piPanel\'')
+    expect(plain).toContain("window, 'piPanel'")
     expect(plain).toContain('data-pi-panel-helper="true"')
     expect(plain).toContain('nonce="nonce-b"')
     expect(plain).toContain('<h1>Panel</h1>')
@@ -268,7 +264,7 @@ describe('extensionPanelDisplay', () => {
     expect(withCsp).toContain("default-src 'none'")
     expect(withCsp).toContain("style-src 'unsafe-inline' pi-webview-resource:")
     expect(withCsp).toContain("script-src 'nonce-nonce-a' pi-webview-resource:")
-    expect(withCsp).toContain("connect-src pi-webview-resource: https: http:")
+    expect(withCsp).toContain('connect-src pi-webview-resource: https: http:')
     expect(withCsp).toContain("base-uri 'none'")
     expect(withCsp).toContain("form-action 'none'")
     expect(withCsp).not.toContain('navigate-to')
@@ -299,7 +295,8 @@ describe('extensionPanelDisplay', () => {
   })
 
   it('业务 HTML 引用 window.piPanel 时仍然注入 helper', () => {
-    const html = '<html><head></head><body><script>window.piPanel.post({ type: "ping" })</script></body></html>'
+    const html =
+      '<html><head></head><body><script>window.piPanel.post({ type: "ping" })</script></body></html>'
     const injected = injectPiPanelHelper(html, 'nonce-a')
 
     expect(injected).not.toBe(html)
@@ -320,11 +317,16 @@ describe('extensionPanelDisplay', () => {
   })
 
   it('识别 host-reserved openExternal 消息并注入 helper API', () => {
-    expect(isExtensionPanelOpenExternalPayload({ type: 'pi:webview.openExternal', uri: 'https://example.com' })).toBe(
-      true
-    )
+    expect(
+      isExtensionPanelOpenExternalPayload({
+        type: 'pi:webview.openExternal',
+        uri: 'https://example.com'
+      })
+    ).toBe(true)
     expect(isExtensionPanelOpenExternalPayload({ type: 'pi:webview.openExternal' })).toBe(false)
-    expect(isExtensionPanelOpenExternalPayload({ type: 'ping', uri: 'https://example.com' })).toBe(false)
+    expect(isExtensionPanelOpenExternalPayload({ type: 'ping', uri: 'https://example.com' })).toBe(
+      false
+    )
 
     const injected = injectPiPanelHelper('<html><head></head><body></body></html>', 'nonce-a')
     expect(injected).toContain('openExternal(uri)')

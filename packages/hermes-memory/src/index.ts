@@ -85,8 +85,20 @@ type DesktopMemoryTarget = 'memory' | 'user' | 'failure' | 'project'
 type DesktopMemoryRequest =
   | { type: 'hermes.refresh'; requestId: string }
   | { type: 'hermes.search'; requestId: string; query: string }
-  | { type: 'hermes.add'; requestId: string; target: DesktopMemoryTarget; content: string; category?: MemoryCategory }
-  | { type: 'hermes.replace'; requestId: string; target: DesktopMemoryTarget; oldText: string; content: string }
+  | {
+      type: 'hermes.add'
+      requestId: string
+      target: DesktopMemoryTarget
+      content: string
+      category?: MemoryCategory
+    }
+  | {
+      type: 'hermes.replace'
+      requestId: string
+      target: DesktopMemoryTarget
+      oldText: string
+      content: string
+    }
   | { type: 'hermes.remove'; requestId: string; target: DesktopMemoryTarget; oldText: string }
 
 export function parseDesktopMemoryRequest(value: unknown): DesktopMemoryRequest | null {
@@ -95,21 +107,54 @@ export function parseDesktopMemoryRequest(value: unknown): DesktopMemoryRequest 
   if (input.type === 'hermes.refresh' && typeof input.requestId === 'string') {
     return { type: input.type, requestId: input.requestId }
   }
-  if (input.type === 'hermes.search' && typeof input.requestId === 'string' && typeof input.query === 'string') {
+  if (
+    input.type === 'hermes.search' &&
+    typeof input.requestId === 'string' &&
+    typeof input.query === 'string'
+  ) {
     return { type: input.type, requestId: input.requestId, query: input.query }
   }
   const targets = new Set<DesktopMemoryTarget>(['memory', 'user', 'failure', 'project'])
-  if (typeof input.requestId !== 'string' || typeof input.target !== 'string' || !targets.has(input.target as DesktopMemoryTarget)) return null
+  if (
+    typeof input.requestId !== 'string' ||
+    typeof input.target !== 'string' ||
+    !targets.has(input.target as DesktopMemoryTarget)
+  )
+    return null
   const target = input.target as DesktopMemoryTarget
   if (input.type === 'hermes.add' && typeof input.content === 'string') {
-    const categories = new Set<MemoryCategory>(['failure', 'correction', 'insight', 'preference', 'convention', 'tool-quirk'])
-    const category = typeof input.category === 'string' && categories.has(input.category as MemoryCategory)
-      ? input.category as MemoryCategory
-      : undefined
-    return { type: input.type, requestId: input.requestId, target, content: input.content, category }
+    const categories = new Set<MemoryCategory>([
+      'failure',
+      'correction',
+      'insight',
+      'preference',
+      'convention',
+      'tool-quirk'
+    ])
+    const category =
+      typeof input.category === 'string' && categories.has(input.category as MemoryCategory)
+        ? (input.category as MemoryCategory)
+        : undefined
+    return {
+      type: input.type,
+      requestId: input.requestId,
+      target,
+      content: input.content,
+      category
+    }
   }
-  if (input.type === 'hermes.replace' && typeof input.oldText === 'string' && typeof input.content === 'string') {
-    return { type: input.type, requestId: input.requestId, target, oldText: input.oldText, content: input.content }
+  if (
+    input.type === 'hermes.replace' &&
+    typeof input.oldText === 'string' &&
+    typeof input.content === 'string'
+  ) {
+    return {
+      type: input.type,
+      requestId: input.requestId,
+      target,
+      oldText: input.oldText,
+      content: input.content
+    }
   }
   if (input.type === 'hermes.remove' && typeof input.oldText === 'string') {
     return { type: input.type, requestId: input.requestId, target, oldText: input.oldText }
@@ -198,16 +243,18 @@ export default async function (pi: ExtensionAPI) {
         memoryCharLimit: config.projectCharLimit,
         memoryDir: info.memoryDir ?? undefined
       })
-      projectStore.setConsolidator(async (target, signal) => triggerConsolidation(
-        pi,
-        projectStore,
-        target,
-        signal,
-        config.consolidationTimeoutMs,
-        target === 'memory' ? 'project' : target,
-        config,
-        cwd ?? undefined
-      ))
+      projectStore.setConsolidator(async (target, signal) =>
+        triggerConsolidation(
+          pi,
+          projectStore,
+          target,
+          signal,
+          config.consolidationTimeoutMs,
+          target === 'memory' ? 'project' : target,
+          config,
+          cwd ?? undefined
+        )
+      )
       return projectStore
     },
     onActivate: (snapshot) => {
@@ -227,7 +274,10 @@ export default async function (pi: ExtensionAPI) {
     // Best-effort only: failed SQLite backfill should not block extension startup.
   }
 
-  const storeForDesktopTarget = (target: DesktopMemoryTarget, projectStore: MemoryStore | null): MemoryStore => {
+  const storeForDesktopTarget = (
+    target: DesktopMemoryTarget,
+    projectStore: MemoryStore | null
+  ): MemoryStore => {
     if (target === 'project') {
       if (!projectStore) throw new Error('当前目录没有可用的项目记忆')
       return projectStore
@@ -334,14 +384,16 @@ export default async function (pi: ExtensionAPI) {
       let result
       if (request.type === 'hermes.add') {
         const category = request.category ?? 'insight'
-        result = target === 'failure'
-          ? await activeStore.addFailure(request.content, { category })
-          : await activeStore.add(target, request.content)
+        result =
+          target === 'failure'
+            ? await activeStore.addFailure(request.content, { category })
+            : await activeStore.add(target, request.content)
         if (result.success) {
           syncMemoryEntry(dbManager, {
-            content: target === 'failure'
-              ? formatFailureMemoryContent(request.content, { category })
-              : request.content,
+            content:
+              target === 'failure'
+                ? formatFailureMemoryContent(request.content, { category })
+                : request.content,
             target,
             project: desktopProject(request.target, project.info.id),
             category: target === 'failure' ? category : null
@@ -389,7 +441,12 @@ export default async function (pi: ExtensionAPI) {
     const project = activeProject.get()
     await store.loadFromDisk()
     if (project.store) await project.store.loadFromDisk()
-    const promptContext = await buildPromptContext(config, store, project.store, project.info.name ?? '')
+    const promptContext = await buildPromptContext(
+      config,
+      store,
+      project.store,
+      project.info.name ?? ''
+    )
 
     if (promptContext) {
       return {

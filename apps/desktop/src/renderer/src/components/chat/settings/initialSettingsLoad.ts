@@ -29,8 +29,7 @@ export function scheduleInitialSettingsLoad<TTimer = ReturnType<typeof setTimeou
 ): InitialSettingsLoadSchedule {
   const setTimer =
     options.setTimer ??
-    ((callback: () => void, delayMs: number): TTimer =>
-      setTimeout(callback, delayMs) as TTimer)
+    ((callback: () => void, delayMs: number): TTimer => setTimeout(callback, delayMs) as TTimer)
   const clearTimer =
     options.clearTimer ??
     ((timerId: TTimer): void => {

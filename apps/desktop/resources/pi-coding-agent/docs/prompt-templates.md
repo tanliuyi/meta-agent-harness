@@ -22,7 +22,9 @@ Disable discovery with `--no-prompt-templates`.
 ---
 description: Review staged git changes
 ---
+
 Review the staged changes (`git diff --cached`). Focus on:
+
 - Bugs and logic errors
 - Security issues
 - Error handling gaps
@@ -39,7 +41,7 @@ Use `argument-hint` in frontmatter to show expected arguments in autocomplete. U
 ```markdown
 ---
 description: Review PRs from URLs with structured issue and code analysis
-argument-hint: "<PR-URL>"
+argument-hint: '<PR-URL>'
 ---
 ```
 
@@ -78,6 +80,7 @@ Example:
 ---
 description: Create a component
 ---
+
 Create a React component named $1 with features: $@
 ```
 

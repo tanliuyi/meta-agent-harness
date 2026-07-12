@@ -54,7 +54,8 @@ export function buildSnapshotFromSession(input: BuildSnapshotFromSessionInput): 
   const currentEntryId =
     input.currentEntryId !== undefined ? input.currentEntryId : manager.getLeafId()
   const branchEntries = currentEntryId === null ? [] : manager.getBranch(currentEntryId)
-  const contextEntryId = currentEntryId !== null && branchEntries.length === 0 ? null : currentEntryId
+  const contextEntryId =
+    currentEntryId !== null && branchEntries.length === 0 ? null : currentEntryId
   const context = buildSessionContext(entries, contextEntryId)
   const timelineMessages = buildTimelineMessages(branchEntries)
   const title = findLastEntry(entries, isSessionInfoEntry)?.name ?? input.thread.title

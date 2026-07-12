@@ -27,23 +27,9 @@ Thread worker registry 位于 Electron main。
 ## 状态模型
 
 ```ts
-type WorkerState =
-  | 'starting'
-  | 'bound'
-  | 'busy'
-  | 'idle'
-  | 'stopping'
-  | 'exited'
-  | 'crashed'
+type WorkerState = 'starting' | 'bound' | 'busy' | 'idle' | 'stopping' | 'exited' | 'crashed'
 
-type ThreadRuntimeState =
-  | 'new'
-  | 'starting'
-  | 'idle'
-  | 'running'
-  | 'stopping'
-  | 'stopped'
-  | 'error'
+type ThreadRuntimeState = 'new' | 'starting' | 'idle' | 'running' | 'stopping' | 'stopped' | 'error'
 
 type WorkerLease = {
   workerId: string
@@ -60,7 +46,10 @@ type WorkerLease = {
 ```ts
 type ThreadWorkerRegistry = {
   acquireThreadWorker(input: StartThreadInput): Promise<WorkerLease>
-  releaseThreadWorker(threadId: string, reason: 'idle' | 'stop' | 'archive' | 'crash'): Promise<void>
+  releaseThreadWorker(
+    threadId: string,
+    reason: 'idle' | 'stop' | 'archive' | 'crash'
+  ): Promise<void>
   send(threadId: string, command: WorkerCommand): Promise<WorkerResponse>
   listLeases(): WorkerLease[]
   shutdown(): Promise<void>

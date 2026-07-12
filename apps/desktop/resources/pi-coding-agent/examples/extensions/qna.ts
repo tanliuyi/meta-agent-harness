@@ -7,8 +7,8 @@
  * 3. Loads the result into the editor for user to fill in answers
  */
 
-import { complete, type UserMessage } from "@earendil-works/pi-ai/compat";
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { complete, type UserMessage } from '@earendil-works/pi-ai/compat'
+import type { ExtensionAPI } from '@earendil-works/pi-coding-agent'
 
 const SYSTEM_PROMPT = `You are a question extractor. Given text from a conversation, extract any questions that need answering and format them for the user to fill in.
 
@@ -24,87 +24,87 @@ A:
 Q: Should we use TypeScript or JavaScript?
 A: 
 
-Keep questions in the order they appeared. Be concise.`;
+Keep questions in the order they appeared. Be concise.`
 
 export default function (pi: ExtensionAPI) {
-	pi.registerCommand("qna", {
-		description: "Extract questions from last assistant message into editor",
-		handler: async (_args, ctx) => {
-			if (!ctx.model) {
-				ctx.ui.notify("No model selected", "error");
-				return;
-			}
+  pi.registerCommand('qna', {
+    description: 'Extract questions from last assistant message into editor',
+    handler: async (_args, ctx) => {
+      if (!ctx.model) {
+        ctx.ui.notify('No model selected', 'error')
+        return
+      }
 
-			// Find the last assistant message on the current branch
-			const branch = ctx.sessionManager.getBranch();
-			let lastAssistantText: string | undefined;
+      // Find the last assistant message on the current branch
+      const branch = ctx.sessionManager.getBranch()
+      let lastAssistantText: string | undefined
 
-			for (let i = branch.length - 1; i >= 0; i--) {
-				const entry = branch[i];
-				if (entry.type === "message") {
-					const msg = entry.message;
-					if ("role" in msg && msg.role === "assistant") {
-						if (msg.stopReason !== "stop") {
-							ctx.ui.notify(`Last assistant message incomplete (${msg.stopReason})`, "error");
-							return;
-						}
-						const textParts = msg.content
-							.filter((c): c is { type: "text"; text: string } => c.type === "text")
-							.map((c) => c.text);
-						if (textParts.length > 0) {
-							lastAssistantText = textParts.join("\n");
-							break;
-						}
-					}
-				}
-			}
+      for (let i = branch.length - 1; i >= 0; i--) {
+        const entry = branch[i]
+        if (entry.type === 'message') {
+          const msg = entry.message
+          if ('role' in msg && msg.role === 'assistant') {
+            if (msg.stopReason !== 'stop') {
+              ctx.ui.notify(`Last assistant message incomplete (${msg.stopReason})`, 'error')
+              return
+            }
+            const textParts = msg.content
+              .filter((c): c is { type: 'text'; text: string } => c.type === 'text')
+              .map((c) => c.text)
+            if (textParts.length > 0) {
+              lastAssistantText = textParts.join('\n')
+              break
+            }
+          }
+        }
+      }
 
-			if (!lastAssistantText) {
-				ctx.ui.notify("No assistant messages found", "error");
-				return;
-			}
+      if (!lastAssistantText) {
+        ctx.ui.notify('No assistant messages found', 'error')
+        return
+      }
 
-			ctx.ui.setWorkingVisible(true);
-			ctx.ui.setWorkingMessage(`Extracting questions using ${ctx.model.id}...`);
-			let result: string | null;
-			try {
-				const auth = await ctx.modelRegistry.getApiKeyAndHeaders(ctx.model);
-				if (!auth.ok || !auth.apiKey) {
-					throw new Error(auth.ok ? `No API key for ${ctx.model.provider}` : auth.error);
-				}
-				const userMessage: UserMessage = {
-					role: "user",
-					content: [{ type: "text", text: lastAssistantText }],
-					timestamp: Date.now(),
-				};
+      ctx.ui.setWorkingVisible(true)
+      ctx.ui.setWorkingMessage(`Extracting questions using ${ctx.model.id}...`)
+      let result: string | null
+      try {
+        const auth = await ctx.modelRegistry.getApiKeyAndHeaders(ctx.model)
+        if (!auth.ok || !auth.apiKey) {
+          throw new Error(auth.ok ? `No API key for ${ctx.model.provider}` : auth.error)
+        }
+        const userMessage: UserMessage = {
+          role: 'user',
+          content: [{ type: 'text', text: lastAssistantText }],
+          timestamp: Date.now()
+        }
 
-				const response = await complete(
-					ctx.model,
-					{ systemPrompt: SYSTEM_PROMPT, messages: [userMessage] },
-					{ apiKey: auth.apiKey, headers: auth.headers, env: auth.env },
-				);
+        const response = await complete(
+          ctx.model,
+          { systemPrompt: SYSTEM_PROMPT, messages: [userMessage] },
+          { apiKey: auth.apiKey, headers: auth.headers, env: auth.env }
+        )
 
-				result =
-					response.stopReason === "aborted"
-						? null
-						: response.content
-								.filter((c): c is { type: "text"; text: string } => c.type === "text")
-								.map((c) => c.text)
-								.join("\n");
-			} catch {
-				result = null;
-			} finally {
-				ctx.ui.setWorkingMessage();
-				ctx.ui.setWorkingVisible(false);
-			}
+        result =
+          response.stopReason === 'aborted'
+            ? null
+            : response.content
+                .filter((c): c is { type: 'text'; text: string } => c.type === 'text')
+                .map((c) => c.text)
+                .join('\n')
+      } catch {
+        result = null
+      } finally {
+        ctx.ui.setWorkingMessage()
+        ctx.ui.setWorkingVisible(false)
+      }
 
-			if (result === null) {
-				ctx.ui.notify("Cancelled", "info");
-				return;
-			}
+      if (result === null) {
+        ctx.ui.notify('Cancelled', 'info')
+        return
+      }
 
-			ctx.ui.setEditorText(result);
-			ctx.ui.notify("Questions loaded. Edit and submit when ready.", "info");
-		},
-	});
+      ctx.ui.setEditorText(result)
+      ctx.ui.notify('Questions loaded. Edit and submit when ready.', 'info')
+    }
+  })
 }

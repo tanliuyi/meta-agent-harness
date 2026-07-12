@@ -2,14 +2,19 @@
  * Run modes for the coding agent.
  */
 
-export { type PrintModeOptions, runPrintMode } from "./print-mode.ts";
-export { type ModelInfo, RpcClient, type RpcClientOptions, type RpcEventListener } from "./rpc/rpc-client.ts";
-export { runRpcMode } from "./rpc/rpc-mode.ts";
+export { type PrintModeOptions, runPrintMode } from './print-mode.ts'
+export {
+  type ModelInfo,
+  RpcClient,
+  type RpcClientOptions,
+  type RpcEventListener
+} from './rpc/rpc-client.ts'
+export { runRpcMode } from './rpc/rpc-mode.ts'
 export type {
-	RpcCommand,
-	RpcExtensionUIRequest,
-	RpcExtensionUIResponse,
-	RpcResponse,
-	RpcSessionState,
-	RpcSlashCommand,
-} from "./rpc/rpc-types.ts";
+  RpcCommand,
+  RpcExtensionUIRequest,
+  RpcExtensionUIResponse,
+  RpcResponse,
+  RpcSessionState,
+  RpcSlashCommand
+} from './rpc/rpc-types.ts'

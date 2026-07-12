@@ -10,7 +10,9 @@ defineOptions({
 })
 
 const props = withDefaults(
-  defineProps<SelectContentProps & { class?: HTMLAttributes['class']; contentStyle?: StyleValue }>(),
+  defineProps<
+    SelectContentProps & { class?: HTMLAttributes['class']; contentStyle?: StyleValue }
+  >(),
   {
     position: 'popper'
   }

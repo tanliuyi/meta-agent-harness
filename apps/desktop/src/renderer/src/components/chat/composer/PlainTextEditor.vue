@@ -474,7 +474,9 @@ function refreshSkillReferenceCompletion(): void {
  * @param textBeforeCursor - 光标前纯文本。
  * @returns token 信息。
  */
-function findSkillReferenceToken(textBeforeCursor: string): { from: number; query: string } | undefined {
+function findSkillReferenceToken(
+  textBeforeCursor: string
+): { from: number; query: string } | undefined {
   const match = textBeforeCursor.match(/(^|[\s([{（【])\$([^\s$]*)$/)
   if (!match || match.index === undefined) {
     return undefined

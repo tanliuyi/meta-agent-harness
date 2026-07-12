@@ -324,7 +324,9 @@ async function cancelOAuthPrompt(): Promise<void> {
     <DialogContent class="auth-dialog auth-dialog--wide">
       <DialogHeader>
         <DialogTitle>OAuth 登录</DialogTitle>
-        <DialogDescription>使用 provider 的 OAuth 流程写入 Pi-compatible auth.json。</DialogDescription>
+        <DialogDescription
+          >使用 provider 的 OAuth 流程写入 Pi-compatible auth.json。</DialogDescription
+        >
       </DialogHeader>
 
       <div class="auth-dialog__body">
@@ -372,7 +374,11 @@ async function cancelOAuthPrompt(): Promise<void> {
               {{ selectedOAuthState.authUrl }}
             </p>
             <p v-if="selectedOAuthState.instructions">{{ selectedOAuthState.instructions }}</p>
-            <form v-if="selectedOAuthPrompt" class="oauth-prompt" @submit.prevent="submitOAuthPrompt">
+            <form
+              v-if="selectedOAuthPrompt"
+              class="oauth-prompt"
+              @submit.prevent="submitOAuthPrompt"
+            >
               <BaseField
                 id="oauth-prompt-input"
                 v-model="oauthPromptInput"

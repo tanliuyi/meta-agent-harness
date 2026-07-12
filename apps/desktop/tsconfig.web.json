@@ -20,28 +20,18 @@
       "@earendil-works/pi-agent-core": [
         "../../node_modules/.pnpm/node_modules/@earendil-works/pi-agent-core/dist/index.d.ts"
       ],
-      "@earendil-works/pi-ai": [
-        "../../packages/ai/dist/index.d.ts"
-      ],
+      "@earendil-works/pi-ai": ["../../packages/ai/dist/index.d.ts"],
       "@earendil-works/pi-ai/*": [
         "../../packages/ai/dist/*.d.ts",
         "../../packages/ai/dist/providers/*.d.ts"
       ],
-      "@coding-agent-src/*": [
-        "../../packages/coding-agent/src/*"
-      ],
-      "@coding-agent-desktop-src/*": [
-        "../../packages/coding-agent-desktop/src/*"
-      ],
-      "@earendil-works/pi-coding-agent": [
-        "../../packages/coding-agent/dist/index.d.ts"
-      ],
+      "@coding-agent-src/*": ["../../packages/coding-agent/src/*"],
+      "@coding-agent-desktop-src/*": ["../../packages/coding-agent-desktop/src/*"],
+      "@earendil-works/pi-coding-agent": ["../../packages/coding-agent/dist/index.d.ts"],
       "@earendil-works/pi-coding-agent-desktop": [
         "../../packages/coding-agent-desktop/src/index.ts"
       ],
-      "@earendil-works/pi-coding-agent-desktop/*": [
-        "../../packages/coding-agent-desktop/src/*"
-      ],
+      "@earendil-works/pi-coding-agent-desktop/*": ["../../packages/coding-agent-desktop/src/*"],
       "@/*": ["./src/renderer/src/*"],
       "@shared/*": ["./src/shared/*"],
       "@renderer/*": ["./src/renderer/src/*"]

@@ -191,11 +191,17 @@ export function useSessionPanelTabsState(
   }
 
   function isExtensionTabId(value: unknown): value is ExtensionSessionPanelTabId {
-    return typeof value === 'string' && value.startsWith('extension:') && value.length > 'extension:'.length
+    return (
+      typeof value === 'string' &&
+      value.startsWith('extension:') &&
+      value.length > 'extension:'.length
+    )
   }
 
   function findSessionPanelTab(tabId: SessionPanelTabId): SessionPanelTab | undefined {
-    return sessionPanelTabs.value.find((item) => item.id === tabId) ?? createPendingExtensionTab(tabId)
+    return (
+      sessionPanelTabs.value.find((item) => item.id === tabId) ?? createPendingExtensionTab(tabId)
+    )
   }
 
   function createPendingExtensionTab(tabId: SessionPanelTabId): SessionPanelTab | undefined {

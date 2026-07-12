@@ -2,7 +2,7 @@
  * 定义 worker transport 中传输的命令、响应和事件 envelope。
  */
 
-import type { AgentSessionEvent } from "@earendil-works/pi-coding-agent"
+import type { AgentSessionEvent } from '@earendil-works/pi-coding-agent'
 import type { DesktopError } from './error.ts'
 import type { RequestId, ThreadId } from './identity.ts'
 import type { CanonicalAgentCommand } from './commands/canonical.ts'

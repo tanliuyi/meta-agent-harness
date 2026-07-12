@@ -61,11 +61,7 @@ Thread.sessionFile -> StartThreadInput.sessionFile
 新增：
 
 ```ts
-export type ProjectStatus =
-  | 'available'
-  | 'missing'
-  | 'permissionDenied'
-  | 'invalid'
+export type ProjectStatus = 'available' | 'missing' | 'permissionDenied' | 'invalid'
 
 export interface ProjectSummary {
   projectId: string

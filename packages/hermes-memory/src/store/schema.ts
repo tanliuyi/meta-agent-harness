@@ -113,4 +113,4 @@ export const SCHEMA_SQL = `
   CREATE INDEX IF NOT EXISTS idx_sessions_project ON sessions(project);
   CREATE INDEX IF NOT EXISTS idx_sessions_started_at ON sessions(started_at);
   CREATE INDEX IF NOT EXISTS idx_session_files_session_id ON session_files(session_id);
-`;
+`

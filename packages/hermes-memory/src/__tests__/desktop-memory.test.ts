@@ -29,9 +29,25 @@ describe('Desktop memory contract', () => {
       requestId: 'refresh-1'
     })
     expect(parseDesktopMemoryRequest({ type: 'hermes.remove', target: 'memory' })).toBeNull()
-    expect(parseDesktopMemoryRequest({ type: 'hermes.destroy', requestId: '1', target: 'memory' })).toBeNull()
-    expect(parseDesktopMemoryRequest({ type: 'hermes.add', requestId: '1', target: 'other', content: 'x' })).toBeNull()
-    expect(parseDesktopMemoryRequest({ type: 'hermes.add', requestId: '1', target: 'memory', content: 'x' })).toEqual({
+    expect(
+      parseDesktopMemoryRequest({ type: 'hermes.destroy', requestId: '1', target: 'memory' })
+    ).toBeNull()
+    expect(
+      parseDesktopMemoryRequest({
+        type: 'hermes.add',
+        requestId: '1',
+        target: 'other',
+        content: 'x'
+      })
+    ).toBeNull()
+    expect(
+      parseDesktopMemoryRequest({
+        type: 'hermes.add',
+        requestId: '1',
+        target: 'memory',
+        content: 'x'
+      })
+    ).toEqual({
       type: 'hermes.add',
       requestId: '1',
       target: 'memory',
@@ -47,10 +63,7 @@ describe('Desktop memory contract', () => {
     const first = new MemoryStore(config)
     const second = new MemoryStore(config)
 
-    await Promise.all([
-      first.add('memory', 'from-thread-a'),
-      second.add('memory', 'from-thread-b')
-    ])
+    await Promise.all([first.add('memory', 'from-thread-a'), second.add('memory', 'from-thread-b')])
 
     const reader = new MemoryStore(config)
     await reader.loadFromDisk()
@@ -129,10 +142,14 @@ describe('Desktop memory contract', () => {
     expect(searchMemories(manager, 'post migration')).toHaveLength(1)
 
     const db = manager.getDb()
-    const objects = db.prepare(`
+    const objects = db
+      .prepare(
+        `
       SELECT name FROM sqlite_master
       WHERE name IN ('memories_ai', 'memories_ad', 'memories_au', 'idx_memories_project', 'idx_memories_target', 'idx_memories_category')
-    `).all() as Array<{ name: string }>
+    `
+      )
+      .all() as Array<{ name: string }>
     expect(objects.map((row) => row.name).sort()).toEqual([
       'idx_memories_category',
       'idx_memories_project',

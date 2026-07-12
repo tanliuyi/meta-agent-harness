@@ -20,11 +20,7 @@ body {
   overflow: hidden;
   color: var(--color-text);
   background-color: var(--color-canvas);
-  background-image: linear-gradient(
-    to bottom,
-    var(--color-canvas-start),
-    var(--color-canvas-end)
-  );
+  background-image: linear-gradient(to bottom, var(--color-canvas-start), var(--color-canvas-end));
   background-attachment: fixed;
   font-family: var(--font-sans);
   font-size: var(--font-size-ui);

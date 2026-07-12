@@ -3,10 +3,7 @@
  */
 
 import { describe, expect, it, vi, type Mock } from 'vitest'
-import {
-  initialSettingsLoadDelayMs,
-  scheduleInitialSettingsLoad
-} from '../initialSettingsLoad'
+import { initialSettingsLoadDelayMs, scheduleInitialSettingsLoad } from '../initialSettingsLoad'
 
 describe('scheduleInitialSettingsLoad', () => {
   it('延后加载缺失的 agent/model settings', () => {
@@ -43,7 +40,11 @@ describe('scheduleInitialSettingsLoad', () => {
     const agentSettings = createStore()
     const modelSettings = createStore()
 
-    const registration = scheduleInitialSettingsLoad(agentSettings, modelSettings, scheduled.options)
+    const registration = scheduleInitialSettingsLoad(
+      agentSettings,
+      modelSettings,
+      scheduled.options
+    )
     registration.cancel()
 
     expect(scheduled.cleared).toBe(true)

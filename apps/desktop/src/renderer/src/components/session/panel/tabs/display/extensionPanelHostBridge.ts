@@ -23,11 +23,7 @@ export type ExtensionPanelViewStateEvent = {
 }
 
 export type ExtensionPanelHostMessageResult =
-  | 'ignored'
-  | 'state-updated'
-  | 'state-rejected'
-  | 'open-external'
-  | 'forwarded'
+  'ignored' | 'state-updated' | 'state-rejected' | 'open-external' | 'forwarded'
 
 export function cloneExtensionPanelMessage(message: unknown): unknown {
   try {

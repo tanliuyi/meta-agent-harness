@@ -152,7 +152,10 @@ describe('useSessionPanelTabsState', () => {
     const reloadedState = useSessionPanelTabsState(reloadedTabs, sessionKey)
 
     expect(reloadedState.activeTabId.value).toBe('extension:deploy')
-    expect(reloadedState.openTabs.value.map((tab) => tab.id)).toEqual(['session', 'extension:deploy'])
+    expect(reloadedState.openTabs.value.map((tab) => tab.id)).toEqual([
+      'session',
+      'extension:deploy'
+    ])
     expect(reloadedState.openTabs.value.find((tab) => tab.id === 'extension:deploy')?.label).toBe(
       'deploy'
     )

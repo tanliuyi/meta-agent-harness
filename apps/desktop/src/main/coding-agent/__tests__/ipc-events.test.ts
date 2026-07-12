@@ -16,10 +16,14 @@ import { ThreadManagerCore } from '../thread-manager-core'
 
 describe('coding agent IPC events', () => {
   it('只允许安全外部 URL 协议', () => {
-    expect(normalizeAllowedExternalUrl(' https://example.com/docs ')).toBe('https://example.com/docs')
+    expect(normalizeAllowedExternalUrl(' https://example.com/docs ')).toBe(
+      'https://example.com/docs'
+    )
     expect(normalizeAllowedExternalUrl('mailto:hello@example.com')).toBe('mailto:hello@example.com')
     expect(() => normalizeAllowedExternalUrl('file:///tmp/secret')).toThrow('not allowed')
-    expect(() => normalizeAllowedExternalUrl('command:workbench.action.reloadWindow')).toThrow('not allowed')
+    expect(() => normalizeAllowedExternalUrl('command:workbench.action.reloadWindow')).toThrow(
+      'not allowed'
+    )
     expect(() => normalizeAllowedExternalUrl('javascript:alert(1)')).toThrow('not allowed')
   })
 

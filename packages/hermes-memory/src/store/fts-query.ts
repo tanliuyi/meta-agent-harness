@@ -1,26 +1,26 @@
-const FTS5_OPERATOR_PATTERN = /\b(OR|AND|NOT|NEAR)\b/;
-const FTS5_TOKEN_PATTERN = /"([^"]*)"|(\S+)/g;
-const NATURAL_LANGUAGE_CONNECTORS = new Set(['and', 'or', 'not', 'near']);
+const FTS5_OPERATOR_PATTERN = /\b(OR|AND|NOT|NEAR)\b/
+const FTS5_TOKEN_PATTERN = /"([^"]*)"|(\S+)/g
+const NATURAL_LANGUAGE_CONNECTORS = new Set(['and', 'or', 'not', 'near'])
 
 export function hasExplicitFts5Operator(query: string): boolean {
-  return FTS5_OPERATOR_PATTERN.test(query.trim());
+  return FTS5_OPERATOR_PATTERN.test(query.trim())
 }
 
 function collectNaturalLanguageTerms(query: string): string[] {
-  const terms: string[] = [];
+  const terms: string[] = []
 
   for (const match of query.matchAll(FTS5_TOKEN_PATTERN)) {
-    const phrase = match[1];
-    const term = match[2];
+    const phrase = match[1]
+    const term = match[2]
     if (phrase === undefined && term && NATURAL_LANGUAGE_CONNECTORS.has(term.toLowerCase())) {
-      continue;
+      continue
     }
 
-    const rawValue = phrase ?? term ?? '';
-    if (rawValue.length > 0) terms.push(rawValue);
+    const rawValue = phrase ?? term ?? ''
+    if (rawValue.length > 0) terms.push(rawValue)
   }
 
-  return terms;
+  return terms
 }
 
 /**
@@ -30,16 +30,16 @@ function collectNaturalLanguageTerms(query: string): string[] {
  * natural-language mode, and raw uppercase FTS5 operators pass through.
  */
 export function normalizeFts5Query(query: string): string {
-  const trimmed = query.trim();
-  if (trimmed.length === 0) return '';
+  const trimmed = query.trim()
+  if (trimmed.length === 0) return ''
 
   if (hasExplicitFts5Operator(trimmed)) {
-    return trimmed;
+    return trimmed
   }
 
   return collectNaturalLanguageTerms(trimmed)
     .map((term) => `"${term.replace(/"/g, '""')}"`)
-    .join(' ');
+    .join(' ')
 }
 
 /**
@@ -48,23 +48,21 @@ export function normalizeFts5Query(query: string): string {
  * single searchable term.
  */
 export function buildFallbackFts5Query(query: string): string | null {
-  const trimmed = query.trim();
+  const trimmed = query.trim()
   if (trimmed.length === 0 || hasExplicitFts5Operator(trimmed)) {
-    return null;
+    return null
   }
 
-  const terms = collectNaturalLanguageTerms(trimmed);
+  const terms = collectNaturalLanguageTerms(trimmed)
   if (terms.length <= 1) {
-    return null;
+    return null
   }
 
-  return terms
-    .map((term) => `"${term.replace(/"/g, '""')}"`)
-    .join(' OR ');
+  return terms.map((term) => `"${term.replace(/"/g, '""')}"`).join(' OR ')
 }
 
 export function isFts5QueryError(err: unknown): boolean {
-  if (!(err instanceof Error)) return false;
-  const msg = err.message.toLowerCase();
-  return msg.includes('fts5') || msg.includes('unterminated string');
+  if (!(err instanceof Error)) return false
+  const msg = err.message.toLowerCase()
+  return msg.includes('fts5') || msg.includes('unterminated string')
 }

@@ -2,10 +2,10 @@
 
 Pi uses JSON settings files with project settings overriding global settings.
 
-| Location | Scope |
-|----------|-------|
-| `~/.pi/agent/settings.json` | Global (all projects) |
-| `.pi/settings.json` | Project (current directory) |
+| Location                    | Scope                       |
+| --------------------------- | --------------------------- |
+| `~/.pi/agent/settings.json` | Global (all projects)       |
+| `.pi/settings.json`         | Project (current directory) |
 
 Edit directly or use `/settings` for common options.
 
@@ -25,13 +25,13 @@ Use `--approve`/`--no-approve` for one run, or edit the trust store/settings use
 
 ### Model & Thinking
 
-| Setting | Type | Default | Description |
-|---------|------|---------|-------------|
-| `defaultProvider` | string | - | Default provider (e.g., `"anthropic"`, `"openai"`) |
-| `defaultModel` | string | - | Default model ID |
-| `defaultThinkingLevel` | string | - | `"off"`, `"minimal"`, `"low"`, `"medium"`, `"high"`, `"xhigh"` |
-| `hideThinkingBlock` | boolean | `false` | Hide thinking blocks in output |
-| `thinkingBudgets` | object | - | Custom token budgets per thinking level |
+| Setting                | Type    | Default | Description                                                    |
+| ---------------------- | ------- | ------- | -------------------------------------------------------------- |
+| `defaultProvider`      | string  | -       | Default provider (e.g., `"anthropic"`, `"openai"`)             |
+| `defaultModel`         | string  | -       | Default model ID                                               |
+| `defaultThinkingLevel` | string  | -       | `"off"`, `"minimal"`, `"low"`, `"medium"`, `"high"`, `"xhigh"` |
+| `hideThinkingBlock`    | boolean | `false` | Hide thinking blocks in output                                 |
+| `thinkingBudgets`      | object  | -       | Custom token budgets per thinking level                        |
 
 #### thinkingBudgets
 
@@ -48,19 +48,19 @@ Use `--approve`/`--no-approve` for one run, or edit the trust store/settings use
 
 ### UI & Display
 
-| Setting | Type | Default | Description |
-|---------|------|---------|-------------|
-| `theme` | string | `"dark"` | Theme name (`"dark"`, `"light"`, or custom) |
-| `quietStartup` | boolean | `false` | Hide startup header |
-| `defaultProjectTrust` | string | `"ask"` | Fallback project trust behavior: `"ask"`, `"always"`, or `"never"`. Global setting only |
-| `collapseChangelog` | boolean | `false` | Show condensed changelog after updates |
-| `enableInstallTelemetry` | boolean | `true` | Send an anonymous install/update version ping after first install or changelog-detected updates. This does not control update checks |
-| `enableAnalytics` | boolean | `false` | Opt-in analytics data sharing. Currently only asked for during the experimental first-time setup (`PI_EXPERIMENTAL=1`) |
-| `trackingId` | string | - | Analytics tracking identifier, generated when `enableAnalytics` is turned on |
-| `doubleEscapeAction` | string | `"tree"` | Action for double-escape: `"tree"`, `"fork"`, or `"none"` |
-| `treeFilterMode` | string | `"default"` | Default filter for `/tree`: `"default"`, `"no-tools"`, `"user-only"`, `"labeled-only"`, `"all"` |
-| `editorPaddingX` | number | `0` | Horizontal padding for input editor (0-3) |
-| `autocompleteMaxVisible` | number | `5` | Max visible items in autocomplete dropdown (3-20) |
+| Setting                  | Type    | Default     | Description                                                                                                                          |
+| ------------------------ | ------- | ----------- | ------------------------------------------------------------------------------------------------------------------------------------ |
+| `theme`                  | string  | `"dark"`    | Theme name (`"dark"`, `"light"`, or custom)                                                                                          |
+| `quietStartup`           | boolean | `false`     | Hide startup header                                                                                                                  |
+| `defaultProjectTrust`    | string  | `"ask"`     | Fallback project trust behavior: `"ask"`, `"always"`, or `"never"`. Global setting only                                              |
+| `collapseChangelog`      | boolean | `false`     | Show condensed changelog after updates                                                                                               |
+| `enableInstallTelemetry` | boolean | `true`      | Send an anonymous install/update version ping after first install or changelog-detected updates. This does not control update checks |
+| `enableAnalytics`        | boolean | `false`     | Opt-in analytics data sharing. Currently only asked for during the experimental first-time setup (`PI_EXPERIMENTAL=1`)               |
+| `trackingId`             | string  | -           | Analytics tracking identifier, generated when `enableAnalytics` is turned on                                                         |
+| `doubleEscapeAction`     | string  | `"tree"`    | Action for double-escape: `"tree"`, `"fork"`, or `"none"`                                                                            |
+| `treeFilterMode`         | string  | `"default"` | Default filter for `/tree`: `"default"`, `"no-tools"`, `"user-only"`, `"labeled-only"`, `"all"`                                      |
+| `editorPaddingX`         | number  | `0`         | Horizontal padding for input editor (0-3)                                                                                            |
+| `autocompleteMaxVisible` | number  | `5`         | Max visible items in autocomplete dropdown (3-20)                                                                                    |
 
 ### Telemetry and update checks
 
@@ -70,9 +70,9 @@ Set `PI_SKIP_VERSION_CHECK=1` to disable the Pi version update check. Use `--off
 
 ### Network
 
-| Setting | Type | Default | Description |
-|---------|------|---------|-------------|
-| `httpProxy` | string | - | HTTP proxy URL applied as `HTTP_PROXY` and `HTTPS_PROXY`. Global setting only. |
+| Setting     | Type   | Default | Description                                                                    |
+| ----------- | ------ | ------- | ------------------------------------------------------------------------------ |
+| `httpProxy` | string | -       | HTTP proxy URL applied as `HTTP_PROXY` and `HTTPS_PROXY`. Global setting only. |
 
 ```json
 {
@@ -82,9 +82,9 @@ Set `PI_SKIP_VERSION_CHECK=1` to disable the Pi version update check. Use `--off
 
 ### Warnings
 
-| Setting | Type | Default | Description |
-|---------|------|---------|-------------|
-| `warnings.anthropicExtraUsage` | boolean | `true` | Show a warning when Anthropic subscription auth may use paid extra usage |
+| Setting                        | Type    | Default | Description                                                              |
+| ------------------------------ | ------- | ------- | ------------------------------------------------------------------------ |
+| `warnings.anthropicExtraUsage` | boolean | `true`  | Show a warning when Anthropic subscription auth may use paid extra usage |
 
 ```json
 {
@@ -96,11 +96,11 @@ Set `PI_SKIP_VERSION_CHECK=1` to disable the Pi version update check. Use `--off
 
 ### Compaction
 
-| Setting | Type | Default | Description |
-|---------|------|---------|-------------|
-| `compaction.enabled` | boolean | `true` | Enable auto-compaction |
-| `compaction.reserveTokens` | number | `16384` | Tokens reserved for LLM response |
-| `compaction.keepRecentTokens` | number | `20000` | Recent tokens to keep (not summarized) |
+| Setting                       | Type    | Default | Description                            |
+| ----------------------------- | ------- | ------- | -------------------------------------- |
+| `compaction.enabled`          | boolean | `true`  | Enable auto-compaction                 |
+| `compaction.reserveTokens`    | number  | `16384` | Tokens reserved for LLM response       |
+| `compaction.keepRecentTokens` | number  | `20000` | Recent tokens to keep (not summarized) |
 
 ```json
 {
@@ -114,21 +114,21 @@ Set `PI_SKIP_VERSION_CHECK=1` to disable the Pi version update check. Use `--off
 
 ### Branch Summary
 
-| Setting | Type | Default | Description |
-|---------|------|---------|-------------|
-| `branchSummary.reserveTokens` | number | `16384` | Tokens reserved for branch summarization |
-| `branchSummary.skipPrompt` | boolean | `false` | Skip "Summarize branch?" prompt on `/tree` navigation (defaults to no summary) |
+| Setting                       | Type    | Default | Description                                                                    |
+| ----------------------------- | ------- | ------- | ------------------------------------------------------------------------------ |
+| `branchSummary.reserveTokens` | number  | `16384` | Tokens reserved for branch summarization                                       |
+| `branchSummary.skipPrompt`    | boolean | `false` | Skip "Summarize branch?" prompt on `/tree` navigation (defaults to no summary) |
 
 ### Retry
 
-| Setting | Type | Default | Description |
-|---------|------|---------|-------------|
-| `retry.enabled` | boolean | `true` | Enable automatic agent-level retry on transient errors |
-| `retry.maxRetries` | number | `3` | Maximum agent-level retry attempts |
-| `retry.baseDelayMs` | number | `2000` | Base delay for agent-level exponential backoff (2s, 4s, 8s) |
-| `retry.provider.timeoutMs` | number | SDK default | Provider/SDK request timeout in milliseconds |
-| `retry.provider.maxRetries` | number | `0` | Provider/SDK retry attempts |
-| `retry.provider.maxRetryDelayMs` | number | `60000` | Max server-requested delay before failing (60s) |
+| Setting                          | Type    | Default     | Description                                                 |
+| -------------------------------- | ------- | ----------- | ----------------------------------------------------------- |
+| `retry.enabled`                  | boolean | `true`      | Enable automatic agent-level retry on transient errors      |
+| `retry.maxRetries`               | number  | `3`         | Maximum agent-level retry attempts                          |
+| `retry.baseDelayMs`              | number  | `2000`      | Base delay for agent-level exponential backoff (2s, 4s, 8s) |
+| `retry.provider.timeoutMs`       | number  | SDK default | Provider/SDK request timeout in milliseconds                |
+| `retry.provider.maxRetries`      | number  | `0`         | Provider/SDK retry attempts                                 |
+| `retry.provider.maxRetryDelayMs` | number  | `60000`     | Max server-requested delay before failing (60s)             |
 
 When a provider requests a retry delay longer than `retry.provider.maxRetryDelayMs` (e.g., Google's "quota will reset after 5h"), the request fails immediately with an informative error instead of waiting silently. Set to `0` to disable the cap.
 
@@ -151,31 +151,31 @@ Keep `retry.provider.maxRetries` at `0` unless provider-level retries are explic
 
 ### Message Delivery
 
-| Setting | Type | Default | Description |
-|---------|------|---------|-------------|
-| `steeringMode` | string | `"one-at-a-time"` | How steering messages are sent: `"all"` or `"one-at-a-time"` |
-| `followUpMode` | string | `"one-at-a-time"` | How follow-up messages are sent: `"all"` or `"one-at-a-time"` |
-| `transport` | string | `"auto"` | Preferred transport for providers that support multiple transports: `"sse"`, `"websocket"`, `"websocket-cached"`, or `"auto"` |
-| `httpIdleTimeoutMs` | number | `300000` | HTTP header/body idle timeout in milliseconds, also used by providers with explicit stream idle timeouts. Set to `0` to disable. |
-| `websocketConnectTimeoutMs` | number | `15000` | WebSocket connect/open handshake timeout in milliseconds for providers that support WebSocket transports. Set to `0` to disable. |
+| Setting                     | Type   | Default           | Description                                                                                                                      |
+| --------------------------- | ------ | ----------------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| `steeringMode`              | string | `"one-at-a-time"` | How steering messages are sent: `"all"` or `"one-at-a-time"`                                                                     |
+| `followUpMode`              | string | `"one-at-a-time"` | How follow-up messages are sent: `"all"` or `"one-at-a-time"`                                                                    |
+| `transport`                 | string | `"auto"`          | Preferred transport for providers that support multiple transports: `"sse"`, `"websocket"`, `"websocket-cached"`, or `"auto"`    |
+| `httpIdleTimeoutMs`         | number | `300000`          | HTTP header/body idle timeout in milliseconds, also used by providers with explicit stream idle timeouts. Set to `0` to disable. |
+| `websocketConnectTimeoutMs` | number | `15000`           | WebSocket connect/open handshake timeout in milliseconds for providers that support WebSocket transports. Set to `0` to disable. |
 
 ### Terminal & Images
 
-| Setting | Type | Default | Description |
-|---------|------|---------|-------------|
-| `terminal.showImages` | boolean | `true` | Show images in terminal (if supported) |
-| `terminal.imageWidthCells` | number | `60` | Preferred inline image width in terminal cells |
-| `terminal.clearOnShrink` | boolean | `false` | Clear empty rows when content shrinks (can cause flicker) |
-| `images.autoResize` | boolean | `true` | Resize images to 2000x2000 max |
-| `images.blockImages` | boolean | `false` | Block all images from being sent to LLM |
+| Setting                    | Type    | Default | Description                                               |
+| -------------------------- | ------- | ------- | --------------------------------------------------------- |
+| `terminal.showImages`      | boolean | `true`  | Show images in terminal (if supported)                    |
+| `terminal.imageWidthCells` | number  | `60`    | Preferred inline image width in terminal cells            |
+| `terminal.clearOnShrink`   | boolean | `false` | Clear empty rows when content shrinks (can cause flicker) |
+| `images.autoResize`        | boolean | `true`  | Resize images to 2000x2000 max                            |
+| `images.blockImages`       | boolean | `false` | Block all images from being sent to LLM                   |
 
 ### Shell
 
-| Setting | Type | Default | Description |
-|---------|------|---------|-------------|
-| `shellPath` | string | - | Custom shell path (e.g., for Cygwin on Windows) |
-| `shellCommandPrefix` | string | - | Prefix for every bash command (e.g., `"shopt -s expand_aliases"`) |
-| `npmCommand` | string[] | - | Command argv used for npm package lookup/install operations (e.g., `["mise", "exec", "node@20", "--", "npm"]`) |
+| Setting              | Type     | Default | Description                                                                                                    |
+| -------------------- | -------- | ------- | -------------------------------------------------------------------------------------------------------------- |
+| `shellPath`          | string   | -       | Custom shell path (e.g., for Cygwin on Windows)                                                                |
+| `shellCommandPrefix` | string   | -       | Prefix for every bash command (e.g., `"shopt -s expand_aliases"`)                                              |
+| `npmCommand`         | string[] | -       | Command argv used for npm package lookup/install operations (e.g., `["mise", "exec", "node@20", "--", "npm"]`) |
 
 ```json
 {
@@ -187,9 +187,9 @@ Keep `retry.provider.maxRetries` at `0` unless provider-level retries are explic
 
 ### Sessions
 
-| Setting | Type | Default | Description |
-|---------|------|---------|-------------|
-| `sessionDir` | string | - | Directory where session files are stored. Accepts absolute or relative paths, plus `~`. |
+| Setting      | Type   | Default | Description                                                                             |
+| ------------ | ------ | ------- | --------------------------------------------------------------------------------------- |
+| `sessionDir` | string | -       | Directory where session files are stored. Accepts absolute or relative paths, plus `~`. |
 
 ```json
 { "sessionDir": ".pi/sessions" }
@@ -199,9 +199,9 @@ When multiple sources specify a session directory, precedence is `--session-dir`
 
 ### Model Cycling
 
-| Setting | Type | Default | Description |
-|---------|------|---------|-------------|
-| `enabledModels` | string[] | - | Model patterns for Ctrl+P cycling (same format as `--models` CLI flag) |
+| Setting         | Type     | Default | Description                                                            |
+| --------------- | -------- | ------- | ---------------------------------------------------------------------- |
+| `enabledModels` | string[] | -       | Model patterns for Ctrl+P cycling (same format as `--models` CLI flag) |
 
 ```json
 {
@@ -211,9 +211,9 @@ When multiple sources specify a session directory, precedence is `--session-dir`
 
 ### Markdown
 
-| Setting | Type | Default | Description |
-|---------|------|---------|-------------|
-| `markdown.codeBlockIndent` | string | `"  "` | Indentation for code blocks |
+| Setting                    | Type   | Default | Description                 |
+| -------------------------- | ------ | ------- | --------------------------- |
+| `markdown.codeBlockIndent` | string | `"  "`  | Indentation for code blocks |
 
 ### Resources
 
@@ -221,14 +221,14 @@ These settings define where to load extensions, skills, prompts, and themes from
 
 Paths in `~/.pi/agent/settings.json` resolve relative to `~/.pi/agent`. Paths in `.pi/settings.json` resolve relative to `.pi`. Absolute paths and `~` are supported.
 
-| Setting | Type | Default | Description |
-|---------|------|---------|-------------|
-| `packages` | array | `[]` | npm/git packages to load resources from |
-| `extensions` | string[] | `[]` | Local extension file paths or directories |
-| `skills` | string[] | `[]` | Local skill file paths or directories |
-| `prompts` | string[] | `[]` | Local prompt template paths or directories |
-| `themes` | string[] | `[]` | Local theme file paths or directories |
-| `enableSkillCommands` | boolean | `true` | Register skills as `/skill:name` commands |
+| Setting               | Type     | Default | Description                                |
+| --------------------- | -------- | ------- | ------------------------------------------ |
+| `packages`            | array    | `[]`    | npm/git packages to load resources from    |
+| `extensions`          | string[] | `[]`    | Local extension file paths or directories  |
+| `skills`              | string[] | `[]`    | Local skill file paths or directories      |
+| `prompts`             | string[] | `[]`    | Local prompt template paths or directories |
+| `themes`              | string[] | `[]`    | Local theme file paths or directories      |
+| `enableSkillCommands` | boolean  | `true`  | Register skills as `/skill:name` commands  |
 
 Arrays support glob patterns and exclusions. Use `!pattern` to exclude. Use `+path` to force-include an exact path and `-path` to force-exclude an exact path.
 

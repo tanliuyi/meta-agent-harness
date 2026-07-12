@@ -11,19 +11,36 @@ import {
 } from '../store/sqlite-memory-store.js'
 import { MemoryStore } from '../store/memory-store.js'
 import { SkillStore } from '../store/skill-store.js'
-import { ActiveProjectContext, type ActiveProjectProvider, type ActiveProjectSnapshot } from '../active-project-context.js'
-import { scheduleLiveSessionIndex, waitForLiveSessionIndex } from '../handlers/session-live-index.js'
+import {
+  ActiveProjectContext,
+  type ActiveProjectProvider,
+  type ActiveProjectSnapshot
+} from '../active-project-context.js'
+import {
+  scheduleLiveSessionIndex,
+  waitForLiveSessionIndex
+} from '../handlers/session-live-index.js'
 import { resolveSessionFlushCwd } from '../handlers/session-flush.js'
 import type { MemoryConfig } from '../types.js'
 
 const roots: string[] = []
 const config: MemoryConfig = {
-  memoryMode: 'policy-only', memoryCharLimit: 5000, userCharLimit: 5000,
-  projectCharLimit: 5000, nudgeInterval: 10, reviewEnabled: false,
-  flushOnCompact: false, flushOnShutdown: false, flushMinTurns: 6,
-  autoConsolidate: false, correctionDetection: false,
-  failureInjectionEnabled: true, failureInjectionMaxAgeDays: 7,
-  failureInjectionMaxEntries: 5, nudgeToolCalls: 15, consolidationTimeoutMs: 60000
+  memoryMode: 'policy-only',
+  memoryCharLimit: 5000,
+  userCharLimit: 5000,
+  projectCharLimit: 5000,
+  nudgeInterval: 10,
+  reviewEnabled: false,
+  flushOnCompact: false,
+  flushOnShutdown: false,
+  flushMinTurns: 6,
+  autoConsolidate: false,
+  correctionDetection: false,
+  failureInjectionEnabled: true,
+  failureInjectionMaxAgeDays: 7,
+  failureInjectionMaxEntries: 5,
+  nudgeToolCalls: 15,
+  consolidationTimeoutMs: 60000
 }
 
 async function tempDir(): Promise<string> {
@@ -82,8 +99,11 @@ describe('storage regressions', () => {
     await fs.writeFile(path.join(global, 'foo.md'), '# flat source')
     await fs.writeFile(path.join(global, 'foo', 'SKILL.md'), '# canonical target')
     const store = new SkillStore({
-      globalSkillsDir: global, projectSkillsDir: null, projectName: null,
-      legacySkillsDir: path.join(root, 'legacy-skills'), legacyPiGlobalSkillsDir: path.join(root, 'pi-skills'),
+      globalSkillsDir: global,
+      projectSkillsDir: null,
+      projectName: null,
+      legacySkillsDir: path.join(root, 'legacy-skills'),
+      legacyPiGlobalSkillsDir: path.join(root, 'pi-skills'),
       migrationSentinelPath: path.join(root, '.migrated')
     })
 
@@ -91,7 +111,9 @@ describe('storage regressions', () => {
 
     expect(result.warnings.join(' ')).toContain('preserved both files')
     expect(await fs.readFile(path.join(global, 'foo.md'), 'utf8')).toBe('# flat source')
-    expect(await fs.readFile(path.join(global, 'foo', 'SKILL.md'), 'utf8')).toBe('# canonical target')
+    expect(await fs.readFile(path.join(global, 'foo', 'SKILL.md'), 'utf8')).toBe(
+      '# canonical target'
+    )
   })
 
   it('preserves a conflicting legacy flat skill and deduplicates equivalent content', async () => {
@@ -106,8 +128,11 @@ describe('storage regressions', () => {
     await fs.writeFile(path.join(legacy, 'foo.md'), '# legacy source')
     await fs.writeFile(path.join(legacy, 'same.md'), '# same\r\n')
     const store = new SkillStore({
-      globalSkillsDir: global, projectSkillsDir: null, projectName: null,
-      legacySkillsDir: legacy, legacyPiGlobalSkillsDir: path.join(root, 'pi-skills'),
+      globalSkillsDir: global,
+      projectSkillsDir: null,
+      projectName: null,
+      legacySkillsDir: legacy,
+      legacyPiGlobalSkillsDir: path.join(root, 'pi-skills'),
       migrationSentinelPath: path.join(root, '.migrated')
     })
 
@@ -126,20 +151,36 @@ describe('failure replacement', () => {
     const db = new DatabaseManager(root)
     await store.loadFromDisk()
     const added = await store.addFailure('old body', {
-      category: 'correction', failureReason: 'bad assumption', toolState: 'dirty',
-      correctedTo: 'new approach', project: 'project-id'
+      category: 'correction',
+      failureReason: 'bad assumption',
+      toolState: 'dirty',
+      correctedTo: 'new approach',
+      project: 'project-id'
     })
     expect(added.success).toBe(true)
     const original = store.getAllFailureEntries()[0]
     syncMemoryEntry(db, {
-      content: original, target: 'failure', project: 'project-id', category: 'correction',
-      failureReason: 'bad assumption', toolState: 'dirty', correctedTo: 'new approach'
+      content: original,
+      target: 'failure',
+      project: 'project-id',
+      category: 'correction',
+      failureReason: 'bad assumption',
+      toolState: 'dirty',
+      correctedTo: 'new approach'
     })
 
     const result = await store.replace('failure', 'old body', 'new body')
-    expect(result.updated_entry).toBe('[correction] new body — Failed: bad assumption — Tool state: dirty — Corrected to: new approach — Project: project-id')
+    expect(result.updated_entry).toBe(
+      '[correction] new body — Failed: bad assumption — Tool state: dirty — Corrected to: new approach — Project: project-id'
+    )
     expect(store.getAllFailureEntries()).toEqual([result.updated_entry])
-    const synced = replaceCanonicalSyncedMemory(db, 'old body', result.updated_entry!, 'failure', null)
+    const synced = replaceCanonicalSyncedMemory(
+      db,
+      'old body',
+      result.updated_entry!,
+      'failure',
+      null
+    )
 
     expect(synced.matched).toBe(1)
     expect(synced.entries[0]).toMatchObject({
@@ -179,7 +220,10 @@ describe('lifecycle isolation', () => {
       projectsMemoryDir: path.join(root, 'projects'),
       createStore: (info) => {
         const store = new MemoryStore({ ...config, memoryDir: info.memoryDir ?? undefined })
-        if (info.name === 'broken') store.loadFromDisk = async () => { throw new Error('load failed') }
+        if (info.name === 'broken')
+          store.loadFromDisk = async () => {
+            throw new Error('load failed')
+          }
         return store
       }
     })
@@ -195,7 +239,8 @@ describe('lifecycle isolation', () => {
     const db = { withCorruptionRecovery: (fn: () => void) => fn() } as DatabaseManager
     const manager = {} as Parameters<typeof scheduleLiveSessionIndex>[1]
     const options = (state: typeof stateA) => ({
-      state, setTimeoutFn: (callback: () => void) => callbacks.push(callback),
+      state,
+      setTimeoutFn: (callback: () => void) => callbacks.push(callback),
       indexLiveSessionFn: (() => undefined) as never
     })
     expect(scheduleLiveSessionIndex(db, manager, options(stateA))).toBe(true)

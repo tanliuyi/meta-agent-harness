@@ -35,9 +35,7 @@ describe('webview-resource-protocol', () => {
 
   it('推断资源 MIME 并设置安全响应头', () => {
     expect(getWebviewResourceContentType('/tmp/app.js')).toBe('text/javascript; charset=utf-8')
-    expect(getWebviewResourceContentType('/tmp/app.js.map')).toBe(
-      'application/json; charset=utf-8'
-    )
+    expect(getWebviewResourceContentType('/tmp/app.js.map')).toBe('application/json; charset=utf-8')
     expect(getWebviewResourceContentType('/tmp/style.css')).toBe('text/css; charset=utf-8')
     expect(getWebviewResourceContentType('/tmp/icon.svg')).toBe('image/svg+xml')
     expect(getWebviewResourceContentType('/tmp/app.wasm')).toBe('application/wasm')

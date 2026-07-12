@@ -84,7 +84,9 @@ function normalizeInactiveThread(thread: ThreadSummary): ThreadSummary {
 }
 
 function isTransientThreadStatus(status: ThreadStatus): boolean {
-  return status === 'running' || status === 'starting' || status === 'stopping' || status === 'error'
+  return (
+    status === 'running' || status === 'starting' || status === 'stopping' || status === 'error'
+  )
 }
 
 function getProjectStatus(path: string): ProjectStatus {

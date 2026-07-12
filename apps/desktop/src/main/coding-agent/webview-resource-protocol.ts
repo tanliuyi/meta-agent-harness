@@ -12,11 +12,7 @@ import type { DiagnosticRecord } from './thread-store'
 export const webviewResourceScheme = 'pi-webview-resource'
 const webviewResourceCacheControl = 'no-store'
 type WebviewResourceFailureReason =
-  | 'method_not_allowed'
-  | 'invalid_url'
-  | 'token_not_found'
-  | 'file_not_found'
-  | 'fetch_failed'
+  'method_not_allowed' | 'invalid_url' | 'token_not_found' | 'file_not_found' | 'fetch_failed'
 
 /**
  * 从 pi-webview-resource URL 提取 opaque token。
@@ -280,7 +276,9 @@ export function registerWebviewResourceProtocol(
     if (request.method === 'HEAD') {
       return new Response(null, { status: 200, headers })
     }
-    const fileResponse = await net.fetch(pathToFileURL(resource.path).toString()).catch(() => undefined)
+    const fileResponse = await net
+      .fetch(pathToFileURL(resource.path).toString())
+      .catch(() => undefined)
     if (!fileResponse?.ok || !fileResponse.body) {
       const status = fileResponse && !fileResponse.ok ? fileResponse.status || 502 : 502
       recordWebviewResourceDiagnostic({

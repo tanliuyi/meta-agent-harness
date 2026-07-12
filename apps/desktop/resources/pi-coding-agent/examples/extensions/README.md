@@ -16,168 +16,170 @@ cp permission-gate.ts ~/.pi/agent/extensions/
 
 ### Lifecycle & Safety
 
-| Extension | Description |
-|-----------|-------------|
-| `permission-gate.ts` | Prompts for confirmation before dangerous bash commands (rm -rf, sudo, etc.) |
-| `project-trust.ts` | Demonstrates the `project_trust` event for user/global and CLI extensions |
-| `protected-paths.ts` | Blocks writes to protected paths (.env, .git/, node_modules/) |
-| `confirm-destructive.ts` | Confirms before destructive session actions (clear, switch, fork) |
-| `dirty-repo-guard.ts` | Prevents session changes with uncommitted git changes |
-| `sandbox/` | OS-level sandboxing using `@anthropic-ai/sandbox-runtime` with per-project config |
-| `gondolin/` | Route built-in tools and `!` commands into a Gondolin micro-VM |
+| Extension                | Description                                                                       |
+| ------------------------ | --------------------------------------------------------------------------------- |
+| `permission-gate.ts`     | Prompts for confirmation before dangerous bash commands (rm -rf, sudo, etc.)      |
+| `project-trust.ts`       | Demonstrates the `project_trust` event for user/global and CLI extensions         |
+| `protected-paths.ts`     | Blocks writes to protected paths (.env, .git/, node_modules/)                     |
+| `confirm-destructive.ts` | Confirms before destructive session actions (clear, switch, fork)                 |
+| `dirty-repo-guard.ts`    | Prevents session changes with uncommitted git changes                             |
+| `sandbox/`               | OS-level sandboxing using `@anthropic-ai/sandbox-runtime` with per-project config |
+| `gondolin/`              | Route built-in tools and `!` commands into a Gondolin micro-VM                    |
 
 ### Custom Tools
 
-| Extension | Description |
-|-----------|-------------|
-| `hello.ts` | Minimal custom tool example |
-| `tool-override.ts` | Override built-in tools (e.g., add logging/access control to `read`) |
+| Extension          | Description                                                                                                                         |
+| ------------------ | ----------------------------------------------------------------------------------------------------------------------------------- |
+| `hello.ts`         | Minimal custom tool example                                                                                                         |
+| `tool-override.ts` | Override built-in tools (e.g., add logging/access control to `read`)                                                                |
 | `dynamic-tools.ts` | Register tools after startup (`session_start`) and at runtime via command, with prompt snippets and tool-specific prompt guidelines |
-| `ssh.ts` | Delegate all tools to a remote machine via SSH using pluggable operations |
+| `ssh.ts`           | Delegate all tools to a remote machine via SSH using pluggable operations                                                           |
 
 ### Commands & UI
 
-| Extension | Description |
-|-----------|-------------|
-| `handoff.ts` | Transfer context to a new focused session via `/handoff <goal>` |
-| `qna.ts` | Extracts questions from last response into editor via `ctx.ui.setEditorText()` |
-| `status-line.ts` | Shows turn progress via `ctx.ui.setStatus()` |
-| `widget-placement.ts` | Shows widgets above and below the editor via `ctx.ui.setWidget()` placement |
-| `hidden-thinking-label.ts` | Customizes the collapsed thinking label via `ctx.ui.setHiddenThinkingLabel()` |
-| `working-indicator.ts` | Customizes the streaming working indicator via `ctx.ui.setWorkingIndicator()` |
-| `model-status.ts` | Shows model changes in status bar via `model_select` hook |
-| `send-user-message.ts` | Demonstrates `pi.sendUserMessage()` for sending user messages from extensions |
-| `timed-confirm.ts` | Demonstrates AbortSignal for auto-dismissing `ctx.ui.confirm()` and `ctx.ui.select()` dialogs |
-| `rpc-demo.ts` | Exercises all RPC-supported extension UI methods; pair with [`examples/rpc-extension-ui.ts`](../rpc-extension-ui.ts) |
-| `desktop-webview-panel.ts` | Desktop-only custom tab panel rendered in a sandboxed iframe with bidirectional messages |
-| `desktop-webview-file-panel.ts` | Desktop-only webview panel backed by normal HTML/CSS/JS files |
-| `notify.ts` | Desktop notifications via OSC 777 when agent finishes (Ghostty, iTerm2, WezTerm) |
-| `titlebar-spinner.ts` | Braille spinner animation in terminal title while the agent is working |
-| `shutdown-command.ts` | Adds `/quit` command demonstrating `ctx.shutdown()` |
-| `reload-runtime.ts` | Adds `/reload-runtime` and `reload_runtime` tool showing safe reload flow |
-| `inline-bash.ts` | Expands `!{command}` patterns in prompts via `input` event transformation |
-| `input-transform-streaming.ts` | Skips expensive input preprocessing for mid-stream steering via `streamingBehavior` |
+| Extension                       | Description                                                                                                          |
+| ------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
+| `handoff.ts`                    | Transfer context to a new focused session via `/handoff <goal>`                                                      |
+| `qna.ts`                        | Extracts questions from last response into editor via `ctx.ui.setEditorText()`                                       |
+| `status-line.ts`                | Shows turn progress via `ctx.ui.setStatus()`                                                                         |
+| `widget-placement.ts`           | Shows widgets above and below the editor via `ctx.ui.setWidget()` placement                                          |
+| `hidden-thinking-label.ts`      | Customizes the collapsed thinking label via `ctx.ui.setHiddenThinkingLabel()`                                        |
+| `working-indicator.ts`          | Customizes the streaming working indicator via `ctx.ui.setWorkingIndicator()`                                        |
+| `model-status.ts`               | Shows model changes in status bar via `model_select` hook                                                            |
+| `send-user-message.ts`          | Demonstrates `pi.sendUserMessage()` for sending user messages from extensions                                        |
+| `timed-confirm.ts`              | Demonstrates AbortSignal for auto-dismissing `ctx.ui.confirm()` and `ctx.ui.select()` dialogs                        |
+| `rpc-demo.ts`                   | Exercises all RPC-supported extension UI methods; pair with [`examples/rpc-extension-ui.ts`](../rpc-extension-ui.ts) |
+| `desktop-webview-panel.ts`      | Desktop-only custom tab panel rendered in a sandboxed iframe with bidirectional messages                             |
+| `desktop-webview-file-panel.ts` | Desktop-only webview panel backed by normal HTML/CSS/JS files                                                        |
+| `notify.ts`                     | Desktop notifications via OSC 777 when agent finishes (Ghostty, iTerm2, WezTerm)                                     |
+| `titlebar-spinner.ts`           | Braille spinner animation in terminal title while the agent is working                                               |
+| `shutdown-command.ts`           | Adds `/quit` command demonstrating `ctx.shutdown()`                                                                  |
+| `reload-runtime.ts`             | Adds `/reload-runtime` and `reload_runtime` tool showing safe reload flow                                            |
+| `inline-bash.ts`                | Expands `!{command}` patterns in prompts via `input` event transformation                                            |
+| `input-transform-streaming.ts`  | Skips expensive input preprocessing for mid-stream steering via `streamingBehavior`                                  |
 
 ### Git Integration
 
-| Extension | Description |
-|-----------|-------------|
-| `git-checkpoint.ts` | Creates git stash checkpoints at each turn for code restoration on fork |
-| `auto-commit-on-exit.ts` | Auto-commits on exit using last assistant message for commit message |
+| Extension                | Description                                                             |
+| ------------------------ | ----------------------------------------------------------------------- |
+| `git-checkpoint.ts`      | Creates git stash checkpoints at each turn for code restoration on fork |
+| `auto-commit-on-exit.ts` | Auto-commits on exit using last assistant message for commit message    |
 
 ### System Prompt & Compaction
 
-| Extension | Description |
-|-----------|-------------|
-| `pirate.ts` | Demonstrates `systemPromptAppend` to dynamically modify system prompt |
-| `claude-rules.ts` | Scans `.claude/rules/` folder and lists rules in system prompt |
-| `custom-compaction.ts` | Custom compaction that summarizes entire conversation |
-| `trigger-compact.ts` | Triggers compaction when context usage exceeds 100k tokens and adds `/trigger-compact` command |
+| Extension              | Description                                                                                    |
+| ---------------------- | ---------------------------------------------------------------------------------------------- |
+| `pirate.ts`            | Demonstrates `systemPromptAppend` to dynamically modify system prompt                          |
+| `claude-rules.ts`      | Scans `.claude/rules/` folder and lists rules in system prompt                                 |
+| `custom-compaction.ts` | Custom compaction that summarizes entire conversation                                          |
+| `trigger-compact.ts`   | Triggers compaction when context usage exceeds 100k tokens and adds `/trigger-compact` command |
 
 ### Resources
 
-| Extension | Description |
-|-----------|-------------|
+| Extension            | Description                                                  |
+| -------------------- | ------------------------------------------------------------ |
 | `dynamic-resources/` | Loads skills, prompts, and themes using `resources_discover` |
 
 ### Messages & Communication
 
-| Extension | Description |
-|-----------|-------------|
+| Extension      | Description                                   |
+| -------------- | --------------------------------------------- |
 | `event-bus.ts` | Inter-extension communication via `pi.events` |
 
 ### Session Metadata
 
-| Extension | Description |
-|-----------|-------------|
-| `session-name.ts` | Name sessions for the session selector via `setSessionName` |
-| `bookmark.ts` | Bookmark entries with labels for `/tree` navigation via `setLabel` |
+| Extension         | Description                                                        |
+| ----------------- | ------------------------------------------------------------------ |
+| `session-name.ts` | Name sessions for the session selector via `setSessionName`        |
+| `bookmark.ts`     | Bookmark entries with labels for `/tree` navigation via `setLabel` |
 
 ### Custom Providers
 
-| Extension | Description |
-|-----------|-------------|
-| `custom-provider-anthropic/` | Custom Anthropic provider with OAuth support and custom streaming implementation |
-| `custom-provider-gitlab-duo/` | GitLab Duo provider using pi-ai's built-in Anthropic/OpenAI streaming via proxy |
+| Extension                     | Description                                                                      |
+| ----------------------------- | -------------------------------------------------------------------------------- |
+| `custom-provider-anthropic/`  | Custom Anthropic provider with OAuth support and custom streaming implementation |
+| `custom-provider-gitlab-duo/` | GitLab Duo provider using pi-ai's built-in Anthropic/OpenAI streaming via proxy  |
 
 ### External Dependencies
 
-| Extension | Description |
-|-----------|-------------|
-| `with-deps/` | Extension with its own package.json and dependencies (demonstrates jiti module resolution) |
-| `file-trigger.ts` | Watches a trigger file and injects contents into conversation |
+| Extension         | Description                                                                                |
+| ----------------- | ------------------------------------------------------------------------------------------ |
+| `with-deps/`      | Extension with its own package.json and dependencies (demonstrates jiti module resolution) |
+| `file-trigger.ts` | Watches a trigger file and injects contents into conversation                              |
 
 ## Writing Extensions
 
 See [docs/extensions.md](../../docs/extensions.md) for full documentation.
 
 ```typescript
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { Type } from "typebox";
+import type { ExtensionAPI } from '@earendil-works/pi-coding-agent'
+import { Type } from 'typebox'
 
 export default function (pi: ExtensionAPI) {
   // Subscribe to lifecycle events
-  pi.on("tool_call", async (event, ctx) => {
-    if (event.toolName === "bash" && event.input.command?.includes("rm -rf")) {
-      const ok = await ctx.ui.confirm("Dangerous!", "Allow rm -rf?");
-      if (!ok) return { block: true, reason: "Blocked by user" };
+  pi.on('tool_call', async (event, ctx) => {
+    if (event.toolName === 'bash' && event.input.command?.includes('rm -rf')) {
+      const ok = await ctx.ui.confirm('Dangerous!', 'Allow rm -rf?')
+      if (!ok) return { block: true, reason: 'Blocked by user' }
     }
-  });
+  })
 
   // Register custom tools
   pi.registerTool({
-    name: "greet",
-    label: "Greeting",
-    description: "Generate a greeting",
+    name: 'greet',
+    label: 'Greeting',
+    description: 'Generate a greeting',
     parameters: Type.Object({
-      name: Type.String({ description: "Name to greet" }),
+      name: Type.String({ description: 'Name to greet' })
     }),
     async execute(toolCallId, params, onUpdate, ctx, signal) {
       return {
-        content: [{ type: "text", text: `Hello, ${params.name}!` }],
-        details: {},
-      };
-    },
-  });
+        content: [{ type: 'text', text: `Hello, ${params.name}!` }],
+        details: {}
+      }
+    }
+  })
 
   // Register commands
-  pi.registerCommand("hello", {
-    description: "Say hello",
+  pi.registerCommand('hello', {
+    description: 'Say hello',
     handler: async (args, ctx) => {
-      ctx.ui.notify("Hello!", "info");
-    },
-  });
+      ctx.ui.notify('Hello!', 'info')
+    }
+  })
 }
 ```
 
 ## Key Patterns
 
 **Use StringEnum for string parameters** (required for Google API compatibility):
+
 ```typescript
-import { StringEnum } from "@earendil-works/pi-ai";
+import { StringEnum } from '@earendil-works/pi-ai'
 
 // Good
-action: StringEnum(["list", "add"] as const)
+action: StringEnum(['list', 'add'] as const)
 
 // Bad - doesn't work with Google
-action: Type.Union([Type.Literal("list"), Type.Literal("add")])
+action: Type.Union([Type.Literal('list'), Type.Literal('add')])
 ```
 
 **State persistence via details:**
+
 ```typescript
 // Store state in tool result details for proper forking support
 return {
-  content: [{ type: "text", text: "Done" }],
-  details: { todos: [...todos], nextId },  // Persisted in session
-};
+  content: [{ type: 'text', text: 'Done' }],
+  details: { todos: [...todos], nextId } // Persisted in session
+}
 
 // Reconstruct on session events
-pi.on("session_start", async (_event, ctx) => {
+pi.on('session_start', async (_event, ctx) => {
   for (const entry of ctx.sessionManager.getBranch()) {
-    if (entry.type === "message" && entry.message.toolName === "my_tool") {
-      const details = entry.message.details;
+    if (entry.type === 'message' && entry.message.toolName === 'my_tool') {
+      const details = entry.message.details
       // Reconstruct state from details
     }
   }
-});
+})
 ```

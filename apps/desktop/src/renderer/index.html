@@ -1,161 +1,161 @@
 <!doctype html>
 <html>
+  <head>
+    <meta charset="UTF-8" />
+    <title>Meta Agent</title>
+    <!-- https://developer.mozilla.org/en-US/docs/Web/HTTP/CSP -->
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self' 'nonce-theme-init' pi-webview-resource:; style-src 'self' 'unsafe-inline' pi-webview-resource:; img-src 'self' data: pi-webview-resource: https: http:; font-src 'self' data: pi-webview-resource:; connect-src 'self' pi-webview-resource: https: http:; media-src 'self' data: pi-webview-resource:; frame-src 'self' about: data: blob:"
+    />
+    <script nonce="theme-init">
+      ;(() => {
+        try {
+          const storageKey = 'meta-agent.theme'
+          const storedTheme = window.localStorage.getItem(storageKey)
+          const themeMode =
+            storedTheme === 'light' || storedTheme === 'dark' || storedTheme === 'system'
+              ? storedTheme
+              : 'system'
+          const resolvedTheme =
+            themeMode === 'system'
+              ? window.matchMedia('(prefers-color-scheme: dark)').matches
+                ? 'dark'
+                : 'light'
+              : themeMode
 
-<head>
-  <meta charset="UTF-8" />
-  <title>Meta Agent</title>
-  <!-- https://developer.mozilla.org/en-US/docs/Web/HTTP/CSP -->
-  <meta http-equiv="Content-Security-Policy"
-    content="default-src 'self'; script-src 'self' 'nonce-theme-init' pi-webview-resource:; style-src 'self' 'unsafe-inline' pi-webview-resource:; img-src 'self' data: pi-webview-resource: https: http:; font-src 'self' data: pi-webview-resource:; connect-src 'self' pi-webview-resource: https: http:; media-src 'self' data: pi-webview-resource:; frame-src 'self' about: data: blob:" />
-  <script nonce="theme-init">
-    ; (() => {
-      try {
-        const storageKey = 'meta-agent.theme'
-        const storedTheme = window.localStorage.getItem(storageKey)
-        const themeMode =
-          storedTheme === 'light' || storedTheme === 'dark' || storedTheme === 'system'
-            ? storedTheme
-            : 'system'
-        const resolvedTheme =
-          themeMode === 'system'
-            ? window.matchMedia('(prefers-color-scheme: dark)').matches
-              ? 'dark'
-              : 'light'
-            : themeMode
+          document.documentElement.dataset.themeMode = themeMode
+          document.documentElement.dataset.theme = resolvedTheme
+          document.documentElement.style.colorScheme = resolvedTheme
 
-        document.documentElement.dataset.themeMode = themeMode
-        document.documentElement.dataset.theme = resolvedTheme
-        document.documentElement.style.colorScheme = resolvedTheme
-
-        const storedUiFontSize = window.localStorage.getItem('meta-agent.ui-font-size')
-        const storedCodeFontSize = window.localStorage.getItem('meta-agent.code-font-size')
-        const normalizeFontSize = (value, min, max, defaultValue) => {
-          if (value === null || value === '') {
-            return defaultValue
+          const storedUiFontSize = window.localStorage.getItem('meta-agent.ui-font-size')
+          const storedCodeFontSize = window.localStorage.getItem('meta-agent.code-font-size')
+          const normalizeFontSize = (value, min, max, defaultValue) => {
+            if (value === null || value === '') {
+              return defaultValue
+            }
+            const parsed = Number(value)
+            if (!Number.isFinite(parsed)) {
+              return defaultValue
+            }
+            return Math.min(max, Math.max(min, Math.round(parsed)))
           }
-          const parsed = Number(value)
-          if (!Number.isFinite(parsed)) {
-            return defaultValue
-          }
-          return Math.min(max, Math.max(min, Math.round(parsed)))
+          const normalizedUiFontSize = normalizeFontSize(storedUiFontSize, 11, 16, 14)
+          const normalizedCodeFontSize = normalizeFontSize(storedCodeFontSize, 11, 18, 13)
+
+          document.documentElement.style.setProperty('--font-size-ui', `${normalizedUiFontSize}px`)
+          document.documentElement.style.setProperty(
+            '--font-size-ui-2xs',
+            `${normalizedUiFontSize - 2}px`
+          )
+          document.documentElement.style.setProperty(
+            '--font-size-ui-xs',
+            `${normalizedUiFontSize - 2}px`
+          )
+          document.documentElement.style.setProperty(
+            '--font-size-ui-sm',
+            `${normalizedUiFontSize - 1}px`
+          )
+          document.documentElement.style.setProperty(
+            '--font-size-ui-lg',
+            `${normalizedUiFontSize + 2}px`
+          )
+          document.documentElement.style.setProperty(
+            '--font-size-ui-xl',
+            `${normalizedUiFontSize + 7}px`
+          )
+          document.documentElement.style.setProperty(
+            '--font-size-ui-2xl',
+            `${normalizedUiFontSize + 9}px`
+          )
+          document.documentElement.style.setProperty(
+            '--font-size-code',
+            `${normalizedCodeFontSize}px`
+          )
+        } catch {
+          document.documentElement.dataset.theme = 'dark'
+          document.documentElement.style.colorScheme = 'dark'
         }
-        const normalizedUiFontSize = normalizeFontSize(storedUiFontSize, 11, 16, 14)
-        const normalizedCodeFontSize = normalizeFontSize(storedCodeFontSize, 11, 18, 13)
-
-        document.documentElement.style.setProperty('--font-size-ui', `${normalizedUiFontSize}px`)
-        document.documentElement.style.setProperty(
-          '--font-size-ui-2xs',
-          `${normalizedUiFontSize - 2}px`
-        )
-        document.documentElement.style.setProperty(
-          '--font-size-ui-xs',
-          `${normalizedUiFontSize - 2}px`
-        )
-        document.documentElement.style.setProperty(
-          '--font-size-ui-sm',
-          `${normalizedUiFontSize - 1}px`
-        )
-        document.documentElement.style.setProperty(
-          '--font-size-ui-lg',
-          `${normalizedUiFontSize + 2}px`
-        )
-        document.documentElement.style.setProperty(
-          '--font-size-ui-xl',
-          `${normalizedUiFontSize + 7}px`
-        )
-        document.documentElement.style.setProperty(
-          '--font-size-ui-2xl',
-          `${normalizedUiFontSize + 9}px`
-        )
-        document.documentElement.style.setProperty(
-          '--font-size-code',
-          `${normalizedCodeFontSize}px`
-        )
-      } catch {
-        document.documentElement.dataset.theme = 'dark'
-        document.documentElement.style.colorScheme = 'dark'
+      })()
+    </script>
+    <style>
+      .boot-shell {
+        min-height: 100vh;
+        display: grid;
+        grid-template-columns: 248px 1fr;
+        color: #d8dde7;
+        background: #15171c;
+        font-family:
+          system-ui,
+          -apple-system,
+          BlinkMacSystemFont,
+          'Segoe UI',
+          sans-serif;
       }
-    })()
-  </script>
-  <style>
-    .boot-shell {
-      min-height: 100vh;
-      display: grid;
-      grid-template-columns: 248px 1fr;
-      color: #d8dde7;
-      background: #15171c;
-      font-family:
-        system-ui,
-        -apple-system,
-        BlinkMacSystemFont,
-        'Segoe UI',
-        sans-serif;
-    }
 
-    .boot-shell__sidebar {
-      padding: 18px 14px;
-      border-right: 1px solid rgb(255 255 255 / 8%);
-      background: #111318;
-    }
+      .boot-shell__sidebar {
+        padding: 18px 14px;
+        border-right: 1px solid rgb(255 255 255 / 8%);
+        background: #111318;
+      }
 
-    .boot-shell__brand {
-      margin-bottom: 18px;
-      font-size: 13px;
-      font-weight: 700;
-    }
+      .boot-shell__brand {
+        margin-bottom: 18px;
+        font-size: 13px;
+        font-weight: 700;
+      }
 
-    .boot-shell__line {
-      height: 10px;
-      margin: 12px 0;
-      background: rgb(255 255 255 / 10%);
-      border-radius: 3px;
-    }
+      .boot-shell__line {
+        height: 10px;
+        margin: 12px 0;
+        background: rgb(255 255 255 / 10%);
+        border-radius: 3px;
+      }
 
-    .boot-shell__line:nth-child(2n) {
-      width: 68%;
-    }
+      .boot-shell__line:nth-child(2n) {
+        width: 68%;
+      }
 
-    .boot-shell__line:nth-child(2n + 1) {
-      width: 86%;
-    }
+      .boot-shell__line:nth-child(2n + 1) {
+        width: 86%;
+      }
 
-    .boot-shell__main {
-      display: grid;
-      align-content: end;
-      padding: 24px;
-    }
+      .boot-shell__main {
+        display: grid;
+        align-content: end;
+        padding: 24px;
+      }
 
-    .boot-shell__composer {
-      width: min(720px, 100%);
-      height: 76px;
-      margin: 0 auto;
-      border: 1px solid rgb(255 255 255 / 10%);
-      border-radius: 8px;
-      background: rgb(255 255 255 / 5%);
-    }
-  </style>
-  <link rel="preload" href="/fonts/SourceHanSansSC-VF.woff2" as="font" type="font/woff2" />
-  <link rel="preload" href="/fonts/JetBrainsMono-Regular.woff2" as="font" type="font/woff2" />
-</head>
+      .boot-shell__composer {
+        width: min(720px, 100%);
+        height: 76px;
+        margin: 0 auto;
+        border: 1px solid rgb(255 255 255 / 10%);
+        border-radius: 8px;
+        background: rgb(255 255 255 / 5%);
+      }
+    </style>
+    <link rel="preload" href="/fonts/SourceHanSansSC-VF.woff2" as="font" type="font/woff2" />
+    <link rel="preload" href="/fonts/JetBrainsMono-Regular.woff2" as="font" type="font/woff2" />
+  </head>
 
-<body>
-  <div id="app">
-    <div class="boot-shell" aria-hidden="true">
-      <aside class="boot-shell__sidebar">
-        <div class="boot-shell__brand">Meta Agent</div>
-        <div class="boot-shell__line"></div>
-        <div class="boot-shell__line"></div>
-        <div class="boot-shell__line"></div>
-        <div class="boot-shell__line"></div>
-        <div class="boot-shell__line"></div>
-        <div class="boot-shell__line"></div>
-      </aside>
-      <main class="boot-shell__main">
-        <div class="boot-shell__composer"></div>
-      </main>
+  <body>
+    <div id="app">
+      <div class="boot-shell" aria-hidden="true">
+        <aside class="boot-shell__sidebar">
+          <div class="boot-shell__brand">Meta Agent</div>
+          <div class="boot-shell__line"></div>
+          <div class="boot-shell__line"></div>
+          <div class="boot-shell__line"></div>
+          <div class="boot-shell__line"></div>
+          <div class="boot-shell__line"></div>
+          <div class="boot-shell__line"></div>
+        </aside>
+        <main class="boot-shell__main">
+          <div class="boot-shell__composer"></div>
+        </main>
+      </div>
     </div>
-  </div>
-  <script type="module" src="/src/main.ts"></script>
-</body>
-
+    <script type="module" src="/src/main.ts"></script>
+  </body>
 </html>

@@ -2,165 +2,160 @@
  * Shared TypeScript types for the Hermes Memory extension.
  */
 
-import type { TextContent } from "@earendil-works/pi-ai";
+import type { TextContent } from '@earendil-works/pi-ai'
 
-export type MemoryOverflowStrategy = "auto-consolidate" | "reject" | "fifo-evict";
+export type MemoryOverflowStrategy = 'auto-consolidate' | 'reject' | 'fifo-evict'
 
-export type SessionSearchVariant = "legacy" | "anchors";
+export type SessionSearchVariant = 'legacy' | 'anchors'
 
-export type ThinkingLevel = "off" | "minimal" | "low" | "medium" | "high" | "xhigh";
+export type ThinkingLevel = 'off' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh'
 
-export type ReviewTransport = "direct" | "subprocess";
+export type ReviewTransport = 'direct' | 'subprocess'
 
 export interface SessionSearchConfig {
   /** Session search implementation variant. Default: legacy */
-  variant: SessionSearchVariant;
+  variant: SessionSearchVariant
 }
 
 export interface MemoryConfig {
   /** Prompt memory mode. Default: policy-only */
-  memoryMode: "policy-only" | "legacy-inject";
+  memoryMode: 'policy-only' | 'legacy-inject'
   /** Policy prompt style used when memoryMode is policy-only. Default: full */
-  memoryPolicyStyle?: "full" | "compact" | "custom" | "none";
+  memoryPolicyStyle?: 'full' | 'compact' | 'custom' | 'none'
   /** Custom policy prompt text used when memoryPolicyStyle is custom */
-  memoryPolicyCustomText?: string;
+  memoryPolicyCustomText?: string
   /** Max chars for MEMORY.md (agent notes). Default: 5000 */
-  memoryCharLimit: number;
+  memoryCharLimit: number
   /** Max chars for USER.md (user profile). Default: 5000 */
-  userCharLimit: number;
+  userCharLimit: number
   /** Max chars for project-level MEMORY.md. Default: 5000 */
-  projectCharLimit: number;
+  projectCharLimit: number
   /** Turns between background auto-reviews. Default: 10 */
-  nudgeInterval: number;
+  nudgeInterval: number
   /** Recent conversation messages included in background review. 0 = all. Default: 0 */
-  reviewRecentMessages?: number;
+  reviewRecentMessages?: number
   /** Enable background learning loop. Default: true */
-  reviewEnabled: boolean;
+  reviewEnabled: boolean
   /** How background review invokes the LLM. Default: direct */
-  reviewTransport?: ReviewTransport;
+  reviewTransport?: ReviewTransport
   /** Flush memories before compaction. Default: true */
-  flushOnCompact: boolean;
+  flushOnCompact: boolean
   /** Flush memories on session shutdown. Default: true */
-  flushOnShutdown: boolean;
+  flushOnShutdown: boolean
   /** Minimum user turns before flush triggers. Default: 6 */
-  flushMinTurns: number;
+  flushMinTurns: number
   /** Recent conversation messages included in session flush. 0 = all. Default: 0 */
-  flushRecentMessages?: number;
+  flushRecentMessages?: number
   /** Override extension storage directory. Default: ~/.pi/agent/pi-hermes-memory */
-  memoryDir?: string;
+  memoryDir?: string
   /** Directory for project-scoped memory (relative to ~/.pi/agent). Default: "projects-memory" */
-  projectsMemoryDir?: string;
+  projectsMemoryDir?: string
   /** Session search configuration. Default: { variant: "legacy" } */
-  sessionSearch?: SessionSearchConfig;
+  sessionSearch?: SessionSearchConfig
   /** Override model used for child pi -p subprocess LLM calls. Default: unset */
-  llmModelOverride?: string;
+  llmModelOverride?: string
   /** Override thinking level used for child pi -p subprocess LLM calls. Default: unset */
-  llmThinkingOverride?: ThinkingLevel;
+  llmThinkingOverride?: ThinkingLevel
   /** Strategy when memory is full. Default: auto-consolidate */
-  memoryOverflowStrategy?: MemoryOverflowStrategy;
+  memoryOverflowStrategy?: MemoryOverflowStrategy
   /** Legacy alias for memoryOverflowStrategy. Default: true */
-  autoConsolidate: boolean;
+  autoConsolidate: boolean
   /** Detect user corrections and trigger immediate memory save. Default: true */
-  correctionDetection: boolean;
+  correctionDetection: boolean
   /** Override strong correction regex sources. Missing = defaults; [] = none. */
-  correctionStrongPatterns?: string[];
+  correctionStrongPatterns?: string[]
   /** Override weak correction regex sources. Missing = defaults; [] = none. */
-  correctionWeakPatterns?: string[];
+  correctionWeakPatterns?: string[]
   /** Override negative correction regex sources. Missing = defaults; [] = none. */
-  correctionNegativePatterns?: string[];
+  correctionNegativePatterns?: string[]
   /** Override directive words used after weak correction patterns. Missing = defaults; [] = none. */
-  correctionDirectiveWords?: string[];
+  correctionDirectiveWords?: string[]
   /** Inject recent failure memories into the system prompt. Default: true */
-  failureInjectionEnabled: boolean;
+  failureInjectionEnabled: boolean
   /** Maximum age in days for injected failure memories. Default: 7 */
-  failureInjectionMaxAgeDays: number;
+  failureInjectionMaxAgeDays: number
   /** Maximum number of failure memories to inject. Default: 5 */
-  failureInjectionMaxEntries: number;
+  failureInjectionMaxEntries: number
   /** Tool calls before triggering background review (in addition to turn count). Default: 15 */
-  nudgeToolCalls: number;
+  nudgeToolCalls: number
   /** Maximum time in milliseconds for auto-consolidation to complete. Default: 60000 */
-  consolidationTimeoutMs: number;
+  consolidationTimeoutMs: number
 }
 
 export type MemoryCategory =
-  | "failure"
-  | "correction"
-  | "insight"
-  | "preference"
-  | "convention"
-  | "tool-quirk";
+  'failure' | 'correction' | 'insight' | 'preference' | 'convention' | 'tool-quirk'
 
 export interface MemoryResult {
-  success: boolean;
-  error?: string;
-  message?: string;
-  warning?: string;
-  warnings?: string[];
-  target?: "memory" | "user" | "failure" | "project";
-  entries?: string[];
-  usage?: string;
-  entry_count?: number;
-  evicted_entries?: string[];
-  evicted_count?: number;
-  matches?: string[];
-  updated_entry?: string;
+  success: boolean
+  error?: string
+  message?: string
+  warning?: string
+  warnings?: string[]
+  target?: 'memory' | 'user' | 'failure' | 'project'
+  entries?: string[]
+  usage?: string
+  entry_count?: number
+  evicted_entries?: string[]
+  evicted_count?: number
+  matches?: string[]
+  updated_entry?: string
 }
 
 export interface MemorySnapshot {
-  memory: string;
-  user: string;
+  memory: string
+  user: string
 }
 
 export interface ConsolidationResult {
   /** Whether consolidation succeeded */
-  consolidated: boolean;
+  consolidated: boolean
   /** Error message if consolidation failed */
-  error?: string;
+  error?: string
 }
 
-export type SkillScope = "global" | "project";
+export type SkillScope = 'global' | 'project'
 
 export interface SkillIndex {
   /** Stable id for read/update/delete operations */
-  skillId: string;
+  skillId: string
   /** Whether the skill is global or project-scoped */
-  scope: SkillScope;
+  scope: SkillScope
   /** File name on disk (usually SKILL.md) */
-  fileName: string;
+  fileName: string
   /** Absolute path to the skill file */
-  path: string;
+  path: string
   /** Active project name for project-scoped skills */
-  projectName?: string;
+  projectName?: string
   /** Pi skill slug stored in frontmatter and folder name */
-  name: string;
+  name: string
   /** Optional human-friendly title preserved for UI output */
-  displayName?: string;
+  displayName?: string
   /** Short description shown in skill listings */
-  description: string;
+  description: string
   /** ISO date created */
-  created: string;
+  created: string
   /** ISO date last updated */
-  updated: string;
+  updated: string
 }
 
 export interface SkillDocument extends SkillIndex {
   /** Full markdown body (after frontmatter) */
-  body: string;
+  body: string
   /** Version number */
-  version: number;
+  version: number
 }
 
 export interface SkillResult {
-  success: boolean;
-  error?: string;
-  message?: string;
-  fileName?: string;
-  skillId?: string;
-  scope?: SkillScope;
-  path?: string;
-  conflictType?: "duplicate" | "similar" | "name-collision" | "scope-conflict";
-  similarSkillIds?: string[];
-  suggestedAction?: "patch" | "update" | "rename";
+  success: boolean
+  error?: string
+  message?: string
+  fileName?: string
+  skillId?: string
+  scope?: SkillScope
+  path?: string
+  conflictType?: 'duplicate' | 'similar' | 'name-collision' | 'scope-conflict'
+  similarSkillIds?: string[]
+  suggestedAction?: 'patch' | 'update' | 'rename'
 }
 
 /**
@@ -172,19 +167,21 @@ export interface SkillResult {
  * Returns the concatenated text, truncated to `maxLength` chars.
  */
 export function getMessageText(msg: unknown, maxLength = 500): string | null {
-  if (typeof msg !== "object" || msg === null) return null;
-  const { role, content } = msg as Record<string, unknown>;
-  if (typeof role !== "string") return null;
+  if (typeof msg !== 'object' || msg === null) return null
+  const { role, content } = msg as Record<string, unknown>
+  if (typeof role !== 'string') return null
 
-  if (typeof content === "string") {
-    return content.slice(0, maxLength);
+  if (typeof content === 'string') {
+    return content.slice(0, maxLength)
   }
   if (Array.isArray(content)) {
     const text = (content as TextContent[])
-      .filter((block): block is TextContent => block.type === "text" && typeof block.text === "string")
+      .filter(
+        (block): block is TextContent => block.type === 'text' && typeof block.text === 'string'
+      )
       .map((block) => block.text)
-      .join("\n");
-    return text.length > 0 ? text.slice(0, maxLength) : null;
+      .join('\n')
+    return text.length > 0 ? text.slice(0, maxLength) : null
   }
-  return null;
+  return null
 }

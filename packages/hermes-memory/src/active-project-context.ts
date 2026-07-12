@@ -1,6 +1,10 @@
 import * as path from 'node:path'
 import type { MemoryStore } from './store/memory-store.js'
-import { detectProject, migrateLegacyBasenameProjectDirectory, type ProjectInfo } from './project.js'
+import {
+  detectProject,
+  migrateLegacyBasenameProjectDirectory,
+  type ProjectInfo
+} from './project.js'
 import { resolveProjectsRoot } from './paths.js'
 
 export interface ActiveProjectSnapshot {
@@ -43,7 +47,9 @@ export class ActiveProjectContext implements ActiveProjectProvider {
 
   activateStoredProject(id: string): Promise<ActiveProjectSnapshot> {
     return this.enqueue(async () => {
-      const projectsRoot = path.resolve(resolveProjectsRoot(this.options.projectsMemoryDir ?? 'projects-memory'))
+      const projectsRoot = path.resolve(
+        resolveProjectsRoot(this.options.projectsMemoryDir ?? 'projects-memory')
+      )
       const memoryDir = path.resolve(projectsRoot, id)
       const relative = path.relative(projectsRoot, memoryDir)
       if (!id || relative !== id || relative.startsWith('..') || path.isAbsolute(relative)) {
@@ -55,7 +61,10 @@ export class ActiveProjectContext implements ActiveProjectProvider {
 
   private enqueue(operation: () => Promise<ActiveProjectSnapshot>): Promise<ActiveProjectSnapshot> {
     const next = this.activation.then(operation, operation)
-    this.activation = next.then(() => undefined, () => undefined)
+    this.activation = next.then(
+      () => undefined,
+      () => undefined
+    )
     return next
   }
 

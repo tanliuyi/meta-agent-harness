@@ -59,7 +59,10 @@ export function registerSwitchProjectCommand(
         await options.switchProject(id)
         ctx.ui.notify(`Active project memory switched to ${id} for this session.`, 'info')
       } catch (error) {
-        ctx.ui.notify(`Unable to switch project memory: ${error instanceof Error ? error.message : String(error)}`, 'error')
+        ctx.ui.notify(
+          `Unable to switch project memory: ${error instanceof Error ? error.message : String(error)}`,
+          'error'
+        )
       }
     }
   })

@@ -8,25 +8,22 @@
  * - Negative patterns: suppress even if a positive pattern matched
  */
 
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { MemoryStore } from "../store/memory-store.js";
-import { DatabaseManager } from "../store/db.js";
-import {
-  formatFailureMemoryContent,
-  syncMemoryEntry,
-} from "../store/sqlite-memory-store.js";
+import type { ExtensionAPI } from '@earendil-works/pi-coding-agent'
+import { MemoryStore } from '../store/memory-store.js'
+import { DatabaseManager } from '../store/db.js'
+import { formatFailureMemoryContent, syncMemoryEntry } from '../store/sqlite-memory-store.js'
 import {
   CORRECTION_SAVE_PROMPT,
   CORRECTION_STRONG_PATTERNS,
   CORRECTION_WEAK_PATTERNS,
   CORRECTION_NEGATIVE_PATTERNS,
   CORRECTION_DIRECTIVE_WORDS,
-  ENTRY_DELIMITER,
-} from "../constants.js";
-import type { MemoryConfig } from "../types.js";
-import { getMessageText } from "../types.js";
-import { execChildPrompt } from "./pi-child-process.js";
-import type { ActiveProjectProvider } from "../active-project-context.js";
+  ENTRY_DELIMITER
+} from '../constants.js'
+import type { MemoryConfig } from '../types.js'
+import { getMessageText } from '../types.js'
+import { execChildPrompt } from './pi-child-process.js'
+import type { ActiveProjectProvider } from '../active-project-context.js'
 
 /**
  * Extract the directive part from a correction message.
@@ -37,71 +34,69 @@ function extractCorrectionDirective(text: string): string {
   const cleaned = text
     .replace(/^(no|wrong|actually|stop|don'?t|that'?s not|I said|I told you)[,\.\s!]+/i, '')
     .replace(/^(please\s+)?/i, '')
-    .trim();
-  return cleaned || text;
+    .trim()
+  return cleaned || text
 }
 
-function compileCorrectionPatterns(
-  configured: string[] | undefined,
-  defaults: RegExp[],
-): RegExp[] {
-  if (configured === undefined) return defaults;
+function compileCorrectionPatterns(configured: string[] | undefined, defaults: RegExp[]): RegExp[] {
+  if (configured === undefined) return defaults
 
-  const patterns: RegExp[] = [];
+  const patterns: RegExp[] = []
   for (const source of configured) {
     try {
-      patterns.push(new RegExp(source, "i"));
+      patterns.push(new RegExp(source, 'i'))
     } catch {
       // Ignore invalid configured regex entries; valid entries still apply.
     }
   }
-  return patterns;
+  return patterns
 }
 
 function escapeRegexLiteral(value: string): string {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 }
 
 function hasDirectiveWord(remainder: string, words: string[]): boolean {
-  if (words.length === 0) return false;
-  const source = words.map(escapeRegexLiteral).join("|");
-  return new RegExp(`\\b(${source})\\b`, "i").test(remainder);
+  if (words.length === 0) return false
+  const source = words.map(escapeRegexLiteral).join('|')
+  return new RegExp(`\\b(${source})\\b`, 'i').test(remainder)
 }
 
 /**
  * Check if a user message is a correction using the two-pass filter.
  * Returns true if the message should trigger an immediate save.
  */
-type CorrectionPatternConfig = Pick<MemoryConfig,
-  "correctionStrongPatterns" |
-  "correctionWeakPatterns" |
-  "correctionNegativePatterns" |
-  "correctionDirectiveWords"
->;
+type CorrectionPatternConfig = Pick<
+  MemoryConfig,
+  | 'correctionStrongPatterns'
+  | 'correctionWeakPatterns'
+  | 'correctionNegativePatterns'
+  | 'correctionDirectiveWords'
+>
 
 export function isCorrection(text: string, config?: CorrectionPatternConfig): boolean {
   const negativePatterns = compileCorrectionPatterns(
     config?.correctionNegativePatterns,
-    CORRECTION_NEGATIVE_PATTERNS,
-  );
+    CORRECTION_NEGATIVE_PATTERNS
+  )
   const strongPatterns = compileCorrectionPatterns(
     config?.correctionStrongPatterns,
-    CORRECTION_STRONG_PATTERNS,
-  );
+    CORRECTION_STRONG_PATTERNS
+  )
   const weakPatterns = compileCorrectionPatterns(
     config?.correctionWeakPatterns,
-    CORRECTION_WEAK_PATTERNS,
-  );
-  const directiveWords = config?.correctionDirectiveWords ?? CORRECTION_DIRECTIVE_WORDS;
+    CORRECTION_WEAK_PATTERNS
+  )
+  const directiveWords = config?.correctionDirectiveWords ?? CORRECTION_DIRECTIVE_WORDS
 
   // Check negative patterns first — suppress even if positive matches
   for (const pattern of negativePatterns) {
-    if (pattern.test(text)) return false;
+    if (pattern.test(text)) return false
   }
 
   // Check strong patterns — always trigger
   for (const pattern of strongPatterns) {
-    if (pattern.test(text)) return true;
+    if (pattern.test(text)) return true
   }
 
   // Check weak patterns — only trigger if followed by a directive clause
@@ -109,18 +104,18 @@ export function isCorrection(text: string, config?: CorrectionPatternConfig): bo
     if (pattern.test(text)) {
       // Look for a directive after the weak pattern match
       // Directive = a verb or "the/that/this" in the remainder of the text
-      const match = pattern.exec(text);
+      const match = pattern.exec(text)
       if (match && match.index === 0) {
-        const remainder = text.slice(match[0].length).trim();
+        const remainder = text.slice(match[0].length).trim()
         // Simple heuristic: remainder contains something directive-ish
         if (hasDirectiveWord(remainder, directiveWords)) {
-          return true;
+          return true
         }
       }
     }
   }
 
-  return false;
+  return false
 }
 
 export function setupCorrectionDetector(
@@ -130,129 +125,123 @@ export function setupCorrectionDetector(
   config: MemoryConfig,
   dbManager: DatabaseManager | null = null,
   projectName?: string | null,
-  activeProject?: ActiveProjectProvider,
+  activeProject?: ActiveProjectProvider
 ): void {
-  if (!config.correctionDetection) return;
+  if (!config.correctionDetection) return
 
-  let pendingCorrection = false;
-  let turnsSinceLastCorrection = 3; // Start at threshold so first correction can fire immediately
-  let correctionInProgress = false;
+  let pendingCorrection = false
+  let turnsSinceLastCorrection = 3 // Start at threshold so first correction can fire immediately
+  let correctionInProgress = false
 
   // Flag on message_end (user role)
-  pi.on("message_end", async (event, _ctx) => {
-    if (event.message.role !== "user") return;
-    const text = getMessageText(event.message);
-    if (!text) return;
+  pi.on('message_end', async (event, _ctx) => {
+    if (event.message.role !== 'user') return
+    const text = getMessageText(event.message)
+    if (!text) return
     if (isCorrection(text, config)) {
-      pendingCorrection = true;
+      pendingCorrection = true
     }
-  });
+  })
 
   // Trigger on turn_end (we need full context: user correction + what agent said)
-  pi.on("turn_end", async (event, ctx) => {
+  pi.on('turn_end', async (event, ctx) => {
     if (!pendingCorrection) {
-      turnsSinceLastCorrection++;
-      return;
+      turnsSinceLastCorrection++
+      return
     }
-    pendingCorrection = false;
+    pendingCorrection = false
 
     // Rate limit: max 1 correction save per 3 turns
-    if (turnsSinceLastCorrection < 3) return;
-    if (correctionInProgress) return;
+    if (turnsSinceLastCorrection < 3) return
+    if (correctionInProgress) return
 
-    turnsSinceLastCorrection = 0;
-    correctionInProgress = true;
+    turnsSinceLastCorrection = 0
+    correctionInProgress = true
 
     try {
-      const active = activeProject?.get();
-      const currentProjectStore = active?.store ?? projectStore;
-      const currentProjectName = active?.info.id ?? projectName;
+      const active = activeProject?.get()
+      const currentProjectStore = active?.store ?? projectStore
+      const currentProjectName = active?.info.id ?? projectName
       // Build conversation snapshot
-      const entries = ctx.sessionManager.getBranch();
-      const parts: string[] = [];
+      const entries = ctx.sessionManager.getBranch()
+      const parts: string[] = []
 
       for (const entry of entries) {
-        if (entry.type !== "message") continue;
-        const msg = entry.message;
-        const text = getMessageText(msg);
-        if (!text) continue;
-        const prefix = msg.role === "user" ? "[USER]" : "[ASSISTANT]";
-        parts.push(`${prefix}: ${text}`);
+        if (entry.type !== 'message') continue
+        const msg = entry.message
+        const text = getMessageText(msg)
+        if (!text) continue
+        const prefix = msg.role === 'user' ? '[USER]' : '[ASSISTANT]'
+        parts.push(`${prefix}: ${text}`)
       }
 
       // Only include last few exchanges (correction context is recent)
-      const recentParts = parts.slice(-6);
+      const recentParts = parts.slice(-6)
 
-      const currentMemory = store.getMemoryEntries().join(ENTRY_DELIMITER);
-      const currentUser = store.getUserEntries().join(ENTRY_DELIMITER);
-      const currentProject = currentProjectStore ? currentProjectStore.getMemoryEntries().join(ENTRY_DELIMITER) : null;
+      const currentMemory = store.getMemoryEntries().join(ENTRY_DELIMITER)
+      const currentUser = store.getUserEntries().join(ENTRY_DELIMITER)
+      const currentProject = currentProjectStore
+        ? currentProjectStore.getMemoryEntries().join(ENTRY_DELIMITER)
+        : null
 
       const prompt = [
         CORRECTION_SAVE_PROMPT,
-        "",
-        "--- Current Memory ---",
-        currentMemory || "(empty)",
-        "",
-        "--- Current User Profile ---",
-        currentUser || "(empty)",
-      ];
+        '',
+        '--- Current Memory ---',
+        currentMemory || '(empty)',
+        '',
+        '--- Current User Profile ---',
+        currentUser || '(empty)'
+      ]
 
       if (currentProject !== null) {
-        prompt.push(
-          "",
-          "--- Current Project Memory ---",
-          currentProject || "(empty)",
-        );
+        prompt.push('', '--- Current Project Memory ---', currentProject || '(empty)')
       }
 
-      prompt.push(
-        "",
-        "--- Recent Conversation ---",
-        recentParts.join("\n\n"),
-      );
+      prompt.push('', '--- Recent Conversation ---', recentParts.join('\n\n'))
 
       if (!active?.store || active.cwd) {
-        const result = await execChildPrompt(pi, prompt.join("\n"), config, {
+        const result = await execChildPrompt(pi, prompt.join('\n'), config, {
           signal: ctx.signal,
           timeoutMs: 30000,
-          cwd: active?.cwd ?? ctx.cwd,
-        });
+          cwd: active?.cwd ?? ctx.cwd
+        })
 
         if (result.code === 0 && result.stdout) {
-          const output = result.stdout.trim();
-          if (output && !output.toLowerCase().includes("nothing to save")) {
-            ctx.ui.notify("🔧 Correction detected — memory updated", "info");
+          const output = result.stdout.trim()
+          if (output && !output.toLowerCase().includes('nothing to save')) {
+            ctx.ui.notify('🔧 Correction detected — memory updated', 'info')
           }
         }
       }
 
       // Also save as a failure memory for learning
       try {
-        const lastUserMsg = recentParts.find(p => p.startsWith("[USER]"));
-        const correctionText = lastUserMsg ? lastUserMsg.replace(/^\[USER\]:\s*/, "") : "";
+        const lastUserMsg = recentParts.find((p) => p.startsWith('[USER]'))
+        const correctionText = lastUserMsg ? lastUserMsg.replace(/^\[USER\]:\s*/, '') : ''
         if (correctionText) {
-          const directive = extractCorrectionDirective(correctionText);
-          const failureReason = "User corrected the agent";
-          const scopedProjectName = currentProjectStore ? currentProjectName?.trim() || null : null;
+          const directive = extractCorrectionDirective(correctionText)
+          const failureReason = 'User corrected the agent'
+          const scopedProjectName = currentProjectStore ? currentProjectName?.trim() || null : null
           const addResult = await store.addFailure(directive, {
-            category: "correction",
+            category: 'correction',
             failureReason,
-            project: scopedProjectName ?? undefined,
-          });
+            project: scopedProjectName ?? undefined
+          })
 
           if (addResult.success && dbManager) {
             try {
               syncMemoryEntry(dbManager, {
                 content: formatFailureMemoryContent(directive, {
-                  category: "correction",
+                  category: 'correction',
                   failureReason,
-                  project: scopedProjectName,
+                  project: scopedProjectName
                 }),
-                target: "failure",
+                target: 'failure',
                 project: scopedProjectName,
-                category: "correction",
-                failureReason,
-              });
+                category: 'correction',
+                failureReason
+              })
             } catch {
               // Best-effort — searchable sync should not block correction capture
             }
@@ -264,7 +253,7 @@ export function setupCorrectionDetector(
     } catch {
       // Best-effort — don't block the session
     } finally {
-      correctionInProgress = false;
+      correctionInProgress = false
     }
-  });
+  })
 }

@@ -394,14 +394,7 @@ registry 职责：
 
 ```ts
 type WorkerState =
-  | 'starting'
-  | 'ready'
-  | 'bound'
-  | 'busy'
-  | 'idle'
-  | 'stopping'
-  | 'exited'
-  | 'crashed'
+  'starting' | 'ready' | 'bound' | 'busy' | 'idle' | 'stopping' | 'exited' | 'crashed'
 
 type WorkerLease = {
   workerId: string
@@ -418,7 +411,10 @@ registry 接口：
 ```ts
 type ThreadWorkerRegistry = {
   acquireThreadWorker(input: StartThreadInput): Promise<WorkerLease>
-  releaseThreadWorker(threadId: string, reason: 'idle' | 'stop' | 'archive' | 'crash'): Promise<void>
+  releaseThreadWorker(
+    threadId: string,
+    reason: 'idle' | 'stop' | 'archive' | 'crash'
+  ): Promise<void>
   send(threadId: string, command: WorkerCommand): Promise<WorkerResponse>
   listLeases(): WorkerLease[]
   shutdown(): Promise<void>

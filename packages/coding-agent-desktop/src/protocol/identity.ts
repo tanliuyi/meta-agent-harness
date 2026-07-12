@@ -3,19 +3,19 @@
  */
 
 /** Thread ID 类型。 */
-export type ThreadId = string;
+export type ThreadId = string
 
 /** Worker ID 类型。 */
-export type WorkerId = string;
+export type WorkerId = string
 
 /** 请求 ID 类型。 */
-export type RequestId = string;
+export type RequestId = string
 
 /** Session 文件路径类型。 */
-export type SessionFile = string;
+export type SessionFile = string
 
 /** 工作目录路径类型。 */
-export type CwdPath = string;
+export type CwdPath = string
 
 /** ISO 8601 时间字符串类型。 */
-export type IsoTime = string;
+export type IsoTime = string

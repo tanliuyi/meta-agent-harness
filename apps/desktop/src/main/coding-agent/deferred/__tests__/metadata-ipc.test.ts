@@ -35,11 +35,15 @@ describe('registerLightweightMetadataIpc', () => {
       }
     })
 
-    await expect(invokeHandler<ProjectSummary[]>(ipc, codingAgentChannels.listProjects)).resolves.toEqual({
+    await expect(
+      invokeHandler<ProjectSummary[]>(ipc, codingAgentChannels.listProjects)
+    ).resolves.toEqual({
       ok: true,
       value: [project]
     })
-    await expect(invokeHandler<ThreadSummary[]>(ipc, codingAgentChannels.listThreads)).resolves.toEqual({
+    await expect(
+      invokeHandler<ThreadSummary[]>(ipc, codingAgentChannels.listThreads)
+    ).resolves.toEqual({
       ok: true,
       value: [thread]
     })
@@ -60,10 +64,7 @@ describe('registerLightweightMetadataIpc', () => {
     registration.dispose()
     registration.dispose()
 
-    expect(ipc.removed).toEqual([
-      codingAgentChannels.listProjects,
-      codingAgentChannels.listThreads
-    ])
+    expect(ipc.removed).toEqual([codingAgentChannels.listProjects, codingAgentChannels.listThreads])
     expect(projectStore.close).toHaveBeenCalledTimes(1)
     expect(threadStore.close).toHaveBeenCalledTimes(1)
   })
@@ -139,10 +140,9 @@ describe('lightweight metadata readers', () => {
 
     try {
       const store = createLightweightThreadMetadataStore({ metadataPath })
-      expect(store.listThreads({ projectId: 'project-a' }).map((thread) => thread.threadId)).toEqual([
-        'thread-new',
-        'thread-old'
-      ])
+      expect(
+        store.listThreads({ projectId: 'project-a' }).map((thread) => thread.threadId)
+      ).toEqual(['thread-new', 'thread-old'])
       expect(
         store
           .listThreads({ projectId: 'project-a', archived: true })

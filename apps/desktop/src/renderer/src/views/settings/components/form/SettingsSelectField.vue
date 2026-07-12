@@ -154,5 +154,4 @@ function measureVirtualItem(refValue: Element | ComponentPublicInstance | null):
   left: 0;
   width: 100%;
 }
-
 </style>

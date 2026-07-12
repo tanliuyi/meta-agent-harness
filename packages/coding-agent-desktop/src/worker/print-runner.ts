@@ -7,45 +7,58 @@
 import { createInterface } from 'node:readline'
 import { type ImageContent, modelsAreEqual } from '@earendil-works/pi-ai'
 import chalk from 'chalk'
-import { type Args, type Mode, parseArgs, printHelp } from "@earendil-works/pi-coding-agent"
-import { processFileArguments } from "@earendil-works/pi-coding-agent"
-import { buildInitialMessage } from "@earendil-works/pi-coding-agent"
-import { listModels } from "@earendil-works/pi-coding-agent"
-import { ENV_SESSION_DIR, expandTildePath, getAgentDir, getPackageDir, VERSION } from "@earendil-works/pi-coding-agent"
+import { type Args, type Mode, parseArgs, printHelp } from '@earendil-works/pi-coding-agent'
+import { processFileArguments } from '@earendil-works/pi-coding-agent'
+import { buildInitialMessage } from '@earendil-works/pi-coding-agent'
+import { listModels } from '@earendil-works/pi-coding-agent'
+import {
+  ENV_SESSION_DIR,
+  expandTildePath,
+  getAgentDir,
+  getPackageDir,
+  VERSION
+} from '@earendil-works/pi-coding-agent'
 import {
   type CreateAgentSessionRuntimeFactory,
   createAgentSessionRuntime
-} from "@earendil-works/pi-coding-agent"
+} from '@earendil-works/pi-coding-agent'
 import {
   type AgentSessionRuntimeDiagnostic,
   createAgentSessionFromServices,
   createAgentSessionServices
-} from "@earendil-works/pi-coding-agent"
-import { formatNoModelsAvailableMessage } from "@earendil-works/pi-coding-agent"
-import { AuthStorage } from "@earendil-works/pi-coding-agent"
-import { exportFromFile } from "@earendil-works/pi-coding-agent"
-import type { ProjectTrustContext } from "@earendil-works/pi-coding-agent"
-import { applyHttpProxySettings, configureHttpDispatcher } from "@earendil-works/pi-coding-agent"
-import type { ModelRegistry } from "@earendil-works/pi-coding-agent"
-import { resolveCliModel, resolveModelScope, type ScopedModel } from "@earendil-works/pi-coding-agent"
-import { restoreStdout, takeOverStdout } from "@earendil-works/pi-coding-agent"
-import { type AppMode, resolveProjectTrusted } from "@earendil-works/pi-coding-agent"
-import type { CreateAgentSessionOptions } from "@earendil-works/pi-coding-agent"
+} from '@earendil-works/pi-coding-agent'
+import { formatNoModelsAvailableMessage } from '@earendil-works/pi-coding-agent'
+import { AuthStorage } from '@earendil-works/pi-coding-agent'
+import { exportFromFile } from '@earendil-works/pi-coding-agent'
+import type { ProjectTrustContext } from '@earendil-works/pi-coding-agent'
+import { applyHttpProxySettings, configureHttpDispatcher } from '@earendil-works/pi-coding-agent'
+import type { ModelRegistry } from '@earendil-works/pi-coding-agent'
+import {
+  resolveCliModel,
+  resolveModelScope,
+  type ScopedModel
+} from '@earendil-works/pi-coding-agent'
+import { restoreStdout, takeOverStdout } from '@earendil-works/pi-coding-agent'
+import { type AppMode, resolveProjectTrusted } from '@earendil-works/pi-coding-agent'
+import type { CreateAgentSessionOptions } from '@earendil-works/pi-coding-agent'
 import {
   formatMissingSessionCwdPrompt,
   getMissingSessionCwdIssue,
   MissingSessionCwdError
-} from "@earendil-works/pi-coding-agent"
-import { assertValidSessionId, SessionManager } from "@earendil-works/pi-coding-agent"
-import { SettingsManager } from "@earendil-works/pi-coding-agent"
-import { printTimings, resetTimings, time } from "@earendil-works/pi-coding-agent"
-import { hasTrustRequiringProjectResources, ProjectTrustStore } from "@earendil-works/pi-coding-agent"
-import { runMigrations } from "@earendil-works/pi-coding-agent"
-import { runPrintMode } from "@earendil-works/pi-coding-agent"
-import { runRpcMode } from "@earendil-works/pi-coding-agent"
-import { handleConfigCommand, handlePackageCommand } from "@earendil-works/pi-coding-agent"
-import { isLocalPath, normalizePath, resolvePath } from "@earendil-works/pi-coding-agent"
-import { cleanupWindowsSelfUpdateQuarantine } from "@earendil-works/pi-coding-agent"
+} from '@earendil-works/pi-coding-agent'
+import { assertValidSessionId, SessionManager } from '@earendil-works/pi-coding-agent'
+import { SettingsManager } from '@earendil-works/pi-coding-agent'
+import { printTimings, resetTimings, time } from '@earendil-works/pi-coding-agent'
+import {
+  hasTrustRequiringProjectResources,
+  ProjectTrustStore
+} from '@earendil-works/pi-coding-agent'
+import { runMigrations } from '@earendil-works/pi-coding-agent'
+import { runPrintMode } from '@earendil-works/pi-coding-agent'
+import { runRpcMode } from '@earendil-works/pi-coding-agent'
+import { handleConfigCommand, handlePackageCommand } from '@earendil-works/pi-coding-agent'
+import { isLocalPath, normalizePath, resolvePath } from '@earendil-works/pi-coding-agent'
+import { cleanupWindowsSelfUpdateQuarantine } from '@earendil-works/pi-coding-agent'
 
 const EXTENSION_LOAD_FAILURE_HINT = 'Hint: Start without extensions using "pi -ne".'
 

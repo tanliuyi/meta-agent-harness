@@ -25,12 +25,7 @@ onMounted(() => {
         <h1>扩展</h1>
         <p>查看已发现扩展，并管理包来源与本地扩展路径。</p>
       </div>
-      <RouterLink
-        v-for="link in links"
-        :key="link.to"
-        class="extensions-shell__link"
-        :to="link.to"
-      >
+      <RouterLink v-for="link in links" :key="link.to" class="extensions-shell__link" :to="link.to">
         {{ link.label }}
       </RouterLink>
     </ScrollArea>

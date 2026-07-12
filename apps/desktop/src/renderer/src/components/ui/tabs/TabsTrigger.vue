@@ -12,11 +12,7 @@ const forwardedProps = useForwardProps(delegatedProps)
 </script>
 
 <template>
-  <TabsTrigger
-    data-slot="tabs-trigger"
-    :class="props.class"
-    v-bind="forwardedProps"
-  >
+  <TabsTrigger data-slot="tabs-trigger" :class="props.class" v-bind="forwardedProps">
     <slot />
   </TabsTrigger>
 </template>

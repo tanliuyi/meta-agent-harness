@@ -83,11 +83,13 @@ describe('thread-runtime-controls', () => {
       sendOk: vi.fn().mockRejectedValue(new Error('worker has no bound thread'))
     } as unknown as ThreadManagerCore
 
-    await expect(sendExtensionPanelMessage(core, {
-      threadId: 'thread-a',
-      panelId: 'memory',
-      message: { type: 'hermes.add' }
-    })).rejects.toThrow('worker has no bound thread')
+    await expect(
+      sendExtensionPanelMessage(core, {
+        threadId: 'thread-a',
+        panelId: 'memory',
+        message: { type: 'hermes.add' }
+      })
+    ).rejects.toThrow('worker has no bound thread')
   })
 
   it('optional panel lifecycle 命令仍忽略未绑定 thread 错误', async () => {
@@ -95,10 +97,12 @@ describe('thread-runtime-controls', () => {
       sendOk: vi.fn().mockRejectedValue(new Error('worker has no bound thread'))
     } as unknown as ThreadManagerCore
 
-    await expect(sendExtensionPanelLifecycleEvent(core, {
-      threadId: 'thread-a',
-      event: { type: 'viewStateChanged', panelId: 'memory', visible: true, active: true }
-    })).resolves.toBeUndefined()
+    await expect(
+      sendExtensionPanelLifecycleEvent(core, {
+        threadId: 'thread-a',
+        event: { type: 'viewStateChanged', panelId: 'memory', visible: true, active: true }
+      })
+    ).resolves.toBeUndefined()
   })
 
   it('UI 响应使用可解除 lifecycle 等待的交互通道', async () => {

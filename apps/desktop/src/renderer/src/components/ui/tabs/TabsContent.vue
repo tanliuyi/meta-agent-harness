@@ -6,7 +6,7 @@ import { TabsContent } from 'reka-ui'
 
 const props = defineProps<TabsContentProps & { class?: HTMLAttributes['class'] }>()
 
-const delegatedProps = reactiveOmit(props, "class")
+const delegatedProps = reactiveOmit(props, 'class')
 </script>
 
 <template>

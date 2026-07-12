@@ -1,29 +1,29 @@
-import type { DatabaseManager } from '../store/db.js';
-import { indexLiveSession } from '../store/session-indexer.js';
+import type { DatabaseManager } from '../store/db.js'
+import { indexLiveSession } from '../store/session-indexer.js'
 
-export const SESSION_LIVE_INDEX_DELAY_MS = 50;
-export const SESSION_LIVE_INDEX_SHUTDOWN_TIMEOUT_MS = 5000;
+export const SESSION_LIVE_INDEX_DELAY_MS = 50
+export const SESSION_LIVE_INDEX_SHUTDOWN_TIMEOUT_MS = 5000
 
-type SetTimeoutFn = (callback: () => void, ms: number) => unknown;
+type SetTimeoutFn = (callback: () => void, ms: number) => unknown
 
-type SessionManagerSnapshot = Parameters<typeof indexLiveSession>[1];
+type SessionManagerSnapshot = Parameters<typeof indexLiveSession>[1]
 
 export interface SessionLiveIndexState {
-  inProgress: boolean;
-  promise: Promise<void> | null;
+  inProgress: boolean
+  promise: Promise<void> | null
 }
 
 export const sessionLiveIndexState: SessionLiveIndexState = {
   inProgress: false,
-  promise: null,
-};
+  promise: null
+}
 
 export interface ScheduleLiveSessionIndexOptions {
-  state?: SessionLiveIndexState;
-  setTimeoutFn?: SetTimeoutFn;
-  indexLiveSessionFn?: typeof indexLiveSession;
-  delayMs?: number;
-  onError?: (error: unknown) => void;
+  state?: SessionLiveIndexState
+  setTimeoutFn?: SetTimeoutFn
+  indexLiveSessionFn?: typeof indexLiveSession
+  delayMs?: number
+  onError?: (error: unknown) => void
 }
 
 /**
@@ -37,55 +37,59 @@ export interface ScheduleLiveSessionIndexOptions {
 export function scheduleLiveSessionIndex(
   dbManager: DatabaseManager,
   sessionManager: SessionManagerSnapshot,
-  options: ScheduleLiveSessionIndexOptions = {},
+  options: ScheduleLiveSessionIndexOptions = {}
 ): boolean {
-  const state = options.state ?? sessionLiveIndexState;
+  const state = options.state ?? sessionLiveIndexState
   if (state.inProgress) {
-    return false;
+    return false
   }
 
-  const setTimeoutFn = options.setTimeoutFn ?? setTimeout;
-  const indexLiveSessionFn = options.indexLiveSessionFn ?? indexLiveSession;
-  const delayMs = options.delayMs ?? SESSION_LIVE_INDEX_DELAY_MS;
+  const setTimeoutFn = options.setTimeoutFn ?? setTimeout
+  const indexLiveSessionFn = options.indexLiveSessionFn ?? indexLiveSession
+  const delayMs = options.delayMs ?? SESSION_LIVE_INDEX_DELAY_MS
 
-  state.inProgress = true;
+  state.inProgress = true
   state.promise = new Promise<void>((resolve) => {
     setTimeoutFn(() => {
       try {
         dbManager.withCorruptionRecovery(() => {
-          indexLiveSessionFn(dbManager, sessionManager);
-        });
+          indexLiveSessionFn(dbManager, sessionManager)
+        })
       } catch (err) {
-        try { options.onError?.(err); } catch { /* best effort */ }
+        try {
+          options.onError?.(err)
+        } catch {
+          /* best effort */
+        }
       } finally {
-        state.inProgress = false;
-        state.promise = null;
-        resolve();
+        state.inProgress = false
+        state.promise = null
+        resolve()
       }
-    }, delayMs);
-  });
+    }, delayMs)
+  })
 
-  return true;
+  return true
 }
 
 export async function waitForLiveSessionIndex(
   timeoutMs = SESSION_LIVE_INDEX_SHUTDOWN_TIMEOUT_MS,
-  state: SessionLiveIndexState = sessionLiveIndexState,
+  state: SessionLiveIndexState = sessionLiveIndexState
 ): Promise<boolean> {
-  const promise = state.promise;
+  const promise = state.promise
   if (!state.inProgress || !promise) {
-    return true;
+    return true
   }
 
-  let timeout: ReturnType<typeof setTimeout> | undefined;
+  let timeout: ReturnType<typeof setTimeout> | undefined
   try {
     return await Promise.race([
       promise.then(() => true),
       new Promise<boolean>((resolve) => {
-        timeout = setTimeout(() => resolve(false), timeoutMs);
-      }),
-    ]);
+        timeout = setTimeout(() => resolve(false), timeoutMs)
+      })
+    ])
   } finally {
-    if (timeout) clearTimeout(timeout);
+    if (timeout) clearTimeout(timeout)
   }
 }
