@@ -665,7 +665,7 @@ describe('CodingThreadStore', () => {
     rmSync(root, { recursive: true, force: true })
   })
 
-  it('compact 后 running worker snapshot 保留 JSONL 完整 timeline', async () => {
+  it('compact 进行中 running worker snapshot 保留 JSONL 完整 timeline', async () => {
     const root = createTempDir()
     const cwd = join(root, 'repo')
     const sessionDir = join(root, 'sessions')
@@ -1499,7 +1499,7 @@ function createCompactedLiveProjectionRegistry(
             cwd,
             thinkingLevel: 'medium',
             isStreaming: false,
-            isCompacting: false
+            isCompacting: true
           }
         }
       }

@@ -1023,10 +1023,15 @@ function selectRenderableProjection(input: {
   persistedProjection: RenderableProjection | undefined
   liveState: Partial<ThreadLiveState>
 }): RenderableProjection | LiveRenderableProjection | undefined {
-  if (input.liveState.isStreaming || input.liveState.isCompacting) {
+  if (input.liveState.isStreaming) {
     return hasRenderableMessages(input.liveProjection)
       ? input.liveProjection
       : input.persistedProjection
+  }
+  if (input.liveState.isCompacting) {
+    return hasRenderableMessages(input.persistedProjection)
+      ? input.persistedProjection
+      : input.liveProjection
   }
   if (!hasRenderableMessages(input.persistedProjection)) {
     return hasRenderableMessages(input.liveProjection) ? input.liveProjection : undefined
