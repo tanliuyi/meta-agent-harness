@@ -6,6 +6,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
+import { detectProject } from '@meta-agent/hermes-memory/project.js'
 import { AgentSettingsService } from '../agent-settings-service'
 
 const tempDirs: string[] = []
@@ -15,6 +16,59 @@ describe('AgentSettingsService', () => {
     for (const dir of tempDirs.splice(0)) {
       rmSync(dir, { recursive: true, force: true })
     }
+  })
+
+  it('资源快照包含 Desktop 内置 Hermes Memory 扩展的技能', async () => {
+    const dir = createTempDir()
+    const agentDir = join(dir, 'agent')
+    const skillDir = join(agentDir, 'pi-hermes-memory', 'skills', 'review-memory')
+    mkdirSync(skillDir, { recursive: true })
+    writeFileSync(
+      join(skillDir, 'SKILL.md'),
+      '---\nname: review-memory\ndescription: Review durable memory\n---\n\n# Review Memory\n'
+    )
+    const projectDir = join(dir, 'project')
+    mkdirSync(projectDir, { recursive: true })
+    const projectId = detectProject(undefined, projectDir).id
+    const projectSkillDir = join(
+      agentDir,
+      'projects-memory',
+      projectId!,
+      'skills',
+      'project-review'
+    )
+    mkdirSync(projectSkillDir, { recursive: true })
+    writeFileSync(
+      join(projectSkillDir, 'SKILL.md'),
+      '---\nname: project-review\ndescription: Review this project\n---\n\n# Project Review\n'
+    )
+    const service = new AgentSettingsService({ agentDir, cwd: dir })
+
+    const snapshot = await service.getResourceSnapshot({ cwd: projectDir, projectTrusted: true })
+
+    expect(snapshot.skillCommands).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          name: 'skill:review-memory',
+          description: 'Review durable memory',
+          source: 'skill',
+          sourceInfo: expect.objectContaining({
+            path: join(skillDir, 'SKILL.md'),
+            source: '@meta-agent/hermes-memory',
+            scope: 'user'
+          })
+        }),
+        expect.objectContaining({
+          name: 'skill:project-review',
+          description: 'Review this project',
+          sourceInfo: expect.objectContaining({
+            path: join(projectSkillDir, 'SKILL.md'),
+            source: '@meta-agent/hermes-memory',
+            scope: 'project'
+          })
+        })
+      ])
+    )
   })
 
   it('通过 SettingsManager 写入 Pi-compatible settings.json', async () => {

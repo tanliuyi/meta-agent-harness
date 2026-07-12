@@ -2118,7 +2118,7 @@ describe('workspace-session Project-first actions', () => {
     expectLastSessionNotification(store, '已切换模型到 openai/gpt-5')
   })
 
-  it('新会话草稿态加载 command 只发现资源不创建 thread，运行 command 时才创建', async () => {
+  it('选择 Project 后自动发现新会话资源且不创建 thread', async () => {
     const snapshot = {
       ...createSnapshot(),
       threadId: 'thread-new'
@@ -2183,7 +2183,9 @@ describe('workspace-session Project-first actions', () => {
     const store = useWorkspaceSessionStore()
     store.startNewSession('project-a')
 
-    await store.loadCommands()
+    await vi.waitFor(() => {
+      expect(store.activeCommandsLoaded).toBe(true)
+    })
 
     expect(createThread).not.toHaveBeenCalled()
     expect(getCommands).not.toHaveBeenCalled()
@@ -3127,6 +3129,63 @@ describe('workspace-session Project-first actions', () => {
     ])
   })
 
+  it('自动压缩结束后需要重试时保持 running 并刷新 snapshot', async () => {
+    const initialSnapshot = createSnapshot()
+    const compactedSnapshot: ThreadSnapshot = {
+      ...createSnapshot(),
+      status: 'running',
+      messages: [
+        ...initialSnapshot.messages,
+        {
+          id: 'message-compaction',
+          role: 'system',
+          text: 'compressed summary',
+          raw: { role: 'compactionSummary', summary: 'compressed summary' } as never,
+          systemEvent: { kind: 'compaction', title: '上下文已压缩' }
+        }
+      ]
+    }
+    const getSnapshot = vi.fn().mockResolvedValue(compactedSnapshot)
+    installCodingAgentApi({ getSnapshot })
+    const store = useWorkspaceSessionStore()
+    store.sessions['thread-a'] = snapshotToWorkspaceSession(initialSnapshot)
+    await store.setActiveSessionId('thread-a')
+    getSnapshot.mockClear()
+
+    capturedEventListener?.({
+      type: 'compaction_start',
+      threadId: 'thread-a',
+      reason: 'overflow'
+    })
+    capturedEventListener?.({
+      type: 'compaction_end',
+      threadId: 'thread-a',
+      reason: 'overflow',
+      result: {
+        summary: 'compressed',
+        firstKeptEntryId: 'message-a',
+        tokensBefore: 120000,
+        estimatedTokensAfter: 16000
+      },
+      aborted: false,
+      willRetry: true
+    })
+
+    expect(store.activeCompactionState).toMatchObject({
+      reason: 'overflow',
+      running: false,
+      aborted: false,
+      willRetry: true
+    })
+    expect(store.activeSession?.status).toBe('running')
+    expect(store.activeSnapshot?.status).toBe('running')
+    expect(getSnapshot).toHaveBeenCalledWith('thread-a')
+    await vi.waitFor(() => {
+      expect(store.activeSnapshot?.messages.at(-1)?.systemEvent?.kind).toBe('compaction')
+    })
+    expect(store.activeSession?.status).toBe('running')
+  })
+
   it('暴露 new、import 和 switch session 操作', async () => {
     const newSnapshot = {
       ...createSnapshot(),
@@ -3984,6 +4043,68 @@ describe('workspace-session Project-first actions', () => {
     })
     expect(frameCallbacks.size).toBe(0)
     expect(cancelAnimationFrame).toHaveBeenCalledTimes(1)
+  })
+
+  it('切换到 live session 刷新 snapshot 时保留流式 assistant 消息', async () => {
+    vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
+      callback(0)
+      return 1
+    })
+    vi.stubGlobal('cancelAnimationFrame', vi.fn())
+    const persistedUser = {
+      id: 'message-0',
+      role: 'user' as const,
+      text: 'stream a long answer',
+      raw: { role: 'user', content: 'stream a long answer' } as never,
+      createdAt: '2026-07-01T00:00:00.000Z'
+    }
+    const getSnapshot = vi.fn().mockResolvedValue({
+      ...createSnapshot(),
+      // Registry metadata can lag canonical live events during the switch.
+      status: 'idle',
+      messages: [persistedUser]
+    })
+    installCodingAgentApi({ getSnapshot })
+    const store = useWorkspaceSessionStore()
+
+    capturedEventListener?.({
+      type: 'threadSnapshot',
+      threadId: 'thread-a',
+      snapshot: {
+        ...createSnapshot(),
+        status: 'running',
+        messages: [persistedUser]
+      }
+    })
+    capturedEventListener?.({
+      type: 'message_update',
+      threadId: 'thread-a',
+      message: createAssistantMessage('partial live tokens', fixtureTimestamp + 1),
+      assistantMessageEvent: {
+        type: 'text_delta',
+        contentIndex: 0,
+        delta: 'partial live tokens',
+        partial: createAssistantMessage('partial live tokens', fixtureTimestamp + 1)
+      }
+    })
+
+    const streamingMessage = store.sessions['thread-a']?.snapshot?.messages.at(-1)
+    expect(streamingMessage).toMatchObject({
+      role: 'assistant',
+      text: 'partial live tokens'
+    })
+    expect(store.getMessageRenderState('thread-a', streamingMessage!.id).renderState).toBe(
+      'streaming'
+    )
+
+    await store.setActiveSessionId('thread-a')
+
+    expect(getSnapshot).toHaveBeenCalledWith('thread-a')
+    expect(store.activeSnapshot?.messages).toHaveLength(2)
+    expect(store.activeSnapshot?.messages.at(-1)).toBe(streamingMessage)
+    expect(store.getMessageRenderState('thread-a', streamingMessage!.id).renderState).toBe(
+      'streaming'
+    )
   })
 
   it('从具名 assistant toolCall message_update 第一时间同步工具结构', async () => {

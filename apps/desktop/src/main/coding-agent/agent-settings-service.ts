@@ -8,7 +8,10 @@
 
 import { app } from 'electron'
 import { readFile } from 'node:fs/promises'
-import { basename, dirname, extname, join } from 'node:path'
+import { basename, dirname, extname, join, resolve } from 'node:path'
+import { loadConfig as loadHermesMemoryConfig } from '@meta-agent/hermes-memory/config.js'
+import { detectProject } from '@meta-agent/hermes-memory/project.js'
+import { SkillStore as HermesMemorySkillStore } from '@meta-agent/hermes-memory/store/skill-store.js'
 import {
   SettingsManager,
   type PackageSource,
@@ -33,6 +36,7 @@ import type {
   ProjectExtensionPathsInput,
   ResourceSnapshotInput,
   ResourceSnapshot,
+  ResourceSkillCommandInfo,
   UpdateResourcePackageInput,
   UpdateProjectExtensionPathsInput,
   UpdateAgentSettingsInput
@@ -116,7 +120,7 @@ export class AgentSettingsService {
         settingsManager,
         packageManager
       })
-      return this.withSkillCommands(snapshot)
+      return this.withSkillCommands(snapshot, input.cwd)
     }
     snapshot = await buildResourcesSnapshot({
       cwd: this.cwd,
@@ -124,7 +128,7 @@ export class AgentSettingsService {
       settingsManager: this.settingsManager,
       packageManager: this.packageManager
     })
-    return this.withSkillCommands(snapshot)
+    return this.withSkillCommands(snapshot, this.cwd)
   }
 
   /** 获取项目级 extension 路径配置。 */
@@ -279,8 +283,11 @@ export class AgentSettingsService {
     }
   }
 
-  private async withSkillCommands(snapshot: ResourceSnapshot): Promise<ResourceSnapshot> {
-    const skillCommands = await Promise.all(
+  private async withSkillCommands(
+    snapshot: ResourceSnapshot,
+    cwd: string
+  ): Promise<ResourceSnapshot> {
+    const discoveredSkillCommands: ResourceSkillCommandInfo[] = await Promise.all(
       snapshot.resources.skills
         .filter((skill) => skill.enabled)
         .map(async (skill) => {
@@ -293,10 +300,58 @@ export class AgentSettingsService {
           }
         })
     )
+    const skillCommands = new Map<string, ResourceSkillCommandInfo>(
+      discoveredSkillCommands.map((command) => [command.name, command])
+    )
+    const discoveredSkillNames = new Set(skillCommands.keys())
+    for (const command of await this.getHermesMemorySkillCommands(cwd)) {
+      if (!discoveredSkillNames.has(command.name)) {
+        skillCommands.set(command.name, command)
+      }
+    }
     return {
       ...snapshot,
-      skillCommands
+      skillCommands: [...skillCommands.values()]
     }
+  }
+
+  /** 获取 Desktop 内置 Hermes Memory 扩展通过 resources_discover 注入的技能。 */
+  private async getHermesMemorySkillCommands(cwd: string): Promise<ResourceSkillCommandInfo[]> {
+    const config = loadHermesMemoryConfig(join(this.agentDir, 'hermes-memory-config.json'))
+    const legacyGlobalDir = join(this.agentDir, 'memory')
+    const configuredMemoryDir = config.memoryDir?.trim()
+    const globalDir =
+      configuredMemoryDir && resolve(configuredMemoryDir) !== resolve(legacyGlobalDir)
+        ? configuredMemoryDir
+        : join(this.agentDir, 'pi-hermes-memory')
+    const project = detectProject(config.projectsMemoryDir, cwd)
+    const projectSkillsDir = project.id
+      ? join(this.agentDir, config.projectsMemoryDir ?? 'projects-memory', project.id, 'skills')
+      : null
+    const skillStore = new HermesMemorySkillStore({
+      globalSkillsDir: join(globalDir, 'skills'),
+      projectSkillsDir,
+      projectName: project.id,
+      legacySkillsDir: join(legacyGlobalDir, 'skills'),
+      legacyPiGlobalSkillsDir: join(this.agentDir, 'skills'),
+      migrationSentinelPath: join(globalDir, '.skills-migrated-to-extension-storage')
+    })
+    const skills = await skillStore.loadIndex()
+    skills.sort(
+      (left, right) => Number(left.scope === 'project') - Number(right.scope === 'project')
+    )
+    return skills.map((skill) => ({
+      name: `skill:${skill.name}`,
+      description: skill.description,
+      source: 'skill',
+      sourceInfo: {
+        path: skill.path,
+        source: '@meta-agent/hermes-memory',
+        scope: skill.scope === 'global' ? 'user' : 'project',
+        origin: 'top-level',
+        baseDir: dirname(skill.path)
+      }
+    }))
   }
 
   private createProjectSettingsManager(cwd: string): SettingsManager {

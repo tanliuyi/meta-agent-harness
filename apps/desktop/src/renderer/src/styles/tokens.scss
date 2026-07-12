@@ -72,18 +72,10 @@
     var(--color-primary) 10%,
     var(--color-border-muted)
   );
-  --color-diff-added-bg: color-mix(in srgb, var(--color-success) 10%, transparent);
-  --color-diff-added-gutter-bg: color-mix(
-    in srgb,
-    var(--color-success) 14%,
-    var(--color-surface-raised)
-  );
-  --color-diff-removed-bg: color-mix(in srgb, var(--color-danger) 10%, transparent);
-  --color-diff-removed-gutter-bg: color-mix(
-    in srgb,
-    var(--color-danger) 14%,
-    var(--color-surface-raised)
-  );
+  --color-diff-added-bg: #dafbe1;
+  --color-diff-added-gutter-bg: #aceebb;
+  --color-diff-removed-bg: #ffebe9;
+  --color-diff-removed-gutter-bg: #ffcecb;
 
   // ui
   --session-panel-actions-width: 36px;
@@ -198,4 +190,9 @@
   --shadow-lg: 0 16px 40px rgb(0 0 0 / 55%);
   --shadow-focus: 0 0 0 3px rgb(122 166 200 / 20%);
   --shadow-primary-halo: 0 0 0 1px var(--color-primary-halo);
+
+  --color-diff-added-bg: #15321f;
+  --color-diff-added-gutter-bg: #1c4228;
+  --color-diff-removed-bg: #3c1618;
+  --color-diff-removed-gutter-bg: #4a1b1d;
 }

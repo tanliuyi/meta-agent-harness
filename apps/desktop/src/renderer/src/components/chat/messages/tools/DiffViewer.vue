@@ -219,10 +219,10 @@ onBeforeUnmount(() => {
   --diff-text: var(--color-text);
   --diff-muted: var(--color-text-muted);
   --diff-line-hover-bg: color-mix(in srgb, var(--color-text) 4%, var(--color-surface));
-  --diff-added-bg: color-mix(in srgb, var(--color-success) 6%, var(--color-surface));
-  --diff-added-gutter-bg: color-mix(in srgb, var(--color-success) 11%, var(--color-surface));
-  --diff-removed-bg: color-mix(in srgb, var(--color-danger) 6%, var(--color-surface));
-  --diff-removed-gutter-bg: color-mix(in srgb, var(--color-danger) 11%, var(--color-surface));
+  --diff-added-bg: var(--color-diff-added-bg);
+  --diff-added-gutter-bg: var(--color-diff-added-gutter-bg);
+  --diff-removed-bg: var(--color-diff-removed-bg);
+  --diff-removed-gutter-bg: var(--color-diff-removed-gutter-bg);
   --diff-skipped-fg: var(--diff-muted);
 
   box-sizing: border-box;

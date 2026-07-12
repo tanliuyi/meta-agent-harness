@@ -419,6 +419,7 @@ export default defineStore('workspace-session', () => {
 
   /** 是否正在加载 thread 列表。 */
   const loadingThreads = ref(false)
+  const orphanCommandsRequestGenerationByContextId: Record<string, number> = {}
 
   /** 所有会话数据。 */
   const sessions = shallowReactive<Record<string, WorkspaceSession>>({})
@@ -868,13 +869,16 @@ export default defineStore('workspace-session', () => {
     const context = ensureSessionContext(contextId)
     context.activeThreadId = undefined
     writeSessionActiveThreadId(undefined, contextId)
-    if (context.selectedProjectId !== projectId) {
-      context.orphanCommands = []
-      context.orphanCommandsLoaded = false
-    }
+    context.orphanCommands = []
+    context.orphanCommandsLoaded = false
     context.selectedProjectId = projectId
     workspaceProject.setActiveProjectId(projectId)
     globalErrorMessage.value = undefined
+    if (workspaceProject.projects[projectId]) {
+      const generation = (orphanCommandsRequestGenerationByContextId[contextId] ?? 0) + 1
+      orphanCommandsRequestGenerationByContextId[contextId] = generation
+      void loadOrphanCommands(contextId, generation)
+    }
   }
 
   /**
@@ -1122,10 +1126,13 @@ export default defineStore('workspace-session', () => {
 
   /**
    * 从完整快照同步消息渲染状态。
-   * 所有消息标记为完成态；新消息初始化为版本 1。
    * @param snapshot - 线程快照。
+   * @param streamingMessageIds - snapshot 刷新期间从 renderer live 投影保留的消息 ID。
    */
-  function syncRenderStateFromSnapshot(snapshot: ThreadSnapshot): void {
+  function syncRenderStateFromSnapshot(
+    snapshot: ThreadSnapshot,
+    streamingMessageIds: ReadonlySet<string> = new Set()
+  ): void {
     const runtime = ensureRuntime(snapshot.threadId)
     const messageIds = new Set(snapshot.messages.map((message) => message.id))
     for (const messageId of Object.keys(runtime.renderState)) {
@@ -1136,7 +1143,7 @@ export default defineStore('workspace-session', () => {
     for (const message of snapshot.messages) {
       runtime.renderState[message.id] = {
         revision: runtime.renderState[message.id]?.revision ?? 1,
-        renderState: 'complete'
+        renderState: streamingMessageIds.has(message.id) ? 'streaming' : 'complete'
       }
     }
   }
@@ -1603,8 +1610,14 @@ export default defineStore('workspace-session', () => {
     runtime.loadingSnapshot = true
     runtime.errorMessage = undefined
     try {
-      const snapshot = await window.api.codingAgent.getSnapshot(threadId)
+      const incomingSnapshot = await window.api.codingAgent.getSnapshot(threadId)
       const existing = sessions[threadId]
+      const streamingMessageIds = getStreamingMessageIds(runtime)
+      const snapshot = preserveStreamingMessages(
+        existing?.snapshot,
+        incomingSnapshot,
+        streamingMessageIds
+      )
       const summary = snapshotToSummary(snapshot)
       mergeSession(sessions, {
         ...(existing ?? snapshotToSession(snapshot)),
@@ -1615,7 +1628,7 @@ export default defineStore('workspace-session', () => {
       })
       syncToolCallsByIdFromSnapshot(snapshot)
       syncPendingInteractionsFromSnapshot(snapshot)
-      syncRenderStateFromSnapshot(snapshot)
+      syncRenderStateFromSnapshot(snapshot, streamingMessageIds)
     } catch (error) {
       runtime.errorMessage = error instanceof Error ? error.message : String(error)
     } finally {
@@ -1665,8 +1678,11 @@ export default defineStore('workspace-session', () => {
    * 在新会话草稿态按 Project 发现可展示的 extension commands。
    * 该路径只读取 resource snapshot，不创建 thread / session。
    */
-  const loadOrphanCommands = async (): Promise<void> => {
-    const context = mainContext.value
+  const loadOrphanCommands = async (
+    contextId = defaultSessionContextId,
+    generation = orphanCommandsRequestGenerationByContextId[contextId]
+  ): Promise<void> => {
+    const context = ensureSessionContext(contextId)
     const projectId = context.selectedProjectId
     const project = projectId ? workspaceProject.projects[projectId] : undefined
     if (!project) {
@@ -1697,6 +1713,13 @@ export default defineStore('workspace-session', () => {
             source: 'skill' as const,
             sourceInfo: skill.sourceInfo
           }))
+      if (
+        context.activeThreadId ||
+        context.selectedProjectId !== projectId ||
+        orphanCommandsRequestGenerationByContextId[contextId] !== generation
+      ) {
+        return
+      }
       context.orphanCommands = mergeCommandInfos(
         getBuiltinCommandInfos(),
         extensionCommands,
@@ -1704,9 +1727,17 @@ export default defineStore('workspace-session', () => {
       )
       context.orphanCommandsLoaded = true
     } catch (error) {
-      globalErrorMessage.value = error instanceof Error ? error.message : String(error)
+      if (
+        !context.activeThreadId &&
+        context.selectedProjectId === projectId &&
+        orphanCommandsRequestGenerationByContextId[contextId] === generation
+      ) {
+        globalErrorMessage.value = error instanceof Error ? error.message : String(error)
+      }
     } finally {
-      context.orphanCommandsLoading = false
+      if (orphanCommandsRequestGenerationByContextId[contextId] === generation) {
+        context.orphanCommandsLoading = false
+      }
     }
   }
 
@@ -3362,8 +3393,8 @@ export default defineStore('workspace-session', () => {
           willRetry: event.willRetry,
           error: event.errorMessage
         }
-        // fix: compaction_end 是退出工作态的唯一边界，不能在 delay/summary 生成期间提前 idle。
-        if (sessions[threadId]) {
+        // overflow 压缩成功后可能立即重试；此时仍处于同一工作轮次，不能短暂切到 idle。
+        if (sessions[threadId] && !event.willRetry) {
           sessions[threadId] = applySessionStatus(sessions[threadId], 'idle')
         }
         pushSessionNotification(
@@ -3938,6 +3969,72 @@ function getModelLabel(model: { provider?: string; id?: string; displayName?: st
   if (model.displayName) return model.displayName
   if (model.provider && model.id) return `${model.provider}/${model.id}`
   return model.id ?? '未知模型'
+}
+
+function getStreamingMessageIds(runtime: WorkspaceSessionRuntime): Set<string> {
+  return new Set(
+    Object.entries(runtime.renderState)
+      .filter(([, state]) => state.renderState === 'streaming')
+      .map(([messageId]) => messageId)
+  )
+}
+
+/**
+ * Worker 的 get_messages 不包含尚未完成的 assistant。刷新 live session 时保留 renderer
+ * 已通过 canonical events 收到的 streaming 消息，避免切换会话后短暂丢失当前输出。
+ */
+function preserveStreamingMessages(
+  existing: ThreadSnapshot | undefined,
+  incoming: ThreadSnapshot,
+  streamingMessageIds: ReadonlySet<string>
+): ThreadSnapshot {
+  if (!existing || streamingMessageIds.size === 0) {
+    return incoming
+  }
+  const incomingTailTime = getLatestMessageTime(incoming.messages)
+  const preserved = existing.messages.filter(
+    (message) =>
+      streamingMessageIds.has(message.id) &&
+      isAtOrAfterMessageTime(message, incomingTailTime) &&
+      !incoming.messages.some((candidate) => isSameMessageSource(candidate, message))
+  )
+  return preserved.length > 0
+    ? { ...incoming, messages: [...incoming.messages, ...preserved] }
+    : incoming
+}
+
+function getLatestMessageTime(messages: ThreadSnapshot['messages']): number | undefined {
+  let latest: number | undefined
+  for (const message of messages) {
+    if (!message.createdAt) continue
+    const time = Date.parse(message.createdAt)
+    if (!Number.isNaN(time) && (latest === undefined || time > latest)) {
+      latest = time
+    }
+  }
+  return latest
+}
+
+function isAtOrAfterMessageTime(
+  message: ThreadSnapshot['messages'][number],
+  baseline: number | undefined
+): boolean {
+  if (baseline === undefined || !message.createdAt) {
+    return true
+  }
+  const time = Date.parse(message.createdAt)
+  return Number.isNaN(time) || time >= baseline
+}
+
+function isSameMessageSource(
+  left: ThreadSnapshot['messages'][number],
+  right: ThreadSnapshot['messages'][number]
+): boolean {
+  return (
+    left.id === right.id ||
+    (Boolean(left.sessionEntryId) && left.sessionEntryId === right.sessionEntryId) ||
+    (Boolean(left.createdAt) && left.role === right.role && left.createdAt === right.createdAt)
+  )
 }
 
 /**

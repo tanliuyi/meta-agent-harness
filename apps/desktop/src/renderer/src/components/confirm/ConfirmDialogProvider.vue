@@ -146,7 +146,6 @@ function handleOpenChange(open: boolean): void {
   gap: var(--space-1);
   padding: var(--space-4) var(--space-5) var(--space-4) calc(var(--space-5) + 14px);
   text-align: left;
-  background: var(--color-surface-raised);
   border-bottom: 1px solid var(--color-border);
 
   &::before {
