@@ -17,16 +17,17 @@ import {
   registerWebviewResourceScheme
 } from './coding-agent/webview-resource-protocol'
 import { normalizeAllowedExternalUrl } from './coding-agent/external-url'
-import {
-  createMainWindowNavigationTarget,
-  isMainWindowNavigationAllowed
-} from './window-security'
+import { createMainWindowNavigationTarget, isMainWindowNavigationAllowed } from './window-security'
 import { setupAutoUpdater } from './updater'
 // import { installIpcLogger } from 'electron-ipc-logger'
 
 const defaultWindowBounds = {
   width: 1920,
   height: 1080
+}
+const minimumWindowBounds = {
+  width: 960,
+  height: 640
 }
 const initialRendererHash = '/new'
 
@@ -62,6 +63,8 @@ function createWindow(): BrowserWindow {
     y: mainWindowState.y,
     width: mainWindowState.width,
     height: mainWindowState.height,
+    minWidth: minimumWindowBounds.width,
+    minHeight: minimumWindowBounds.height,
     show: false,
     autoHideMenuBar: true,
     ...(process.platform === 'darwin' ? {} : { icon }),

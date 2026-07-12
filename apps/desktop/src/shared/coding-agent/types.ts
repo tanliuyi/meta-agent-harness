@@ -329,6 +329,18 @@ export interface RevealResourcePathInput {
   mode?: 'open' | 'reveal'
 }
 
+/** 打开或定位 thread snapshot 中的变更文件。 */
+export interface OpenChangedFileInput extends ThreadIdInput {
+  /** 必须与可信 snapshot fileChanges 中的原始 path 完全匹配。 */
+  changePath: string
+  action: 'open' | 'reveal'
+}
+
+/** 变更文件启动结果，不回传本地路径。 */
+export interface OpenChangedFileResult {
+  action: OpenChangedFileInput['action']
+}
+
 /** 新建会话输入。 */
 export interface NewSessionInput extends ThreadIdInput {
   /** 父会话路径。 */
@@ -1467,6 +1479,8 @@ export interface CodingAgentApi {
   selectSessionFile(input?: SelectSessionFileInput): Promise<string | undefined>
   /** 在系统资源管理器中显示资源路径。 */
   revealResourcePath(input: RevealResourcePathInput): Promise<void>
+  /** 打开或定位当前 thread snapshot 中的变更文件。 */
+  openChangedFile(input: OpenChangedFileInput): Promise<OpenChangedFileResult>
   /** 补全 prompt 中的 Pi @file 文件引用。 */
   completeFileReference(input: FileReferenceCompletionInput): Promise<FileReferenceCompletionResult>
   /** 中止当前运行。 */

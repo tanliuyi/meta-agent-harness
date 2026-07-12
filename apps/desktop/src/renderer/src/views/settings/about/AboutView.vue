@@ -129,9 +129,16 @@ const capabilities = [
             max="100"
           />
         </div>
-        <p v-if="updater.state.value.releaseNotes" class="about-page__release-notes">
-          {{ updater.state.value.releaseNotes }}
-        </p>
+        <ScrollArea
+          v-if="updater.state.value.releaseNotes"
+          class="about-page__release-notes"
+          scrollbars="vertical"
+          :vertical-size="6"
+        >
+          <p class="about-page__release-notes-text">
+            {{ updater.state.value.releaseNotes }}
+          </p>
+        </ScrollArea>
       </section>
 
       <section class="about-page__capabilities" aria-labelledby="about-capabilities-title">
@@ -270,8 +277,15 @@ const capabilities = [
 
 .about-page__release-notes {
   max-height: 120px;
-  overflow: auto;
   margin: var(--space-3) 0 0;
+}
+
+.about-page__release-notes :deep([data-slot='scroll-area-viewport']) {
+  max-height: inherit;
+}
+
+.about-page__release-notes-text {
+  margin: 0;
   color: var(--color-text-muted);
   font-size: var(--font-size-ui-xs);
   line-height: 1.6;

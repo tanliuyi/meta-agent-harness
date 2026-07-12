@@ -1446,6 +1446,105 @@ describe('workspace-session Project-first actions', () => {
     expect(store.activeExtensionDialog?.id).toBe('dialog-live')
   })
 
+  it('inactive recovery snapshot 替换事件期 pending、streaming 与 tool/file projection', async () => {
+    const liveSnapshot: ThreadSnapshot = {
+      ...createSnapshot(),
+      messages: [
+        {
+          id: 'old-message',
+          role: 'assistant',
+          text: 'streaming old state',
+          raw: createAssistantMessage('streaming old state', fixtureTimestamp),
+          createdAt: '2026-07-12T00:00:00.000Z'
+        }
+      ],
+      toolCalls: [
+        {
+          threadId: 'thread-a',
+          toolCallId: 'old-tool',
+          toolName: 'bash',
+          status: 'running',
+          startedAt: '2026-07-12T00:00:00.000Z'
+        }
+      ],
+      approvals: [
+        {
+          approvalId: 'stale-approval',
+          threadId: 'thread-a',
+          action: 'bash',
+          risk: 'medium',
+          scope: 'once',
+          defaultAction: 'deny',
+          createdAt: '2026-07-12T00:00:00.000Z'
+        }
+      ],
+      extensionDialogs: [
+        { type: 'confirm', id: 'stale-dialog', title: 'Continue', message: 'Continue?' }
+      ]
+    }
+    const recoveredSnapshot: ThreadSnapshot = {
+      ...createSnapshot(),
+      messages: [
+        {
+          id: 'recovered-message',
+          role: 'user',
+          text: 'from JSONL',
+          raw: { role: 'user', content: 'from JSONL', timestamp: fixtureTimestamp },
+          createdAt: '2026-07-12T00:01:00.000Z'
+        }
+      ],
+      toolCalls: [
+        {
+          threadId: 'thread-a',
+          toolCallId: 'recovered-tool',
+          toolName: 'edit',
+          status: 'succeeded',
+          startedAt: '2026-07-12T00:01:00.000Z'
+        }
+      ],
+      fileChanges: [
+        {
+          threadId: 'thread-a',
+          path: 'src/app.ts',
+          changeType: 'updated',
+          additions: 1,
+          deletions: 1,
+          createdAt: '2026-07-12T00:01:00.000Z'
+        }
+      ],
+      approvals: [],
+      extensionDialogs: []
+    }
+    const getSnapshot = vi
+      .fn()
+      .mockResolvedValueOnce(liveSnapshot)
+      .mockResolvedValueOnce(recoveredSnapshot)
+    installCodingAgentApi({ getSnapshot })
+    const store = useWorkspaceSessionStore()
+    store.sessions['thread-a'] = snapshotToWorkspaceSession(createSnapshot())
+    await store.setActiveSessionId('thread-a')
+    store.runtimeByThreadId['thread-a']!.renderState['old-message'] = {
+      revision: 2,
+      renderState: 'streaming'
+    }
+
+    await store.refreshSnapshot('thread-a')
+
+    expect(store.activeSnapshot?.messages.map((message) => message.id)).toEqual([
+      'recovered-message'
+    ])
+    expect(store.activeSnapshot?.toolCalls.map((toolCall) => toolCall.toolCallId)).toEqual([
+      'recovered-tool'
+    ])
+    expect(store.activeSnapshot?.fileChanges.map((change) => change.path)).toEqual(['src/app.ts'])
+    expect(store.activePendingApprovals).toEqual({})
+    expect(store.activeExtensionDialog).toBeUndefined()
+    expect(store.runtimeByThreadId['thread-a']?.renderState['old-message']).toBeUndefined()
+    expect(store.getMessageRenderState('thread-a', 'recovered-message')).toMatchObject({
+      renderState: 'complete'
+    })
+  })
+
   it('右侧栏运行态只暴露 active thread 的审批与事件', async () => {
     const snapshotA = createSnapshot()
     const snapshotB = {

@@ -37,7 +37,10 @@ export async function createNodeSidecarWorkerClient(
     throw new Error(`coding agent node sidecar worker entry not found: ${workerEntry}`)
   }
   const nodeExecPath = options.nodeExecPath ?? resolveNodeSidecarExecPath()
-  const workerEnv = getCodingAgentWorkerEnv({ stripElectronRunAsNode: true })
+  const workerEnv = getCodingAgentWorkerEnv({
+    stripElectronRunAsNode: true,
+    executablePath: nodeExecPath
+  })
   // 扩展仍按标准 Pi 约定执行 `pi`。这里把 Desktop 私有 launcher 放到 worker
   // PATH 最前面，保证所有扩展统一回到同一个 sidecar，而不会探测或调用全局 Pi。
   const { env } = createDesktopPiCliShim({

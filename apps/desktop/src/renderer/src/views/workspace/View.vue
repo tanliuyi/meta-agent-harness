@@ -125,6 +125,13 @@ const workspaceGridAreas = computed(() => {
         <line x1="9" y1="3" x2="9" y2="21" />
       </svg>
     </BaseIconButton>
+    <button
+      v-if="workspaceUi.sidebarOpen"
+      type="button"
+      class="workspace__sidebar-backdrop"
+      aria-label="关闭工作区导航"
+      @click="workspaceUi.sidebarOpen = false"
+    />
     <Sidebar v-show="workspaceUi.sidebarOpen" class="workspace__sidebar" />
 
     <ResizablePaneSeparator
@@ -184,6 +191,10 @@ const workspaceGridAreas = computed(() => {
   grid-area: sidebar;
 }
 
+.workspace__sidebar-backdrop {
+  display: none;
+}
+
 .workspace__resizer {
   position: relative;
   z-index: 5;
@@ -202,10 +213,30 @@ const workspaceGridAreas = computed(() => {
     grid-template-areas: 'content';
   }
 
-  .workspace__sidebar,
   .workspace__resizer,
   .workspace__drag-strip {
     display: none;
+  }
+
+  .workspace__sidebar-backdrop {
+    position: fixed;
+    z-index: 29;
+    inset: 0;
+    display: block;
+    padding: 0;
+    background: rgba(0, 0, 0, 0.28);
+    border: 0;
+  }
+
+  .workspace__sidebar {
+    position: fixed;
+    z-index: 30;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    display: flex;
+    width: min(280px, calc(100vw - 32px));
+    box-shadow: 8px 0 24px rgba(0, 0, 0, 0.16);
   }
 
   .workspace__topbar {

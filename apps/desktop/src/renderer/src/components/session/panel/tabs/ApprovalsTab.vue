@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { BaseButton } from '@renderer/components/base'
 import {
   Dialog,
@@ -22,6 +22,8 @@ const workspaceSession = useWorkspaceSessionStore()
 const approvalScopeDrafts = ref<Record<string, ApprovalScope>>({})
 const activeApprovalId = ref<string>()
 const isApprovalDialogOpen = ref(false)
+const submittingApprovalId = ref<string>()
+const approvalError = ref<string>()
 
 const pendingApprovals = computed(() => Object.values(workspaceSession.activePendingApprovals))
 const hasPendingApprovals = computed(() => pendingApprovals.value.length > 0)
@@ -44,16 +46,26 @@ async function respondApproval(
   approval: ApprovalRequest,
   input: Pick<ApprovalResponse, 'allow' | 'choice' | 'reason'>
 ): Promise<void> {
+  if (submittingApprovalId.value === approval.approvalId) return
   const scope = getApprovalScope(approval)
-  await workspaceSession.respondApproval(approval, { ...input, scope })
-  closeApprovalDialog()
-  const next = { ...approvalScopeDrafts.value }
-  delete next[approval.approvalId]
-  approvalScopeDrafts.value = next
+  submittingApprovalId.value = approval.approvalId
+  approvalError.value = undefined
+  try {
+    await workspaceSession.respondApproval(approval, { ...input, scope })
+    closeApprovalDialog()
+    const next = { ...approvalScopeDrafts.value }
+    delete next[approval.approvalId]
+    approvalScopeDrafts.value = next
+  } catch (error) {
+    approvalError.value = error instanceof Error ? error.message : String(error)
+  } finally {
+    submittingApprovalId.value = undefined
+  }
 }
 
 function openApprovalDialog(approval: ApprovalRequest): void {
   activeApprovalId.value = approval.approvalId
+  approvalError.value = undefined
   isApprovalDialogOpen.value = true
 }
 
@@ -61,6 +73,12 @@ function closeApprovalDialog(): void {
   isApprovalDialogOpen.value = false
   activeApprovalId.value = undefined
 }
+
+watch([activeApproval, submittingApprovalId], ([approval]) => {
+  if (isApprovalDialogOpen.value && !approval && !submittingApprovalId.value) {
+    closeApprovalDialog()
+  }
+})
 
 function handleApprovalDialogOpenChange(open: boolean): void {
   if (open) {
@@ -117,6 +135,7 @@ function handleApprovalDialogOpenChange(open: boolean): void {
               :key="scope"
               type="button"
               :class="{ 'is-active': getApprovalScope(activeApproval) === scope }"
+              :disabled="submittingApprovalId === activeApproval.approvalId"
               @click="setApprovalScope(activeApproval, scope)"
             >
               {{ getApprovalScopeLabel(scope) }}
@@ -129,20 +148,30 @@ function handleApprovalDialogOpenChange(open: boolean): void {
               :key="choice"
               size="sm"
               variant="secondary"
+              :disabled="submittingApprovalId === activeApproval.approvalId"
               @click="respondApproval(activeApproval, { allow: true, choice })"
             >
               {{ choice }}
             </BaseButton>
           </div>
 
+          <p v-if="approvalError" class="session-error" role="alert">{{ approvalError }}</p>
+
           <DialogFooter>
-            <BaseButton type="button" size="sm" variant="ghost" @click="closeApprovalDialog">
+            <BaseButton
+              type="button"
+              size="sm"
+              variant="ghost"
+              :disabled="submittingApprovalId === activeApproval.approvalId"
+              @click="closeApprovalDialog"
+            >
               Cancel
             </BaseButton>
             <BaseButton
               type="button"
               size="sm"
               variant="danger"
+              :disabled="submittingApprovalId === activeApproval.approvalId"
               @click="respondApproval(activeApproval, { allow: false })"
             >
               Deny
@@ -151,6 +180,7 @@ function handleApprovalDialogOpenChange(open: boolean): void {
               type="button"
               size="sm"
               variant="primary"
+              :disabled="submittingApprovalId === activeApproval.approvalId"
               @click="respondApproval(activeApproval, { allow: true })"
             >
               Allow

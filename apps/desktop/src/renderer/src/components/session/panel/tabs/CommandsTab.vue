@@ -18,6 +18,8 @@ import {
 const workspaceSession = useWorkspaceSessionStore()
 const hasActiveThread = computed(() => Boolean(workspaceSession.activeSessionId))
 const commandQuery = ref('')
+const runningCommandKey = ref<string>()
+const commandError = ref<string>()
 const runnableCommands = computed(() => filterCommands(workspaceSession.activeCommands, ''))
 const filteredCommands = computed(() =>
   filterCommands(workspaceSession.activeCommands, commandQuery.value)
@@ -36,7 +38,7 @@ watch(
 async function runCommandMenuAction(actionId: string, command: CommandInfo): Promise<void> {
   switch (actionId) {
     case 'run':
-      runCommand(command)
+      await runCommand(command)
       break
     case 'copy-name':
       await navigator.clipboard.writeText(getCommandClipboardText(command))
@@ -44,9 +46,32 @@ async function runCommandMenuAction(actionId: string, command: CommandInfo): Pro
   }
 }
 
-function runCommand(command: CommandInfo): void {
+async function runCommand(command: CommandInfo): Promise<void> {
+  const key = getCommandKey(command)
+  if (runningCommandKey.value) return
   const commandName = getCommandName(command)
-  workspaceSession.runCommand(commandName, getCommandQueryArgs(commandQuery.value, commandName))
+  runningCommandKey.value = key
+  commandError.value = undefined
+  try {
+    await workspaceSession.runCommand(
+      commandName,
+      getCommandQueryArgs(commandQuery.value, commandName)
+    )
+  } catch (error) {
+    commandError.value = error instanceof Error ? error.message : String(error)
+  } finally {
+    runningCommandKey.value = undefined
+  }
+}
+
+async function refreshCommands(): Promise<void> {
+  if (workspaceSession.activeCommandsLoading) return
+  commandError.value = undefined
+  try {
+    await workspaceSession.loadCommands()
+  } catch (error) {
+    commandError.value = error instanceof Error ? error.message : String(error)
+  }
 }
 </script>
 
@@ -62,8 +87,10 @@ function runCommand(command: CommandInfo): void {
       <BaseButton
         size="sm"
         variant="ghost"
-        :disabled="!hasActiveThread"
-        @click="workspaceSession.loadCommands()"
+        :disabled="
+          !hasActiveThread || workspaceSession.activeCommandsLoading || Boolean(runningCommandKey)
+        "
+        @click="refreshCommands"
       >
         刷新
       </BaseButton>
@@ -77,6 +104,7 @@ function runCommand(command: CommandInfo): void {
           type="search"
           placeholder="搜索命令，或输入 /command args"
         />
+        <div v-if="commandError" class="session-error" role="alert">{{ commandError }}</div>
         <div v-if="workspaceSession.activeCommandsLoading" class="session-empty">Loading...</div>
         <div
           v-else-if="workspaceSession.activeCommandsLoaded && runnableCommands.length === 0"
@@ -94,7 +122,12 @@ function runCommand(command: CommandInfo): void {
             :sections="commandMenuSections"
             @select="(item) => runCommandMenuAction(item.id, command)"
           >
-            <button type="button" class="command-item" @click="runCommand(command)">
+            <button
+              type="button"
+              class="command-item"
+              :disabled="Boolean(runningCommandKey)"
+              @click="runCommand(command)"
+            >
               <span>/{{ getCommandName(command) }}</span>
               <small>{{ getCommandDescription(command) }}</small>
             </button>

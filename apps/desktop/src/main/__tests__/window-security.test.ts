@@ -3,12 +3,10 @@
  */
 
 import { describe, expect, it } from 'vitest'
+import { readFileSync } from 'node:fs'
 import path from 'node:path'
 import { pathToFileURL } from 'node:url'
-import {
-  createMainWindowNavigationTarget,
-  isMainWindowNavigationAllowed
-} from '../window-security'
+import { createMainWindowNavigationTarget, isMainWindowNavigationAllowed } from '../window-security'
 
 describe('main window security', () => {
   it('dev 模式只允许 renderer dev server 同 origin 导航', () => {
@@ -31,7 +29,12 @@ describe('main window security', () => {
 
     expect(isMainWindowNavigationAllowed(`${rendererIndexUrl}#/new`, target)).toBe(true)
     expect(isMainWindowNavigationAllowed(`${rendererIndexUrl}#/settings`, target)).toBe(true)
-    expect(isMainWindowNavigationAllowed(pathToFileURL(path.resolve('out', 'renderer', 'other.html')).toString(), target)).toBe(false)
+    expect(
+      isMainWindowNavigationAllowed(
+        pathToFileURL(path.resolve('out', 'renderer', 'other.html')).toString(),
+        target
+      )
+    ).toBe(false)
     expect(isMainWindowNavigationAllowed('https://example.com/', target)).toBe(false)
   })
 
@@ -42,5 +45,13 @@ describe('main window security', () => {
         rendererIndexPath: path.join('out', 'renderer', 'index.html')
       })
     ).toThrow('Invalid dev renderer URL protocol')
+  })
+
+  it('限制主窗口最小尺寸，避免进入不可用布局', () => {
+    const source = readFileSync(path.join(__dirname, '..', 'index.ts'), 'utf8')
+    expect(source).toContain('width: 960')
+    expect(source).toContain('height: 640')
+    expect(source).toContain('minWidth: minimumWindowBounds.width')
+    expect(source).toContain('minHeight: minimumWindowBounds.height')
   })
 })

@@ -403,6 +403,7 @@ watch(timelineItems, (items) => {
 /** 消息滚动容器。 */
 const timelineRef = ref<ScrollAreaInstance | null>(null)
 const timelineInnerRef = ref<HTMLElement | null>(null)
+const isTimelineVirtualizerEnabled = ref(false)
 const isNearBottom = ref(true)
 const shouldFollowBottom = ref(true)
 
@@ -430,6 +431,7 @@ function shouldAdjustTimelineScrollPosition(
 const timelineVirtualizer = useVirtualizer(
   computed(() => ({
     count: displayTimelineViewItems.value.length,
+    enabled: isTimelineVirtualizerEnabled.value,
     getScrollElement: getTimelineScrollElement,
     getItemKey: getTimelineVirtualItemKey,
     estimateSize: estimateTimelineVirtualItemSize,
@@ -548,7 +550,7 @@ const PLACEHOLDER_GROUPS: Record<string, string[]> = {
     '先挑个项目吧，不然我帮你写空气？',
     '项目选好了吗？我等不及要大展身手了',
     '选个项目，让我看看你的野心有多大',
-    '没项目怎么干活？点上面选一个',
+    '没项目怎么干活？点上面选一个'
   ],
   newSession: [
     '新会话已就绪，请下达指令',
@@ -556,7 +558,7 @@ const PLACEHOLDER_GROUPS: Record<string, string[]> = {
     '又开了个新坑？我喜欢',
     '来吧，空白的画布交给你了',
     '新的一轮，你想创造什么？',
-    '请开始你的表演',
+    '请开始你的表演'
   ],
   idle: [
     '我就在这里，不躲不藏，稳稳的接住你',
@@ -570,7 +572,7 @@ const PLACEHOLDER_GROUPS: Record<string, string[]> = {
     '放心问，我代码写得比情书还认真',
     '别客气，尽管使唤',
     '又来了？我喜欢你的求知欲',
-    '有 bug 就有我吧，正常',
+    '有 bug 就有我吧，正常'
   ],
   running: [
     '先打着，我听着呢',
@@ -580,7 +582,7 @@ const PLACEHOLDER_GROUPS: Record<string, string[]> = {
     '排队有效，尽管输入',
     '我先忙，你先说，两不误',
     '你可以继续打，我一会儿看',
-    '别停，你的消息我排队处理',
+    '别停，你的消息我排队处理'
   ]
 }
 
@@ -1610,6 +1612,7 @@ watch(
     })
     shouldFollowBottom.value = true
     isNearBottom.value = true
+    isTimelineVirtualizerEnabled.value = false
 
     await nextTick()
     if (generation !== timelineSessionGeneration) {
@@ -1619,6 +1622,7 @@ watch(
       timelineRef.value?.getViewport() ?? null,
       timelineVirtualizer.value
     )
+    isTimelineVirtualizerEnabled.value = true
     await nextTick()
     if (generation !== timelineSessionGeneration) {
       return
@@ -1821,7 +1825,11 @@ function getTimelineItemRevision(item: TimelineItem | undefined): unknown[] {
       @wheel.passive="handleTimelineWheel"
     >
       <div ref="timelineInnerRef" class="chat-view__timeline-inner" :style="timelineStyle">
-        <div class="chat-view__timeline-list" :style="timelineListStyle">
+        <div
+          :key="workspaceSession.activeSessionId ?? 'draft'"
+          class="chat-view__timeline-list"
+          :style="timelineListStyle"
+        >
           <div class="chat-view__timeline-window" :style="timelineWindowStyle">
             <div
               v-for="{ item: viewItem, virtualItem } in virtualTimelineRows"

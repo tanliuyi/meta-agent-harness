@@ -22,7 +22,7 @@ import { computed, ref } from 'vue'
 const app = useAppStore()
 const workspaceSession = useWorkspaceSessionStore()
 const workspaceUi = useWorkspaceUiStore()
-const { session, panel } = useSessionContext()
+const { session, panel, openPanelTab } = useSessionContext()
 const renameDialogOpen = ref(false)
 const renameDraft = ref('')
 
@@ -130,7 +130,7 @@ const styles = computed(() => {
       </BaseDropdownMenu>
     </div>
     <div v-if="session.sessionId" class="session-header__actions">
-      <BaseIconButton label="查看会话信息">
+      <BaseIconButton label="查看会话信息" @click="openPanelTab('session')">
         <svg
           viewBox="0 0 24 24"
           fill="none"

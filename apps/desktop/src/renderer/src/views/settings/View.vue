@@ -1,9 +1,11 @@
 <script setup lang="ts">
+import { BaseIconButton } from '@renderer/components/base'
 import ResizablePaneSeparator from '@renderer/components/ui/resizable-pane-separator/ResizablePaneSeparator.vue'
 import WindowDragStrip from '@renderer/components/window-drag-strip/WindowDragStrip.vue'
 import { useAppStore } from '@renderer/stores/app'
 import useWorkspaceUiStore from '@renderer/stores/workspace-ui'
-import { computed } from 'vue'
+import { Menu, X } from 'lucide-vue-next'
+import { computed, ref, watch } from 'vue'
 import { RouterView, useRoute } from 'vue-router'
 import Sidebar from './components/sidebar/Sidebar.vue'
 
@@ -12,6 +14,14 @@ const RESIZER_WIDTH = 1
 const app = useAppStore()
 const route = useRoute()
 const workspaceUi = useWorkspaceUiStore()
+const mobileNavigationOpen = ref(false)
+
+watch(
+  () => route.fullPath,
+  () => {
+    mobileNavigationOpen.value = false
+  }
+)
 
 /** 当前工作区网格列模板。 */
 const workspaceGridColumns = computed(() => {
@@ -67,6 +77,14 @@ const settingsTitle = computed(() => {
         class="settings-content__header"
         :class="{ 'settings-content__header--darwin': app.isMac }"
       >
+        <BaseIconButton
+          class="settings-content__navigation-toggle"
+          label="打开设置导航"
+          size="small"
+          @click="mobileNavigationOpen = true"
+        >
+          <Menu :size="16" />
+        </BaseIconButton>
         <strong>{{ settingsTitle }}</strong>
       </header>
       <div class="settings-content__body">
@@ -77,6 +95,22 @@ const settingsTitle = computed(() => {
         </RouterView>
       </div>
     </section>
+    <button
+      v-if="mobileNavigationOpen"
+      type="button"
+      class="settings-navigation-backdrop"
+      aria-label="关闭设置导航"
+      @click="mobileNavigationOpen = false"
+    />
+    <div v-if="mobileNavigationOpen" class="settings-navigation-drawer">
+      <header>
+        <strong>设置</strong>
+        <BaseIconButton label="关闭设置导航" size="small" @click="mobileNavigationOpen = false">
+          <X :size="16" />
+        </BaseIconButton>
+      </header>
+      <Sidebar class="settings__sidebar--drawer" />
+    </div>
   </main>
 </template>
 
@@ -154,6 +188,18 @@ const settingsTitle = computed(() => {
   }
 }
 
+.settings-content__navigation-toggle {
+  display: none;
+  flex: 0 0 auto;
+  -webkit-app-region: no-drag;
+  app-region: no-drag;
+}
+
+.settings-navigation-backdrop,
+.settings-navigation-drawer {
+  display: none;
+}
+
 .settings-content__body {
   min-width: 0;
   min-height: 0;
@@ -176,6 +222,50 @@ const settingsTitle = computed(() => {
 
   .settings__drag-strip {
     display: none;
+  }
+
+  .settings-content__header {
+    gap: var(--space-2);
+  }
+
+  .settings-content__navigation-toggle {
+    display: flex;
+  }
+
+  .settings-navigation-backdrop {
+    position: fixed;
+    z-index: 30;
+    inset: 0;
+    display: block;
+    padding: 0;
+    background: rgba(0, 0, 0, 0.28);
+    border: 0;
+  }
+
+  .settings-navigation-drawer {
+    position: fixed;
+    z-index: 31;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    display: grid;
+    grid-template-rows: var(--session-header-height) minmax(0, 1fr);
+    width: min(280px, calc(100vw - 32px));
+    background: var(--color-surface);
+    border-right: 1px solid var(--color-border);
+    box-shadow: 8px 0 24px rgba(0, 0, 0, 0.16);
+  }
+
+  .settings-navigation-drawer > header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 var(--space-3);
+    border-bottom: 1px solid var(--color-border-muted);
+  }
+
+  .settings-navigation-drawer .settings__sidebar--drawer {
+    display: flex;
   }
 }
 </style>

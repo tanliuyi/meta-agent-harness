@@ -17,5 +17,7 @@ describe('preload API surface', () => {
     expect(declarations).not.toContain('electron: ElectronAPI')
     expect(declarations).not.toContain('ElectronAPI')
     expect(source).toContain("exposeInMainWorld('api', api)")
+    expect(source).toContain('openChangedFile: (input) =>')
+    expect(source).toContain('codingAgentChannels.openChangedFile')
   })
 })

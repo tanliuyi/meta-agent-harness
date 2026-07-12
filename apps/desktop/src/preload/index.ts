@@ -91,6 +91,7 @@ const codingAgent: CodingAgentApi = {
   selectResourcePath: (input) => invokeCodingAgent(codingAgentChannels.selectResourcePath, input),
   selectSessionFile: (input) => invokeCodingAgent(codingAgentChannels.selectSessionFile, input),
   revealResourcePath: (input) => invokeCodingAgent(codingAgentChannels.revealResourcePath, input),
+  openChangedFile: (input) => invokeCodingAgent(codingAgentChannels.openChangedFile, input),
   completeFileReference: (input) =>
     invokeCodingAgent(codingAgentChannels.completeFileReference, input),
   abort: (threadId) => invokeCodingAgent(codingAgentChannels.abort, threadId),

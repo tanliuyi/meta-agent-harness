@@ -43,7 +43,7 @@ export async function createUtilityProcessWorkerClient(
   if (!existsSync(piCliWorkerEntry)) {
     throw new Error(`coding agent CLI compatibility worker entry not found: ${piCliWorkerEntry}`)
   }
-  const workerEnv = getCodingAgentWorkerEnv()
+  const workerEnv = getCodingAgentWorkerEnv({ executablePath: process.execPath })
   const { env } = createDesktopPiCliShim({
     // utilityProcess 本身运行在 Electron 中；launcher 通过 ELECTRON_RUN_AS_NODE
     // 复用应用自带的可执行文件，并转到同一构建中的 Node sidecar。不能退回 PATH

@@ -883,7 +883,7 @@
   z-index: 1;
   top: 0;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr) auto auto;
   gap: 2px var(--space-2);
   align-items: center;
   min-width: 0;
@@ -927,6 +927,17 @@
 .change-file__meta {
   color: var(--color-text-muted);
   font-size: var(--font-size-ui-2xs);
+}
+
+.change-file__actions,
+.change-header-actions {
+  display: inline-flex;
+  gap: 2px;
+  align-items: center;
+}
+
+.change-file__actions {
+  height: 20px;
 }
 
 .change-file__stats {

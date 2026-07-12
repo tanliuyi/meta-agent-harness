@@ -2,11 +2,14 @@
  * Resolves the packaged coding-agent asset directory used by the bundled desktop worker.
  */
 
+import { execFileSync } from 'node:child_process'
 import { existsSync } from 'node:fs'
-import { join, resolve } from 'node:path'
+import { delimiter, dirname, join, resolve } from 'node:path'
 
 const resourcePackageRelativePath = join('resources', 'pi-coding-agent')
 const packagedPackageRelativePath = 'pi-coding-agent'
+let loginShellPathResolved = false
+let cachedLoginShellPath: string | undefined
 
 export function resolveCodingAgentPackageDir(): string {
   if (process.env.PI_PACKAGE_DIR) {
@@ -25,6 +28,8 @@ export function resolveCodingAgentPackageDir(): string {
 export function getCodingAgentWorkerEnv(
   options: {
     stripElectronRunAsNode?: boolean
+    executablePath?: string
+    loginShellPath?: string
   } = {}
 ): NodeJS.ProcessEnv {
   const env = { ...process.env }
@@ -35,7 +40,52 @@ export function getCodingAgentWorkerEnv(
   // 必须始终走 IPC 模式，不能继承父 CLI 或测试进程中的兼容模式标记。
   delete env.META_AGENT_DESKTOP_PI_CLI
   env.PI_PACKAGE_DIR = resolveCodingAgentPackageDir()
+  env.PATH = mergeWorkerPath(
+    env.PATH,
+    options.loginShellPath ?? resolveLoginShellPath(env),
+    options.executablePath
+  )
   return env
+}
+
+/**
+ * Finder 等 GUI 启动方式不会继承登录 shell PATH。worker 和它启动的 shell tool
+ * 必须看到用户正常终端中的命令，同时选定的 Node 所在目录必须始终可执行。
+ */
+export function mergeWorkerPath(
+  currentPath: string | undefined,
+  loginShellPath: string | undefined,
+  executablePath?: string
+): string | undefined {
+  const entries = [
+    ...(executablePath ? [dirname(executablePath)] : []),
+    ...(loginShellPath?.split(delimiter) ?? []),
+    ...(currentPath?.split(delimiter) ?? [])
+  ].filter(Boolean)
+  return entries.length > 0 ? [...new Set(entries)].join(delimiter) : undefined
+}
+
+function resolveLoginShellPath(env: NodeJS.ProcessEnv): string | undefined {
+  if (loginShellPathResolved) return cachedLoginShellPath
+  loginShellPathResolved = true
+  if (process.platform === 'win32') return undefined
+  const shell = env.SHELL?.trim() || '/bin/sh'
+  const marker = '__META_AGENT_PATH__='
+  try {
+    const output = execFileSync(shell, ['-ilc', `printf '\\n${marker}%s\\n' "$PATH"`], {
+      encoding: 'utf8',
+      env,
+      stdio: ['ignore', 'pipe', 'ignore'],
+      timeout: 5000
+    })
+    cachedLoginShellPath = output
+      .split(/\r?\n/)
+      .find((line) => line.startsWith(marker))
+      ?.slice(marker.length)
+    return cachedLoginShellPath
+  } catch {
+    return undefined
+  }
 }
 
 export function installCodingAgentPackageDirEnv(): void {

@@ -332,9 +332,17 @@ const {
     width: 100%;
   }
 
-  .workspace-content__session-panel-resizer,
-  .workspace-content__session-panel {
+  .workspace-content__session-panel-resizer {
     display: none;
+  }
+
+  .workspace-content__session-panel:not(.workspace-content__session-panel--collapsed) {
+    position: absolute;
+    z-index: 20;
+    inset: 0;
+    display: flex;
+    width: 100%;
+    background: var(--color-surface);
   }
 }
 </style>

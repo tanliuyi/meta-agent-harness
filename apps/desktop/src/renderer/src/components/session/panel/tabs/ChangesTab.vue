@@ -2,6 +2,9 @@
 import { computed, nextTick, onBeforeUnmount, ref, shallowRef, triggerRef, watch } from 'vue'
 import { useVirtualizer } from '@tanstack/vue-virtual'
 import DiffViewer from '@renderer/components/chat/messages/tools/DiffViewer.vue'
+import { BaseIconButton } from '@renderer/components/base'
+import { useToast } from '@renderer/composables/useToast'
+import { ChevronsDownUp, ChevronsUpDown, Copy, ExternalLink, FolderSearch } from 'lucide-vue-next'
 import type { DiffDocumentIndex } from '@renderer/components/chat/messages/tools/display/diffDocumentIndex'
 import { diffDocumentIndexService } from '@renderer/components/chat/messages/tools/display/diffDocumentIndexService'
 import ScrollArea from '@renderer/components/ui/scroll-area/ScrollArea.vue'
@@ -23,6 +26,13 @@ import {
   type FileChange,
   type FileChangeStats
 } from './display/changesDisplay'
+import {
+  recordChangesReviewAttempt,
+  recordChangesReviewFailure,
+  recordChangesReviewImpression,
+  recordChangesReviewSuccess,
+  type ChangesReviewAction
+} from './changesReviewMetrics'
 
 type MaybeRefValue<T> = T extends { value: infer Value } ? Value : T
 type ChangeListVirtualizerOptions = MaybeRefValue<Parameters<typeof useVirtualizer>[0]>
@@ -47,6 +57,7 @@ const CHANGE_LIST_MAX_HEIGHT = 12_000_000
 const CHANGE_LIST_GAP = 4
 
 const workspaceSession = useWorkspaceSessionStore()
+const toast = useToast()
 const changeListScrollRef = ref<ScrollAreaInstance>()
 const collapsedChangeIds = ref<Set<string>>(new Set())
 const fileChangeLayouts = shallowRef<FileChangeLayout[]>([])
@@ -54,6 +65,7 @@ const diffDocuments = shallowRef<Map<string, DiffDocumentIndex>>(new Map())
 const fileChangeStats = ref<FileChangeStats>({ additions: 0, deletions: 0 })
 const changeViewportMetrics = ref<ChangeViewportMetrics>({ scrollTop: 0, clientHeight: 0 })
 const projectionResetVersion = ref(0)
+const pendingReviewActionByChangeId = ref<Record<string, ChangesReviewAction>>({})
 
 const fileChanges = computed(() => workspaceSession.activeSnapshot?.fileChanges ?? [])
 let layoutSource: FileChange[] | undefined
@@ -189,6 +201,7 @@ watch(
     if (sessionId !== layoutSessionId) {
       diffDocumentIndexService.reset()
       collapsedChangeIds.value = new Set()
+      pendingReviewActionByChangeId.value = {}
       const viewport = changeListScrollRef.value?.getViewport()
       if (viewport) {
         viewport.scrollTop = 0
@@ -201,6 +214,18 @@ watch(
     syncFileChangeProjection(sessionId, changes)
   },
   { immediate: true }
+)
+
+watch(
+  [() => workspaceSession.activeSessionId, () => fileChanges.value.length],
+  ([threadId, count]) => {
+    if (threadId && count > 0) recordChangesReviewImpression(window.localStorage, threadId)
+  },
+  { immediate: true }
+)
+
+const allChangesCollapsed = computed(
+  () => fileChanges.value.length > 0 && collapsedChangeIds.value.size === fileChanges.value.length
 )
 
 const getChangeListScrollElement = (): HTMLElement | null =>
@@ -383,6 +408,56 @@ function handleChangeToggle(
   }
 }
 
+function setAllChangesCollapsed(collapsed: boolean): void {
+  collapsedChangeIds.value = collapsed
+    ? new Set(fileChangeLayouts.value.map((layout) => layout.changeId))
+    : new Set()
+  fileChangeLayouts.value = fileChangeLayouts.value.map((layout) => ({
+    ...layout,
+    size: getFileChangeLayoutSize(
+      layout.lineCount,
+      !collapsed,
+      Boolean(layout.diff),
+      layout.lineScale
+    )
+  }))
+  triggerRef(fileChangeLayouts)
+  projectionResetVersion.value += 1
+}
+
+async function copyChangePath(path: string): Promise<void> {
+  try {
+    await navigator.clipboard.writeText(path)
+  } catch {
+    toast.error('无法复制文件路径', '请检查系统剪贴板权限后重试')
+  }
+}
+
+async function launchReviewAction(
+  change: FileChange,
+  changeId: string,
+  action: ChangesReviewAction
+): Promise<void> {
+  const threadId = workspaceSession.activeSessionId
+  if (!threadId || pendingReviewActionByChangeId.value[changeId]) return
+  pendingReviewActionByChangeId.value = {
+    ...pendingReviewActionByChangeId.value,
+    [changeId]: action
+  }
+  recordChangesReviewAttempt(window.localStorage, action)
+  try {
+    await window.api.codingAgent.openChangedFile({ threadId, changePath: change.path, action })
+    recordChangesReviewSuccess(window.localStorage, action)
+  } catch (error) {
+    recordChangesReviewFailure(window.localStorage, error)
+    toast.error('无法打开此文件', '文件可能已移动或不在项目目录中')
+  } finally {
+    const next = { ...pendingReviewActionByChangeId.value }
+    delete next[changeId]
+    pendingReviewActionByChangeId.value = next
+  }
+}
+
 function getDiffContentHeight(layout: FileChangeLayout): number {
   return layout.size - CHANGE_FILE_SUMMARY_HEIGHT - CHANGE_FILE_DIFF_BORDER_HEIGHT
 }
@@ -449,6 +524,16 @@ onBeforeUnmount(() => {
         <h3>Changes</h3>
         <span v-if="fileChanges.length" class="session-panel-count">{{ fileChanges.length }}</span>
       </div>
+      <div v-if="fileChanges.length" class="change-header-actions">
+        <BaseIconButton
+          size="small"
+          :label="allChangesCollapsed ? '全部展开' : '全部折叠'"
+          @click="setAllChangesCollapsed(!allChangesCollapsed)"
+        >
+          <ChevronsUpDown v-if="allChangesCollapsed" :size="14" />
+          <ChevronsDownUp v-else :size="14" />
+        </BaseIconButton>
+      </div>
       <span v-if="fileChanges.length" class="change-stats">
         <span class="change-stats__additions">{{
           formatAdditions(fileChangeStats.additions)
@@ -488,6 +573,32 @@ onBeforeUnmount(() => {
               <span class="change-file__title">{{
                 formatFileChangePath(change.path, workspaceSession.activeSnapshot?.cwd)
               }}</span>
+            </span>
+            <span class="change-file__actions" @click.prevent.stop @keydown.stop>
+              <BaseIconButton
+                size="small"
+                label="复制文件路径"
+                @click="copyChangePath(change.path)"
+              >
+                <Copy :size="13" />
+              </BaseIconButton>
+              <BaseIconButton
+                v-if="change.changeType !== 'deleted'"
+                size="small"
+                label="用默认应用打开"
+                :disabled="Boolean(pendingReviewActionByChangeId[layout.changeId])"
+                @click="launchReviewAction(change, layout.changeId, 'open')"
+              >
+                <ExternalLink :size="13" />
+              </BaseIconButton>
+              <BaseIconButton
+                size="small"
+                label="在文件管理器中显示"
+                :disabled="Boolean(pendingReviewActionByChangeId[layout.changeId])"
+                @click="launchReviewAction(change, layout.changeId, 'reveal')"
+              >
+                <FolderSearch :size="13" />
+              </BaseIconButton>
             </span>
             <strong class="change-file__stats">
               <span class="change-stats__additions">{{ formatAdditions(change.additions) }}</span>

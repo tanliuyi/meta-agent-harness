@@ -19,6 +19,7 @@ import { createConfiguredWorkerClient } from './worker-client-factory'
 import { ThreadWorkerRegistry } from './thread-worker-registry'
 import { cacheWorkerProjectionEvent } from './projection-cache'
 import { normalizeAllowedExternalUrl } from './external-url'
+import { launchChangedFile } from './changed-file-target'
 import { readDesktopRuntimeConfig, writeDesktopRuntimeConfig } from './desktop-runtime-config'
 import type { WorkerClient, WorkerEnvelope } from './worker-types'
 import type { ThreadWorkerLifecycleEvent } from './thread-worker-registry'
@@ -50,6 +51,7 @@ import type {
   NavigateTreeInput,
   NewSessionInput,
   OpenExternalUrlInput,
+  OpenChangedFileInput,
   PromptImageDraft,
   PromptImageAttachment,
   PromptInput,
@@ -254,6 +256,9 @@ export function registerCodingAgentIpc(options: CodingAgentIpcOptions = {}): Cod
   )
   handle(manager, codingAgentChannels.revealResourcePath, (input: RevealResourcePathInput) =>
     revealResourcePath(input)
+  )
+  handle(manager, codingAgentChannels.openChangedFile, async (input: OpenChangedFileInput) =>
+    launchChangedFile(await manager.getSnapshot(input.threadId), input, shell)
   )
   handle(
     manager,

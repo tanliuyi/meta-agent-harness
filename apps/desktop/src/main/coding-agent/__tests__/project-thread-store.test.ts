@@ -729,6 +729,103 @@ describe('CodingThreadStore', () => {
     rmSync(root, { recursive: true, force: true })
   })
 
+  it('将 live session locator 持久化并在无 worker 重启后从 canonical JSONL 恢复', async () => {
+    const root = createTempDir()
+    const cwd = join(root, 'repo')
+    const sessionDir = join(root, 'sessions')
+    const projectFile = join(root, 'projects.json')
+    const threadFile = join(root, 'threads.json')
+    mkdirSync(cwd, { recursive: true })
+    const sessionManager = SessionManager.create(cwd, sessionDir)
+    sessionManager.appendMessage({ role: 'user', content: 'recover me', timestamp: 1 })
+    const currentEntryId = sessionManager.appendMessage({
+      role: 'assistant',
+      content: [
+        { type: 'text', text: 'edited' },
+        { type: 'toolCall', id: 'tool-edit', name: 'edit', arguments: { path: 'src/app.ts' } }
+      ],
+      api: 'openai-responses',
+      provider: 'openai',
+      model: 'gpt-test',
+      usage: {
+        input: 0,
+        output: 0,
+        cacheRead: 0,
+        cacheWrite: 0,
+        totalTokens: 0,
+        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 }
+      },
+      stopReason: 'toolUse',
+      timestamp: 2
+    })
+    sessionManager.appendMessage({
+      role: 'toolResult',
+      toolCallId: 'tool-edit',
+      content: [{ type: 'text', text: 'updated' }],
+      isError: false,
+      timestamp: Date.parse('2026-07-12T00:00:00.000Z'),
+      details: { diff: '-old\n+new', patch: '--- src/app.ts\n+++ src/app.ts', firstChangedLine: 1 }
+    } as Parameters<typeof sessionManager.appendMessage>[0])
+    sessionManager.appendSessionInfo('Recovered session')
+    const sessionFile = sessionManager.getSessionFile()
+    if (!sessionFile) throw new Error('session file is required')
+
+    let projectStore = new ProjectStore(projectFile)
+    let store = new CodingThreadStore(threadFile)
+    const project = projectStore.createProject({ path: cwd })
+    store.saveThread({
+      threadId: 'thread-recovery',
+      projectId: project.projectId,
+      status: 'running',
+      createdAt: '2026-07-12T00:00:00.000Z',
+      updatedAt: '2026-07-12T00:00:00.000Z'
+    })
+    store.recordApprovalRequest({
+      approvalId: 'stale-approval',
+      threadId: 'thread-recovery',
+      status: 'pending',
+      request: { ...approvalRequest('edit'), threadId: 'thread-recovery' },
+      createdAt: '2026-07-12T00:00:01.000Z'
+    })
+    const liveManager = new ThreadManagerCore(
+      createLiveSessionStateRegistry('thread-recovery', sessionFile, cwd, currentEntryId),
+      store,
+      projectStore
+    )
+    await liveManager.getSnapshot('thread-recovery')
+    expect(store.listThreads()[0]).toMatchObject({ sessionFile, status: 'idle' })
+    store.close()
+    projectStore.close()
+
+    projectStore = new ProjectStore(projectFile)
+    store = new CodingThreadStore(threadFile)
+    const recovered = await new ThreadManagerCore(
+      createIdleThreadWorkerRegistry(),
+      store,
+      projectStore
+    ).getSnapshot('thread-recovery')
+    expect(recovered).toMatchObject({
+      projectId: project.projectId,
+      cwd,
+      sessionFile,
+      title: 'Recovered session',
+      status: 'idle'
+    })
+    expect(recovered.messages.map((message) => message.text)).toEqual(['recover me', 'edited'])
+    expect(recovered.toolCalls).toEqual([
+      expect.objectContaining({ toolCallId: 'tool-edit', status: 'succeeded' })
+    ])
+    expect(recovered.fileChanges).toEqual([
+      expect.objectContaining({ path: 'src/app.ts', diff: '-old\n+new' })
+    ])
+    expect(recovered.currentEntryId).toBeDefined()
+    expect(recovered.approvals).toEqual([])
+    expect(recovered.diagnostics).toEqual([])
+    store.close()
+    projectStore.close()
+    rmSync(root, { recursive: true, force: true })
+  })
+
   it('缺少 metadata snapshot 时从 canonical JSONL session 重建最小 snapshot', async () => {
     const projectStore = new ProjectStore(':memory:')
     const store = new CodingThreadStore(':memory:')

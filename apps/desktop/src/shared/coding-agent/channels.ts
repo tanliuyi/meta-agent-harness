@@ -45,6 +45,8 @@ export const codingAgentChannels = {
   selectSessionFile: 'coding-agent:select-session-file',
   /** 在系统资源管理器中显示资源路径。 */
   revealResourcePath: 'coding-agent:reveal-resource-path',
+  /** 打开或定位当前 thread snapshot 中的变更文件。 */
+  openChangedFile: 'coding-agent:open-changed-file',
   /** 补全 prompt 中的 Pi @file 文件引用。 */
   completeFileReference: 'coding-agent:complete-file-reference',
   /** 中止线程当前运行。 */
