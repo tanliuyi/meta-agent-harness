@@ -200,6 +200,14 @@ export function registerCodingAgentIpc(options: CodingAgentIpcOptions = {}): Cod
       event: { type: 'project.updated', project }
     })
   })
+  handle(manager, codingAgentChannels.deleteProject, async (projectId: string) => {
+    const result = await manager.deleteProject(projectId)
+    publishCodingAgentEvent(subscribers, {
+      type: 'project',
+      event: { type: 'project.deleted', projectId, threadIds: result.threadIds }
+    })
+    return result
+  })
   handle(manager, codingAgentChannels.setProjectTrust, async (input: SetProjectTrustInput) => {
     try {
       const project = await manager.setProjectTrust(input)

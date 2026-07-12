@@ -75,6 +75,49 @@ describe('workspace-project', () => {
     expect(store.activeProjectId).toBeUndefined()
   })
 
+  it('重命名 Project 仅更新显示名称', async () => {
+    const renameProject = vi.fn().mockResolvedValue(undefined)
+    const getProject = vi.fn().mockResolvedValue({
+      projectId: 'project-a',
+      name: '项目别名',
+      path: '/tmp/real-project-name',
+      status: 'available',
+      createdAt: '2026-07-01T00:00:00.000Z',
+      updatedAt: '2026-07-01T00:01:00.000Z'
+    })
+    installCodingAgentApi({ renameProject, getProject })
+    const store = useWorkspaceProjectStore()
+
+    await store.renameProject('project-a', '项目别名')
+
+    expect(renameProject).toHaveBeenCalledWith({ projectId: 'project-a', name: '项目别名' })
+    expect(store.projects['project-a']).toMatchObject({
+      name: '项目别名',
+      path: '/tmp/real-project-name'
+    })
+  })
+
+  it('删除 Project 后清理本地项目与 active 状态', async () => {
+    const deleteProject = vi.fn().mockResolvedValue({ threadIds: ['thread-a'] })
+    installCodingAgentApi({ deleteProject })
+    const store = useWorkspaceProjectStore()
+    store.projects['project-a'] = {
+      projectId: 'project-a',
+      name: 'Project A',
+      path: '/tmp/project-a',
+      status: 'available',
+      createdAt: '2026-07-01T00:00:00.000Z',
+      updatedAt: '2026-07-01T00:00:00.000Z'
+    }
+    store.setActiveProjectId('project-a')
+
+    expect(await store.deleteProject('project-a')).toBe(true)
+
+    expect(deleteProject).toHaveBeenCalledWith('project-a')
+    expect(store.projects['project-a']).toBeUndefined()
+    expect(store.activeProjectId).toBeUndefined()
+  })
+
   it('设置 Project trust 后更新 Project 状态', async () => {
     const setProjectTrust = vi.fn().mockResolvedValue({
       projectId: 'project-a',
@@ -113,6 +156,7 @@ function installCodingAgentApi(overrides: Record<string, unknown>): void {
     api: {
       codingAgent: {
         createProject: vi.fn(),
+        deleteProject: vi.fn(),
         listProjects: vi.fn().mockResolvedValue([]),
         openProject: vi.fn(),
         getProject: vi.fn(),

@@ -151,6 +151,30 @@ export class ThreadManagerCore {
   }
 
   /**
+   * 从内存 registry 与持久化 store 删除指定 Project 的全部 thread。
+   * 调用方必须先释放这些 thread 的 worker。
+   * @param projectId - Project ID。
+   * @returns 删除的 thread ID。
+   */
+  deleteThreadsByProject(projectId: string): string[] {
+    const deletedThreads = [...this.threads.values()].filter(
+      (thread) => thread.projectId === projectId
+    )
+    for (const thread of deletedThreads) {
+      this.threads.delete(thread.threadId)
+    }
+    try {
+      this.store?.deleteThreadsByProject(projectId)
+    } catch (error) {
+      for (const thread of deletedThreads) {
+        this.threads.set(thread.threadId, thread)
+      }
+      throw error
+    }
+    return deletedThreads.map((thread) => thread.threadId)
+  }
+
+  /**
    * 获取当前使用的 thread worker registry。
    * @returns thread worker registry 实例。
    */

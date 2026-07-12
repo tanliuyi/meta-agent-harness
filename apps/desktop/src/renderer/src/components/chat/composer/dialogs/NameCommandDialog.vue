@@ -14,10 +14,22 @@ import {
   DialogTitle
 } from '@renderer/components/ui/dialog'
 
-defineProps<{
-  open: boolean
-  modelValue: string
-}>()
+withDefaults(
+  defineProps<{
+    open: boolean
+    modelValue: string
+    title?: string
+    description?: string
+    label?: string
+    placeholder?: string
+  }>(),
+  {
+    title: '设置会话名称',
+    description: '为当前 session 设置一个显示名称。',
+    label: '会话名称',
+    placeholder: '例如：资源接入排查'
+  }
+)
 
 const emit = defineEmits<{
   'update:open': [open: boolean]
@@ -35,15 +47,15 @@ function closeDialog(): void {
     <DialogContent class="composer-command-dialog">
       <form class="composer-command-dialog__form" @submit.prevent="emit('submit')">
         <DialogHeader>
-          <DialogTitle>设置会话名称</DialogTitle>
-          <DialogDescription>为当前 session 设置一个显示名称。</DialogDescription>
+          <DialogTitle>{{ title }}</DialogTitle>
+          <DialogDescription>{{ description }}</DialogDescription>
         </DialogHeader>
 
         <BaseField
           id="composer-command-name"
           :model-value="modelValue"
-          label="会话名称"
-          placeholder="例如：资源接入排查"
+          :label="label"
+          :placeholder="placeholder"
           @update:model-value="emit('update:modelValue', $event)"
         />
 

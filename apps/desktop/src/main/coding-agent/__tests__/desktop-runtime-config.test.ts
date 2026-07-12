@@ -57,6 +57,7 @@ describe('desktop-runtime-config', () => {
         {
           uiPreferences: {
             appearance: {
+              themeMode: 'light',
               uiFontSize: 15,
               codeFontSize: 16,
               showAvatars: false,
@@ -79,6 +80,7 @@ describe('desktop-runtime-config', () => {
       workerMode: 'nodeSidecar',
       uiPreferences: {
         appearance: {
+          themeMode: 'light',
           uiFontSize: 15,
           codeFontSize: 16,
           showAvatars: false,
@@ -97,11 +99,15 @@ describe('desktop-runtime-config', () => {
     })
 
     expect(
-      writeDesktopRuntimeConfig({ uiPreferences: { workspace: { sidebarWidth: 260 } } }, configPath)
+      writeDesktopRuntimeConfig(
+        { uiPreferences: { workspace: { sidebarWidth: 260, threadSortMode: 'threaded' } } },
+        configPath
+      )
     ).toEqual({
       workerMode: 'nodeSidecar',
       uiPreferences: {
         appearance: {
+          themeMode: 'light',
           uiFontSize: 15,
           codeFontSize: 16,
           showAvatars: false,
@@ -116,9 +122,26 @@ describe('desktop-runtime-config', () => {
           avatarStyle: 'circle',
           userMessageAlignment: 'left'
         },
-        workspace: { sidebarWidth: 260 }
+        workspace: { sidebarWidth: 260, threadSortMode: 'threaded' }
       }
     })
+  })
+
+  it('忽略非法主题模式', () => {
+    const dir = createTempDir()
+    const configPath = join(dir, 'desktop-runtime.json')
+    writeFileSync(
+      configPath,
+      JSON.stringify({
+        workerMode: 'nodeSidecar',
+        uiPreferences: {
+          appearance: { themeMode: 'auto' },
+          workspace: { threadSortMode: 'alphabetical' }
+        }
+      })
+    )
+
+    expect(readDesktopRuntimeConfig(configPath).uiPreferences).toEqual({})
   })
 
   it('持久化自定义字体配置', () => {

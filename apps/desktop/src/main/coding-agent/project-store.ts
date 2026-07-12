@@ -29,6 +29,11 @@ export interface ProjectStoreOptions {
   persist?: boolean
 }
 
+/** Project registry 的可恢复快照。 */
+export interface ProjectStoreSnapshot {
+  projects: ProjectSummary[]
+}
+
 /**
  * Electron main 侧 Project registry。
  */
@@ -119,6 +124,49 @@ export class ProjectStore {
   }
 
   /**
+   * 创建当前 Project registry 快照。
+   * @returns 可用于事务回滚的快照。
+   */
+  createSnapshot(): ProjectStoreSnapshot {
+    return {
+      projects: [...this.projects.values()].map((project) => ({ ...project }))
+    }
+  }
+
+  /**
+   * 恢复 Project registry 快照，并同步写回 metadata 文件。
+   * 即使写盘失败，main 内存也会保持为待恢复状态。
+   * @param snapshot - 事务开始前的快照。
+   */
+  restoreSnapshot(snapshot: ProjectStoreSnapshot): void {
+    this.restoreSnapshotInMemory(snapshot)
+    this.flush()
+  }
+
+  /**
+   * 删除 Project metadata，不修改 Project 指向的真实目录。
+   * @param projectId - Project ID。
+   */
+  deleteProject(projectId: string): void {
+    this.requireProject(projectId)
+    const snapshot = this.createSnapshot()
+    this.projects.delete(projectId)
+    try {
+      this.flush()
+    } catch (error) {
+      try {
+        this.restoreSnapshot(snapshot)
+      } catch (rollbackError) {
+        throw new AggregateError(
+          [error, rollbackError],
+          `failed to delete and restore Project metadata: ${projectId}`
+        )
+      }
+      throw error
+    }
+  }
+
+  /**
    * 更新 Project。
    * @param projectId - Project ID。
    * @param patch - 更新字段。
@@ -173,6 +221,14 @@ export class ProjectStore {
     const metadata = JSON.parse(readFileSync(this.metadataPath, 'utf8')) as ProjectMetadataFile
     for (const project of metadata.projects ?? []) {
       this.projects.set(project.projectId, project)
+    }
+  }
+
+  /** 只恢复内存 registry，供 restoreSnapshot 保证失败时的内存一致性。 */
+  private restoreSnapshotInMemory(snapshot: ProjectStoreSnapshot): void {
+    this.projects.clear()
+    for (const project of snapshot.projects) {
+      this.projects.set(project.projectId, { ...project })
     }
   }
 

@@ -12,6 +12,7 @@ import {
 import useWorkspaceProjectStore from '../workspace-project'
 import useWorkspaceSessionStore from '../workspace-session'
 import { createComposerContentFromText } from '../workspace-session-composer'
+import { getBrowserSessionScope } from '@renderer/components/session/panel/tabs/state/browserPreviewTabs'
 import type {
   DesktopExtensionWebviewPanel,
   ExtensionUiRequest,
@@ -3847,7 +3848,10 @@ describe('workspace-session Project-first actions', () => {
 
     await store.sendPrompt()
 
-    expect(createThread).toHaveBeenCalledWith({ projectId: 'project-a' })
+    expect(createThread).toHaveBeenCalledWith({
+      threadId: expect.any(String),
+      projectId: 'project-a'
+    })
     expect(setThreadTitle).toHaveBeenCalledWith({ threadId: 'thread-new', title: 'first prompt' })
     expect(prompt).toHaveBeenCalledWith({ threadId: 'thread-new', message: 'first prompt' })
     expect(store.sessions['thread-new']?.title).toBe('first prompt')
@@ -3855,6 +3859,53 @@ describe('workspace-session Project-first actions', () => {
     expect(store.activeProjectId).toBe('project-a')
     expect(store.hasDraftMessage).toBe(false)
     expect(store.activeSessionPanel).toEqual({ panelOpen: true, panelWidth: 560 })
+  })
+
+  it('createThread 返回前收到 threadSnapshot 时先迁移 draft 再切换 active thread', async () => {
+    const localStorage = createMemorySessionStorage()
+    let activeThreadIdDuringSnapshot: string | undefined
+    const createThread = vi.fn(
+      async (input: { threadId?: string; projectId: string }): Promise<ThreadSnapshot> => {
+        const snapshot = {
+          ...createSnapshot(),
+          threadId: input.threadId!,
+          projectId: input.projectId
+        }
+        capturedEventListener?.({
+          type: 'threadSnapshot',
+          threadId: snapshot.threadId,
+          snapshot
+        })
+        activeThreadIdDuringSnapshot = store.activeSessionId
+        return snapshot
+      }
+    )
+    const prompt = vi.fn().mockResolvedValue(undefined)
+    installCodingAgentApi({ createThread, prompt }, createMemorySessionStorage(), localStorage)
+    const store = useWorkspaceSessionStore()
+    store.startNewSession('project-a')
+    store.setActiveSessionPanelOpen(true)
+    store.setActiveSessionPanelWidth(560)
+    store.draftMessage = createComposerContent('first prompt')
+    localStorage.setItem(
+      'meta-agent.session-panel.tabs.v2.__orphan__',
+      JSON.stringify([{ id: 'extension:browser-preview', instanceId: 'tab-1' }])
+    )
+    localStorage.setItem('meta-agent.session-panel.active-tab.v2.__orphan__', 'tab-1')
+
+    await store.sendPrompt()
+
+    const threadId = store.activeSessionId!
+    expect(activeThreadIdDuringSnapshot).toBeUndefined()
+    expect(createThread).toHaveBeenCalledWith({ threadId, projectId: 'project-a' })
+    expect(store.activeSessionPanel).toEqual({ panelOpen: true, panelWidth: 560 })
+    expect(getBrowserSessionScope(threadId, threadId)).toBe('__orphan__')
+    expect(localStorage.getItem(`meta-agent.session-panel.tabs.v2.${threadId}`)).toBe(
+      JSON.stringify([{ id: 'extension:browser-preview', instanceId: 'tab-1' }])
+    )
+    expect(localStorage.getItem(`meta-agent.session-panel.active-tab.v2.${threadId}`)).toBe('tab-1')
+    expect(localStorage.getItem('meta-agent.session-panel.tabs.v2.__orphan__')).toBeNull()
+    expect(prompt).toHaveBeenCalledWith({ threadId, message: 'first prompt' })
   })
 
   it('新 thread 创建后原子转移并清空全部 orphan 草稿状态', async () => {
@@ -3880,6 +3931,7 @@ describe('workspace-session Project-first actions', () => {
     await store.sendPrompt()
 
     expect(createThread).toHaveBeenCalledWith({
+      threadId: expect.any(String),
       projectId: 'project-a',
       initialModel: { provider: 'openai', modelId: 'gpt-5' },
       thinkingLevel: 'high'
@@ -3965,7 +4017,11 @@ describe('workspace-session Project-first actions', () => {
 
     await store.sendPrompt()
 
-    expect(createThread).toHaveBeenCalledWith({ projectId: 'project-a', thinkingLevel: 'high' })
+    expect(createThread).toHaveBeenCalledWith({
+      threadId: expect.any(String),
+      projectId: 'project-a',
+      thinkingLevel: 'high'
+    })
     expect(prompt).toHaveBeenCalledWith({ threadId: 'thread-new', message: 'first prompt' })
     expect(store.sessions['thread-new']?.snapshot?.thinkingLevel).toBe('high')
   })

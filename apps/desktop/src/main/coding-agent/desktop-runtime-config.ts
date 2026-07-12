@@ -138,6 +138,9 @@ function normalizeDesktopRuntimeConfig(input: DesktopRuntimeConfigInput): Deskto
 
 function normalizeDesktopUiPreferences(input: DesktopUiPreferences): DesktopUiPreferences {
   const appearance = {
+    ...(isOneOf(input.appearance?.themeMode, ['light', 'dark', 'system'])
+      ? { themeMode: input.appearance.themeMode }
+      : {}),
     ...(isFiniteNumber(input.appearance?.uiFontSize)
       ? { uiFontSize: input.appearance.uiFontSize }
       : {}),
@@ -199,6 +202,9 @@ function normalizeDesktopUiPreferences(input: DesktopUiPreferences): DesktopUiPr
   const workspace = {
     ...(isFiniteNumber(input.workspace?.sidebarWidth)
       ? { sidebarWidth: input.workspace.sidebarWidth }
+      : {}),
+    ...(isOneOf(input.workspace?.threadSortMode, ['recent', 'threaded'])
+      ? { threadSortMode: input.workspace.threadSortMode }
       : {})
   }
   return {

@@ -8,6 +8,7 @@ import type {
   CompactionResult,
   CreateProjectInput,
   CreateThreadInput,
+  DeleteProjectResult,
   DiagnosticsInput,
   ExtensionEditorTextInput,
   ExtensionPanelDisposeInput,
@@ -180,7 +181,76 @@ export class CodingThreadManager extends ThreadManagerCore {
    * @param input - 重命名输入。
    */
   renameProject(input: RenameProjectInput): void {
-    this.getProjectStore().updateProject(input.projectId, { name: input.name })
+    const name = input.name.trim()
+    if (!name) {
+      throw new Error('project name is required')
+    }
+    this.getProjectStore().updateProject(input.projectId, { name })
+  }
+
+  /**
+   * 删除 Project 配置及其全部 thread metadata。
+   * 真实项目目录和 Pi session 文件不受影响。
+   * @param projectId - Project ID。
+   * @returns 删除结果。
+   */
+  async deleteProject(projectId: string): Promise<DeleteProjectResult> {
+    return this.runProjectWorkerLifecycle(projectId, async () => {
+      const projectStore = this.getProjectStore()
+      const threadStore = this.getStore()
+      projectStore.requireProject(projectId)
+      const threadIds = [
+        ...this.listThreads({ projectId }),
+        ...this.listThreads({ projectId, archived: true })
+      ].map((thread) => thread.threadId)
+      for (const threadId of threadIds) {
+        await this.runThreadWorkerLifecycle(threadId, async () => {
+          const hasLease = this.getWorkers()
+            .listLeases()
+            .some((lease) => lease.threadId === threadId)
+          if (hasLease) {
+            await this.getWorkers().releaseThreadWorker(threadId, 'archive')
+          }
+        })
+      }
+
+      const deletedThreads = threadIds.map((threadId) => this.requireThread(threadId))
+      const threadStoreSnapshot = threadStore?.createSnapshot()
+      const projectStoreSnapshot = projectStore.createSnapshot()
+      try {
+        this.deleteThreadsByProject(projectId)
+        projectStore.deleteProject(projectId)
+      } catch (error) {
+        for (const thread of deletedThreads) {
+          this.threads.set(thread.threadId, thread)
+        }
+        const rollbackErrors: unknown[] = []
+        try {
+          projectStore.restoreSnapshot(projectStoreSnapshot)
+        } catch (rollbackError) {
+          rollbackErrors.push(rollbackError)
+        }
+        if (threadStore && threadStoreSnapshot) {
+          try {
+            threadStore.restoreSnapshot(threadStoreSnapshot)
+          } catch (rollbackError) {
+            rollbackErrors.push(rollbackError)
+          }
+        }
+        if (rollbackErrors.length > 0) {
+          throw new AggregateError(
+            [error, ...rollbackErrors],
+            `failed to delete and restore Project metadata: ${projectId}`
+          )
+        }
+        throw error
+      }
+
+      for (const threadId of threadIds) {
+        this.clearExtensionPanelRuntime(threadId)
+      }
+      return { threadIds }
+    })
   }
 
   /**

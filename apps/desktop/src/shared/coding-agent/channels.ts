@@ -13,6 +13,8 @@ export const codingAgentChannels = {
   listProjects: 'coding-agent:list-projects',
   /** 重命名 Project。 */
   renameProject: 'coding-agent:rename-project',
+  /** 删除 Project 及其 thread metadata。 */
+  deleteProject: 'coding-agent:delete-project',
   /** 设置 Project trust。 */
   setProjectTrust: 'coding-agent:set-project-trust',
   /** 创建新线程。 */

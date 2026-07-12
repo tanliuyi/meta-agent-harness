@@ -100,6 +100,12 @@ export interface RenameProjectInput {
   name: string
 }
 
+/** 删除 Project 的结果。 */
+export interface DeleteProjectResult {
+  /** 一并删除的 thread ID。 */
+  threadIds: string[]
+}
+
 /** 设置 Project trust 的输入参数。 */
 export interface SetProjectTrustInput {
   /** Project ID。 */
@@ -959,6 +965,8 @@ export interface ResourcePackageProgressEvent {
   message?: string
 }
 
+export type ThemeMode = 'light' | 'dark' | 'system'
+export type ThreadSortMode = 'recent' | 'threaded'
 export type UiDensity = 'compact' | 'standard' | 'comfortable'
 export type ChatContentWidth = 'narrow' | 'standard' | 'wide'
 export type MessageTimeDisplay = 'always' | 'hover' | 'hidden'
@@ -975,6 +983,8 @@ export type ActivityIndicatorStyle = 'pixels' | 'pulse' | 'hidden'
 export interface DesktopUiPreferences {
   /** 外观偏好。 */
   appearance?: {
+    /** 应用主题模式。 */
+    themeMode?: ThemeMode
     /** UI 字体大小。 */
     uiFontSize?: number
     /** 用户自定义 UI font-family。 */
@@ -1018,6 +1028,8 @@ export interface DesktopUiPreferences {
   workspace?: {
     /** 左侧 sidebar 宽度。 */
     sidebarWidth?: number
+    /** Thread 排序模式。 */
+    threadSortMode?: ThreadSortMode
   }
 }
 
@@ -1440,6 +1452,7 @@ export type ProjectIpcEvent =
   | { type: 'project.created'; project: ProjectSummary }
   | { type: 'project.opened'; project: ProjectSummary }
   | { type: 'project.updated'; project: ProjectSummary }
+  | { type: 'project.deleted'; projectId: string; threadIds: string[] }
   | { type: 'project.trustChanged'; project: ProjectSummary }
 
 /** Coding Agent IPC 事件联合类型。 */
@@ -1478,8 +1491,10 @@ export interface CodingAgentApi {
   openProject(projectId: string): Promise<ProjectSummary>
   /** 获取 Project。 */
   getProject(projectId: string): Promise<ProjectSummary>
-  /** 重命名 Project。 */
+  /** 重命名 Project，仅更新 Meta Agent 中的显示名称。 */
   renameProject(input: RenameProjectInput): Promise<void>
+  /** 删除 Project 配置及其全部 thread metadata，不修改真实项目目录。 */
+  deleteProject(projectId: string): Promise<DeleteProjectResult>
   /** 设置 Project trust。 */
   setProjectTrust(input: SetProjectTrustInput): Promise<ProjectSummary>
   /** 创建新线程。 */

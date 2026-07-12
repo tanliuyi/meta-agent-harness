@@ -2,10 +2,10 @@
  * 本文件测试 Project/Thread metadata registry。
  */
 
-import { mkdirSync, rmSync, unlinkSync, writeFileSync } from 'node:fs'
+import { mkdirSync, readFileSync, rmSync, unlinkSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { ProjectStore, getProjectStatus } from '../project-store'
 import { CodingThreadStore } from '../thread-store'
 import { ThreadManagerCore } from '../thread-manager-core'
@@ -66,6 +66,19 @@ describe('ProjectStore', () => {
 
     expect(store.listProjects().map((item) => item.projectId)).toEqual([project.projectId])
     store.close()
+    rmSync(cwd, { recursive: true, force: true })
+  })
+
+  it('删除 metadata 时不删除真实 Project 目录', () => {
+    const cwd = createTempDir()
+    mkdirSync(cwd, { recursive: true })
+    const store = new ProjectStore(':memory:')
+    const project = store.createProject({ path: cwd })
+
+    store.deleteProject(project.projectId)
+
+    expect(store.getProject(project.projectId)).toBeUndefined()
+    expect(getProjectStatus(cwd)).toBe('available')
     rmSync(cwd, { recursive: true, force: true })
   })
 
@@ -131,6 +144,36 @@ describe('CodingThreadStore', () => {
     expect(store.listThreads({ archived: true })).toEqual([archivedThread])
     expect(store.listThreads({ projectId: 'project-a', archived: true })).toEqual([archivedThread])
     store.close()
+  })
+
+  it('删除 Project 的普通与归档 thread metadata', () => {
+    const store = new CodingThreadStore(':memory:')
+    store.saveThread({
+      threadId: 'thread-visible',
+      projectId: 'project-a',
+      status: 'idle',
+      createdAt: '2026-07-01T00:00:00.000Z',
+      updatedAt: '2026-07-01T00:00:00.000Z'
+    })
+    store.saveThread({
+      threadId: 'thread-archived',
+      projectId: 'project-a',
+      status: 'stopped',
+      archivedAt: '2026-07-01T00:00:01.000Z',
+      createdAt: '2026-07-01T00:00:00.000Z',
+      updatedAt: '2026-07-01T00:00:01.000Z'
+    })
+    store.saveThread({
+      threadId: 'thread-other',
+      projectId: 'project-b',
+      status: 'idle',
+      createdAt: '2026-07-01T00:00:00.000Z',
+      updatedAt: '2026-07-01T00:00:02.000Z'
+    })
+
+    expect(store.deleteThreadsByProject('project-a')).toEqual(['thread-visible', 'thread-archived'])
+    expect(store.listThreads()).toMatchObject([{ threadId: 'thread-other' }])
+    expect(store.listThreads({ archived: true })).toEqual([])
   })
 
   it('使用轻量 metadata 文件保存和恢复 Project/Thread registry', () => {
@@ -1284,6 +1327,247 @@ describe('CodingThreadStore', () => {
       { role: 'assistant', text: 'restored assistant' }
     ])
     store.close()
+    projectStore.close()
+    rmSync(root, { recursive: true, force: true })
+  })
+})
+
+describe('CodingThreadManager.deleteProject', () => {
+  it('释放活跃 worker、删除全部 metadata 并撤销 extension panel 资源', async () => {
+    const cwd = createTempDir()
+    mkdirSync(cwd, { recursive: true })
+    const projectStore = new ProjectStore(':memory:')
+    const threadStore = new CodingThreadStore(':memory:')
+    const project = projectStore.createProject({ path: cwd })
+    threadStore.saveThread({
+      threadId: 'thread-visible',
+      projectId: project.projectId,
+      status: 'idle',
+      createdAt: '2026-07-01T00:00:00.000Z',
+      updatedAt: '2026-07-01T00:00:00.000Z'
+    })
+    threadStore.saveThread({
+      threadId: 'thread-archived',
+      projectId: project.projectId,
+      status: 'stopped',
+      archivedAt: '2026-07-01T00:00:01.000Z',
+      createdAt: '2026-07-01T00:00:00.000Z',
+      updatedAt: '2026-07-01T00:00:01.000Z'
+    })
+    const leasedThreadIds = new Set(['thread-visible'])
+    const releaseThreadWorker = vi.fn(async (threadId: string) => {
+      if (!leasedThreadIds.delete(threadId)) {
+        throw new Error(`thread has no worker: ${threadId}`)
+      }
+    })
+    const registry = {
+      listLeases: () => [...leasedThreadIds].map((threadId) => ({ threadId })),
+      releaseThreadWorker
+    } as unknown as ThreadWorkerRegistry
+    const manager = new CodingThreadManager(registry, threadStore, projectStore)
+    manager.cacheExtensionPanelProjection({
+      kind: 'event',
+      eventType: 'projection',
+      threadId: 'thread-visible',
+      event: {
+        type: 'extensionPanel.registered',
+        threadId: 'thread-visible',
+        panel: {
+          id: 'deploy',
+          title: 'Deploy',
+          source: { type: 'html', html: '<h1>Deploy</h1>' }
+        }
+      }
+    })
+    manager.cacheExtensionPanelProjection({
+      kind: 'event',
+      eventType: 'projection',
+      threadId: 'thread-visible',
+      event: {
+        type: 'extensionPanel.resourceRegistered',
+        threadId: 'thread-visible',
+        resource: {
+          token: 'resource-token',
+          path: '/tmp/icon.svg',
+          threadId: 'thread-visible'
+        }
+      }
+    })
+
+    await expect(manager.deleteProject(project.projectId)).resolves.toEqual({
+      threadIds: ['thread-visible', 'thread-archived']
+    })
+
+    expect(releaseThreadWorker).toHaveBeenCalledWith('thread-visible', 'archive')
+    expect(projectStore.getProject(project.projectId)).toBeUndefined()
+    expect(threadStore.listThreads()).toEqual([])
+    expect(threadStore.listThreads({ archived: true })).toEqual([])
+    expect(manager.hasThread('thread-visible')).toBe(false)
+    expect(manager.hasThread('thread-archived')).toBe(false)
+    expect(manager.getExtensionPanelReplayEvents()).toEqual([])
+    expect(manager.resolveExtensionWebviewResource('resource-token')).toBeUndefined()
+
+    rmSync(cwd, { recursive: true, force: true })
+  })
+
+  it('取得 thread 生命周期锁后重新检查 lease，允许已退出 worker 的 Project 删除继续', async () => {
+    const cwd = createTempDir()
+    mkdirSync(cwd, { recursive: true })
+    const projectStore = new ProjectStore(':memory:')
+    const threadStore = new CodingThreadStore(':memory:')
+    const project = projectStore.createProject({ path: cwd })
+    const threadId = 'thread-stale-lease'
+    threadStore.saveThread({
+      threadId,
+      projectId: project.projectId,
+      status: 'idle',
+      createdAt: '2026-07-01T00:00:00.000Z',
+      updatedAt: '2026-07-01T00:00:00.000Z'
+    })
+    let hasLease = true
+    const releaseThreadWorker = vi.fn(async () => {
+      if (!hasLease) {
+        throw new Error(`thread has no worker: ${threadId}`)
+      }
+      hasLease = false
+    })
+    const registry = {
+      listLeases: () => (hasLease ? [{ threadId }] : []),
+      releaseThreadWorker
+    } as unknown as ThreadWorkerRegistry
+    const manager = new CodingThreadManager(registry, threadStore, projectStore)
+    let unblockLifecycle!: () => void
+    let markLifecycleStarted!: () => void
+    const lifecycleBlocker = new Promise<void>((resolve) => {
+      unblockLifecycle = resolve
+    })
+    const lifecycleStarted = new Promise<void>((resolve) => {
+      markLifecycleStarted = resolve
+    })
+    const activeLifecycle = manager.runThreadWorkerLifecycle(threadId, async () => {
+      markLifecycleStarted()
+      await lifecycleBlocker
+    })
+    await lifecycleStarted
+
+    const deletion = manager.deleteProject(project.projectId)
+    await new Promise<void>((resolve) => setTimeout(resolve, 0))
+    hasLease = false
+    unblockLifecycle()
+    await activeLifecycle
+
+    await expect(deletion).resolves.toEqual({ threadIds: [threadId] })
+    expect(releaseThreadWorker).not.toHaveBeenCalled()
+    expect(projectStore.getProject(project.projectId)).toBeUndefined()
+    expect(manager.hasThread(threadId)).toBe(false)
+
+    rmSync(cwd, { recursive: true, force: true })
+  })
+
+  it('第二份 metadata 提交失败时恢复 core、完整 store、磁盘与 panel 能力', async () => {
+    const root = createTempDir()
+    const cwd = join(root, 'repo')
+    const projectFile = join(root, 'projects.json')
+    const threadFile = join(root, 'threads.json')
+    mkdirSync(cwd, { recursive: true })
+    const projectStore = new ProjectStore(projectFile)
+    const threadStore = new CodingThreadStore(threadFile)
+    const project = projectStore.createProject({ path: cwd })
+    const threadId = 'thread-rollback'
+    threadStore.saveThread({
+      threadId,
+      projectId: project.projectId,
+      status: 'idle',
+      createdAt: '2026-07-01T00:00:00.000Z',
+      updatedAt: '2026-07-01T00:00:00.000Z'
+    })
+    threadStore.recordToolCall({
+      threadId,
+      toolCallId: 'tool-a',
+      toolName: 'edit',
+      status: 'completed'
+    })
+    threadStore.recordFileChange({ threadId, path: 'src/main.ts', changeType: 'modified' })
+    threadStore.recordApprovalRequest({
+      approvalId: 'approval-a',
+      threadId,
+      status: 'pending',
+      request: { ...approvalRequest('edit'), threadId }
+    })
+    threadStore.recordWorkerRun({ workerId: 'worker-a', threadId, status: 'idle' })
+    threadStore.recordDiagnostic({
+      id: 'diagnostic-a',
+      threadId,
+      source: 'storage',
+      severity: 'error',
+      message: 'preserve me',
+      createdAt: '2026-07-01T00:00:05.000Z'
+    })
+    const manager = new CodingThreadManager(
+      createIdleThreadWorkerRegistry(),
+      threadStore,
+      projectStore
+    )
+    manager.cacheExtensionPanelProjection({
+      kind: 'event',
+      eventType: 'projection',
+      threadId,
+      event: {
+        type: 'extensionPanel.registered',
+        threadId,
+        panel: {
+          id: 'rollback-panel',
+          title: 'Rollback',
+          source: { type: 'html', html: '<h1>Rollback</h1>' }
+        }
+      }
+    })
+    manager.cacheExtensionPanelProjection({
+      kind: 'event',
+      eventType: 'projection',
+      threadId,
+      event: {
+        type: 'extensionPanel.resourceRegistered',
+        threadId,
+        resource: { token: 'rollback-token', path: '/tmp/rollback.svg', threadId }
+      }
+    })
+    const projectMetadataBefore = readFileSync(projectFile, 'utf8')
+    const threadMetadataBefore = readFileSync(threadFile, 'utf8')
+    const commitProjectDeletion = projectStore.deleteProject.bind(projectStore)
+    const deleteProject = vi
+      .spyOn(projectStore, 'deleteProject')
+      .mockImplementationOnce((projectId) => {
+        commitProjectDeletion(projectId)
+        throw new Error('projects metadata flush failed')
+      })
+
+    await expect(manager.deleteProject(project.projectId)).rejects.toThrow(
+      'projects metadata flush failed'
+    )
+
+    expect(manager.hasThread(threadId)).toBe(true)
+    expect(projectStore.getProject(project.projectId)).toEqual(project)
+    expect(threadStore.listThreads({ projectId: project.projectId })).toHaveLength(1)
+    expect(threadStore.listToolCalls(threadId)).toHaveLength(1)
+    expect(threadStore.listFileChanges(threadId)).toHaveLength(1)
+    expect(threadStore.listApprovals({ threadId })).toHaveLength(1)
+    expect(threadStore.listWorkerRuns({ threadId })).toHaveLength(1)
+    expect(threadStore.listDiagnostics({ threadId })).toHaveLength(1)
+    expect(readFileSync(projectFile, 'utf8')).toBe(projectMetadataBefore)
+    expect(readFileSync(threadFile, 'utf8')).toBe(threadMetadataBefore)
+    expect(manager.getExtensionPanelReplayEvents()).toHaveLength(1)
+    expect(manager.resolveExtensionWebviewResource('rollback-token')).toBeDefined()
+
+    deleteProject.mockRestore()
+    const reloadedProjectStore = new ProjectStore(projectFile)
+    const reloadedThreadStore = new CodingThreadStore(threadFile)
+    expect(reloadedProjectStore.getProject(project.projectId)).toEqual(project)
+    expect(reloadedThreadStore.listThreads({ projectId: project.projectId })).toHaveLength(1)
+
+    reloadedThreadStore.close()
+    reloadedProjectStore.close()
+    threadStore.close()
     projectStore.close()
     rmSync(root, { recursive: true, force: true })
   })

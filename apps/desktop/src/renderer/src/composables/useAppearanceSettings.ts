@@ -11,6 +11,7 @@ import type {
   ActivityIndicatorStyle,
   AvatarStyle,
   ChatContentWidth,
+  DesktopUiPreferences,
   MarkdownFontStyle,
   MessageTimeDisplay,
   MotionPreference,
@@ -19,6 +20,11 @@ import type {
   UiDensity,
   UserMessageAlignment
 } from '@shared/coding-agent/types'
+import { queueDesktopUiPreferencesUpdate } from './desktopUiPreferencesSync'
+
+type AppearancePreferences = NonNullable<DesktopUiPreferences['appearance']>
+type AppearanceField = Exclude<keyof AppearancePreferences, 'themeMode'>
+type AppearanceSnapshot = Required<Pick<AppearancePreferences, AppearanceField>>
 
 /** UI 字体大小配置范围。 */
 export const UI_FONT_SIZE_RANGE = {
@@ -65,7 +71,7 @@ const sidebarDisplay = ref<SidebarDisplayMode>('persistent')
 const markdownFontStyle = ref<MarkdownFontStyle>('sans')
 const customMarkdownFontFamily = ref('')
 const motion = ref<MotionPreference>('full')
-const avatarStyle = ref<AvatarStyle>('pixel')
+const avatarStyle = ref<AvatarStyle>(showAvatars.value ? 'pixel' : 'hidden')
 const userMessageAlignment = ref<UserMessageAlignment>('right')
 const activityDisplay = ref<ActivityDisplayMode>('full')
 const activityIndicatorStyle = ref<ActivityIndicatorStyle>('pixels')
@@ -79,6 +85,33 @@ let hasLoadedDesktopPreferences = false
 
 /** 停止持久化 watcher。 */
 let stopPersistWatch: WatchStopHandle | undefined
+
+const appearanceFields = [
+  'uiFontSize',
+  'codeFontSize',
+  'customUiFontFamily',
+  'customCodeFontFamily',
+  'showAvatars',
+  'density',
+  'chatContentWidth',
+  'messageTimeDisplay',
+  'wrapCode',
+  'toolExpansion',
+  'sidebarDisplay',
+  'markdownFontStyle',
+  'customMarkdownFontFamily',
+  'motion',
+  'avatarStyle',
+  'userMessageAlignment',
+  'activityDisplay',
+  'activityIndicatorStyle',
+  'customActivityText'
+] as const satisfies readonly AppearanceField[]
+
+let nextAppearanceGeneration = 0
+const appearanceFieldGenerations = Object.fromEntries(
+  appearanceFields.map((field) => [field, 0])
+) as Record<AppearanceField, number>
 
 /**
  * 从 localStorage 读取字体大小。
@@ -173,6 +206,7 @@ function applyFontSizes(nextUiFontSize: number, nextCodeFontSize: number): void 
  */
 function setUiFontSize(value: number | string | null | undefined): void {
   uiFontSize.value = normalizeFontSize(value, UI_FONT_SIZE_RANGE)
+  markAppearanceFieldsDirty('uiFontSize')
 }
 
 /**
@@ -181,90 +215,260 @@ function setUiFontSize(value: number | string | null | undefined): void {
  */
 function setCodeFontSize(value: number | string | null | undefined): void {
   codeFontSize.value = normalizeFontSize(value, CODE_FONT_SIZE_RANGE)
+  markAppearanceFieldsDirty('codeFontSize')
 }
 
 /** 重置字体大小。 */
 function resetFontSizes(): void {
   uiFontSize.value = UI_FONT_SIZE_RANGE.defaultValue
   codeFontSize.value = CODE_FONT_SIZE_RANGE.defaultValue
+  markAppearanceFieldsDirty('uiFontSize', 'codeFontSize')
 }
 
-async function hydrateDesktopPreferences(): Promise<void> {
-  try {
-    const preferences = await window.api?.codingAgent.getDesktopUiPreferences?.()
-    const nextUiFontSize = normalizeFontSize(
-      preferences?.appearance?.uiFontSize ?? uiFontSize.value,
-      UI_FONT_SIZE_RANGE
-    )
-    const nextCodeFontSize = normalizeFontSize(
-      preferences?.appearance?.codeFontSize ?? codeFontSize.value,
-      CODE_FONT_SIZE_RANGE
-    )
-    uiFontSize.value = nextUiFontSize
-    codeFontSize.value = nextCodeFontSize
-    customUiFontFamily.value = normalizeCustomFontFamily(
-      preferences?.appearance?.customUiFontFamily
-    )
-    customCodeFontFamily.value = normalizeCustomFontFamily(
-      preferences?.appearance?.customCodeFontFamily
-    )
-    showAvatars.value = preferences?.appearance?.showAvatars ?? showAvatars.value
-    density.value = preferences?.appearance?.density ?? density.value
-    chatContentWidth.value = preferences?.appearance?.chatContentWidth ?? chatContentWidth.value
-    messageTimeDisplay.value =
-      preferences?.appearance?.messageTimeDisplay ?? messageTimeDisplay.value
-    wrapCode.value = preferences?.appearance?.wrapCode ?? wrapCode.value
-    toolExpansion.value = preferences?.appearance?.toolExpansion ?? toolExpansion.value
-    sidebarDisplay.value = preferences?.appearance?.sidebarDisplay ?? sidebarDisplay.value
-    markdownFontStyle.value = preferences?.appearance?.markdownFontStyle ?? markdownFontStyle.value
-    customMarkdownFontFamily.value = normalizeCustomFontFamily(
-      preferences?.appearance?.customMarkdownFontFamily
-    )
-    motion.value = preferences?.appearance?.motion ?? motion.value
-    avatarStyle.value =
-      preferences?.appearance?.avatarStyle ??
-      (preferences?.appearance?.showAvatars === false ? 'hidden' : avatarStyle.value)
-    showAvatars.value = avatarStyle.value !== 'hidden'
-    userMessageAlignment.value =
-      preferences?.appearance?.userMessageAlignment ?? userMessageAlignment.value
-    activityDisplay.value = preferences?.appearance?.activityDisplay ?? activityDisplay.value
-    activityIndicatorStyle.value =
-      preferences?.appearance?.activityIndicatorStyle ?? activityIndicatorStyle.value
-    customActivityText.value = normalizeActivityText(preferences?.appearance?.customActivityText)
-  } finally {
-    hasLoadedDesktopPreferences = true
-    persistAppearanceSettings()
+function getAppearanceSnapshot(): AppearanceSnapshot {
+  return {
+    uiFontSize: uiFontSize.value,
+    codeFontSize: codeFontSize.value,
+    customUiFontFamily: customUiFontFamily.value,
+    customCodeFontFamily: customCodeFontFamily.value,
+    showAvatars: showAvatars.value,
+    density: density.value,
+    chatContentWidth: chatContentWidth.value,
+    messageTimeDisplay: messageTimeDisplay.value,
+    wrapCode: wrapCode.value,
+    toolExpansion: toolExpansion.value,
+    sidebarDisplay: sidebarDisplay.value,
+    markdownFontStyle: markdownFontStyle.value,
+    customMarkdownFontFamily: customMarkdownFontFamily.value,
+    motion: motion.value,
+    avatarStyle: avatarStyle.value,
+    userMessageAlignment: userMessageAlignment.value,
+    activityDisplay: activityDisplay.value,
+    activityIndicatorStyle: activityIndicatorStyle.value,
+    customActivityText: customActivityText.value
   }
 }
 
-function persistAppearanceSettings(): void {
+function queueAppearanceFields(fields: readonly AppearanceField[]): void {
+  if (fields.length === 0) return
+
+  const snapshot = getAppearanceSnapshot()
+  const appearance = Object.fromEntries(
+    [...new Set(fields)].map((field) => [field, snapshot[field]])
+  ) as AppearancePreferences
+  queueDesktopUiPreferencesUpdate({ appearance })
+}
+
+function markAppearanceFieldsDirty(...fields: AppearanceField[]): void {
+  for (const field of fields) {
+    appearanceFieldGenerations[field] = ++nextAppearanceGeneration
+  }
+  if (hasLoadedDesktopPreferences) {
+    queueAppearanceFields(fields)
+  }
+}
+
+function applyAppearanceLocally(): void {
   window.localStorage.setItem(uiFontSizeStorageKey, String(uiFontSize.value))
   window.localStorage.setItem(codeFontSizeStorageKey, String(codeFontSize.value))
   window.localStorage.setItem(showAvatarsStorageKey, String(showAvatars.value))
   applyFontSizes(uiFontSize.value, codeFontSize.value)
-  void window.api?.codingAgent.updateDesktopUiPreferences?.({
-    appearance: {
-      uiFontSize: uiFontSize.value,
-      customUiFontFamily: customUiFontFamily.value,
-      codeFontSize: codeFontSize.value,
-      customCodeFontFamily: customCodeFontFamily.value,
-      showAvatars: showAvatars.value,
-      density: density.value,
-      chatContentWidth: chatContentWidth.value,
-      messageTimeDisplay: messageTimeDisplay.value,
-      wrapCode: wrapCode.value,
-      toolExpansion: toolExpansion.value,
-      sidebarDisplay: sidebarDisplay.value,
-      markdownFontStyle: markdownFontStyle.value,
-      customMarkdownFontFamily: customMarkdownFontFamily.value,
-      motion: motion.value,
-      avatarStyle: avatarStyle.value,
-      userMessageAlignment: userMessageAlignment.value,
-      activityDisplay: activityDisplay.value,
-      activityIndicatorStyle: activityIndicatorStyle.value,
-      customActivityText: customActivityText.value
+}
+
+function applyHydratedField<T>(
+  field: AppearanceField,
+  value: T | undefined,
+  generationsAtStart: Readonly<Record<AppearanceField, number>>,
+  apply: (value: T) => void
+): void {
+  if (value !== undefined && appearanceFieldGenerations[field] === generationsAtStart[field]) {
+    apply(value)
+  }
+}
+
+function hasLegacyPreference(key: string): boolean {
+  return window.localStorage.getItem(key) !== null
+}
+
+function getDirtyFieldsSince(
+  generationsAtStart: Readonly<Record<AppearanceField, number>>
+): AppearanceField[] {
+  return appearanceFields.filter(
+    (field) => appearanceFieldGenerations[field] !== generationsAtStart[field]
+  )
+}
+
+async function hydrateDesktopPreferences(): Promise<void> {
+  const generationsAtStart = { ...appearanceFieldGenerations }
+  try {
+    const preferences = await window.api?.codingAgent.getDesktopUiPreferences?.()
+    const appearance = preferences?.appearance
+
+    applyHydratedField('uiFontSize', appearance?.uiFontSize, generationsAtStart, (value) => {
+      uiFontSize.value = normalizeFontSize(value, UI_FONT_SIZE_RANGE)
+    })
+    applyHydratedField('codeFontSize', appearance?.codeFontSize, generationsAtStart, (value) => {
+      codeFontSize.value = normalizeFontSize(value, CODE_FONT_SIZE_RANGE)
+    })
+    applyHydratedField(
+      'customUiFontFamily',
+      appearance?.customUiFontFamily,
+      generationsAtStart,
+      (value) => {
+        customUiFontFamily.value = normalizeCustomFontFamily(value)
+      }
+    )
+    applyHydratedField(
+      'customCodeFontFamily',
+      appearance?.customCodeFontFamily,
+      generationsAtStart,
+      (value) => {
+        customCodeFontFamily.value = normalizeCustomFontFamily(value)
+      }
+    )
+    applyHydratedField('density', appearance?.density, generationsAtStart, (value) => {
+      density.value = value
+    })
+    applyHydratedField(
+      'chatContentWidth',
+      appearance?.chatContentWidth,
+      generationsAtStart,
+      (value) => {
+        chatContentWidth.value = value
+      }
+    )
+    applyHydratedField(
+      'messageTimeDisplay',
+      appearance?.messageTimeDisplay,
+      generationsAtStart,
+      (value) => {
+        messageTimeDisplay.value = value
+      }
+    )
+    applyHydratedField('wrapCode', appearance?.wrapCode, generationsAtStart, (value) => {
+      wrapCode.value = value
+    })
+    applyHydratedField(
+      'toolExpansion',
+      appearance?.toolExpansion,
+      generationsAtStart,
+      (value) => {
+        toolExpansion.value = value
+      }
+    )
+    applyHydratedField(
+      'sidebarDisplay',
+      appearance?.sidebarDisplay,
+      generationsAtStart,
+      (value) => {
+        sidebarDisplay.value = value
+      }
+    )
+    applyHydratedField(
+      'markdownFontStyle',
+      appearance?.markdownFontStyle,
+      generationsAtStart,
+      (value) => {
+        markdownFontStyle.value = value
+      }
+    )
+    applyHydratedField(
+      'customMarkdownFontFamily',
+      appearance?.customMarkdownFontFamily,
+      generationsAtStart,
+      (value) => {
+        customMarkdownFontFamily.value = normalizeCustomFontFamily(value)
+      }
+    )
+    applyHydratedField('motion', appearance?.motion, generationsAtStart, (value) => {
+      motion.value = value
+    })
+    applyHydratedField(
+      'userMessageAlignment',
+      appearance?.userMessageAlignment,
+      generationsAtStart,
+      (value) => {
+        userMessageAlignment.value = value
+      }
+    )
+    applyHydratedField(
+      'activityDisplay',
+      appearance?.activityDisplay,
+      generationsAtStart,
+      (value) => {
+        activityDisplay.value = value
+      }
+    )
+    applyHydratedField(
+      'activityIndicatorStyle',
+      appearance?.activityIndicatorStyle,
+      generationsAtStart,
+      (value) => {
+        activityIndicatorStyle.value = value
+      }
+    )
+    applyHydratedField(
+      'customActivityText',
+      appearance?.customActivityText,
+      generationsAtStart,
+      (value) => {
+        customActivityText.value = normalizeActivityText(value)
+      }
+    )
+
+    const hydratedAvatarStyle =
+      appearance?.avatarStyle ?? (appearance?.showAvatars === false ? 'hidden' : undefined)
+    applyHydratedField(
+      'avatarStyle',
+      hydratedAvatarStyle,
+      generationsAtStart,
+      (value) => {
+        avatarStyle.value = value
+      }
+    )
+    applyHydratedField(
+      'showAvatars',
+      hydratedAvatarStyle === undefined
+        ? appearance?.showAvatars
+        : hydratedAvatarStyle !== 'hidden',
+      generationsAtStart,
+      (value) => {
+        showAvatars.value = value
+      }
+    )
+
+    const migrationFields: AppearanceField[] = []
+    if (
+      appearance?.uiFontSize === undefined &&
+      appearanceFieldGenerations.uiFontSize === generationsAtStart.uiFontSize &&
+      hasLegacyPreference(uiFontSizeStorageKey)
+    ) {
+      migrationFields.push('uiFontSize')
     }
-  })
+    if (
+      appearance?.codeFontSize === undefined &&
+      appearanceFieldGenerations.codeFontSize === generationsAtStart.codeFontSize &&
+      hasLegacyPreference(codeFontSizeStorageKey)
+    ) {
+      migrationFields.push('codeFontSize')
+    }
+    if (
+      appearance?.avatarStyle === undefined &&
+      appearance?.showAvatars === undefined &&
+      appearanceFieldGenerations.avatarStyle === generationsAtStart.avatarStyle &&
+      appearanceFieldGenerations.showAvatars === generationsAtStart.showAvatars &&
+      hasLegacyPreference(showAvatarsStorageKey)
+    ) {
+      migrationFields.push('avatarStyle', 'showAvatars')
+    }
+
+    hasLoadedDesktopPreferences = true
+    applyAppearanceLocally()
+    queueAppearanceFields([...getDirtyFieldsSince(generationsAtStart), ...migrationFields])
+  } catch {
+    hasLoadedDesktopPreferences = true
+    queueAppearanceFields(getDirtyFieldsSince(generationsAtStart))
+  }
 }
 
 /**
@@ -317,7 +521,9 @@ export function useAppearanceSettings(): {
   if (!isInitialized && typeof window !== 'undefined') {
     isInitialized = true
     applyFontSizes(uiFontSize.value, codeFontSize.value)
-    void hydrateDesktopPreferences()
+    void hydrateDesktopPreferences().catch(() => {
+      // hydrateDesktopPreferences 已处理预期错误；这里确保未来改动不会泄漏 rejection。
+    })
 
     stopPersistWatch = watch(
       [
@@ -341,12 +547,8 @@ export function useAppearanceSettings(): {
         activityIndicatorStyle,
         customActivityText
       ],
-      ([nextUiFontSize, nextCodeFontSize]) => {
-        if (!hasLoadedDesktopPreferences) {
-          applyFontSizes(nextUiFontSize, nextCodeFontSize)
-          return
-        }
-        persistAppearanceSettings()
+      () => {
+        applyAppearanceLocally()
       }
     )
   }
@@ -369,60 +571,77 @@ export function useAppearanceSettings(): {
     resetFontSizes,
     setActivityDisplay: (value) => {
       activityDisplay.value = value
+      markAppearanceFieldsDirty('activityDisplay')
     },
     setActivityIndicatorStyle: (value) => {
       activityIndicatorStyle.value = value
+      markAppearanceFieldsDirty('activityIndicatorStyle')
     },
     setAvatarStyle: (value) => {
       avatarStyle.value = value
       showAvatars.value = value !== 'hidden'
+      markAppearanceFieldsDirty('avatarStyle', 'showAvatars')
     },
     setChatContentWidth: (value) => {
       chatContentWidth.value = value
+      markAppearanceFieldsDirty('chatContentWidth')
     },
     setCodeFontSize,
     setCustomActivityText: (value) => {
       customActivityText.value = normalizeActivityText(value)
+      markAppearanceFieldsDirty('customActivityText')
     },
     setCustomCodeFontFamily: (value) => {
       customCodeFontFamily.value = normalizeCustomFontFamily(value)
       applyFontSizes(uiFontSize.value, codeFontSize.value)
+      markAppearanceFieldsDirty('customCodeFontFamily')
     },
     setCustomMarkdownFontFamily: (value) => {
       customMarkdownFontFamily.value = normalizeCustomFontFamily(value)
+      markAppearanceFieldsDirty('customMarkdownFontFamily')
     },
     setCustomUiFontFamily: (value) => {
       customUiFontFamily.value = normalizeCustomFontFamily(value)
       applyFontSizes(uiFontSize.value, codeFontSize.value)
+      markAppearanceFieldsDirty('customUiFontFamily')
     },
     setDensity: (value) => {
       density.value = value
+      markAppearanceFieldsDirty('density')
     },
     setMarkdownFontStyle: (value) => {
       markdownFontStyle.value = value
+      markAppearanceFieldsDirty('markdownFontStyle')
     },
     setMessageTimeDisplay: (value) => {
       messageTimeDisplay.value = value
+      markAppearanceFieldsDirty('messageTimeDisplay')
     },
     setMotion: (value) => {
       motion.value = value
+      markAppearanceFieldsDirty('motion')
     },
     setSidebarDisplay: (value) => {
       sidebarDisplay.value = value
+      markAppearanceFieldsDirty('sidebarDisplay')
     },
     setShowAvatars: (value) => {
       showAvatars.value = value
       avatarStyle.value = value ? 'pixel' : 'hidden'
+      markAppearanceFieldsDirty('showAvatars', 'avatarStyle')
     },
     setToolExpansion: (value) => {
       toolExpansion.value = value
+      markAppearanceFieldsDirty('toolExpansion')
     },
     setUiFontSize,
     setUserMessageAlignment: (value) => {
       userMessageAlignment.value = value
+      markAppearanceFieldsDirty('userMessageAlignment')
     },
     setWrapCode: (value) => {
       wrapCode.value = value
+      markAppearanceFieldsDirty('wrapCode')
     },
     showAvatars: readonly(showAvatars),
     sidebarDisplay: readonly(sidebarDisplay),
@@ -439,6 +658,10 @@ export function resetAppearanceSettingsForTest(): void {
   stopPersistWatch = undefined
   isInitialized = false
   hasLoadedDesktopPreferences = false
+  nextAppearanceGeneration = 0
+  for (const field of appearanceFields) {
+    appearanceFieldGenerations[field] = 0
+  }
   uiFontSize.value = UI_FONT_SIZE_RANGE.defaultValue
   codeFontSize.value = CODE_FONT_SIZE_RANGE.defaultValue
   customUiFontFamily.value = ''

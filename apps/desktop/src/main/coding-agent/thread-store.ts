@@ -87,6 +87,18 @@ export interface CodingThreadStoreOptions {
   persist?: boolean
 }
 
+type StoredDiagnosticRecord = DiagnosticRecord & { id: string; createdAt: string }
+
+/** Thread registry 及其 main 侧投影记录的可恢复快照。 */
+export interface CodingThreadStoreSnapshot {
+  threads: ThreadSummary[]
+  toolCalls: ToolCallRecord[]
+  fileChanges: FileChangeRecord[]
+  approvals: ApprovalRecord[]
+  workerRuns: WorkerRunRecord[]
+  diagnostics: StoredDiagnosticRecord[]
+}
+
 /**
  * Electron main 侧 thread metadata registry。
  */
@@ -98,7 +110,7 @@ export class CodingThreadStore {
   private readonly fileChanges: FileChangeRecord[] = []
   private readonly approvals = new Map<string, ApprovalRecord>()
   private readonly workerRuns: WorkerRunRecord[] = []
-  private readonly diagnostics: Array<DiagnosticRecord & { id: string; createdAt: string }> = []
+  private readonly diagnostics: StoredDiagnosticRecord[] = []
 
   /**
    * 创建 CodingThreadStore 实例。
@@ -109,6 +121,90 @@ export class CodingThreadStore {
     this.metadataPath = metadataPath === ':memory:' ? undefined : metadataPath
     this.persist = options.persist ?? metadataPath !== ':memory:'
     this.load()
+  }
+
+  /**
+   * 删除指定 Project 的全部 thread metadata（包含已归档 thread）。
+   * @param projectId - Project ID。
+   * @returns 删除的 thread ID。
+   */
+  deleteThreadsByProject(projectId: string): string[] {
+    const snapshot = this.createSnapshot()
+    const threadIds = [...this.threads.values()]
+      .filter((thread) => thread.projectId === projectId)
+      .map((thread) => thread.threadId)
+    const deletedThreadIds = new Set(threadIds)
+    for (const threadId of threadIds) {
+      this.threads.delete(threadId)
+    }
+    this.toolCalls.splice(
+      0,
+      this.toolCalls.length,
+      ...this.toolCalls.filter((record) => !deletedThreadIds.has(record.threadId))
+    )
+    this.fileChanges.splice(
+      0,
+      this.fileChanges.length,
+      ...this.fileChanges.filter((record) => !deletedThreadIds.has(record.threadId))
+    )
+    for (const [approvalId, record] of this.approvals) {
+      if (deletedThreadIds.has(record.threadId)) {
+        this.approvals.delete(approvalId)
+      }
+    }
+    this.workerRuns.splice(
+      0,
+      this.workerRuns.length,
+      ...this.workerRuns.filter(
+        (record) => !record.threadId || !deletedThreadIds.has(record.threadId)
+      )
+    )
+    this.diagnostics.splice(
+      0,
+      this.diagnostics.length,
+      ...this.diagnostics.filter(
+        (record) => !record.threadId || !deletedThreadIds.has(record.threadId)
+      )
+    )
+    try {
+      this.flush()
+    } catch (error) {
+      try {
+        this.restoreSnapshot(snapshot)
+      } catch (rollbackError) {
+        throw new AggregateError(
+          [error, rollbackError],
+          `failed to delete and restore Project thread metadata: ${projectId}`
+        )
+      }
+      throw error
+    }
+    return threadIds
+  }
+
+  /**
+   * 创建 thread registry 及其 main 侧投影记录快照。
+   * @returns 可用于事务回滚的完整快照。
+   */
+  createSnapshot(): CodingThreadStoreSnapshot {
+    return {
+      threads: [...this.threads.values()].map((thread) => ({ ...thread })),
+      toolCalls: this.toolCalls.map((record) => ({ ...record })),
+      fileChanges: this.fileChanges.map((record) => ({ ...record })),
+      approvals: [...this.approvals.values()].map((record) => ({ ...record })),
+      workerRuns: this.workerRuns.map((record) => ({ ...record })),
+      diagnostics: this.diagnostics.map((record) => ({ ...record }))
+    }
+  }
+
+  /**
+   * 恢复完整 thread store 快照，并同步写回 metadata 文件。
+   * 即使写盘失败，main 内存也会保持为待恢复状态。
+   * @param snapshot - 事务开始前的快照。
+   */
+  restoreSnapshot(snapshot: CodingThreadStoreSnapshot): void {
+    this.restoreSnapshotInMemory(snapshot)
+    this.flush()
   }
 
   /**
@@ -269,6 +365,38 @@ export class CodingThreadStore {
     for (const thread of metadata.threads ?? []) {
       this.threads.set(thread.threadId, thread)
     }
+  }
+
+  /** 只恢复内存数据，供 restoreSnapshot 保证失败时的内存一致性。 */
+  private restoreSnapshotInMemory(snapshot: CodingThreadStoreSnapshot): void {
+    this.threads.clear()
+    for (const thread of snapshot.threads) {
+      this.threads.set(thread.threadId, { ...thread })
+    }
+    this.toolCalls.splice(
+      0,
+      this.toolCalls.length,
+      ...snapshot.toolCalls.map((record) => ({ ...record }))
+    )
+    this.fileChanges.splice(
+      0,
+      this.fileChanges.length,
+      ...snapshot.fileChanges.map((record) => ({ ...record }))
+    )
+    this.approvals.clear()
+    for (const record of snapshot.approvals) {
+      this.approvals.set(record.approvalId, { ...record })
+    }
+    this.workerRuns.splice(
+      0,
+      this.workerRuns.length,
+      ...snapshot.workerRuns.map((record) => ({ ...record }))
+    )
+    this.diagnostics.splice(
+      0,
+      this.diagnostics.length,
+      ...snapshot.diagnostics.map((record) => ({ ...record }))
+    )
   }
 
   /** 写入 metadata 文件。 */

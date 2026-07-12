@@ -16,7 +16,7 @@ import type { Component } from 'vue'
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import ScrollArea from '@/components/ui/scroll-area/ScrollArea.vue'
-import { ShieldAlert, ShieldCheck, ShieldOff } from '@lucide/vue'
+import { Pencil, ShieldAlert, ShieldCheck, ShieldOff, Trash2 } from '@lucide/vue'
 import { RouterLink } from 'vue-router'
 import NameCommandDialog from '@renderer/components/chat/composer/dialogs/NameCommandDialog.vue'
 import SidebarThreadItem from './SidebarThreadItem.vue'
@@ -29,7 +29,7 @@ import {
 } from './support/sidebar-project-list'
 
 type ThreadMenuActionId = 'copy-id' | 'rename' | 'open-parent' | 'locate-current-leaf' | 'archive'
-type ProjectMenuActionId = 'new-thread' | 'project-trust'
+type ProjectMenuActionId = 'new-thread' | 'rename-project' | 'delete-project' | 'project-trust'
 
 interface ProjectMenuItem {
   id: ProjectMenuActionId
@@ -62,6 +62,9 @@ const { threadSortMode } = useWorkspaceViewSettings()
 const renameThreadDialogOpen = ref(false)
 const renameThreadTarget = ref<WorkspaceSession>()
 const renameThreadDraft = ref('')
+const renameProjectDialogOpen = ref(false)
+const renameProjectTarget = ref<ProjectSummary>()
+const renameProjectDraft = ref('')
 const expandedProjects = ref<Record<string, { displayCount: number; hasExpanded: boolean }>>({})
 const defaultProjectExpansion: Readonly<ProjectExpansion> = Object.freeze({
   displayCount: 5,
@@ -261,14 +264,57 @@ async function archiveThread(thread: WorkspaceSession): Promise<void> {
   await workspaceSession.archiveThread(thread.threadId)
 }
 
-async function runProjectMenuAction(actionId: string, project: ProjectSummary): Promise<void> {
+async function runProjectMenuAction(
+  actionId: ProjectMenuActionId,
+  project: ProjectSummary
+): Promise<void> {
   switch (actionId) {
     case 'new-thread':
       createThreadInProject(project.projectId)
       return
+    case 'rename-project':
+      renameProjectTarget.value = project
+      renameProjectDraft.value = project.name
+      renameProjectDialogOpen.value = true
+      return
+    case 'delete-project':
+      await deleteProject(project)
+      return
     case 'project-trust':
       await requestProjectTrust(project)
       return
+  }
+}
+
+async function submitRenameProjectDialog(): Promise<void> {
+  const project = renameProjectTarget.value
+  const name = renameProjectDraft.value.trim()
+  if (!project || !name) {
+    return
+  }
+  await workspaceProject.renameProject(project.projectId, name)
+  if (!workspaceProject.errorMessage) {
+    renameProjectDialogOpen.value = false
+    renameProjectTarget.value = undefined
+    renameProjectDraft.value = ''
+  }
+}
+
+async function deleteProject(project: ProjectSummary): Promise<void> {
+  const result = await confirm({
+    actions: [{ label: '删除项目', value: 'delete', tone: 'destructive' }],
+    cancelText: '取消',
+    description: `将删除 Meta Agent 中的项目配置和全部会话（包括已归档会话）。不会删除真实项目目录：${project.path}`,
+    id: `delete-project-${project.projectId}`,
+    title: `删除项目“${project.name}”？`,
+    tone: 'destructive'
+  })
+  if (!result.confirmed || result.action !== 'delete') {
+    return
+  }
+  if (await workspaceProject.deleteProject(project.projectId)) {
+    delete expandedProjects.value[project.projectId]
+    await workspaceSession.loadThreads()
   }
 }
 
@@ -281,6 +327,17 @@ function getProjectMenuSections(project: ProjectSummary): ProjectMenuSection[] {
           label: '新建 Thread',
           disabled: project.status !== 'available',
           icon: PlusIcon
+        },
+        {
+          id: 'rename-project',
+          label: '重命名项目',
+          icon: Pencil
+        },
+        {
+          id: 'delete-project',
+          label: '删除项目',
+          icon: Trash2,
+          danger: true
         }
       ]
     }
@@ -378,7 +435,9 @@ function getProjectTrustIcon(project: ProjectSummary): Component | undefined {
         >
           <BaseContextMenu
             :sections="getProjectMenuSections(projectItem.project)"
-            @select="(item) => runProjectMenuAction(item.id, projectItem.project)"
+            @select="
+              (item) => runProjectMenuAction(item.id as ProjectMenuActionId, projectItem.project)
+            "
           >
             <CollapsibleTrigger>
               <!-- Project row only toggles the tree; thread selection belongs to thread items. -->
@@ -472,6 +531,15 @@ function getProjectTrustIcon(project: ProjectSummary): Component | undefined {
     v-model:open="renameThreadDialogOpen"
     v-model="renameThreadDraft"
     @submit="submitRenameThreadDialog"
+  />
+  <NameCommandDialog
+    v-model:open="renameProjectDialogOpen"
+    v-model="renameProjectDraft"
+    title="重命名项目"
+    description="设置 Meta Agent 中显示的项目别名，不会修改真实目录名称。"
+    label="项目别名"
+    placeholder="例如：桌面客户端"
+    @submit="submitRenameProjectDialog"
   />
 </template>
 

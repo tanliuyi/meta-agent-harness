@@ -485,6 +485,9 @@ export default defineStore('workspace-session', () => {
   /** 每个视图上下文当前是否正在提交 Composer。 */
   const sendingPromptByContextId = shallowReactive<Record<string, boolean>>({})
 
+  /** 已预分配 ID、但尚未完成 draft 状态迁移的 thread。 */
+  const pendingDraftThreadIds = new Set<string>()
+
   const workspaceProject = useWorkspaceProjectStore()
 
   /** Chat timeline 请求 SessionPanel Tree 定位的 entry。 */
@@ -1932,49 +1935,56 @@ export default defineStore('workspace-session', () => {
     const orphanRunningDelivery = context.orphanRunningDelivery
     const orphanPanel = cloneUiState(context.panel)
     const orphanPanelTabsKey = context.orphanSessionPanelTabsKey
-    const snapshot = await window.api.codingAgent.createThread({
-      projectId: context.selectedProjectId,
-      ...(orphanModel
-        ? { initialModel: { provider: orphanModel.provider, modelId: orphanModel.modelId } }
-        : {}),
-      ...(orphanThinkingLevel ? { thinkingLevel: orphanThinkingLevel } : {})
-    })
-    mergeSnapshot(sessions, snapshot)
-    syncToolCallsByIdFromSnapshot(snapshot)
-    syncRenderStateFromSnapshot(snapshot)
-    const threadId = snapshot.threadId
-    context.sessionPanels[threadId] = orphanPanel
-    context.composerDrafts[threadId] = orphanDraft
-    context.composerImageAttachments[threadId] = orphanImages
-    context.composerFileAttachments[threadId] = orphanFiles
-    context.composerQuoteAttachments[threadId] = orphanQuotes
-    context.runningDeliveries[threadId] = orphanRunningDelivery
-    writeStoredSessionPanelState(contextId, orphanPanel, threadId)
-    transferStoredSessionPanelTabsState(orphanPanelTabsKey, threadId)
-    transferBrowserSessionScope(orphanPanelTabsKey, threadId)
-    setContextActiveThreadId(threadId, contextId)
+    const pendingThreadId = crypto.randomUUID()
+    pendingDraftThreadIds.add(pendingThreadId)
+    try {
+      const snapshot = await window.api.codingAgent.createThread({
+        threadId: pendingThreadId,
+        projectId: context.selectedProjectId,
+        ...(orphanModel
+          ? { initialModel: { provider: orphanModel.provider, modelId: orphanModel.modelId } }
+          : {}),
+        ...(orphanThinkingLevel ? { thinkingLevel: orphanThinkingLevel } : {})
+      })
+      mergeSnapshot(sessions, snapshot)
+      syncToolCallsByIdFromSnapshot(snapshot)
+      syncRenderStateFromSnapshot(snapshot)
+      const threadId = snapshot.threadId
+      context.sessionPanels[threadId] = orphanPanel
+      context.composerDrafts[threadId] = orphanDraft
+      context.composerImageAttachments[threadId] = orphanImages
+      context.composerFileAttachments[threadId] = orphanFiles
+      context.composerQuoteAttachments[threadId] = orphanQuotes
+      context.runningDeliveries[threadId] = orphanRunningDelivery
+      writeStoredSessionPanelState(contextId, orphanPanel, threadId)
+      transferStoredSessionPanelTabsState(orphanPanelTabsKey, threadId)
+      transferBrowserSessionScope(orphanPanelTabsKey, threadId)
+      setContextActiveThreadId(threadId, contextId)
 
-    context.orphanDraftMessage = createEmptyComposerContent()
-    context.orphanImageAttachments = []
-    context.orphanFileAttachments = []
-    context.orphanQuoteAttachments = []
-    context.orphanModel = undefined
-    context.orphanThinkingLevel = undefined
-    context.orphanRunningDelivery = 'steer'
-    context.panel = createUiState()
-    context.orphanSessionPanelTabsKey = createFreshOrphanSessionPanelTabsKey(contextId)
-    context.orphanCommands = []
-    context.orphanCommandsLoading = false
-    context.orphanCommandsLoaded = false
-    orphanCommandsRequestGenerationByContextId[contextId] =
-      (orphanCommandsRequestGenerationByContextId[contextId] ?? 0) + 1
-    writeStoredSessionPanelStateByKey(contextId, undefined, context.panel)
+      context.orphanDraftMessage = createEmptyComposerContent()
+      context.orphanImageAttachments = []
+      context.orphanFileAttachments = []
+      context.orphanQuoteAttachments = []
+      context.orphanModel = undefined
+      context.orphanThinkingLevel = undefined
+      context.orphanRunningDelivery = 'steer'
+      context.panel = createUiState()
+      context.orphanSessionPanelTabsKey = createFreshOrphanSessionPanelTabsKey(contextId)
+      context.orphanCommands = []
+      context.orphanCommandsLoading = false
+      context.orphanCommandsLoaded = false
+      orphanCommandsRequestGenerationByContextId[contextId] =
+        (orphanCommandsRequestGenerationByContextId[contextId] ?? 0) + 1
+      writeStoredSessionPanelStateByKey(contextId, undefined, context.panel)
 
-    context.selectedProjectId = snapshot.projectId
-    workspaceProject.setActiveProjectId(snapshot.projectId)
-    const runtime = ensureRuntime(threadId)
-    runtime.errorMessage = undefined
-    return { threadId, runtime }
+      context.selectedProjectId = snapshot.projectId
+      workspaceProject.setActiveProjectId(snapshot.projectId)
+      const runtime = ensureRuntime(threadId)
+      runtime.errorMessage = undefined
+      return { threadId, runtime }
+    } finally {
+      pendingDraftThreadIds.delete(pendingThreadId)
+    }
   }
 
   /**
@@ -3544,7 +3554,10 @@ export default defineStore('workspace-session', () => {
         ensureRuntime(event.threadId)
         syncPendingInteractionsFromSnapshot(event.snapshot)
         syncRenderStateFromSnapshot(event.snapshot)
-        if (!activeSessionId.value || !sessions[activeSessionId.value]) {
+        if (
+          (!activeSessionId.value || !sessions[activeSessionId.value]) &&
+          !pendingDraftThreadIds.has(event.threadId)
+        ) {
           setContextActiveThreadId(event.threadId)
         }
         return
@@ -3561,6 +3574,27 @@ export default defineStore('workspace-session', () => {
         flushPendingToolUpdateEvents()
         break
       case 'project':
+        if (event.event.type === 'project.deleted') {
+          delete workspaceProject.projects[event.event.projectId]
+          if (workspaceProject.activeProjectId === event.event.projectId) {
+            workspaceProject.setActiveProjectId(undefined)
+          }
+          for (const [contextId, context] of Object.entries(contexts)) {
+            if (context.selectedProjectId === event.event.projectId) {
+              context.selectedProjectId = undefined
+              context.orphanCommands = []
+              context.orphanCommandsLoaded = false
+              orphanCommandsRequestGenerationByContextId[contextId] =
+                (orphanCommandsRequestGenerationByContextId[contextId] ?? 0) + 1
+            }
+          }
+          const deletedThreadIds = new Set(event.event.threadIds)
+          const remainingThreadIds = new Set(
+            Object.keys(sessions).filter((threadId) => !deletedThreadIds.has(threadId))
+          )
+          pruneThreadScopedState(remainingThreadIds)
+          break
+        }
         workspaceProject.projects[event.event.project.projectId] = event.event.project
         break
       case 'threadWorker':

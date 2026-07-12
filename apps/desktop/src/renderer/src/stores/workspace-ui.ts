@@ -3,7 +3,8 @@
  */
 
 import { defineStore } from 'pinia'
-import { ref, watch } from 'vue'
+import { ref } from 'vue'
+import { queueDesktopUiPreferencesUpdate } from '@renderer/composables/desktopUiPreferencesSync'
 
 /** 默认边栏宽度。 */
 const defaultSidebarWidth = 208
@@ -45,12 +46,23 @@ export default defineStore(
     /** 是否已完成 desktop 配置读取。 */
     let hasLoadedDesktopPreferences = false
 
+    /** 用户 resize generation，不受 Pinia hydration 或 Desktop 回填影响。 */
+    let sidebarWidthGeneration = 0
+
+    const applySidebarWidth = (width: number): void => {
+      sidebarWidth.value = clampSidebarWidth(width)
+    }
+
     /**
      * 设置边栏宽度，并限制在最小/最大宽度范围内。
      * @param width - 目标宽度。
      */
     const setSidebarWidth = (width: number): void => {
-      sidebarWidth.value = clampSidebarWidth(width)
+      sidebarWidthGeneration += 1
+      applySidebarWidth(width)
+      if (hasLoadedDesktopPreferences) {
+        queueSidebarWidthUpdate()
+      }
     }
 
     /**
@@ -75,36 +87,36 @@ export default defineStore(
     }
 
     async function hydrateDesktopPreferences(): Promise<void> {
+      const generationAtStart = sidebarWidthGeneration
       try {
         const preferences = await window.api?.codingAgent.getDesktopUiPreferences?.()
         const storedWidth = preferences?.workspace?.sidebarWidth
-        if (storedWidth !== undefined) {
-          setSidebarWidth(storedWidth)
-        } else {
-          setSidebarWidth(sidebarWidth.value)
+        if (storedWidth !== undefined && sidebarWidthGeneration === generationAtStart) {
+          applySidebarWidth(storedWidth)
         }
-      } finally {
         hasLoadedDesktopPreferences = true
-        persistSidebarWidth(sidebarWidth.value)
+        if (sidebarWidthGeneration !== generationAtStart) {
+          queueSidebarWidthUpdate()
+        }
+      } catch {
+        hasLoadedDesktopPreferences = true
+        if (sidebarWidthGeneration !== generationAtStart) {
+          queueSidebarWidthUpdate()
+        }
       }
     }
 
-    function persistSidebarWidth(width: number): void {
-      void window.api?.codingAgent.updateDesktopUiPreferences?.({
+    function queueSidebarWidthUpdate(): void {
+      queueDesktopUiPreferencesUpdate({
         workspace: {
-          sidebarWidth: clampSidebarWidth(width)
+          sidebarWidth: sidebarWidth.value
         }
       })
     }
 
     if (typeof window !== 'undefined') {
-      void hydrateDesktopPreferences()
-
-      watch(sidebarWidth, (width) => {
-        if (!hasLoadedDesktopPreferences) {
-          return
-        }
-        persistSidebarWidth(width)
+      void hydrateDesktopPreferences().catch(() => {
+        // hydrateDesktopPreferences 已处理预期错误；这里确保未来改动不会泄漏 rejection。
       })
     }
 
@@ -121,7 +133,7 @@ export default defineStore(
   },
   {
     persist: {
-      pick: ['projectOpenState', 'sidebarOpen', 'sidebarWidth']
+      pick: ['projectOpenState', 'sidebarOpen']
     }
   }
 )

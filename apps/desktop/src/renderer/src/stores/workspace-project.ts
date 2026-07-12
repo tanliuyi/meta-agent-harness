@@ -121,6 +121,28 @@ export default defineStore(
     }
 
     /**
+     * 删除 Project 配置及其全部 thread metadata。
+     * @param projectId - Project ID。
+     */
+    const deleteProject = async (projectId: string): Promise<boolean> => {
+      loading.value = true
+      errorMessage.value = undefined
+      try {
+        await window.api.codingAgent.deleteProject(projectId)
+        delete projects[projectId]
+        if (activeProjectId.value === projectId) {
+          activeProjectId.value = undefined
+        }
+        return true
+      } catch (error) {
+        errorMessage.value = error instanceof Error ? error.message : String(error)
+        return false
+      } finally {
+        loading.value = false
+      }
+    }
+
+    /**
      * 设置 Project trust 决策。
      * @param projectId - Project ID。
      * @param decision - trust 决策。
@@ -145,6 +167,7 @@ export default defineStore(
       activeProject,
       activeProjectId,
       createProject,
+      deleteProject,
       errorMessage,
       loadProjects,
       loading,

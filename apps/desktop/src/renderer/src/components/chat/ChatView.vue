@@ -67,6 +67,10 @@ import type {
 } from '@shared/coding-agent/types'
 import type { TokenUsage } from './composer/Usage.vue'
 import {
+  ensureChatTimelineOpenState,
+  type ChatTimelineOpenStateBySession
+} from './timeline/chatTimelineOpenState'
+import {
   CHAT_TIMELINE_GAP,
   CHAT_TIMELINE_OVERSCAN,
   createVirtualTimelineRows,
@@ -135,17 +139,27 @@ type TimelineViewItem = {
   avatarKind?: 'user' | 'assistant'
 }
 
+/** 时间线交互展开状态按 session 隔离，切换回来时恢复原有布局。 */
+const timelineOpenStateBySession = ref<ChatTimelineOpenStateBySession>({})
+const activeTimelineOpenState = computed(() =>
+  ensureChatTimelineOpenState(
+    timelineOpenStateBySession.value,
+    workspaceSession.activeSessionId,
+    workspaceSession.activeSnapshot?.sessionFile ?? workspaceSession.activeSession?.sessionFile
+  )
+)
+
 /** 已折叠处理段的展开状态。 */
-const collapsedHistoryOpenByKey = ref<Record<string, boolean>>({})
+const collapsedHistoryOpenByKey = computed(() => activeTimelineOpenState.value.collapsedHistory)
 
 /** Thinking 展开状态，按稳定 timeline key 保存。 */
-const thinkingOpenByKey = ref<Record<string, boolean>>({})
+const thinkingOpenByKey = computed(() => activeTimelineOpenState.value.thinking)
 
 /** 工具组展开状态，按稳定 timeline key 保存。 */
-const toolGroupOpenByKey = ref<Record<string, boolean>>({})
+const toolGroupOpenByKey = computed(() => activeTimelineOpenState.value.toolGroup)
 
 /** 单个工具展开状态，按稳定 toolCallId 保存。 */
-const toolOpenByKey = ref<Record<string, boolean>>({})
+const toolOpenByKey = computed(() => activeTimelineOpenState.value.tool)
 
 /** 当前会话的渲染消息列表。 */
 const messages = computed<ThreadMessage[]>(() => workspaceSession.activeSnapshot?.messages ?? [])
@@ -1173,10 +1187,7 @@ function setThinkingOpen(viewItem: TimelineViewItem, open: boolean): void {
   }
   holdUserScroll()
   const anchor = captureTimelineRowAnchor(viewItem.key)
-  thinkingOpenByKey.value = {
-    ...thinkingOpenByKey.value,
-    [viewItem.item.key]: open
-  }
+  thinkingOpenByKey.value[viewItem.item.key] = open
   settleTimelineRowAnchor(anchor)
 }
 
@@ -1186,18 +1197,12 @@ function setToolGroupOpen(viewItem: TimelineViewItem, open: boolean): void {
   }
   holdUserScroll()
   const anchor = captureTimelineRowAnchor(viewItem.key)
-  toolGroupOpenByKey.value = {
-    ...toolGroupOpenByKey.value,
-    [viewItem.item.key]: open
-  }
+  toolGroupOpenByKey.value[viewItem.item.key] = open
   settleTimelineRowAnchor(anchor)
 }
 
 function setToolOpen(toolCallId: string, open: boolean): void {
-  toolOpenByKey.value = {
-    ...toolOpenByKey.value,
-    [toolCallId]: open
-  }
+  toolOpenByKey.value[toolCallId] = open
 }
 
 function setToolGroupItemOpen(viewItem: TimelineViewItem, toolCallId: string, open: boolean): void {
