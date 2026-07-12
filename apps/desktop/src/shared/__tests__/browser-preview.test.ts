@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest'
-import { browserPreviewChannels, validateBrowserPreviewEmulation } from '../browser-preview'
+import {
+  browserPreviewChannels,
+  browserPreviewPartition,
+  validateBrowserPreviewEmulation
+} from '../browser-preview'
 
 const iphone = {
   enabled: true,
@@ -14,7 +18,8 @@ const iphone = {
 }
 
 describe('browser preview emulation contract', () => {
-  it('provides a dedicated guest-to-tab open request channel', () => {
+  it('provides a persistent shared guest partition and tab open request channel', () => {
+    expect(browserPreviewPartition).toBe('persist:browser-preview')
     expect(browserPreviewChannels.openRequested).toBe('browser-preview:open-requested')
   })
 

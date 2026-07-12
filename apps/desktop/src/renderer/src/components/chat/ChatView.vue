@@ -72,6 +72,7 @@ import {
   createVirtualTimelineRows,
   estimateTimelineItemSize,
   resetTimelineVirtualizerForSession,
+  resolveTimelineFollowState,
   shouldAdjustTimelineScrollForItemResize
 } from './timeline/chatTimelineVirtualization'
 
@@ -1042,6 +1043,27 @@ function getTimelineItemToolCallIdsForOpenState(item: TimelineItem): string[] {
 }
 
 /**
+ * 只让 open 状态实际变化的虚拟行失效，避免任一工具切换时 patch 整个窗口。
+ */
+function getTimelineItemOpenMemoKey(item: TimelineItem): string | undefined {
+  if (item.type === 'thinking') {
+    return `thinking:${getTimelineItemThinkingOpen(item)}`
+  }
+  if (item.type === 'tool-group') {
+    const toolStates = item.toolCallIds
+      .map(
+        (toolCallId) => `${toolCallId}:${toolOpenByKey.value[toolCallId] ?? defaultToolOpen.value}`
+      )
+      .join('|')
+    return `group:${getTimelineItemToolGroupOpen(item)}:${toolStates}`
+  }
+  const toolCall = getTimelineItemToolCall(item)
+  return toolCall
+    ? `tool:${toolOpenByKey.value[toolCall.toolCallId] ?? defaultToolOpen.value}`
+    : undefined
+}
+
+/**
  * 将 timeline item 转成模板消费的稳定视图模型。
  * @param item - timeline 项。
  * @returns timeline 视图模型。
@@ -1243,7 +1265,7 @@ function resolveToolResultMessageToolCall(message: ThreadMessage): DesktopToolCa
 /**
  * 更新底部距离状态。
  */
-function updateScrollState(): void {
+function updateScrollState(allowBottomUnlock = false): void {
   const distanceToBottom = getDistanceToBottom()
   if (distanceToBottom === undefined) {
     isNearBottom.value = true
@@ -1251,23 +1273,19 @@ function updateScrollState(): void {
     return
   }
 
-  const nextIsNearBottom = distanceToBottom < NEAR_BOTTOM_DISTANCE
-  if (isTimelineScrollbarDragging) {
-    isNearBottom.value = nextIsNearBottom
-    shouldFollowBottom.value = false
-  } else if (distanceToBottom <= STICKY_BOTTOM_DISTANCE) {
-    isUserScrollLocked = false
-    isNearBottom.value = true
-    shouldFollowBottom.value = true
-  } else if (isUserScrollLocked) {
-    isNearBottom.value = nextIsNearBottom
-    shouldFollowBottom.value = false
-  } else if (!isRunning.value) {
-    isNearBottom.value = nextIsNearBottom
-    shouldFollowBottom.value = nextIsNearBottom
-  } else {
-    isNearBottom.value = shouldFollowBottom.value ? true : nextIsNearBottom
-  }
+  const nextState = resolveTimelineFollowState({
+    distanceToBottom,
+    nearBottomDistance: NEAR_BOTTOM_DISTANCE,
+    stickyBottomDistance: STICKY_BOTTOM_DISTANCE,
+    isScrollbarDragging: isTimelineScrollbarDragging,
+    isUserScrollLocked,
+    allowBottomUnlock,
+    isRunning: isRunning.value,
+    shouldFollowBottom: shouldFollowBottom.value
+  })
+  isUserScrollLocked = nextState.isUserScrollLocked
+  isNearBottom.value = nextState.isNearBottom
+  shouldFollowBottom.value = nextState.shouldFollowBottom
 }
 
 /**
@@ -1276,6 +1294,7 @@ function updateScrollState(): void {
  */
 function scrollToLatest(behavior: TimelineScrollBehavior = 'smooth'): void {
   isUserScrollLocked = false
+  allowBottomUnlockOnNextScroll = false
   shouldFollowBottom.value = true
   timelineRef.value?.scrollBottom(behavior)
 }
@@ -1294,6 +1313,7 @@ let timelineAnchorRafId: number | null = null
 let timelineAnchorGeneration = 0
 let timelineSessionGeneration = 0
 let isUserScrollLocked = false
+let allowBottomUnlockOnNextScroll = false
 let isTimelineScrollbarDragging = false
 
 function findTimelineRow(key: string): HTMLElement | undefined {
@@ -1376,6 +1396,7 @@ function getDistanceToBottom(): number | undefined {
  */
 function holdUserScroll(): void {
   isUserScrollLocked = true
+  allowBottomUnlockOnNextScroll = false
   shouldFollowBottom.value = false
   cancelTimelineRowAnchor()
   if (scrollRafId !== null) {
@@ -1448,7 +1469,30 @@ function handleTimelineWheel(event: WheelEvent): void {
   if (Math.abs(event.deltaY) < 1) {
     return
   }
+  const distanceToBottom = getDistanceToBottom()
+  if (
+    event.deltaY > 0 &&
+    distanceToBottom !== undefined &&
+    distanceToBottom <= STICKY_BOTTOM_DISTANCE
+  ) {
+    isUserScrollLocked = false
+    allowBottomUnlockOnNextScroll = false
+    isNearBottom.value = true
+    shouldFollowBottom.value = true
+    startFollowBottomLoop(2)
+    return
+  }
   holdUserScroll()
+  allowBottomUnlockOnNextScroll = event.deltaY > 0
+}
+
+/**
+ * 只有紧邻用户向下滚动的 scroll 事件可以在底部解除交互锁。
+ */
+function handleTimelineScroll(): void {
+  const allowBottomUnlock = allowBottomUnlockOnNextScroll
+  allowBottomUnlockOnNextScroll = false
+  updateScrollState(allowBottomUnlock)
 }
 
 /**
@@ -1471,7 +1515,7 @@ function handleTimelineScrollbarPointerEnd(): void {
   isTimelineScrollbarDragging = false
   window.removeEventListener('pointerup', handleTimelineScrollbarPointerEnd, { capture: true })
   window.removeEventListener('pointercancel', handleTimelineScrollbarPointerEnd, { capture: true })
-  updateScrollState()
+  updateScrollState(true)
   if (shouldFollowBottom.value) {
     startFollowBottomLoop(2)
   }
@@ -1820,7 +1864,7 @@ function getTimelineItemRevision(item: TimelineItem | undefined): unknown[] {
       :class="{ 'chat-view__timeline--empty': !messages.length }"
       :vertical-offset="2"
       :vertical-size="7"
-      @scroll="updateScrollState"
+      @scroll="handleTimelineScroll"
       @scrollbar-pointer-down="handleTimelineScrollbarPointerDown"
       @wheel.passive="handleTimelineWheel"
     >
@@ -1854,9 +1898,7 @@ function getTimelineItemRevision(item: TimelineItem | undefined): unknown[] {
                 appearanceSettings.customMarkdownFontFamily.value,
                 appearanceSettings.motion.value,
                 appearanceSettings.userMessageAlignment.value,
-                thinkingOpenByKey,
-                toolGroupOpenByKey,
-                toolOpenByKey
+                getTimelineItemOpenMemoKey(viewItem.item)
               ]"
               :data-index="virtualItem.index"
               :data-timeline-key="viewItem.key"

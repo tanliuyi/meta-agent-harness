@@ -1,12 +1,14 @@
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   addBrowserTab,
   closeBrowserTab,
   createBrowserTab,
+  getBrowserSessionScope,
   MAX_BROWSER_TABS,
   requireBrowserTab,
   restoreBrowserTabs,
   switchBrowserTab,
+  transferBrowserSessionScope,
   withBrowserCommandTimeout,
   type BrowserTabsState
 } from '../browserPreviewTabs'
@@ -19,6 +21,68 @@ function state(): BrowserTabsState {
 }
 
 describe('browser preview tabs', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it('keeps a draft Browser scope when the draft becomes a thread', () => {
+    const values = new Map<string, string>()
+    vi.stubGlobal('window', {
+      localStorage: {
+        getItem: (key: string) => values.get(key) ?? null,
+        setItem: (key: string, value: string) => values.set(key, value)
+      }
+    })
+    try {
+      expect(getBrowserSessionScope('__orphan__.main.1')).toBe('__orphan__.main.1')
+      transferBrowserSessionScope('__orphan__.main.1', 'thread-a')
+      expect(getBrowserSessionScope('thread-a', 'thread-a')).toBe('__orphan__.main.1')
+      expect(getBrowserSessionScope('thread-b', 'thread-b')).toBe('thread-b')
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
+
+  it('falls back to the thread scope when localStorage cannot be read', () => {
+    vi.stubGlobal('window', {
+      localStorage: {
+        getItem: () => {
+          throw new Error('storage unavailable')
+        }
+      }
+    })
+    try {
+      expect(getBrowserSessionScope('session-storage-read', 'thread-storage-read')).toBe(
+        'thread-storage-read'
+      )
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
+
+  it('keeps the draft scope in memory when localStorage cannot be written', () => {
+    const getItem = vi.fn(() => null)
+    vi.stubGlobal('window', {
+      localStorage: {
+        getItem,
+        setItem: () => {
+          throw new Error('quota exceeded')
+        }
+      }
+    })
+    try {
+      expect(() =>
+        transferBrowserSessionScope('__orphan__.main.2', 'thread-storage-failure')
+      ).not.toThrow()
+      expect(getBrowserSessionScope('thread-storage-failure', 'thread-storage-failure')).toBe(
+        '__orphan__.main.2'
+      )
+      expect(getItem).not.toHaveBeenCalled()
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
+
   it('opens, targets, and switches independent browser tabs', () => {
     const tabs = state()
     addBrowserTab(tabs, createBrowserTab('tab-b', 'https://b.example/'), false)

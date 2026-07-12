@@ -282,7 +282,7 @@ describe('message-format', () => {
       text:
         '<quoted_context data-meta-agent-context="true">\n' +
         '<quote message_id="browser-element:ref-picked-1">\n' +
-        '[Browser element ref-picked-1: &lt;button&gt; Save changes]\n' +
+        '[Browser tab tab-a, element ref-picked-1: &lt;button&gt; Save changes]\n' +
         '</quote>\n' +
         '</quoted_context>\n\n' +
         '请基于引用内容回答',
@@ -297,8 +297,9 @@ describe('message-format', () => {
         label: 'Save changes',
         messageId: 'browser-element:ref-picked-1',
         browserRef: 'ref-picked-1',
+        browserId: 'tab-a',
         tagName: 'button',
-        text: '[Browser element ref-picked-1: <button> Save changes]'
+        text: '[Browser tab tab-a, element ref-picked-1: <button> Save changes]'
       },
       { type: 'text', text: '\n\n' },
       { type: 'text', text: '请基于引用内容回答' }

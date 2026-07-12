@@ -8,6 +8,7 @@ import EditTool from './tools/EditTool.vue'
 import FindTool from './tools/FindTool.vue'
 import GrepTool from './tools/GrepTool.vue'
 import LsTool from './tools/LsTool.vue'
+import MemorySearch from './tools/MemorySearch.vue'
 import MemoryTool from './tools/MemoryTool.vue'
 import ReadTool from './tools/ReadTool.vue'
 import SkillManageTool from './tools/SkillManageTool.vue'
@@ -57,6 +58,8 @@ function getToolComponent(name: string): Component {
       return LsTool
     case 'memory':
       return MemoryTool
+    case 'memory_search':
+      return MemorySearch
     case 'skill_manage':
       return SkillManageTool
     default:

@@ -1,5 +1,7 @@
 /** IPC contract for host-controlled Browser preview navigation and device emulation. */
 
+export const browserPreviewPartition = 'persist:browser-preview'
+
 export const browserPreviewChannels = {
   navigate: 'browser-preview:navigate',
   setEmulation: 'browser-preview:set-emulation',

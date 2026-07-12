@@ -16,7 +16,7 @@
 .window-drag-strip {
   width: 100%;
   height: 100%;
-  background: var(--color-surface);
+  background: var(--color-canvas);
   -webkit-app-region: drag;
   app-region: drag;
   pointer-events: auto;

@@ -284,9 +284,22 @@
 }
 
 .session-panel__collapse {
+  position: relative;
   width: 24px !important;
   height: 24px !important;
   pointer-events: auto;
+}
+
+.session-panel__collapse.has-attention::after {
+  position: absolute;
+  top: 3px;
+  right: 3px;
+  width: 5px;
+  height: 5px;
+  background: var(--color-warning, var(--color-text-muted));
+  border: 1px solid var(--color-surface);
+  border-radius: 999px;
+  content: '';
 }
 
 .session-panel--collapsed .session-panel__actions {
@@ -941,6 +954,7 @@
 
 .change-file__actions,
 .change-header-actions {
+  margin-left: auto;
   display: inline-flex;
   gap: 2px;
   align-items: center;

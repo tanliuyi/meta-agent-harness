@@ -2,8 +2,12 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, watch } from 'vue'
 import { Globe2, LoaderCircle, Plus, X } from 'lucide-vue-next'
 import BaseIconButton from '@renderer/components/base/BaseIconButton.vue'
+import { useSessionContext } from '@renderer/composables/useSessionContext'
+import type { ExtensionSessionPanelTabId } from '@renderer/components/session/panel/model/types'
 import useWorkspaceSessionStore from '@renderer/stores/workspace-session'
 import BrowserPreviewPage from './BrowserPreviewPage.vue'
+import { migrateLegacyBrowserPreviewStorage } from './state/browserPreviewMigration'
+import { decideBrowserReveal } from './state/browserRevealPolicy'
 import {
   addBrowserTab,
   closeBrowserTab,
@@ -40,19 +44,87 @@ type BrowserPageHandle = {
   stop: () => void
 }
 
-const props = defineProps<{ panelId?: string }>()
+const props = defineProps<{
+  panelId?: string
+  sessionScope: string
+  threadId?: string
+  visible?: boolean
+}>()
+const emit = defineEmits<{
+  attention: [threadId: string]
+  busyChange: [busy: boolean]
+}>()
 const store = useWorkspaceSessionStore()
-const storageScope = props.panelId || 'default'
+const { panel, openPanelTab } = useSessionContext()
+const legacyStorageScope = props.panelId || 'default'
+const storageScope = `${legacyStorageScope}:${props.sessionScope}`
 const tabsStorageKey = `meta-agent.browser-preview.tabs:${storageScope}`
 const pageRefs = new Map<string, BrowserPageHandle>()
 const processedCommandRequestIds = new Set<string>()
 const commandExecutionQueues = new Map<string, Promise<void>>()
 const PAGE_COMMAND_TIMEOUT_MS = 25_000
+const PANEL_COLLAPSE_COOLDOWN_MS = 10_000
+const autoRevealedThreadIds = new Set<string>()
+const lastPanelCollapsedAtByThreadId = new Map<string, number>()
 let removeOpenRequestedListener: (() => void) | undefined
+let inFlightCommandCount = 0
+
+function beginBrowserCommand(): void {
+  inFlightCommandCount += 1
+  if (inFlightCommandCount === 1) emit('busyChange', true)
+}
+
+function finishBrowserCommand(): void {
+  inFlightCommandCount = Math.max(0, inFlightCommandCount - 1)
+  if (inFlightCommandCount === 0) emit('busyChange', false)
+}
+
+watch(
+  () => [store.activeSessionId, panel.value.open] as const,
+  ([threadId, open], [previousThreadId, previousOpen]) => {
+    if (threadId && threadId === previousThreadId && previousOpen && !open) {
+      lastPanelCollapsedAtByThreadId.set(threadId, Date.now())
+    }
+  }
+)
+
+function browserPanelTabId(): ExtensionSessionPanelTabId | undefined {
+  return props.panelId ? `extension:${props.panelId}` : undefined
+}
+
+function applyBrowserRevealPolicy(threadId: string, command: string): void {
+  const decision = decideBrowserReveal({
+    command,
+    activeThread: store.activeSessionId === threadId,
+    browserVisible: Boolean(props.visible),
+    panelOpen: panel.value.open,
+    autoRevealed: autoRevealedThreadIds.has(threadId),
+    recentlyCollapsed:
+      Date.now() - (lastPanelCollapsedAtByThreadId.get(threadId) ?? Number.NEGATIVE_INFINITY) <
+      PANEL_COLLAPSE_COOLDOWN_MS
+  })
+  if (decision === 'attention') {
+    emit('attention', threadId)
+    return
+  }
+  if (decision !== 'reveal') return
+
+  const tabId = browserPanelTabId()
+  if (!tabId) return
+  autoRevealedThreadIds.add(threadId)
+  openPanelTab(tabId)
+}
 
 function createBrowserId(): string {
   return `tab-${crypto.randomUUID().slice(0, 8)}`
 }
+
+migrateLegacyBrowserPreviewStorage({
+  createBrowserId,
+  legacyScope: legacyStorageScope,
+  storage: localStorage,
+  targetScope: storageScope
+})
 
 function readStoredTabs(): BrowserTabsState {
   try {
@@ -215,18 +287,16 @@ async function sendResult(
 }
 
 const panelCommands = computed(() => {
-  if (!props.panelId) return []
-  return Object.entries(store.runtimeByThreadId).flatMap(([threadId, runtime]) => {
-    const entry = runtime.extensionPanelMessages[props.panelId!]
-    if (!entry) return []
-    return (entry.messages ?? [{ sequence: entry.sequence, message: entry.message }]).map(
-      ({ sequence, message }) => ({
-        threadId,
-        sequence,
-        message: message as Partial<BrowserCommand>
-      })
-    )
-  })
+  if (!props.panelId || !props.threadId) return []
+  const entry = store.runtimeByThreadId[props.threadId]?.extensionPanelMessages[props.panelId]
+  if (!entry) return []
+  return (entry.messages ?? [{ sequence: entry.sequence, message: entry.message }]).map(
+    ({ sequence, message }) => ({
+      threadId: props.threadId!,
+      sequence,
+      message: message as Partial<BrowserCommand>
+    })
+  )
 })
 
 function enqueueBrowserCommand(threadId: string, message: BrowserCommand): void {
@@ -241,6 +311,8 @@ function enqueueBrowserCommand(threadId: string, message: BrowserCommand): void 
   const routedMessage = targetBrowserId
     ? { ...message, payload: { ...payload, browserId: targetBrowserId } }
     : message
+  applyBrowserRevealPolicy(threadId, message.command)
+  beginBrowserCommand()
   const queueKey = targetBrowserId ? `page:${targetBrowserId}` : 'browser-controls'
   const previous = commandExecutionQueues.get(queueKey) ?? Promise.resolve()
   const queued = previous
@@ -258,6 +330,7 @@ function enqueueBrowserCommand(threadId: string, message: BrowserCommand): void 
   commandExecutionQueues.set(queueKey, queued)
   void queued.finally(() => {
     if (commandExecutionQueues.get(queueKey) === queued) commandExecutionQueues.delete(queueKey)
+    finishBrowserCommand()
   })
 }
 
@@ -363,6 +436,9 @@ onBeforeUnmount(() => {
       :ref="(value) => setPageRef(tab.id, value)"
       :browser-id="tab.id"
       :initial-url="tab.url"
+      :active="visible && tab.id === tabsState.activeBrowserId"
+      :session-scope="storageScope"
+      :thread-id="threadId"
       @state="updatePageState"
     />
   </section>

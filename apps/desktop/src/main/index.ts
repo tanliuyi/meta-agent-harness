@@ -25,6 +25,7 @@ import {
 import { setupAutoUpdater } from './updater'
 import {
   browserPreviewChannels,
+  browserPreviewPartition,
   type BrowserPreviewNavigateInput,
   type BrowserPreviewOpenRequest,
   type BrowserPreviewSetEmulationInput,
@@ -99,7 +100,7 @@ function createWindow(): BrowserWindow {
 
   mainWindow.webContents.on('will-attach-webview', (event, webPreferences, params) => {
     if (
-      params.partition !== 'browser-preview' ||
+      params.partition !== browserPreviewPartition ||
       (params.src !== 'about:blank' && !isBrowserPreviewUrlAllowed(params.src))
     ) {
       event.preventDefault()

@@ -1,5 +1,7 @@
 export const DEFAULT_BROWSER_URL = 'http://127.0.0.1:3000'
 export const MAX_BROWSER_TABS = 20
+const BROWSER_SESSION_SCOPE_STORAGE_PREFIX = 'meta-agent.browser-preview.session-scope:'
+const browserSessionScopeByThreadId = new Map<string, string>()
 
 export interface BrowserTab {
   id: string
@@ -12,6 +14,33 @@ export interface BrowserTab {
 export interface BrowserTabsState {
   tabs: BrowserTab[]
   activeBrowserId: string
+}
+
+export function getBrowserSessionScope(sessionKey: string, threadId?: string): string {
+  if (!threadId) return sessionKey
+  const volatileScope = browserSessionScopeByThreadId.get(threadId)
+  if (volatileScope !== undefined) return volatileScope
+  try {
+    const storedScope = window.localStorage.getItem(
+      `${BROWSER_SESSION_SCOPE_STORAGE_PREFIX}${threadId}`
+    )
+    if (storedScope) {
+      browserSessionScopeByThreadId.set(threadId, storedScope)
+      return storedScope
+    }
+  } catch {
+    // Fall through to the thread scope when persisted state is unavailable.
+  }
+  return threadId
+}
+
+export function transferBrowserSessionScope(sourceScope: string, threadId: string): void {
+  browserSessionScopeByThreadId.set(threadId, sourceScope)
+  try {
+    window.localStorage.setItem(`${BROWSER_SESSION_SCOPE_STORAGE_PREFIX}${threadId}`, sourceScope)
+  } catch {
+    // Browser state persistence is best-effort and must not interrupt thread creation.
+  }
 }
 
 export function normalizeBrowserUrl(value: unknown): string {

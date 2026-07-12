@@ -171,10 +171,11 @@ const {
     />
 
     <SessionPanel
-      v-if="hasSessionPanelContext && shouldRenderSessionPanel"
+      v-if="shouldRenderSessionPanel"
       class="workspace-content__session-panel"
-      :class="{ 'workspace-content__session-panel--collapsed': !sessionPanel.open }"
-      :collapsed="!sessionPanel.open"
+      :class="{ 'workspace-content__session-panel--collapsed': !isSessionPanelOpen }"
+      :collapsed="!isSessionPanelOpen"
+      :disabled="!hasSessionPanelContext"
       @toggle="workspaceSession.setActiveSessionPanelOpen(!sessionPanel.open)"
     />
   </section>

@@ -53,7 +53,7 @@ interface UseSessionPanelTabsStateResult {
   clearTabAttention: (tabId: SessionPanelTabId) => void
   closeTab: (tabInstanceId: string) => void
   isAddPanelActive: ComputedRef<boolean>
-  markTabAttention: (tabId: SessionPanelTabId) => void
+  markTabAttention: (tabId: SessionPanelTabId, sessionStateKey?: string, force?: boolean) => void
   openAddPanel: () => void
   openTab: (tabId: SessionPanelTabId) => void
   openTabs: ComputedRef<SessionPanelOpenTab[]>
@@ -113,13 +113,13 @@ export function useSessionPanelTabsState(
   }
 
   function createState(key: string): SessionPanelTabsState {
-    const openTabs = readStoredTabs(key) ?? [createOpenTab('session', 1)]
+    const openTabs = readStoredTabs(key) ?? []
     const nextTabInstanceIndex = getNextTabInstanceIndex(openTabs)
-    const activeTabInstanceId = readStoredTab(key) ?? openTabs[0]?.instanceId ?? ADD_TAB_INSTANCE_ID
+    const activeTabInstanceId = readStoredTab(key) ?? ADD_TAB_INSTANCE_ID
     return {
       activeTabInstanceId: isKnownTabInstance(activeTabInstanceId, openTabs)
         ? activeTabInstanceId
-        : (openTabs[0]?.instanceId ?? ADD_TAB_INSTANCE_ID),
+        : ADD_TAB_INSTANCE_ID,
       attentionTabIds: [],
       nextTabInstanceIndex,
       openTabs
@@ -261,14 +261,21 @@ export function useSessionPanelTabsState(
     )
   }
 
-  function markTabAttention(tabId: SessionPanelTabId): void {
-    const state = activeState.value
-    if (activeTabId.value === tabId) {
+  function markTabAttention(
+    tabId: SessionPanelTabId,
+    sessionStateKey = activeStateKey.value,
+    force = false
+  ): void {
+    const state = ensureState(sessionStateKey)
+    const stateActiveTabId = state.openTabs.find(
+      (tab) => tab.instanceId === state.activeTabInstanceId
+    )?.id
+    if (!force && stateActiveTabId === tabId) {
       return
     }
     if (!state.attentionTabIds.includes(tabId)) {
       state.attentionTabIds = [...state.attentionTabIds, tabId]
-      persistState(activeStateKey.value, state)
+      persistState(sessionStateKey, state)
     }
   }
 

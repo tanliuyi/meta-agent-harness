@@ -6,6 +6,7 @@ import {
   createVirtualTimelineRows,
   estimateTimelineItemSize,
   resetTimelineVirtualizerForSession,
+  resolveTimelineFollowState,
   shouldAdjustTimelineScrollForItemResize
 } from '../chatTimelineVirtualization'
 
@@ -42,6 +43,63 @@ describe('chat timeline virtualization', () => {
     expect(shouldAdjustTimelineScrollForItemResize(aboveViewport, 250)).toBe(true)
     expect(shouldAdjustTimelineScrollForItemResize(containingViewport, 250)).toBe(false)
     expect(shouldAdjustTimelineScrollForItemResize(createVirtualItem(3), 250)).toBe(false)
+  })
+
+  it('keeps the interaction lock when a programmatic scroll reaches the bottom', () => {
+    expect(
+      resolveTimelineFollowState({
+        distanceToBottom: 0,
+        nearBottomDistance: 32,
+        stickyBottomDistance: 2,
+        isScrollbarDragging: false,
+        isUserScrollLocked: true,
+        allowBottomUnlock: false,
+        isRunning: true,
+        shouldFollowBottom: false
+      })
+    ).toEqual({
+      isNearBottom: true,
+      shouldFollowBottom: false,
+      isUserScrollLocked: true
+    })
+  })
+
+  it('restores bottom following only when user input allows unlocking', () => {
+    expect(
+      resolveTimelineFollowState({
+        distanceToBottom: 0,
+        nearBottomDistance: 32,
+        stickyBottomDistance: 2,
+        isScrollbarDragging: false,
+        isUserScrollLocked: true,
+        allowBottomUnlock: true,
+        isRunning: true,
+        shouldFollowBottom: false
+      })
+    ).toEqual({
+      isNearBottom: true,
+      shouldFollowBottom: true,
+      isUserScrollLocked: false
+    })
+  })
+
+  it('preserves the running follow decision away from the sticky bottom', () => {
+    expect(
+      resolveTimelineFollowState({
+        distanceToBottom: 18,
+        nearBottomDistance: 32,
+        stickyBottomDistance: 2,
+        isScrollbarDragging: false,
+        isUserScrollLocked: false,
+        allowBottomUnlock: false,
+        isRunning: true,
+        shouldFollowBottom: false
+      })
+    ).toEqual({
+      isNearBottom: true,
+      shouldFollowBottom: false,
+      isUserScrollLocked: false
+    })
   })
 
   it('clears the previous session scroll offset before resetting measurements', () => {

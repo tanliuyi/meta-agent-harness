@@ -1,11 +1,11 @@
 <script setup lang="ts">
-import { computed, defineAsyncComponent, watch } from 'vue'
+import { computed, defineAsyncComponent, reactive, watch } from 'vue'
 import ScrollArea from '@renderer/components/ui/scroll-area/ScrollArea.vue'
 import { useSessionContext } from '@renderer/composables/useSessionContext'
 import { useAppStore } from '@renderer/stores/app'
 import useWorkspaceSessionStore from '@renderer/stores/workspace-session'
 import SessionPanelTabBar from './SessionPanelTabBar.vue'
-import type { SessionPanelTabCountMap } from './model/types'
+import type { ExtensionSessionPanelTabId, SessionPanelTabCountMap } from './model/types'
 import { countRecordKeys, createStableSessionPanelTabCounts } from './state/sessionPanelCounts'
 import {
   getSessionPanelTabComponent,
@@ -13,8 +13,13 @@ import {
 } from './state/sessionPanelTabRegistry'
 import { useSessionPanelTabsState } from './state/useSessionPanelTabsState'
 import { shouldRetainExtensionPanelContext } from './tabs/display/extensionPanelDisplay'
+import { getBrowserSessionScope } from './tabs/state/browserPreviewTabs'
+import {
+  reconcileBrowserSessionInstances,
+  type BrowserSessionInstance
+} from './tabs/state/browserSessionInstances'
 
-defineProps<{
+const props = defineProps<{
   collapsed?: boolean
 }>()
 
@@ -125,13 +130,82 @@ const persistentBrowserPanelId = computed(
     )?.id
 )
 const isPersistentBrowserPanelActive = computed(
-  () => activeExtensionPanelId.value === persistentBrowserPanelId.value
+  () =>
+    Boolean(persistentBrowserPanelId.value) &&
+    activeExtensionPanelId.value === persistentBrowserPanelId.value
+)
+
+const browserSessionInstances = reactive<BrowserSessionInstance[]>([])
+const busyBrowserSessionScopes = reactive(new Set<string>())
+let browserSessionAccessSequence = 0
+const activeBrowserSessionScope = computed(() =>
+  getBrowserSessionScope(
+    workspaceSession.activeSessionPanelTabsKey,
+    workspaceSession.activeSessionId
+  )
+)
+
+watch(
+  () => ({
+    active: isPersistentBrowserPanelActive.value,
+    activeScope: activeBrowserSessionScope.value,
+    activeThreadId: workspaceSession.activeSessionId,
+    runtimeThreadIds: Object.keys(workspaceSession.runtimeByThreadId),
+    sessionThreadIds: Object.keys(workspaceSession.sessions),
+    busyScopes: [...busyBrowserSessionScopes],
+    threadIdsWithBrowserMessages: Object.entries(workspaceSession.runtimeByThreadId)
+      .filter(([, runtime]) => {
+        const entry = runtime.extensionPanelMessages['browser-preview']
+        return Boolean(entry && (entry.messages ? entry.messages.length > 0 : true))
+      })
+      .map(([threadId]) => threadId)
+  }),
+  ({
+    active,
+    activeScope,
+    activeThreadId,
+    runtimeThreadIds,
+    sessionThreadIds,
+    busyScopes,
+    threadIdsWithBrowserMessages
+  }) => {
+    const now = ++browserSessionAccessSequence
+    const validThreadIds = [...new Set([...sessionThreadIds, ...runtimeThreadIds])]
+    const toInstance = (threadId: string, lastUsedAt = 0): BrowserSessionInstance => ({
+      lastUsedAt,
+      scope: getBrowserSessionScope(threadId, threadId),
+      threadId
+    })
+    const nextInstances = reconcileBrowserSessionInstances(browserSessionInstances, {
+      activeInstance: active
+        ? {
+            lastUsedAt: now,
+            scope: activeScope,
+            ...(activeThreadId ? { threadId: activeThreadId } : {})
+          }
+        : undefined,
+      activeScope,
+      busyScopes,
+      currentDraftScope: activeThreadId ? undefined : activeScope,
+      now,
+      requiredThreadInstances: threadIdsWithBrowserMessages.map((threadId) =>
+        toInstance(threadId, now)
+      ),
+      validThreadInstances: validThreadIds.map(toInstance)
+    })
+    browserSessionInstances.splice(0, browserSessionInstances.length, ...nextInstances)
+  },
+  { flush: 'sync', immediate: true }
 )
 
 const shouldKeepActiveTabAlive = computed(() => {
   if (!activeExtensionPanelId.value) return true
   return shouldRetainExtensionPanelContext(activeExtensionPanel.value)
 })
+
+const isPersistentBrowserPanelVisible = computed(
+  () => !props.collapsed && !isAddPanelActive.value && isPersistentBrowserPanelActive.value
+)
 
 const activeTabComponent = computed(() => {
   if (isPersistentBrowserPanelActive.value) return undefined
@@ -165,11 +239,12 @@ watch(
   }
 )
 
-watch(activeTabId, (tabId) => {
-  if (tabId) {
-    clearTabAttention(tabId)
+watch(
+  () => [workspaceSession.activeSessionPanelTabsKey, activeTabId.value, props.collapsed] as const,
+  ([, tabId, collapsed]) => {
+    if (tabId && !collapsed) clearTabAttention(tabId)
   }
-})
+)
 
 watch(pendingApprovalsCount, (count, previousCount) => {
   if (count > previousCount) {
@@ -182,6 +257,21 @@ watch(extensionDialogCount, (count, previousCount) => {
     markTabAttention('extensions')
   }
 })
+
+function handleBrowserAttention(threadId: string): void {
+  const panelId = persistentBrowserPanelId.value
+  if (!panelId) return
+  markTabAttention(
+    `${extensionPanelTabPrefix}${panelId}` as ExtensionSessionPanelTabId,
+    threadId,
+    props.collapsed || threadId !== workspaceSession.activeSessionId
+  )
+}
+
+function handleBrowserBusyChange(scope: string, busy: boolean): void {
+  if (busy) busyBrowserSessionScopes.add(scope)
+  else busyBrowserSessionScopes.delete(scope)
+}
 
 function handleCloseTab(tabInstanceId: string): void {
   const tab = openTabs.value.find((item) => item.instanceId === tabInstanceId)
@@ -211,7 +301,7 @@ function handleCloseTab(tabInstanceId: string): void {
       @open-add-panel="openAddPanel"
       @select="selectOpenTab"
     />
-    <slot name="actions" />
+    <slot name="actions" :has-attention="attentionTabIds.length > 0" />
   </header>
 
   <div v-show="!collapsed" class="session-panel__body">
@@ -229,11 +319,23 @@ function handleCloseTab(tabInstanceId: string): void {
         </button>
       </div>
     </ScrollArea>
-    <BrowserPreviewPanelTab
-      v-if="persistentBrowserPanelId"
-      v-show="!isAddPanelActive && isPersistentBrowserPanelActive"
-      :panel-id="persistentBrowserPanelId"
-    />
+    <template v-if="persistentBrowserPanelId">
+      <BrowserPreviewPanelTab
+        v-for="instance in browserSessionInstances"
+        v-show="
+          !isAddPanelActive &&
+          isPersistentBrowserPanelActive &&
+          instance.scope === activeBrowserSessionScope
+        "
+        :key="instance.scope"
+        :panel-id="persistentBrowserPanelId"
+        :session-scope="instance.scope"
+        :thread-id="instance.threadId"
+        :visible="isPersistentBrowserPanelVisible && instance.scope === activeBrowserSessionScope"
+        @attention="handleBrowserAttention"
+        @busy-change="handleBrowserBusyChange(instance.scope, $event)"
+      />
+    </template>
     <KeepAlive>
       <component
         :is="activeTabComponent"

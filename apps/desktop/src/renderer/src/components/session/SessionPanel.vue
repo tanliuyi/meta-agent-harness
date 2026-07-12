@@ -10,6 +10,7 @@ import SessionPanelTabs from './panel/SessionPanelTabs.vue'
 
 defineProps<{
   collapsed?: boolean
+  disabled?: boolean
 }>()
 
 defineEmits<{
@@ -20,12 +21,20 @@ defineEmits<{
 <template>
   <section class="session-panel" :class="{ 'session-panel--collapsed': collapsed }">
     <SessionPanelTabs :collapsed="collapsed">
-      <template #actions>
+      <template #actions="{ hasAttention }">
         <div class="session-panel__actions">
           <BaseIconButton
             class="session-panel__collapse"
+            :class="{ 'has-attention': collapsed && hasAttention }"
             :active="!collapsed"
-            :label="collapsed ? '展开会话面板' : '收起会话面板'"
+            :disabled="disabled"
+            :label="
+              collapsed && hasAttention
+                ? '展开会话面板，有新活动'
+                : collapsed
+                  ? '展开会话面板'
+                  : '收起会话面板'
+            "
             @click="$emit('toggle')"
           >
             <svg

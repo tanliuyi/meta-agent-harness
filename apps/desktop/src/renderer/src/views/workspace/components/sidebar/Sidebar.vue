@@ -490,7 +490,7 @@ function getProjectTrustIcon(project: ProjectSummary): Component | undefined {
   padding: var(--space-4) 0 0;
   overflow: hidden;
   color: var(--color-text);
-  background: var(--color-surface);
+  background: var(--color-canvas);
 }
 
 .sidebar-section {

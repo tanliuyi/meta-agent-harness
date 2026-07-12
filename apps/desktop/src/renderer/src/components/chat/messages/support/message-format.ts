@@ -118,6 +118,7 @@ export type UserMessageDisplaySegment =
       text: string
       kind?: 'quote' | 'browser-element'
       browserRef?: string
+      browserId?: string
       tagName?: string
     }
 
@@ -355,20 +356,30 @@ function getUserMessageDisplaySegmentsFromText(text: string): UserMessageDisplay
         : []
   const quoteSegments: UserMessageDisplaySegment[] = context.quotes.map((quote) => {
     const isBrowserElement = quote.messageId.startsWith('browser-element:')
-    const browserMatch = isBrowserElement
-      ? quote.text.match(/^\[Browser element ([^:]+): <([^>]+)>(?: (.*))?\]$/s)
+    const browserTabMatch = isBrowserElement
+      ? quote.text.match(/^\[Browser tab ([^,]+), element ([^:]+): <([^>]+)>(?: (.*))?\]$/s)
       : undefined
+    const legacyBrowserMatch =
+      isBrowserElement && !browserTabMatch
+        ? quote.text.match(/^\[Browser element ([^:]+): <([^>]+)>(?: (.*))?\]$/s)
+        : undefined
     return {
       type: 'quoteReference',
-      label: isBrowserElement ? browserMatch?.[3] || 'Element' : '文本引用',
+      label: isBrowserElement
+        ? browserTabMatch?.[4] || legacyBrowserMatch?.[3] || 'Element'
+        : '文本引用',
       messageId: quote.messageId,
       ...(quote.sessionEntryId ? { sessionEntryId: quote.sessionEntryId } : {}),
       text: quote.text,
       ...(isBrowserElement
         ? {
             kind: 'browser-element' as const,
-            browserRef: browserMatch?.[1] || quote.messageId.slice('browser-element:'.length),
-            tagName: browserMatch?.[2] || 'element'
+            browserRef:
+              browserTabMatch?.[2] ||
+              legacyBrowserMatch?.[1] ||
+              quote.messageId.slice('browser-element:'.length),
+            ...(browserTabMatch?.[1] ? { browserId: browserTabMatch[1] } : {}),
+            tagName: browserTabMatch?.[3] || legacyBrowserMatch?.[2] || 'element'
           }
         : {})
     }

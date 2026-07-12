@@ -130,7 +130,11 @@ const styles = computed(() => {
       </BaseDropdownMenu>
     </div>
     <div class="session-header__actions">
-      <BaseIconButton label="查看会话信息" @click="openPanelTab('session')">
+      <BaseIconButton
+        label="查看会话信息"
+        :disabled="!session.sessionId && !workspaceSession.isNewSessionActive"
+        @click="openPanelTab('session')"
+      >
         <svg
           viewBox="0 0 24 24"
           fill="none"

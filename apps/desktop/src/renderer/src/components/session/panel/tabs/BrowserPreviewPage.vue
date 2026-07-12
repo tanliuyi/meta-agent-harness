@@ -1,12 +1,13 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import {
   ArrowLeft,
   ArrowRight,
   Camera,
+  CircleAlert,
   Code2,
   Crosshair,
-  CircleAlert,
+  Globe2,
   LoaderCircle,
   Monitor,
   MonitorSmartphone,
@@ -26,7 +27,9 @@ import {
   SelectValue
 } from '@renderer/components/ui/select'
 import useWorkspaceSessionStore from '@renderer/stores/workspace-session'
+import { resolveBrowserAddress } from './state/browserAddress'
 import {
+  browserPreviewPartition,
   validateBrowserPreviewEmulation,
   type BrowserPreviewDeviceEmulation
 } from '@shared/browser-preview'
@@ -158,11 +161,17 @@ function readStoredDevice(key: string): {
   return { preset: 'desktop', emulation: DEVICE_PRESETS.desktop }
 }
 
-const props = defineProps<{ browserId: string; initialUrl?: string }>()
+const props = defineProps<{
+  browserId: string
+  initialUrl?: string
+  active?: boolean
+  sessionScope: string
+  threadId?: string
+}>()
 const emit = defineEmits<{ state: [state: BrowserPageState] }>()
 const store = useWorkspaceSessionStore()
 const webview = ref<BrowserWebviewElement>()
-const storageScope = props.browserId
+const storageScope = `${props.sessionScope}:${props.browserId}`
 const urlStorageKey = `meta-agent.browser-preview.url:${storageScope}`
 const deviceStorageKey = `meta-agent.browser-preview.device:${storageScope}`
 const deviceToolbarStorageKey = `meta-agent.browser-preview.device-toolbar:${storageScope}`
@@ -170,6 +179,8 @@ const initialUrl =
   props.initialUrl || localStorage.getItem(urlStorageKey) || 'http://127.0.0.1:3000'
 const initialDevice = readStoredDevice(deviceStorageKey)
 const urlInput = ref(initialUrl)
+const addressInput = ref<HTMLInputElement>()
+const editingAddress = ref(false)
 const devicePreset = ref<DevicePresetId>(initialDevice.preset)
 const emulation = ref<BrowserPreviewDeviceEmulation>({ ...initialDevice.emulation })
 const showDeviceToolbar = ref(localStorage.getItem(deviceToolbarStorageKey) === 'true')
@@ -269,13 +280,46 @@ async function rotateDevice(): Promise<void> {
 }
 
 async function navigate(): Promise<void> {
+  const submittedAddress = urlInput.value
   try {
+    const resolvedUrl = resolveBrowserAddress(submittedAddress)
     error.value = ''
     failedUrl.value = ''
-    await loadGuestUrl(urlInput.value)
+    urlInput.value = resolvedUrl
+    editingAddress.value = false
+    addressInput.value?.blur()
+    await loadGuestUrl(resolvedUrl)
   } catch (cause) {
     error.value = cause instanceof Error ? cause.message : String(cause)
-    failedUrl.value = urlInput.value
+    failedUrl.value = submittedAddress
+  }
+}
+
+function focusAddressBar(): void {
+  editingAddress.value = true
+  void nextTick(() => addressInput.value?.select())
+}
+
+function restoreAddressBar(): void {
+  editingAddress.value = false
+  urlInput.value = currentUrl.value || initialUrl
+}
+
+function cancelAddressEdit(): void {
+  restoreAddressBar()
+  addressInput.value?.blur()
+}
+
+function handleAddressBlur(): void {
+  if (editingAddress.value) restoreAddressBar()
+}
+
+function handleWindowKeydown(event: KeyboardEvent): void {
+  if (!props.active || !addressInput.value?.offsetParent || event.defaultPrevented || event.altKey)
+    return
+  if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'l') {
+    event.preventDefault()
+    focusAddressBar()
   }
 }
 
@@ -474,15 +518,19 @@ async function pickElement(): Promise<void> {
       .trim()
       .slice(0, 200)
     const descriptor = `[Browser tab ${props.browserId}, element ${selectedRef.value}: <${tagName}>${text ? ` ${text}` : ''}]`
-    store.addComposerQuote({
-      id: `browser-element-${crypto.randomUUID()}`,
-      kind: 'browser-element',
-      browserRef: selectedRef.value,
-      tagName,
-      label: text,
-      messageId: `browser-element:${selectedRef.value}`,
-      text: descriptor
-    })
+    store.addComposerQuote(
+      {
+        id: `browser-element-${crypto.randomUUID()}`,
+        kind: 'browser-element',
+        browserRef: selectedRef.value,
+        tagName,
+        label: text,
+        messageId: `browser-element:${selectedRef.value}`,
+        text: descriptor
+      },
+      store.defaultSessionContextId,
+      props.threadId
+    )
   } finally {
     picking.value = false
   }
@@ -565,7 +613,7 @@ function onDomReady(): void {
   const guest = webview.value
   if (!guest || guest.getURL() === 'about:blank') return
   currentUrl.value = guest.getURL()
-  urlInput.value = currentUrl.value
+  if (!editingAddress.value) urlInput.value = currentUrl.value
   title.value = guest.getTitle() || 'Browser'
   localStorage.setItem(urlStorageKey, currentUrl.value)
   updateNavigationState()
@@ -641,6 +689,14 @@ function attachGuestEvents(): void {
 }
 
 watch(webview, attachGuestEvents)
+watch(
+  () => props.active,
+  (active) => {
+    if (!active && editingAddress.value) cancelAddressEdit()
+  }
+)
+
+onMounted(() => window.addEventListener('keydown', handleWindowKeydown))
 
 defineExpose({
   executeCommand,
@@ -649,6 +705,7 @@ defineExpose({
 })
 
 onBeforeUnmount(() => {
+  window.removeEventListener('keydown', handleWindowKeydown)
   void cancelElementPicker()
   webview.value?.stop()
 })
@@ -683,12 +740,25 @@ onBeforeUnmount(() => {
           <X v-if="loading" :size="12" />
           <RefreshCw v-else :size="12" />
         </BaseIconButton>
-        <form @submit.prevent="navigate">
-          <Input
+        <form
+          class="browser-preview__address"
+          :class="{ 'is-editing': editingAddress, 'has-error': !!error }"
+          role="search"
+          @submit.prevent="navigate"
+        >
+          <Globe2 class="browser-preview__address-icon" aria-hidden="true" />
+          <input
+            ref="addressInput"
             v-model="urlInput"
             class="browser-preview__url-input"
-            aria-label="Preview URL"
+            aria-label="Address and search bar"
+            autocomplete="off"
+            autocapitalize="off"
+            placeholder="Search Google or enter URL"
             :spellcheck="false"
+            @focus="focusAddressBar"
+            @blur="handleAddressBlur"
+            @keydown.esc.prevent="cancelAddressEdit"
           />
         </form>
         <BaseIconButton label="Pick element" size="small" :active="picking" @click="pickElement">
@@ -780,7 +850,7 @@ onBeforeUnmount(() => {
         <webview
           ref="webview"
           allowpopups
-          partition="browser-preview"
+          :partition="browserPreviewPartition"
           webpreferences="contextIsolation=yes,sandbox=yes"
           src="about:blank"
         />
@@ -824,16 +894,59 @@ onBeforeUnmount(() => {
   min-width: 0;
   overflow-x: auto;
 }
-.browser-preview__toolbar form {
+.browser-preview__address {
+  display: flex;
   flex: 1 1 auto;
+  align-items: center;
   min-width: 120px;
+  height: 26px;
+  padding: 0 8px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: var(--color-surface-raised);
+  transition:
+    border-color 120ms ease,
+    box-shadow 120ms ease,
+    background 120ms ease;
+}
+.browser-preview__address:hover {
+  background: var(--color-surface-hover);
+}
+.browser-preview__address.is-editing {
+  border-color: var(--color-primary);
+  background: var(--color-surface);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--color-primary) 28%, transparent);
+}
+.browser-preview__address.has-error {
+  border-color: var(--color-destructive);
+}
+.browser-preview__address-icon {
+  flex: 0 0 auto;
+  width: 13px;
+  height: 13px;
+  margin-right: 7px;
+  color: var(--color-text-muted);
 }
 .browser-preview__url-input {
   flex: 1;
   width: 100%;
-  height: 24px;
-  padding: 0 6px;
+  min-width: 0;
+  height: 100%;
+  padding: 0;
+  color: var(--color-text);
+  font: inherit;
   font-size: 11px;
+  letter-spacing: 0;
+  outline: 0;
+  border: 0;
+  background: transparent;
+
+  &:focus-visible {
+    box-shadow: none;
+  }
+}
+.browser-preview__url-input::placeholder {
+  color: var(--color-text-muted);
 }
 .browser-preview__device-controls {
   display: flex;

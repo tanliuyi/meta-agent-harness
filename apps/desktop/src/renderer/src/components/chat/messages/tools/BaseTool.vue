@@ -137,41 +137,43 @@ watch(
       </slot>
     </CollapsibleTrigger>
 
-    <CollapsibleContent class="tool-message__content" :class="contentClass" :style="contentStyle">
-      <ScrollArea v-if="scrollContent" scrollbars="both" class="tool-message__scroll">
-        <slot name="content" :tool-result="result" :tool-status="status" :is-error="isError">
-          <slot>
-            <div v-if="result || $slots.result" class="tool-message__result" :class="resultClass">
-              <slot name="result" :tool-result="result">
-                <pre><code>{{ result }}</code></pre>
-              </slot>
-            </div>
-            <dl v-if="$slots.error || (isError && !result)" class="tool-message__error">
-              <slot name="error" :is-error="isError">
-                <dt>{{ errorLabel }}</dt>
-                <dd v-if="errorText">{{ errorText }}</dd>
-              </slot>
-            </dl>
+    <CollapsibleContent class="tool-message__content" :class="contentClass">
+      <div class="tool-message__clip" :style="contentStyle">
+        <ScrollArea v-if="scrollContent" scrollbars="both" class="tool-message__scroll">
+          <slot name="content" :tool-result="result" :tool-status="status" :is-error="isError">
+            <slot>
+              <div v-if="result || $slots.result" class="tool-message__result" :class="resultClass">
+                <slot name="result" :tool-result="result">
+                  <pre><code>{{ result }}</code></pre>
+                </slot>
+              </div>
+              <dl v-if="$slots.error || (isError && !result)" class="tool-message__error">
+                <slot name="error" :is-error="isError">
+                  <dt>{{ errorLabel }}</dt>
+                  <dd v-if="errorText">{{ errorText }}</dd>
+                </slot>
+              </dl>
+            </slot>
           </slot>
-        </slot>
-      </ScrollArea>
+        </ScrollArea>
 
-      <div v-else class="tool-message__content-inner">
-        <slot name="content" :tool-result="result" :tool-status="status" :is-error="isError">
-          <slot>
-            <div v-if="result || $slots.result" class="tool-message__result" :class="resultClass">
-              <slot name="result" :tool-result="result">
-                <pre><code>{{ result }}</code></pre>
-              </slot>
-            </div>
-            <dl v-if="$slots.error || (isError && !result)" class="tool-message__error">
-              <slot name="error" :is-error="isError">
-                <dt>{{ errorLabel }}</dt>
-                <dd v-if="errorText">{{ errorText }}</dd>
-              </slot>
-            </dl>
+        <div v-else class="tool-message__content-inner">
+          <slot name="content" :tool-result="result" :tool-status="status" :is-error="isError">
+            <slot>
+              <div v-if="result || $slots.result" class="tool-message__result" :class="resultClass">
+                <slot name="result" :tool-result="result">
+                  <pre><code>{{ result }}</code></pre>
+                </slot>
+              </div>
+              <dl v-if="$slots.error || (isError && !result)" class="tool-message__error">
+                <slot name="error" :is-error="isError">
+                  <dt>{{ errorLabel }}</dt>
+                  <dd v-if="errorText">{{ errorText }}</dd>
+                </slot>
+              </dl>
+            </slot>
           </slot>
-        </slot>
+        </div>
       </div>
     </CollapsibleContent>
   </Collapsible>
@@ -189,7 +191,7 @@ watch(
   & :deep(.tool-message__content) {
     margin: 0;
     overflow: hidden;
-    background: var(--color-code-bg);
+    background: transparent;
     border-radius: var(--radius-sm);
 
     pre {
@@ -220,21 +222,28 @@ watch(
 }
 
 :deep(.tool-message__content) {
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-rows: 0fr;
   max-width: 100%;
   min-height: 0;
+  margin-top: 0;
   transform-origin: top;
-  will-change: height, opacity;
 
   &[data-state='open'] {
-    margin: var(--space-1) 0 0;
-    animation: tool-message-content-open var(--duration-fast) var(--ease-standard);
+    grid-template-rows: 1fr;
+    animation: tool-message-content-open 160ms cubic-bezier(0.33, 0, 0.2, 1);
   }
 
   &[data-state='closed'] {
-    animation: tool-message-content-close var(--duration-fast) var(--ease-standard);
+    animation: tool-message-content-close 160ms cubic-bezier(0.33, 0, 0.2, 1);
   }
+}
+
+.tool-message__clip {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
 }
 
 :deep(.tool-message__scroll),
@@ -244,7 +253,11 @@ watch(
   flex: 1 1 auto;
   min-height: 0;
   width: 100%;
+  margin-top: var(--space-1);
   padding: var(--space-2);
+  overflow: hidden;
+  background: var(--color-code-bg);
+  border-radius: var(--radius-sm);
 }
 
 :deep(.tool-message__scroll [data-slot='scroll-area-viewport']) {
@@ -408,25 +421,25 @@ watch(
 
 @keyframes tool-message-content-open {
   from {
-    height: 0;
-    opacity: 0;
+    grid-template-rows: 0fr;
+    opacity: 0.6;
   }
 
   to {
-    height: var(--reka-collapsible-content-height);
+    grid-template-rows: 1fr;
     opacity: 1;
   }
 }
 
 @keyframes tool-message-content-close {
   from {
-    height: var(--reka-collapsible-content-height);
+    grid-template-rows: 1fr;
     opacity: 1;
   }
 
   to {
-    height: 0;
-    opacity: 0;
+    grid-template-rows: 0fr;
+    opacity: 0.6;
   }
 }
 

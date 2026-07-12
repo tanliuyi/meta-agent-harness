@@ -26,12 +26,12 @@ beforeEach(() => {
 })
 
 describe('useSessionPanelTabsState', () => {
-  it('默认只打开 Session，其他 tab 通过可添加列表进入', () => {
+  it('初次展开默认打开 tab-picker（无预开 tab）', () => {
     const sessionKey = ref<string | undefined>('thread-a')
     const state = useSessionPanelTabsState(ref(tabs), sessionKey)
 
-    expect(state.activeTabId.value).toBe('session')
-    expect(state.openTabs.value.map((tab) => tab.id)).toEqual(['session'])
+    expect(state.activeTabId.value).toBeUndefined()
+    expect(state.openTabs.value.map((tab) => tab.id)).toEqual([])
     expect(state.availableTabs.value.map((tab) => tab.id)).toEqual(tabs.map((tab) => tab.id))
   })
 
@@ -49,15 +49,15 @@ describe('useSessionPanelTabsState', () => {
     sessionKey.value = 'thread-new'
 
     expect(state.activeTabId.value).toBe(browserTab.id)
-    expect(state.openTabs.value.map((tab) => tab.id)).toEqual(['session', browserTab.id])
+    expect(state.openTabs.value.map((tab) => tab.id)).toEqual([browserTab.id])
     expect(window.localStorage.getItem('meta-agent.session-panel.tabs.v2.__orphan__')).toBeNull()
     expect(
       window.localStorage.getItem('meta-agent.session-panel.active-tab.v2.__orphan__')
     ).toBeNull()
 
     sessionKey.value = '__orphan__.fresh'
-    expect(state.activeTabId.value).toBe('session')
-    expect(state.openTabs.value.map((tab) => tab.id)).toEqual(['session'])
+    expect(state.activeTabId.value).toBeUndefined()
+    expect(state.openTabs.value.map((tab) => tab.id)).toEqual([])
   })
 
   it('按 session key 隔离 active tab 与 opened tabs', () => {
@@ -68,12 +68,12 @@ describe('useSessionPanelTabsState', () => {
     const threadATreeInstanceId = state.activeTabInstanceId.value
 
     expect(state.activeTabId.value).toBe('tree')
-    expect(state.openTabs.value.map((tab) => tab.id)).toEqual(['session', 'tree'])
+    expect(state.openTabs.value.map((tab) => tab.id)).toEqual(['tree'])
 
     sessionKey.value = 'thread-b'
 
-    expect(state.activeTabId.value).toBe('session')
-    expect(state.openTabs.value.map((tab) => tab.id)).toEqual(['session'])
+    expect(state.activeTabId.value).toBeUndefined()
+    expect(state.openTabs.value.map((tab) => tab.id)).toEqual([])
 
     state.openTab('approvals')
     const threadBSessionInstanceId = state.openTabs.value[0].instanceId
@@ -83,12 +83,12 @@ describe('useSessionPanelTabsState', () => {
 
     expect(state.activeTabId.value).toBe('tree')
     expect(state.activeTabInstanceId.value).toBe(threadATreeInstanceId)
-    expect(state.openTabs.value.map((tab) => tab.id)).toEqual(['session', 'tree'])
+    expect(state.openTabs.value.map((tab) => tab.id)).toEqual(['tree'])
 
     sessionKey.value = 'thread-b'
 
-    expect(state.activeTabId.value).toBe('approvals')
-    expect(state.openTabs.value.map((tab) => tab.id)).toEqual(['approvals'])
+    expect(state.activeTabId.value).toBeUndefined()
+    expect(state.openTabs.value.map((tab) => tab.id)).toEqual([])
   })
 
   it('允许声明支持多开的 tab 同时存在多个实例，并且关闭单个实例', () => {
@@ -101,25 +101,63 @@ describe('useSessionPanelTabsState', () => {
     const secondTreeInstanceId = state.activeTabInstanceId.value
 
     expect(firstTreeInstanceId).not.toBe(secondTreeInstanceId)
-    expect(state.openTabs.value.map((tab) => tab.id)).toEqual(['session', 'tree', 'tree'])
+    expect(state.openTabs.value.map((tab) => tab.id)).toEqual(['tree', 'tree'])
 
     state.closeTab(firstTreeInstanceId)
 
     expect(state.openTabs.value.map((tab) => tab.instanceId)).not.toContain(firstTreeInstanceId)
     expect(state.openTabs.value.map((tab) => tab.instanceId)).toContain(secondTreeInstanceId)
-    expect(state.openTabs.value.map((tab) => tab.id)).toEqual(['session', 'tree'])
+    expect(state.openTabs.value.map((tab) => tab.id)).toEqual(['tree'])
   })
 
   it('不支持多开的 tab 已打开时再次打开会选中已有实例', () => {
     const sessionKey = ref<string | undefined>('thread-a')
     const state = useSessionPanelTabsState(ref(singleSessionTabs), sessionKey)
 
+    state.openTab('session')
     const sessionInstanceId = state.activeTabInstanceId.value
     state.openTab('session')
 
     expect(state.activeTabInstanceId.value).toBe(sessionInstanceId)
     expect(state.openTabs.value.map((tab) => tab.id)).toEqual(['session'])
     expect(state.availableTabs.value.map((tab) => tab.id)).not.toContain('session')
+  })
+
+  it('可按目标 session key 记录后台 extension tab attention', () => {
+    const browserTab: SessionPanelTab = {
+      id: 'extension:browser-preview',
+      label: 'Browser',
+      allowMultiple: false
+    }
+    const sessionKey = ref<string | undefined>('thread-a')
+    const state = useSessionPanelTabsState(ref([...singleSessionTabs, browserTab]), sessionKey)
+
+    state.markTabAttention(browserTab.id, 'thread-b')
+    expect(state.attentionTabIds.value).toEqual([])
+
+    sessionKey.value = 'thread-b'
+    expect(state.attentionTabIds.value).toEqual([browserTab.id])
+
+    state.openTab(browserTab.id)
+    state.clearTabAttention(browserTab.id)
+    expect(state.attentionTabIds.value).toEqual([])
+  })
+
+  it('面板折叠时可强制标记当前 active tab attention', () => {
+    const browserTab: SessionPanelTab = {
+      id: 'extension:browser-preview',
+      label: 'Browser',
+      allowMultiple: false
+    }
+    const sessionKey = ref<string | undefined>('thread-a')
+    const state = useSessionPanelTabsState(ref([...singleSessionTabs, browserTab]), sessionKey)
+
+    state.openTab(browserTab.id)
+    state.markTabAttention(browserTab.id, 'thread-a', true)
+    expect(state.attentionTabIds.value).toEqual([browserTab.id])
+
+    state.clearTabAttention(browserTab.id)
+    expect(state.attentionTabIds.value).toEqual([])
   })
 
   it('支持运行时加入 extension tab', () => {
@@ -152,10 +190,7 @@ describe('useSessionPanelTabsState', () => {
     const reloadedState = useSessionPanelTabsState(reloadedTabs, sessionKey)
 
     expect(reloadedState.activeTabId.value).toBe('extension:deploy')
-    expect(reloadedState.openTabs.value.map((tab) => tab.id)).toEqual([
-      'session',
-      'extension:deploy'
-    ])
+    expect(reloadedState.openTabs.value.map((tab) => tab.id)).toEqual(['extension:deploy'])
     expect(reloadedState.openTabs.value.find((tab) => tab.id === 'extension:deploy')?.label).toBe(
       'deploy'
     )

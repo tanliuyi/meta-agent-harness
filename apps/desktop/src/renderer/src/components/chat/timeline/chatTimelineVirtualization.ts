@@ -30,6 +30,63 @@ export function shouldAdjustTimelineScrollForItemResize(
   return item.end <= scrollOffset
 }
 
+export interface TimelineFollowStateInput {
+  distanceToBottom: number
+  nearBottomDistance: number
+  stickyBottomDistance: number
+  isScrollbarDragging: boolean
+  isUserScrollLocked: boolean
+  allowBottomUnlock: boolean
+  isRunning: boolean
+  shouldFollowBottom: boolean
+}
+
+export interface TimelineFollowState {
+  isNearBottom: boolean
+  shouldFollowBottom: boolean
+  isUserScrollLocked: boolean
+}
+
+export function resolveTimelineFollowState(input: TimelineFollowStateInput): TimelineFollowState {
+  const isNearBottom = input.distanceToBottom < input.nearBottomDistance
+  if (input.isScrollbarDragging) {
+    return {
+      isNearBottom,
+      shouldFollowBottom: false,
+      isUserScrollLocked: input.isUserScrollLocked
+    }
+  }
+  if (
+    input.distanceToBottom <= input.stickyBottomDistance &&
+    (!input.isUserScrollLocked || input.allowBottomUnlock)
+  ) {
+    return {
+      isNearBottom: true,
+      shouldFollowBottom: true,
+      isUserScrollLocked: false
+    }
+  }
+  if (input.isUserScrollLocked) {
+    return {
+      isNearBottom,
+      shouldFollowBottom: false,
+      isUserScrollLocked: true
+    }
+  }
+  if (!input.isRunning) {
+    return {
+      isNearBottom,
+      shouldFollowBottom: isNearBottom,
+      isUserScrollLocked: false
+    }
+  }
+  return {
+    isNearBottom: input.shouldFollowBottom ? true : isNearBottom,
+    shouldFollowBottom: input.shouldFollowBottom,
+    isUserScrollLocked: false
+  }
+}
+
 export function resetTimelineVirtualizerForSession(
   viewport: Pick<HTMLElement, 'scrollTop'> | null,
   virtualizer: Pick<{ measure(): void }, 'measure'>

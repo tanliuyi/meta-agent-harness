@@ -2641,7 +2641,6 @@ function formatModelLabel(model: Pick<SessionModel, 'provider' | 'id'>): string 
   }
 
   .composer__model-select {
-    flex: 1 1 0;
     padding-inline: var(--space-1);
   }
 
@@ -2660,9 +2659,9 @@ function formatModelLabel(model: Pick<SessionModel, 'provider' | 'id'>): string 
 .composer-footer {
   background: var(--color-surface-raised);
   margin-top: -16px;
-  padding-top: 14px;
-  padding-bottom: var(--space-2);
-  padding-left: var(--space-4);
+  padding-top: 10px;
+  padding-bottom: var(--space-1);
+  padding-left: var(--space-2);
   border: 1px solid var(--color-border-muted);
   border-top: 0;
   border-radius: 0 0 var(--radius-lg) var(--radius-lg);

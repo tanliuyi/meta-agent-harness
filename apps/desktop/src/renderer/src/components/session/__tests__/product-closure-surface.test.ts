@@ -17,7 +17,7 @@ describe('renderer product closure surface', () => {
     expect(settings).toContain('@click="mobileNavigationOpen = true"')
   })
 
-  it('opens the session panel for existing and new sessions and guards async actions', () => {
+  it('disables the session panel before project selection and guards async actions', () => {
     const header = source('SessionHeader.vue')
     const workspaceContent = source(
       '..',
@@ -30,6 +30,7 @@ describe('renderer product closure surface', () => {
     )
     const workspaceView = source('..', '..', 'views', 'workspace', 'View.vue')
     const overview = source('panel', 'tabs', 'SessionOverviewTab.vue')
+    const sessionPanel = source('SessionPanel.vue')
     const panelTabs = source('panel', 'SessionPanelTabs.vue')
     const browser = source('panel', 'tabs', 'BrowserPreviewPanelTab.vue')
     const browserPage = source('panel', 'tabs', 'BrowserPreviewPage.vue')
@@ -38,18 +39,30 @@ describe('renderer product closure surface', () => {
     const commands = source('panel', 'tabs', 'CommandsTab.vue')
     expect(header).toContain('@click="openPanelTab(\'session\')"')
     expect(header).not.toContain('v-if="session.sessionId" class="session-header__actions"')
+    expect(header).toContain(
+      ':disabled="!session.sessionId && !workspaceSession.isNewSessionActive"'
+    )
     expect(workspaceContent).toContain(
       'Boolean(activeSession.value) || workspaceSession.isNewSessionActive'
     )
-    expect(workspaceContent).toContain('v-if="hasSessionPanelContext && shouldRenderSessionPanel"')
+    expect(workspaceContent).toContain('v-if="shouldRenderSessionPanel"')
+    expect(workspaceContent).toContain(':collapsed="!isSessionPanelOpen"')
+    expect(workspaceContent).toContain(':disabled="!hasSessionPanelContext"')
+    expect(sessionPanel).toContain(':disabled="disabled"')
     expect(workspaceView).toContain('workspaceSession.isNewSessionActive')
     expect(overview).toContain(
       'workspaceSession.activeSession?.projectId ?? workspaceSession.activeProjectId'
     )
+    expect(sessionPanel).toContain("'has-attention': collapsed && hasAttention")
     expect(panelTabs).toContain('workspaceSession.activeSessionPanelTabsKey')
     expect(panelTabs).not.toContain('openTabs.value.some((tab) => tab.id === tabId)')
     expect(panelTabs).toContain("panel.source.component === 'browser-preview'")
-    expect(browser).toContain('Object.entries(store.runtimeByThreadId)')
+    expect(panelTabs).toContain('@attention="handleBrowserAttention"')
+    expect(panelTabs).toContain(':has-attention="attentionTabIds.length > 0"')
+    expect(panelTabs).toContain('Object.entries(workspaceSession.runtimeByThreadId)')
+    expect(panelTabs).toContain('browserSessionInstances')
+    expect(panelTabs).toContain('getBrowserSessionScope(')
+    expect(browser).toContain('store.runtimeByThreadId[props.threadId]')
     expect(browser).toContain('sendResult(threadId, message.requestId')
     expect(browser).toContain("{ flush: 'sync', immediate: true }")
     expect(browser).toContain('v-for="tab in tabsState.tabs"')
@@ -58,6 +71,8 @@ describe('renderer product closure surface', () => {
     expect(browser).toContain('`page:${targetBrowserId}`')
     expect(browser).toContain('withBrowserCommandTimeout(')
     expect(browser).toContain('consumeExtensionPanelMessages(')
+    expect(browser).toContain('decideBrowserReveal({')
+    expect(browser).toContain('openPanelTab(tabId)')
     expect(browser).toContain('onOpenRequested')
     expect(browserPage).toContain('defineExpose({')
     expect(browserPage).toContain('executeCommand,')

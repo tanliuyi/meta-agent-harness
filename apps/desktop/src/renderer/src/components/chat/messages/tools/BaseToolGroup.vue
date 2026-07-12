@@ -67,8 +67,10 @@ const open = computed({
     </CollapsibleTrigger>
 
     <CollapsibleContent class="tool-group__content">
-      <div class="tool-group__list">
-        <slot :open="open" />
+      <div class="tool-group__clip">
+        <div class="tool-group__list">
+          <slot :open="open" />
+        </div>
       </div>
     </CollapsibleContent>
   </Collapsible>
@@ -126,7 +128,7 @@ const open = computed({
   opacity: 0;
   transition:
     opacity var(--duration-fast) var(--ease-standard),
-    transform var(--duration-fast) var(--ease-standard);
+    transform 160ms cubic-bezier(0.33, 0, 0.2, 1);
 }
 
 .tool-group[data-state='open'] .tool-group__icon {
@@ -189,21 +191,27 @@ const open = computed({
 }
 
 .tool-group__content {
+  display: grid;
+  grid-template-rows: 0fr;
   margin: 0;
   overflow: hidden;
-  margin-top: var(--space-1);
   background: transparent;
   border-radius: 0;
   transform-origin: top;
-  will-change: height, opacity;
 
   &[data-state='open'] {
-    animation: tool-group-content-open var(--duration-fast) var(--ease-standard);
+    grid-template-rows: 1fr;
+    animation: tool-group-content-open 160ms cubic-bezier(0.33, 0, 0.2, 1);
   }
 
   &[data-state='closed'] {
-    animation: tool-group-content-close var(--duration-fast) var(--ease-standard);
+    animation: tool-group-content-close 160ms cubic-bezier(0.33, 0, 0.2, 1);
   }
+}
+
+.tool-group__clip {
+  min-height: 0;
+  overflow: hidden;
 }
 
 .tool-group__list {
@@ -211,6 +219,7 @@ const open = computed({
   flex-direction: column;
   gap: var(--space-1);
   min-width: 0;
+  margin-top: var(--space-1);
   padding: var(--space-1) 0;
 
   :deep(.tool-message) {
@@ -228,7 +237,9 @@ const open = computed({
     display: none;
   }
 
-  :deep(.tool-message__content) {
+  :deep(.tool-message__content),
+  :deep(.tool-message__scroll),
+  :deep(.tool-message__content-inner) {
     width: 100%;
     border: 0;
     border-radius: 0;
@@ -237,25 +248,25 @@ const open = computed({
 
 @keyframes tool-group-content-open {
   from {
-    height: 0;
-    opacity: 0;
+    grid-template-rows: 0fr;
+    opacity: 0.6;
   }
 
   to {
-    height: var(--reka-collapsible-content-height);
+    grid-template-rows: 1fr;
     opacity: 1;
   }
 }
 
 @keyframes tool-group-content-close {
   from {
-    height: var(--reka-collapsible-content-height);
+    grid-template-rows: 1fr;
     opacity: 1;
   }
 
   to {
-    height: 0;
-    opacity: 0;
+    grid-template-rows: 0fr;
+    opacity: 0.6;
   }
 }
 

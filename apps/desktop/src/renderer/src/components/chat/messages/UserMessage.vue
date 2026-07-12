@@ -549,7 +549,11 @@ function toggleExpand(): void {
             :key="index"
             class="quote-reference-node"
             :class="{ 'is-browser-element': segment.kind === 'browser-element' }"
-            :title="segment.browserRef"
+            :title="
+              segment.browserId
+                ? `${segment.browserId} / ${segment.browserRef}`
+                : segment.browserRef
+            "
           >
             <Target v-if="segment.kind === 'browser-element'" :size="12" aria-hidden="true" />
             <Quote v-else :size="12" aria-hidden="true" />
