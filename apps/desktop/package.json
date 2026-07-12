@@ -1,6 +1,6 @@
 {
   "name": "@meta-agent/desktop",
-  "version": "0.0.14",
+  "version": "0.0.15",
   "description": "Meta Agent desktop workbench",
   "main": "./out/main/index.js",
   "author": "Meta Agent",
