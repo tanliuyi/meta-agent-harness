@@ -28,7 +28,7 @@ export type DesktopExtensionWebviewPanelSource =
 	| {
 			type: "native";
 			/** Host-owned renderer capability; extensions cannot provide component code. */
-			component: "memory";
+			component: "memory" | "browser-preview";
 	  }
 	| {
 			type: "url";

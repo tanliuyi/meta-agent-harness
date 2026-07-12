@@ -334,6 +334,7 @@ describe("ExtensionUiBridge", () => {
 			title: "记忆",
 			component: "memory",
 			order: 35,
+			retainContextWhenHidden: true,
 		});
 
 		expect(events).toEqual([
@@ -347,6 +348,7 @@ describe("ExtensionUiBridge", () => {
 						title: "记忆",
 						icon: undefined,
 						order: 35,
+						retainContextWhenHidden: true,
 						source: { type: "native", component: "memory" },
 					},
 				}),

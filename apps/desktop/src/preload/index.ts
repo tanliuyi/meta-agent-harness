@@ -7,6 +7,7 @@ import type { CodingAgentApi, CodingAgentIpcEvent } from '@shared/coding-agent/t
 import { codingAgentChannels } from '@shared/coding-agent/channels'
 import { unwrapIpcResult } from '@shared/coding-agent/ipc-contract'
 import { updaterChannels, type UpdaterApi, type UpdaterState } from '@shared/updater'
+import { browserPreviewChannels, type BrowserPreviewApi } from '@shared/browser-preview'
 
 /**
  * 窗口控制 API 类型。
@@ -163,6 +164,9 @@ const codingAgent: CodingAgentApi = {
   getAgentSettings: () => invokeCodingAgent(codingAgentChannels.getAgentSettings),
   updateAgentSettings: (input) => invokeCodingAgent(codingAgentChannels.updateAgentSettings, input),
   getResourceSnapshot: (input) => invokeCodingAgent(codingAgentChannels.getResourceSnapshot, input),
+  getHermesMemorySnapshot: (input) =>
+    invokeCodingAgent(codingAgentChannels.getHermesMemorySnapshot, input),
+  mutateHermesMemory: (input) => invokeCodingAgent(codingAgentChannels.mutateHermesMemory, input),
   getProjectExtensionPaths: (input) =>
     invokeCodingAgent(codingAgentChannels.getProjectExtensionPaths, input),
   updateProjectExtensionPaths: (input) =>
@@ -225,7 +229,20 @@ const updater: UpdaterApi = {
   }
 }
 
-const api = { codingAgent, fileSystem, runtime, updater, windowControl }
+const browserPreview: BrowserPreviewApi = {
+  navigate: (input) => ipcRenderer.invoke(browserPreviewChannels.navigate, input),
+  setEmulation: (input) => ipcRenderer.invoke(browserPreviewChannels.setEmulation, input),
+  onOpenRequested: (listener) => {
+    const handler = (
+      _event: Electron.IpcRendererEvent,
+      request: Parameters<typeof listener>[0]
+    ): void => listener(request)
+    ipcRenderer.on(browserPreviewChannels.openRequested, handler)
+    return () => ipcRenderer.off(browserPreviewChannels.openRequested, handler)
+  }
+}
+
+const api = { browserPreview, codingAgent, fileSystem, runtime, updater, windowControl }
 
 if (process.contextIsolated) {
   try {

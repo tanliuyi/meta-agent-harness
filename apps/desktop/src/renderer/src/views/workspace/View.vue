@@ -37,7 +37,9 @@ watch(
 )
 
 const isSessionPanelOpen = computed(
-  () => Boolean(workspaceSession.activeSession) && workspaceSession.activeSessionPanel.panelOpen
+  () =>
+    (Boolean(workspaceSession.activeSession) || workspaceSession.isNewSessionActive) &&
+    workspaceSession.activeSessionPanel.panelOpen
 )
 
 const sessionPanelOccupiedWidth = computed(() => {

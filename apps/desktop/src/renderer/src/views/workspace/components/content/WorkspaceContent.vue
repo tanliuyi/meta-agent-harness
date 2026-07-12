@@ -55,8 +55,10 @@ const sessionInfo = computed<SessionInfo>((previous) =>
   createStableSessionInfo(activeSession.value, previous)
 )
 
-const hasActiveSession = computed(() => Boolean(activeSession.value))
-const isSessionPanelOpen = computed(() => hasActiveSession.value && sessionPanel.value.open)
+const hasSessionPanelContext = computed(
+  () => Boolean(activeSession.value) || workspaceSession.isNewSessionActive
+)
+const isSessionPanelOpen = computed(() => hasSessionPanelContext.value && sessionPanel.value.open)
 
 /** SessionPanel 在保留主会话最小宽度后可使用的最大宽度。 */
 const sessionPanelLayoutMaxWidth = computed(() => {
@@ -169,7 +171,7 @@ const {
     />
 
     <SessionPanel
-      v-if="hasActiveSession && shouldRenderSessionPanel"
+      v-if="hasSessionPanelContext && shouldRenderSessionPanel"
       class="workspace-content__session-panel"
       :class="{ 'workspace-content__session-panel--collapsed': !sessionPanel.open }"
       :collapsed="!sessionPanel.open"
@@ -273,7 +275,8 @@ const {
   height: var(--session-header-height);
 }
 
-.workspace-content--resizing-session-panel :deep(.extension-webview-panel__frame) {
+.workspace-content--resizing-session-panel :deep(.extension-webview-panel__frame),
+.workspace-content--resizing-session-panel :deep(.browser-preview__surface webview) {
   pointer-events: none;
 }
 

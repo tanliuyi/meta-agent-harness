@@ -20,6 +20,7 @@ import {
   type ComposerQuoteAttachment
 } from './workspace-session-composer'
 import { useToast } from '@renderer/composables/useToast'
+import { transferStoredSessionPanelTabsState } from '@renderer/components/session/panel/state/useSessionPanelTabsState'
 import { getBuiltinCommandInfos } from '@shared/coding-agent/builtin-commands'
 import { formatFileArgForInsertion } from '@shared/coding-agent/file-reference-format'
 import {
@@ -140,6 +141,8 @@ export type WorkspaceSessionContext = {
   runningDeliveries: Record<string, RunningMessageDelivery>
   /** 当前上下文未绑定 thread 时的面板 UI 状态。 */
   panel: SessionUiState
+  /** 未绑定 thread 的 panel tabs 状态 key。 */
+  orphanSessionPanelTabsKey: string
   /** 当前上下文内每个 thread 独立的面板 UI 状态。 */
   sessionPanels: Record<string, SessionUiState>
   /** 未绑定 thread 时按 Project 发现到的命令列表。 */
@@ -168,8 +171,15 @@ export type WorkspaceSessionRuntime = {
   extensionNotifications: string[]
   /** desktop extension 注册的 webview panels。 */
   extensionPanels: Record<string, DesktopExtensionWebviewPanel>
-  /** extension 发给 desktop panel 的最近消息。 */
-  extensionPanelMessages: Record<string, { sequence: number; message: unknown }>
+  /** extension 发给 desktop panel 的最近消息及尚未消费的有界消息日志。 */
+  extensionPanelMessages: Record<
+    string,
+    {
+      sequence: number
+      message: unknown
+      messages: Array<{ sequence: number; message: unknown }>
+    }
+  >
   /** desktop webview panel 内容通过 piPanel.setState 保存的状态。 */
   extensionPanelStates: Record<string, unknown>
   /** extension 设置的会话标题提示。 */
@@ -346,6 +356,13 @@ const activeThreadSessionStoragePrefix = 'meta-agent.workspace-session.active-th
 /** 当前窗口会话中 panel UI 状态 localStorage key 前缀。 */
 const sessionPanelUiStoragePrefix = 'meta-agent.workspace-session.panel-ui.v1.'
 
+let orphanSessionPanelTabsKeySequence = 0
+
+function createFreshOrphanSessionPanelTabsKey(contextId: string): string {
+  orphanSessionPanelTabsKeySequence += 1
+  return `__orphan__.${contextId}.${orphanSessionPanelTabsKeySequence}`
+}
+
 /** 后端真实 agent session 事件类型集合。 */
 const agentSessionEventTypes = new Set<AgentSessionIpcEvent['type']>([
   'agent_start',
@@ -507,6 +524,10 @@ export default defineStore('workspace-session', () => {
       orphanRunningDelivery: 'steer',
       runningDeliveries: {},
       panel: createUiState(),
+      orphanSessionPanelTabsKey:
+        contextId === defaultSessionContextId
+          ? '__orphan__'
+          : createFreshOrphanSessionPanelTabsKey(contextId),
       sessionPanels: {},
       orphanCommands: [],
       orphanCommandsLoading: false,
@@ -820,6 +841,14 @@ export default defineStore('workspace-session', () => {
     state: SessionUiState,
     threadId = ensureSessionContext(contextId).activeThreadId
   ): void {
+    writeStoredSessionPanelStateByKey(contextId, threadId, state)
+  }
+
+  function writeStoredSessionPanelStateByKey(
+    contextId: string,
+    threadId: string | undefined,
+    state: SessionUiState
+  ): void {
     try {
       window.localStorage?.setItem(
         getSessionPanelUiStorageKey(contextId, threadId),
@@ -1059,6 +1088,22 @@ export default defineStore('workspace-session', () => {
   }
 
   /**
+   * 丢弃 authoritative snapshot 之前为指定 thread 排队的增量事件。
+   * Tree 导航会缩短当前 branch；旧分支事件若在下一帧才 flush，会把已隐藏的尾部重新追加回来。
+   */
+  function discardPendingProjectionEvents(threadId: string): void {
+    for (const [key, event] of pendingMessageEvents) {
+      if (event.threadId === threadId) pendingMessageEvents.delete(key)
+    }
+    for (const [key, event] of pendingToolUpdateEvents) {
+      if (event.threadId === threadId) pendingToolUpdateEvents.delete(key)
+    }
+    for (const key of pendingRevisions.keys()) {
+      if (parseMessageRenderStateKey(key).threadId === threadId) pendingRevisions.delete(key)
+    }
+  }
+
+  /**
    * 合并 agent message 事件到下一帧提交。
    * @param event - agent message IPC 事件。
    */
@@ -1231,8 +1276,32 @@ export default defineStore('workspace-session', () => {
     () => activeRuntime.value?.extensionNotifications ?? []
   )
 
-  /** 当前活跃会话的 desktop extension panels。 */
-  const activeExtensionPanels = computed(() => activeRuntime.value?.extensionPanels ?? {})
+  /** Desktop 内置扩展无需等待 thread worker 即可展示的原生 panel。 */
+  const builtinExtensionPanels: Record<string, DesktopExtensionWebviewPanel> = {
+    'browser-preview': {
+      id: 'browser-preview',
+      viewType: 'meta.browser-preview',
+      title: 'Browser',
+      icon: 'globe',
+      order: 15,
+      retainContextWhenHidden: true,
+      source: { type: 'native', component: 'browser-preview' }
+    },
+    'hermes-memory': {
+      id: 'hermes-memory',
+      viewType: 'pi.hermes-memory',
+      title: '记忆',
+      icon: 'brain',
+      order: 35,
+      source: { type: 'native', component: 'memory' }
+    }
+  }
+
+  /** 当前活跃会话的 desktop extension panels，包含无需 runtime 的 Desktop 内置 panel。 */
+  const activeExtensionPanels = computed<Record<string, DesktopExtensionWebviewPanel>>(() => ({
+    ...builtinExtensionPanels,
+    ...(activeRuntime.value?.extensionPanels ?? {})
+  }))
 
   /** 当前活跃会话的 desktop extension panel 消息。 */
   const activeExtensionPanelMessages = computed(
@@ -1398,6 +1467,11 @@ export default defineStore('workspace-session', () => {
 
   /** 新会话草稿 thinking level。 */
   const orphanThinkingLevel = computed(() => mainContext.value.orphanThinkingLevel)
+
+  /** 当前 panel tabs 使用的 thread 或新会话草稿 key。 */
+  const activeSessionPanelTabsKey = computed(
+    () => activeSessionId.value ?? mainContext.value.orphanSessionPanelTabsKey
+  )
 
   /** 当前活跃会话的 Composer 草稿，按 session 隔离。 */
   const draftMessage = computed({
@@ -1854,6 +1928,9 @@ export default defineStore('workspace-session', () => {
     const orphanQuotes = [...context.orphanQuoteAttachments]
     const orphanModel = context.orphanModel
     const orphanThinkingLevel = context.orphanThinkingLevel
+    const orphanRunningDelivery = context.orphanRunningDelivery
+    const orphanPanel = cloneUiState(context.panel)
+    const orphanPanelTabsKey = context.orphanSessionPanelTabsKey
     const snapshot = await window.api.codingAgent.createThread({
       projectId: context.selectedProjectId,
       ...(orphanModel
@@ -1865,14 +1942,34 @@ export default defineStore('workspace-session', () => {
     syncToolCallsByIdFromSnapshot(snapshot)
     syncRenderStateFromSnapshot(snapshot)
     const threadId = snapshot.threadId
-    setContextActiveThreadId(threadId, contextId)
-    context.selectedProjectId = snapshot.projectId
-    workspaceProject.setActiveProjectId(snapshot.projectId)
+    context.sessionPanels[threadId] = orphanPanel
     context.composerDrafts[threadId] = orphanDraft
     context.composerImageAttachments[threadId] = orphanImages
     context.composerFileAttachments[threadId] = orphanFiles
     context.composerQuoteAttachments[threadId] = orphanQuotes
+    context.runningDeliveries[threadId] = orphanRunningDelivery
+    writeStoredSessionPanelState(contextId, orphanPanel, threadId)
+    transferStoredSessionPanelTabsState(orphanPanelTabsKey, threadId)
+    setContextActiveThreadId(threadId, contextId)
+
+    context.orphanDraftMessage = createEmptyComposerContent()
+    context.orphanImageAttachments = []
+    context.orphanFileAttachments = []
     context.orphanQuoteAttachments = []
+    context.orphanModel = undefined
+    context.orphanThinkingLevel = undefined
+    context.orphanRunningDelivery = 'steer'
+    context.panel = createUiState()
+    context.orphanSessionPanelTabsKey = createFreshOrphanSessionPanelTabsKey(contextId)
+    context.orphanCommands = []
+    context.orphanCommandsLoading = false
+    context.orphanCommandsLoaded = false
+    orphanCommandsRequestGenerationByContextId[contextId] =
+      (orphanCommandsRequestGenerationByContextId[contextId] ?? 0) + 1
+    writeStoredSessionPanelStateByKey(contextId, undefined, context.panel)
+
+    context.selectedProjectId = snapshot.projectId
+    workspaceProject.setActiveProjectId(snapshot.projectId)
     const runtime = ensureRuntime(threadId)
     runtime.errorMessage = undefined
     return { threadId, runtime }
@@ -1896,15 +1993,17 @@ export default defineStore('workspace-session', () => {
     const images = getComposerImages(threadId, contextId)
     const files = getComposerFiles(threadId, contextId)
     const quotes = getComposerQuotes(threadId, contextId)
+    const quoteContexts = quotes
     const fileArgs = dedupeStrings([
       ...getComposerFileArgs(draft),
       ...files.map((file) => file.path)
     ])
-    const message =
+    const baseMessage =
       text ||
       (images.length > 0 ? '请分析这些图片' : '') ||
       (files.length > 0 ? '请处理这些文件' : '') ||
-      (quotes.length > 0 ? '请基于引用内容回答' : '')
+      (quoteContexts.length > 0 ? '请基于引用内容回答' : '')
+    const message = baseMessage
     if (!message) {
       return
     }
@@ -1940,9 +2039,9 @@ export default defineStore('workspace-session', () => {
         message,
         ...(fileArgs.length > 0 ? { fileArgs } : {}),
         ...(skillReferences.length > 0 ? { skillReferences } : {}),
-        ...(quotes.length > 0
+        ...(quoteContexts.length > 0
           ? {
-              quoteContexts: quotes.map(({ messageId, sessionEntryId, text }) => ({
+              quoteContexts: quoteContexts.map(({ messageId, sessionEntryId, text }) => ({
                 messageId,
                 ...(sessionEntryId ? { sessionEntryId } : {}),
                 text
@@ -1964,12 +2063,6 @@ export default defineStore('workspace-session', () => {
       clearComposerImages(targetThreadId, contextId)
       clearComposerFiles(targetThreadId, contextId)
       clearComposerQuotes(targetThreadId, contextId)
-      context.orphanDraftMessage = createEmptyComposerContent()
-      context.orphanImageAttachments = []
-      context.orphanFileAttachments = []
-      context.orphanQuoteAttachments = []
-      context.orphanModel = undefined
-      context.orphanThinkingLevel = undefined
       // sessions 是 shallowReactive，状态变化要替换根对象，避免 ChatView running computed 卡住。
       if (sessions[targetThreadId]) {
         sessions[targetThreadId] = applySessionStatus(sessions[targetThreadId], 'running')
@@ -2768,6 +2861,7 @@ export default defineStore('workspace-session', () => {
           : 'Tree 导航已取消'
         return
       }
+      discardPendingProjectionEvents(threadId)
       mergeSnapshot(sessions, result.snapshot)
       syncToolCallsByIdFromSnapshot(result.snapshot)
       syncRenderStateFromSnapshot(result.snapshot)
@@ -2810,6 +2904,7 @@ export default defineStore('workspace-session', () => {
           : 'Tree 导航已取消'
         return
       }
+      discardPendingProjectionEvents(threadId)
       mergeSnapshot(sessions, result.snapshot)
       syncToolCallsByIdFromSnapshot(result.snapshot)
       syncRenderStateFromSnapshot(result.snapshot)
@@ -3157,6 +3252,26 @@ export default defineStore('workspace-session', () => {
     if (!text) return
 
     const target = getComposerQuotes(threadId, contextId)
+    if (quote.kind === 'browser-element' && quote.browserRef) {
+      const existingIndex = target.findIndex(
+        (item) => item.kind === 'browser-element' && item.browserRef === quote.browserRef
+      )
+      if (existingIndex >= 0) {
+        const remainingChars =
+          MAX_COMPOSER_QUOTE_TOTAL_CHARS -
+          target.reduce(
+            (sum, item, index) => sum + (index === existingIndex ? 0 : item.text.length),
+            0
+          )
+        if (remainingChars <= 0) return
+        target[existingIndex] = {
+          ...quote,
+          id: target[existingIndex].id,
+          text: text.slice(0, remainingChars)
+        }
+        return
+      }
+    }
     if (
       target.length >= MAX_COMPOSER_QUOTES ||
       target.some((item) => item.messageId === quote.messageId && item.text === text)
@@ -3282,9 +3397,12 @@ export default defineStore('workspace-session', () => {
       }
       case 'extensionPanel.message': {
         const current = runtime.extensionPanelMessages[event.panelId]
+        const sequence = (current?.sequence ?? 0) + 1
+        const messages = [...(current?.messages ?? []), { sequence, message: event.message }]
         runtime.extensionPanelMessages[event.panelId] = {
-          sequence: (current?.sequence ?? 0) + 1,
-          message: event.message
+          sequence,
+          message: event.message,
+          messages: messages.slice(-1000)
         }
         return
       }
@@ -3300,6 +3418,17 @@ export default defineStore('workspace-session', () => {
         runtime.extensionPanelStates[event.panelId] = event.state
         return
     }
+  }
+
+  /** Browser 等原生 panel 将消息排入本地执行队列后，从 transport 日志中确认消费。 */
+  function consumeExtensionPanelMessages(
+    threadId: string,
+    panelId: string,
+    throughSequence: number
+  ): void {
+    const entry = getRuntime(threadId)?.extensionPanelMessages[panelId]
+    if (!entry) return
+    entry.messages = entry.messages.filter((message) => message.sequence > throughSequence)
   }
 
   /**
@@ -3540,6 +3669,7 @@ export default defineStore('workspace-session', () => {
     activeSessionNotifications,
     activeSessionId,
     activeSessionPanel,
+    activeSessionPanelTabsKey,
     activeSnapshot,
     activeSessionTreeBranches,
     activeSessionTreeBranchesError,
@@ -3633,6 +3763,7 @@ export default defineStore('workspace-session', () => {
     setActiveSessionId,
     setActiveSessionPanelOpen,
     setActiveSessionPanelWidth,
+    consumeExtensionPanelMessages,
     setExtensionPanelState,
     switchActivePreviousSession,
     switchActiveSessionPath,

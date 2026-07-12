@@ -24,6 +24,16 @@
   background: var(--color-surface);
 }
 
+.session-panel__header--darwin {
+  -webkit-app-region: drag;
+  app-region: drag;
+}
+
+.session-panel__header--darwin button {
+  -webkit-app-region: no-drag;
+  app-region: no-drag;
+}
+
 .session-panel--collapsed .session-panel__header {
   justify-content: center;
   width: auto;
@@ -956,13 +966,14 @@
   min-width: 0;
   min-height: 0;
   overflow: hidden;
-  border-top: 1px solid var(--color-border-muted);
 }
 
 .change-file__diff .diff-viewer {
   flex: 1 1 0;
   width: 100%;
   max-width: 100%;
+  border: none;
+  border-radius: 0;
 }
 
 .change-file__diff pre {

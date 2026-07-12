@@ -275,6 +275,36 @@ describe('message-format', () => {
     ])
   })
 
+  it('renders Browser element context as a typed reference chip', () => {
+    const message = {
+      id: 'message-browser-element',
+      role: 'user',
+      text:
+        '<quoted_context data-meta-agent-context="true">\n' +
+        '<quote message_id="browser-element:ref-picked-1">\n' +
+        '[Browser element ref-picked-1: &lt;button&gt; Save changes]\n' +
+        '</quote>\n' +
+        '</quoted_context>\n\n' +
+        '请基于引用内容回答',
+      raw: { role: 'user', content: '请基于引用内容回答', timestamp: 1783036800000 },
+      createdAt: '2026-07-03T00:00:00.000Z'
+    } satisfies ThreadMessage
+
+    expect(getUserMessageDisplaySegments(message)).toEqual([
+      {
+        type: 'quoteReference',
+        kind: 'browser-element',
+        label: 'Save changes',
+        messageId: 'browser-element:ref-picked-1',
+        browserRef: 'ref-picked-1',
+        tagName: 'button',
+        text: '[Browser element ref-picked-1: <button> Save changes]'
+      },
+      { type: 'text', text: '\n\n' },
+      { type: 'text', text: '请基于引用内容回答' }
+    ])
+  })
+
   it('parses bare @file references as inline display segments', () => {
     expect(parseUserMessageDisplaySegments('请看 @src/App.vue。')).toEqual([
       { type: 'text', text: '请看 ' },

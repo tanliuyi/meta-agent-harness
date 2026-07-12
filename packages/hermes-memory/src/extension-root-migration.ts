@@ -2,6 +2,7 @@ import fs from "node:fs/promises";
 import { existsSync } from "node:fs";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
+import { ENTRY_DELIMITER, MEMORY_FILE, USER_FILE } from "./constants.js";
 
 export interface ExtensionRootMigrationResult {
   moved: number;
@@ -30,12 +31,52 @@ async function moveFileSafe(source: string, target: string): Promise<void> {
     if (code !== "EXDEV") throw error;
   }
 
-  await fs.copyFile(source, target);
-  await fs.unlink(source);
+  const sourceStat = await fs.stat(source);
+  if (sourceStat.isDirectory()) {
+    await fs.cp(source, target, { recursive: true });
+    await fs.rm(source, { recursive: true, force: true });
+  } else {
+    await fs.copyFile(source, target);
+    await fs.unlink(source);
+  }
+}
+
+async function nextConflictPath(targetPath: string): Promise<string> {
+  let suffix = "-legacy";
+  let candidate = targetPath + suffix;
+  let index = 2;
+  while (await pathExists(candidate)) {
+    suffix = `-legacy-${index}`;
+    candidate = targetPath + suffix;
+    index += 1;
+  }
+  return candidate;
 }
 
 const DATABASE_SUFFIXES = ["", "-wal", "-shm"] as const;
 const BUSINESS_TABLES = ["sessions", "messages", "session_files", "memories"] as const;
+const MERGEABLE_ENTRY_FILES = new Set([MEMORY_FILE, USER_FILE, "failures.md"]);
+
+function parseEntries(raw: string): string[] {
+  return raw.split(ENTRY_DELIMITER).map((entry) => entry.trim()).filter(Boolean);
+}
+
+async function mergeEntryFile(source: string, target: string): Promise<void> {
+  const [sourceRaw, targetRaw] = await Promise.all([
+    fs.readFile(source, "utf-8"),
+    fs.readFile(target, "utf-8"),
+  ]);
+  const entries = [...parseEntries(targetRaw)];
+  const seen = new Set(entries);
+  for (const entry of parseEntries(sourceRaw)) {
+    if (!seen.has(entry)) {
+      seen.add(entry);
+      entries.push(entry);
+    }
+  }
+  await fs.writeFile(target, entries.join(ENTRY_DELIMITER), "utf-8");
+  await fs.rm(source, { force: true });
+}
 
 function databaseHasBusinessRows(dbPath: string): boolean {
   const db = new DatabaseSync(dbPath, { readOnly: true });
@@ -102,6 +143,23 @@ async function moveDirContents(sourceDir: string, targetDir: string, result: Ext
     }
 
     if (entry.isDirectory()) {
+      const sourceSkill = path.join(sourcePath, "SKILL.md");
+      const targetSkill = path.join(targetPath, "SKILL.md");
+      if (await pathExists(sourceSkill) && await pathExists(targetSkill)) {
+        const [sourceRaw, targetRaw] = await Promise.all([
+          fs.readFile(sourceSkill),
+          fs.readFile(targetSkill),
+        ]);
+        if (sourceRaw.equals(targetRaw)) {
+          await fs.rm(sourceSkill, { force: true });
+        } else {
+          const preservedPath = await nextConflictPath(targetPath);
+          await moveFileSafe(sourcePath, preservedPath);
+          result.moved++;
+          result.warnings.push(`${sourceSkill}: conflicts with ${targetSkill}; preserved as ${preservedPath}`);
+          continue;
+        }
+      }
       await moveDirContents(sourcePath, targetPath, result);
       result.merged++;
       try {
@@ -113,13 +171,58 @@ async function moveDirContents(sourceDir: string, targetDir: string, result: Ext
       continue;
     }
 
+    if (MERGEABLE_ENTRY_FILES.has(entry.name)) {
+      try {
+        await mergeEntryFile(sourcePath, targetPath);
+        result.merged++;
+      } catch (error) {
+        result.warnings.push(`${sourcePath}: ${error instanceof Error ? error.message : String(error)}`);
+      }
+      continue;
+    }
+
+    try {
+      const [sourceRaw, targetRaw] = await Promise.all([fs.readFile(sourcePath), fs.readFile(targetPath)]);
+      if (sourceRaw.equals(targetRaw)) {
+        await fs.rm(sourcePath, { force: true });
+        result.merged++;
+        continue;
+      }
+    } catch (error) {
+      result.warnings.push(`${sourcePath}: ${error instanceof Error ? error.message : String(error)}`);
+      continue;
+    }
+
     result.skipped++;
   }
 }
 
+export async function mergeLegacyDirectoryContents(
+  legacyRoot: string,
+  targetRoot: string,
+): Promise<ExtensionRootMigrationResult> {
+  const result: ExtensionRootMigrationResult = {
+    moved: 0,
+    merged: 0,
+    skipped: 0,
+    warnings: [],
+  };
+  if (path.resolve(legacyRoot) === path.resolve(targetRoot) || !existsSync(legacyRoot)) return result;
+
+  await fs.mkdir(targetRoot, { recursive: true });
+  await moveDirContents(legacyRoot, targetRoot, result);
+  try {
+    const remaining = await fs.readdir(legacyRoot);
+    if (remaining.length === 0) await fs.rmdir(legacyRoot);
+  } catch {
+    // best effort
+  }
+  return result;
+}
+
 /**
  * Move legacy extension assets from ~/.pi/agent/memory into
- * ~/.pi/agent/pi-hermes-memory. Existing destination files win.
+ * ~/.pi/agent/pi-hermes-memory. Memory entry files are merged; other conflicts preserve the source.
  */
 export async function migrateExtensionRoot(
   legacyRoot: string,

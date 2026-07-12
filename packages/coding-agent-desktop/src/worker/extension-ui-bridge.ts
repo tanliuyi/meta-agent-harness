@@ -38,7 +38,7 @@ interface DesktopThemeDefinition {
 interface ExtensionDesktopContext {
 	readonly cspSource: string;
 	registerWebviewPanel(id: string, options: DesktopWebviewPanelOptions): void;
-	registerNativePanel(id: string, options: { viewType?: string; title: string; component: "memory"; icon?: string; order?: number }): void;
+	registerNativePanel(id: string, options: { viewType?: string; title: string; component: "memory" | "browser-preview"; icon?: string; order?: number; retainContextWhenHidden?: boolean }): void;
 	updateWebviewPanel(id: string, patch: Partial<DesktopWebviewPanelOptions>): void;
 	asWebviewUri(resourcePath: string, options?: DesktopWebviewUriOptions): string;
 	postPanelMessage(panelId: string, message: unknown): void;
@@ -160,6 +160,9 @@ export class ExtensionUiBridge {
 						title: options.title,
 						icon: options.icon,
 						order: options.order,
+						...(options.retainContextWhenHidden !== undefined
+							? { retainContextWhenHidden: options.retainContextWhenHidden }
+							: {}),
 						source: { type: "native", component: options.component },
 					},
 				});

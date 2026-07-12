@@ -129,7 +129,7 @@ const styles = computed(() => {
         </BaseIconButton>
       </BaseDropdownMenu>
     </div>
-    <div v-if="session.sessionId" class="session-header__actions">
+    <div class="session-header__actions">
       <BaseIconButton label="查看会话信息" @click="openPanelTab('session')">
         <svg
           viewBox="0 0 24 24"

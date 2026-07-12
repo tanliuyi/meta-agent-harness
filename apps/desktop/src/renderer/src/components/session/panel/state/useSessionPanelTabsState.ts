@@ -1,4 +1,4 @@
-import { computed, reactive, watch, type Ref } from 'vue'
+import { computed, reactive, watch, type ComputedRef, type Ref } from 'vue'
 import type {
   ExtensionSessionPanelTabId,
   SessionPanelOpenTab,
@@ -11,6 +11,33 @@ const SESSION_PANEL_ACTIVE_TAB_STORAGE_KEY = 'meta-agent.session-panel.active-ta
 const ORPHAN_SESSION_PANEL_TABS_KEY = '__orphan__'
 const ADD_TAB_INSTANCE_ID = '__add-tab__'
 
+function getStorageKey(baseKey: string, key: string): string {
+  return `${baseKey}.${key}`
+}
+
+export function transferStoredSessionPanelTabsState(
+  sourceSessionKey: string | undefined,
+  targetSessionKey: string
+): void {
+  const sourceKey = sourceSessionKey || ORPHAN_SESSION_PANEL_TABS_KEY
+  if (sourceKey === targetSessionKey) {
+    return
+  }
+
+  try {
+    for (const baseKey of [SESSION_PANEL_TABS_STORAGE_KEY, SESSION_PANEL_ACTIVE_TAB_STORAGE_KEY]) {
+      const sourceStorageKey = getStorageKey(baseKey, sourceKey)
+      const sourceValue = window.localStorage.getItem(sourceStorageKey)
+      if (sourceValue !== null) {
+        window.localStorage.setItem(getStorageKey(baseKey, targetSessionKey), sourceValue)
+        window.localStorage.removeItem(sourceStorageKey)
+      }
+    }
+  } catch {
+    // localStorage 不可用时由目标 session 的默认 tab 状态兜底。
+  }
+}
+
 interface SessionPanelTabsState {
   activeTabInstanceId: string
   attentionTabIds: SessionPanelTabId[]
@@ -18,10 +45,26 @@ interface SessionPanelTabsState {
   openTabs: SessionPanelOpenTab[]
 }
 
+interface UseSessionPanelTabsStateResult {
+  activeTabInstanceId: ComputedRef<string>
+  activeTabId: ComputedRef<SessionPanelTabId | undefined>
+  attentionTabIds: ComputedRef<SessionPanelTabId[]>
+  availableTabs: ComputedRef<SessionPanelTab[]>
+  clearTabAttention: (tabId: SessionPanelTabId) => void
+  closeTab: (tabInstanceId: string) => void
+  isAddPanelActive: ComputedRef<boolean>
+  markTabAttention: (tabId: SessionPanelTabId) => void
+  openAddPanel: () => void
+  openTab: (tabId: SessionPanelTabId) => void
+  openTabs: ComputedRef<SessionPanelOpenTab[]>
+  selectOpenTab: (tabInstanceId: string) => void
+  selectTab: (tabId: SessionPanelTabId) => void
+}
+
 export function useSessionPanelTabsState(
   sessionPanelTabs: Ref<SessionPanelTab[]>,
   sessionKey: Ref<string | undefined>
-) {
+): UseSessionPanelTabsStateResult {
   const stateBySessionKey = reactive<Record<string, SessionPanelTabsState>>({})
   const orphanState = ensureState(ORPHAN_SESSION_PANEL_TABS_KEY)
 
@@ -210,10 +253,6 @@ export function useSessionPanelTabsState(
       getStorageKey(SESSION_PANEL_ACTIVE_TAB_STORAGE_KEY, key),
       state.activeTabInstanceId
     )
-  }
-
-  function getStorageKey(baseKey: string, key: string): string {
-    return `${baseKey}.${key}`
   }
 
   function markTabAttention(tabId: SessionPanelTabId): void {

@@ -60,6 +60,14 @@ export default defineConfig({
         { find: '@renderer', replacement: rendererAlias }
       ]
     },
-    plugins: [vue()]
+    plugins: [
+      vue({
+        template: {
+          compilerOptions: {
+            isCustomElement: (tag) => tag === 'webview'
+          }
+        }
+      })
+    ]
   }
 })

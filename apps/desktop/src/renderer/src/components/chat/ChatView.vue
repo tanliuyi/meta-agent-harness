@@ -1818,7 +1818,7 @@ function getTimelineItemRevision(item: TimelineItem | undefined): unknown[] {
       ref="timelineRef"
       class="chat-view__timeline"
       :class="{ 'chat-view__timeline--empty': !messages.length }"
-      :vertical-offset="4"
+      :vertical-offset="2"
       :vertical-size="7"
       @scroll="updateScrollState"
       @scrollbar-pointer-down="handleTimelineScrollbarPointerDown"
@@ -2813,9 +2813,12 @@ function getTimelineItemRevision(item: TimelineItem | undefined): unknown[] {
 }
 
 @container (width <= 860px) {
-  .chat-view__timeline-inner,
+  .chat-view__timeline-inner {
+    padding-inline: calc(var(--chat-active-avatar-gutter-width) + var(--space-6));
+  }
+
   .chat-view__composer {
-    padding-inline: calc(var(--chat-active-avatar-gutter-width) + var(--space-2));
+    padding-inline: var(--space-6);
   }
 }
 
@@ -2824,9 +2827,12 @@ function getTimelineItemRevision(item: TimelineItem | undefined): unknown[] {
     --chat-avatar-gutter-width: 30px;
   }
 
-  .chat-view__timeline-inner,
+  .chat-view__timeline-inner {
+    padding-inline: calc(var(--chat-active-avatar-gutter-width) + var(--space-6));
+  }
+
   .chat-view__composer {
-    padding-inline: calc(var(--chat-active-avatar-gutter-width) + var(--space-1));
+    padding-inline: var(--space-6);
   }
 
   .chat-view__avatar {
@@ -2856,7 +2862,7 @@ function getTimelineItemRevision(item: TimelineItem | undefined): unknown[] {
 
   .chat-view__timeline-inner,
   .chat-view__composer {
-    padding-inline: calc(var(--chat-active-avatar-gutter-width) + 2px);
+    padding-inline: var(--space-5);
   }
 
   .chat-view__avatar {

@@ -45,6 +45,9 @@ import type {
   RenameThreadInput,
   RenameProjectInput,
   ApprovalResponseInput,
+  HermesMemoryMutationInput,
+  HermesMemorySnapshot,
+  HermesMemorySnapshotInput,
   ResourcePackageInput,
   ResourcePackageProgressEvent,
   ResourcePackageSummary,
@@ -748,6 +751,16 @@ export class CodingThreadManager extends ThreadManagerCore {
       })
     }
     return service.getResourceSnapshot(input)
+  }
+
+  /** 获取无需会话的 Hermes Memory 设置快照。 */
+  getHermesMemorySnapshot(input: HermesMemorySnapshotInput = {}): Promise<HermesMemorySnapshot> {
+    return this.getAgentSettingsService().then((service) => service.getHermesMemorySnapshot(input))
+  }
+
+  /** 无需会话地修改 Hermes Memory。 */
+  mutateHermesMemory(input: HermesMemoryMutationInput): Promise<HermesMemorySnapshot> {
+    return this.getAgentSettingsService().then((service) => service.mutateHermesMemory(input))
   }
 
   /** 获取 Project 本地 extension 路径配置。 */

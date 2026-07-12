@@ -32,6 +32,11 @@ export type ComposerFileAttachment = {
 export type ComposerQuoteAttachment = PromptQuoteContext & {
   /** 前端稳定 ID。 */
   id: string
+  /** Browser element references reuse the quote chip without becoming quote context. */
+  kind?: 'quote' | 'browser-element'
+  browserRef?: string
+  tagName?: string
+  label?: string
 }
 
 /**

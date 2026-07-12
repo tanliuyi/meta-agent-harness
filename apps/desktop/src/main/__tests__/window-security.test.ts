@@ -6,7 +6,11 @@ import { describe, expect, it } from 'vitest'
 import { readFileSync } from 'node:fs'
 import path from 'node:path'
 import { pathToFileURL } from 'node:url'
-import { createMainWindowNavigationTarget, isMainWindowNavigationAllowed } from '../window-security'
+import {
+  createMainWindowNavigationTarget,
+  isBrowserPreviewUrlAllowed,
+  isMainWindowNavigationAllowed
+} from '../window-security'
 
 describe('main window security', () => {
   it('dev 模式只允许 renderer dev server 同 origin 导航', () => {
@@ -45,6 +49,27 @@ describe('main window security', () => {
         rendererIndexPath: path.join('out', 'renderer', 'index.html')
       })
     ).toThrow('Invalid dev renderer URL protocol')
+  })
+
+  it('浏览器预览只允许无凭据的 HTTP(S) 地址', () => {
+    expect(isBrowserPreviewUrlAllowed('http://localhost:5173/app')).toBe(true)
+    expect(isBrowserPreviewUrlAllowed('https://127.0.0.1:8443/')).toBe(true)
+    expect(isBrowserPreviewUrlAllowed('http://[::1]:3000/')).toBe(true)
+    expect(isBrowserPreviewUrlAllowed('http://user:pass@localhost:3000/')).toBe(false)
+    expect(isBrowserPreviewUrlAllowed('https://example.com/')).toBe(true)
+    expect(isBrowserPreviewUrlAllowed('file:///tmp/index.html')).toBe(false)
+    expect(isBrowserPreviewUrlAllowed('javascript:alert(1)')).toBe(false)
+    expect(isBrowserPreviewUrlAllowed('not-a-url')).toBe(false)
+  })
+
+  it('webview 生命周期绑定到当前主窗口，并将安全的新窗口请求转交 Browser tabs', () => {
+    const source = readFileSync(path.join(__dirname, '..', 'index.ts'), 'utf8')
+    expect(source).toContain("mainWindow.webContents.on('did-attach-webview'")
+    expect(source).toContain('popupPreferences.disablePopups = false')
+    expect(source).toContain('contents.setWindowOpenHandler((details) =>')
+    expect(source).toContain('browserPreviewChannels.openRequested')
+    expect(source).toContain("return { action: 'deny' }")
+    expect(source).not.toContain("app.on('web-contents-created'")
   })
 
   it('限制主窗口最小尺寸，避免进入不可用布局', () => {

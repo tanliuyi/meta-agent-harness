@@ -7,11 +7,28 @@
  */
 
 import { app } from 'electron'
+import { existsSync } from 'node:fs'
 import { readFile } from 'node:fs/promises'
 import { basename, dirname, extname, join, resolve } from 'node:path'
 import { loadConfig as loadHermesMemoryConfig } from '@meta-agent/hermes-memory/config.js'
+import {
+  mergeLegacyDirectoryContents,
+  migrateExtensionRoot
+} from '@meta-agent/hermes-memory/extension-root-migration.js'
 import { detectProject } from '@meta-agent/hermes-memory/project.js'
+import { migrateLegacyProjectMemoryDirs } from '@meta-agent/hermes-memory/project-memory-migration.js'
+import { DatabaseManager as HermesMemoryDatabaseManager } from '@meta-agent/hermes-memory/store/db.js'
 import { SkillStore as HermesMemorySkillStore } from '@meta-agent/hermes-memory/store/skill-store.js'
+import { MemoryStore as HermesMemoryStore } from '@meta-agent/hermes-memory/store/memory-store.js'
+import {
+  formatFailureMemoryContent,
+  migrateProjectMemoryIdentity,
+  parseMarkdownMemoryEntry,
+  removeExactSyncedMemories,
+  removeSyncedMemories,
+  replaceCanonicalSyncedMemory,
+  syncMemoryEntry
+} from '@meta-agent/hermes-memory/store/sqlite-memory-store.js'
 import {
   SettingsManager,
   type PackageSource,
@@ -30,6 +47,9 @@ import type {
   AgentSettingsSnapshot,
   AgentTransportMode,
   AgentTreeFilterMode,
+  HermesMemoryMutationInput,
+  HermesMemorySnapshot,
+  HermesMemorySnapshotInput,
   ResourcePackageInput,
   ResourcePackageProgressEvent,
   ResourcePackageSummary,
@@ -129,6 +149,93 @@ export class AgentSettingsService {
       packageManager: this.packageManager
     })
     return this.withSkillCommands(snapshot, this.cwd)
+  }
+
+  /** 获取不依赖活跃会话的 Hermes Memory 设置快照。 */
+  async getHermesMemorySnapshot(
+    input: HermesMemorySnapshotInput = {}
+  ): Promise<HermesMemorySnapshot> {
+    const context = await this.createHermesMemoryContext(input.cwd)
+    await context.globalStore.loadFromDisk()
+    if (context.projectStore) await context.projectStore.loadFromDisk()
+    await context.skillStore.migrateLegacySkills()
+    await context.skillStore.ensureDiscoveredRoots()
+    return {
+      type: 'hermes.snapshot',
+      project: context.project.name,
+      entries: {
+        memory: context.globalStore.getMemoryEntries(),
+        user: context.globalStore.getUserEntries(),
+        failure: context.globalStore.getAllFailureEntries(),
+        project: context.projectStore?.getMemoryEntries() ?? []
+      },
+      skills: await context.skillStore.loadIndex(),
+      limits: {
+        memory: context.config.memoryCharLimit,
+        user: context.config.userCharLimit,
+        project: context.config.projectCharLimit
+      }
+    }
+  }
+
+  /** 修改 Hermes Memory 文件并返回最新设置快照。 */
+  async mutateHermesMemory(input: HermesMemoryMutationInput): Promise<HermesMemorySnapshot> {
+    const context = await this.createHermesMemoryContext(input.cwd)
+    const store = input.target === 'project' ? context.projectStore : context.globalStore
+    if (!store) throw new Error('当前没有可用的项目记忆')
+    const target = input.target === 'project' ? 'memory' : input.target
+    const projectId = input.target === 'project' ? context.project.id : null
+    await store.loadFromDisk()
+    const result =
+      input.operation === 'add'
+        ? target === 'failure'
+          ? await store.addFailure(input.content, { category: 'insight' })
+          : await store.add(target, input.content)
+        : input.operation === 'replace'
+          ? await store.replace(target, input.oldText, input.content)
+          : await store.remove(target, input.oldText)
+    if (!result.success) throw new Error(result.error ?? '记忆操作失败')
+
+    const dbManager = new HermesMemoryDatabaseManager(context.globalDir)
+    try {
+      if (context.project.name && context.project.id) {
+        migrateProjectMemoryIdentity(dbManager, context.project.name, context.project.id)
+      }
+      if (input.operation === 'add') {
+        const category = target === 'failure' ? 'insight' : null
+        syncMemoryEntry(dbManager, {
+          content:
+            target === 'failure'
+              ? formatFailureMemoryContent(input.content, { category: 'insight' })
+              : input.content,
+          target,
+          project: projectId,
+          category
+        })
+        for (const evictedEntry of result.evicted_entries ?? []) {
+          removeExactSyncedMemories(dbManager, evictedEntry, { target, project: projectId })
+        }
+      } else if (input.operation === 'replace' && result.updated_entry) {
+        const syncResult = replaceCanonicalSyncedMemory(
+          dbManager,
+          input.oldText,
+          result.updated_entry,
+          target,
+          projectId
+        )
+        if (syncResult.matched === 0) {
+          syncMemoryEntry(
+            dbManager,
+            parseMarkdownMemoryEntry(result.updated_entry, target, projectId)
+          )
+        }
+      } else if (input.operation === 'remove') {
+        removeSyncedMemories(dbManager, input.oldText, { target, project: projectId })
+      }
+    } finally {
+      dbManager.close()
+    }
+    return this.getHermesMemorySnapshot({ cwd: input.cwd })
   }
 
   /** 获取项目级 extension 路径配置。 */
@@ -317,25 +424,9 @@ export class AgentSettingsService {
 
   /** 获取 Desktop 内置 Hermes Memory 扩展通过 resources_discover 注入的技能。 */
   private async getHermesMemorySkillCommands(cwd: string): Promise<ResourceSkillCommandInfo[]> {
-    const config = loadHermesMemoryConfig(join(this.agentDir, 'hermes-memory-config.json'))
-    const legacyGlobalDir = join(this.agentDir, 'memory')
-    const configuredMemoryDir = config.memoryDir?.trim()
-    const globalDir =
-      configuredMemoryDir && resolve(configuredMemoryDir) !== resolve(legacyGlobalDir)
-        ? configuredMemoryDir
-        : join(this.agentDir, 'pi-hermes-memory')
-    const project = detectProject(config.projectsMemoryDir, cwd)
-    const projectSkillsDir = project.id
-      ? join(this.agentDir, config.projectsMemoryDir ?? 'projects-memory', project.id, 'skills')
-      : null
-    const skillStore = new HermesMemorySkillStore({
-      globalSkillsDir: join(globalDir, 'skills'),
-      projectSkillsDir,
-      projectName: project.id,
-      legacySkillsDir: join(legacyGlobalDir, 'skills'),
-      legacyPiGlobalSkillsDir: join(this.agentDir, 'skills'),
-      migrationSentinelPath: join(globalDir, '.skills-migrated-to-extension-storage')
-    })
+    const { skillStore } = await this.createHermesMemoryContext(cwd)
+    await skillStore.migrateLegacySkills()
+    await skillStore.ensureDiscoveredRoots()
     const skills = await skillStore.loadIndex()
     skills.sort(
       (left, right) => Number(left.scope === 'project') - Number(right.scope === 'project')
@@ -352,6 +443,63 @@ export class AgentSettingsService {
         baseDir: dirname(skill.path)
       }
     }))
+  }
+
+  private async createHermesMemoryContext(cwd?: string): Promise<{
+    config: ReturnType<typeof loadHermesMemoryConfig>
+    project: ReturnType<typeof detectProject>
+    globalDir: string
+    skillStore: HermesMemorySkillStore
+    globalStore: HermesMemoryStore
+    projectStore: HermesMemoryStore | null
+  }> {
+    const config = loadHermesMemoryConfig(join(this.agentDir, 'hermes-memory-config.json'))
+    const legacyGlobalDir = join(this.agentDir, 'memory')
+    const configuredMemoryDir = config.memoryDir?.trim()
+    const shouldMigrateGlobalRoot =
+      !configuredMemoryDir || resolve(configuredMemoryDir) === resolve(legacyGlobalDir)
+    const globalDir = shouldMigrateGlobalRoot
+      ? join(this.agentDir, 'pi-hermes-memory')
+      : configuredMemoryDir
+    if (shouldMigrateGlobalRoot) {
+      await migrateExtensionRoot(legacyGlobalDir, globalDir)
+    }
+
+    const projectsMemoryDir = config.projectsMemoryDir ?? 'projects-memory'
+    migrateLegacyProjectMemoryDirs(this.agentDir, projectsMemoryDir)
+    const project = cwd
+      ? detectProject(config.projectsMemoryDir, cwd)
+      : { name: null, id: null, memoryDir: null }
+    const projectsRoot = join(this.agentDir, projectsMemoryDir)
+    const projectMemoryDir = project.id ? join(projectsRoot, project.id) : null
+    if (project.name && projectMemoryDir) {
+      const legacyProjectDir = join(projectsRoot, project.name)
+      if (resolve(legacyProjectDir) !== resolve(projectMemoryDir) && existsSync(legacyProjectDir)) {
+        await mergeLegacyDirectoryContents(legacyProjectDir, projectMemoryDir)
+      }
+    }
+    const skillStore = new HermesMemorySkillStore({
+      globalSkillsDir: join(globalDir, 'skills'),
+      projectSkillsDir: projectMemoryDir ? join(projectMemoryDir, 'skills') : null,
+      projectName: project.id,
+      legacySkillsDir: join(legacyGlobalDir, 'skills'),
+      legacyPiGlobalSkillsDir: join(this.agentDir, 'skills'),
+      migrationSentinelPath: join(globalDir, '.skills-migrated-to-extension-storage')
+    })
+    return {
+      config,
+      project,
+      globalDir,
+      skillStore,
+      globalStore: new HermesMemoryStore({ ...config, memoryDir: globalDir }),
+      projectStore: projectMemoryDir
+        ? new HermesMemoryStore({
+            ...config,
+            memoryDir: projectMemoryDir,
+            memoryCharLimit: config.projectCharLimit
+          })
+        : null
+    }
   }
 
   private createProjectSettingsManager(cwd: string): SettingsManager {

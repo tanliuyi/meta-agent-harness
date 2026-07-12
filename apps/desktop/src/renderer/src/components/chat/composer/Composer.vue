@@ -1446,13 +1446,25 @@ function formatModelLabel(model: Pick<SessionModel, 'provider' | 'id'>): string 
             </div>
           </div>
           <div v-if="quotes.length > 0" class="composer__quotes">
-            <div v-for="quote in quotes" :key="quote.id" class="composer__quote">
-              <Quote :size="14" aria-hidden="true" />
-              <span>文本引用</span>
+            <div
+              v-for="quote in quotes"
+              :key="quote.id"
+              class="composer__quote"
+              :class="{ 'is-browser-element': quote.kind === 'browser-element' }"
+            >
+              <Target v-if="quote.kind === 'browser-element'" :size="14" aria-hidden="true" />
+              <Quote v-else :size="14" aria-hidden="true" />
+              <span class="composer__quote-label" :title="quote.browserRef || quote.text">
+                {{
+                  quote.kind === 'browser-element'
+                    ? `<${quote.tagName || 'element'}>${quote.label ? ` ${quote.label}` : ''}`
+                    : '文本引用'
+                }}
+              </span>
               <button
                 type="button"
                 class="composer__quote-remove"
-                aria-label="移除文本引用"
+                :aria-label="quote.kind === 'browser-element' ? '移除元素引用' : '移除文本引用'"
                 @click="emit('remove-quote', quote.id)"
               >
                 <X :size="10" />
@@ -2383,6 +2395,13 @@ function formatModelLabel(model: Pick<SessionModel, 'provider' | 'id'>): string 
   background: var(--color-control-track);
   border: 1px solid var(--color-border-strong);
   border-radius: var(--radius-sm);
+}
+
+.composer__quote-label {
+  max-width: 240px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .composer__quote-remove {

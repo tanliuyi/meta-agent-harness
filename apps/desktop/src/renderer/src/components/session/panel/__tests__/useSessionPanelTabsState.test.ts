@@ -1,6 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { ref } from 'vue'
-import { useSessionPanelTabsState } from '../state/useSessionPanelTabsState'
+import {
+  transferStoredSessionPanelTabsState,
+  useSessionPanelTabsState
+} from '../state/useSessionPanelTabsState'
 import type { SessionPanelTab } from '../model/types'
 
 const tabs: SessionPanelTab[] = [
@@ -30,6 +33,31 @@ describe('useSessionPanelTabsState', () => {
     expect(state.activeTabId.value).toBe('session')
     expect(state.openTabs.value.map((tab) => tab.id)).toEqual(['session'])
     expect(state.availableTabs.value.map((tab) => tab.id)).toEqual(tabs.map((tab) => tab.id))
+  })
+
+  it('草稿绑定到新 session 时迁移 opened tabs 与 active tab', () => {
+    const browserTab: SessionPanelTab = {
+      id: 'extension:browser-preview',
+      label: 'Browser',
+      allowMultiple: false
+    }
+    const sessionKey = ref<string>()
+    const state = useSessionPanelTabsState(ref([...singleSessionTabs, browserTab]), sessionKey)
+
+    state.openTab(browserTab.id)
+    transferStoredSessionPanelTabsState(undefined, 'thread-new')
+    sessionKey.value = 'thread-new'
+
+    expect(state.activeTabId.value).toBe(browserTab.id)
+    expect(state.openTabs.value.map((tab) => tab.id)).toEqual(['session', browserTab.id])
+    expect(window.localStorage.getItem('meta-agent.session-panel.tabs.v2.__orphan__')).toBeNull()
+    expect(
+      window.localStorage.getItem('meta-agent.session-panel.active-tab.v2.__orphan__')
+    ).toBeNull()
+
+    sessionKey.value = '__orphan__.fresh'
+    expect(state.activeTabId.value).toBe('session')
+    expect(state.openTabs.value.map((tab) => tab.id)).toEqual(['session'])
   })
 
   it('按 session key 隔离 active tab 与 opened tabs', () => {

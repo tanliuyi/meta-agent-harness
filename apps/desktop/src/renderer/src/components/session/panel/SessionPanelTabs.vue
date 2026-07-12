@@ -2,6 +2,7 @@
 import { computed, defineAsyncComponent, watch } from 'vue'
 import ScrollArea from '@renderer/components/ui/scroll-area/ScrollArea.vue'
 import { useSessionContext } from '@renderer/composables/useSessionContext'
+import { useAppStore } from '@renderer/stores/app'
 import useWorkspaceSessionStore from '@renderer/stores/workspace-session'
 import SessionPanelTabBar from './SessionPanelTabBar.vue'
 import type { SessionPanelTabCountMap } from './model/types'
@@ -17,6 +18,7 @@ defineProps<{
   collapsed?: boolean
 }>()
 
+const app = useAppStore()
 const workspaceSession = useWorkspaceSessionStore()
 const { panelTabRequest } = useSessionContext()
 
@@ -24,11 +26,22 @@ const extensionPanelTabPrefix = 'extension:'
 const ExtensionWebviewPanelTab = defineAsyncComponent(
   () => import('./tabs/ExtensionWebviewPanelTab.vue')
 )
+const BrowserPreviewPanelTab = defineAsyncComponent(
+  () => import('./tabs/BrowserPreviewPanelTab.vue')
+)
+const MemoryPanelTab = defineAsyncComponent(
+  () => import('@renderer/views/settings/memory/MemorySettingsView.vue')
+)
 
 const sessionPanelTabs = computed(() => {
   const builtInTabs = getSessionPanelTabRegistrations()
   const extensionTabs = Object.values(workspaceSession.activeExtensionPanels)
-    .filter((panel) => !(panel.source.type === 'native' && panel.source.component === 'memory'))
+    .filter(
+      (panel) =>
+        panel.source.type !== 'native' ||
+        panel.source.component === 'browser-preview' ||
+        panel.source.component === 'memory'
+    )
     .sort(
       (left, right) =>
         (left.order ?? 0) - (right.order ?? 0) || left.title.localeCompare(right.title)
@@ -57,7 +70,7 @@ const {
   selectTab
 } = useSessionPanelTabsState(
   sessionPanelTabs,
-  computed(() => workspaceSession.activeSessionId)
+  computed(() => workspaceSession.activeSessionPanelTabsKey)
 )
 
 const pendingApprovalsCount = computed(() =>
@@ -97,21 +110,41 @@ const activeExtensionPanel = computed(() =>
     ? workspaceSession.activeExtensionPanels[activeExtensionPanelId.value]
     : undefined
 )
+const isNativeMemoryPanelActive = computed(
+  () =>
+    activeExtensionPanel.value?.source.type === 'native' &&
+    activeExtensionPanel.value.source.component === 'memory'
+)
+const persistentBrowserPanelId = computed(
+  () =>
+    Object.values(workspaceSession.activeExtensionPanels).find(
+      (panel) =>
+        panel.source.type === 'native' &&
+        panel.source.component === 'browser-preview' &&
+        panel.retainContextWhenHidden
+    )?.id
+)
+const isPersistentBrowserPanelActive = computed(
+  () => activeExtensionPanelId.value === persistentBrowserPanelId.value
+)
+
 const shouldKeepActiveTabAlive = computed(() => {
   if (!activeExtensionPanelId.value) return true
-  if (activeExtensionPanel.value?.source.type === 'native') return true
   return shouldRetainExtensionPanelContext(activeExtensionPanel.value)
 })
 
 const activeTabComponent = computed(() => {
+  if (isPersistentBrowserPanelActive.value) return undefined
+  if (activeExtensionPanel.value?.source.type === 'native') {
+    return activeExtensionPanel.value.source.component === 'memory' ? MemoryPanelTab : undefined
+  }
   if (activeExtensionPanelId.value) return ExtensionWebviewPanelTab
   return activeTabId.value ? getSessionPanelTabComponent(activeTabId.value) : undefined
 })
 
-const activeTabKey = computed(() => {
-  const sessionId = workspaceSession.activeSessionId ?? '__orphan__'
-  return `${sessionId}:${activeTabInstanceId.value}`
-})
+const activeTabKey = computed(
+  () => `${workspaceSession.activeSessionPanelTabsKey}:${activeTabInstanceId.value}`
+)
 
 watch(
   panelTabRequest,
@@ -156,15 +189,17 @@ function handleCloseTab(tabInstanceId: string): void {
   if (!tab?.id.startsWith(extensionPanelTabPrefix) || !workspaceSession.activeSessionId) {
     return
   }
-  workspaceSession.disposeExtensionPanel(
-    workspaceSession.activeSessionId,
-    tab.id.slice(extensionPanelTabPrefix.length)
-  )
+  const panelId = tab.id.slice(extensionPanelTabPrefix.length)
+  const panel = workspaceSession.activeExtensionPanels[panelId]
+  if (panel?.source.type === 'native' && panel.source.component === 'browser-preview') {
+    return
+  }
+  workspaceSession.disposeExtensionPanel(workspaceSession.activeSessionId, panelId)
 }
 </script>
 
 <template>
-  <header class="session-panel__header">
+  <header class="session-panel__header" :class="{ 'session-panel__header--darwin': app.isMac }">
     <SessionPanelTabBar
       :active-tab-instance-id="activeTabInstanceId"
       :attention-tab-ids="attentionTabIds"
@@ -194,11 +229,17 @@ function handleCloseTab(tabInstanceId: string): void {
         </button>
       </div>
     </ScrollArea>
+    <BrowserPreviewPanelTab
+      v-if="persistentBrowserPanelId"
+      v-show="!isAddPanelActive && isPersistentBrowserPanelActive"
+      :panel-id="persistentBrowserPanelId"
+    />
     <KeepAlive>
       <component
         :is="activeTabComponent"
         v-if="!collapsed && !isAddPanelActive && activeTabComponent && shouldKeepActiveTabAlive"
         :key="activeTabKey"
+        :compact="isNativeMemoryPanelActive"
         :panel-id="activeExtensionPanelId"
       />
     </KeepAlive>
@@ -206,6 +247,7 @@ function handleCloseTab(tabInstanceId: string): void {
       :is="activeTabComponent"
       v-if="!collapsed && !isAddPanelActive && activeTabComponent && !shouldKeepActiveTabAlive"
       :key="activeTabKey"
+      :compact="isNativeMemoryPanelActive"
       :panel-id="activeExtensionPanelId"
     />
   </div>

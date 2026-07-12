@@ -29,6 +29,7 @@ import {
   GitFork,
   MapPin,
   Quote,
+  Target,
   TextCursorInput
 } from 'lucide-vue-next'
 
@@ -543,9 +544,22 @@ function toggleExpand(): void {
       />
       <div v-if="quoteSegments.length > 0" class="user-message user-message--quotes">
         <div class="user-message__quotes">
-          <div v-for="(segment, index) in quoteSegments" :key="index" class="quote-reference-node">
-            <Quote :size="12" aria-hidden="true" />
-            <div class="quote-reference-node__text">{{ segment.text }}</div>
+          <div
+            v-for="(segment, index) in quoteSegments"
+            :key="index"
+            class="quote-reference-node"
+            :class="{ 'is-browser-element': segment.kind === 'browser-element' }"
+            :title="segment.browserRef"
+          >
+            <Target v-if="segment.kind === 'browser-element'" :size="12" aria-hidden="true" />
+            <Quote v-else :size="12" aria-hidden="true" />
+            <div class="quote-reference-node__text">
+              {{
+                segment.kind === 'browser-element'
+                  ? `<${segment.tagName || 'element'}>${segment.label ? ` ${segment.label}` : ''}`
+                  : segment.text
+              }}
+            </div>
           </div>
         </div>
       </div>

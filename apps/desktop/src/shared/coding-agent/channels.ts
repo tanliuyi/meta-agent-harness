@@ -159,6 +159,10 @@ export const codingAgentChannels = {
   updateAgentSettings: 'coding-agent:update-agent-settings',
   /** 获取 Pi-compatible resource / extension 发现快照。 */
   getResourceSnapshot: 'coding-agent:get-resource-snapshot',
+  /** 获取无需会话的 Hermes Memory 管理快照。 */
+  getHermesMemorySnapshot: 'coding-agent:get-hermes-memory-snapshot',
+  /** 无需会话地修改 Hermes Memory。 */
+  mutateHermesMemory: 'coding-agent:mutate-hermes-memory',
   /** 获取项目级 extension 路径配置。 */
   getProjectExtensionPaths: 'coding-agent:get-project-extension-paths',
   /** 更新项目级 extension 路径配置。 */

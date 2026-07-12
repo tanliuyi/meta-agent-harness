@@ -1272,6 +1272,38 @@ describe('workspace-session Project-first actions', () => {
     expect(store.getComposerQuotes('thread-a')).toEqual([quote])
   })
 
+  it('同一个 Browser element ref 只保留一个 Composer chip', async () => {
+    installCodingAgentApi({})
+    const store = useWorkspaceSessionStore()
+    store.sessions['thread-a'] = snapshotToWorkspaceSession(createSnapshot())
+    await store.setActiveSessionId('thread-a')
+    const element = {
+      id: 'browser-element-a',
+      kind: 'browser-element' as const,
+      browserRef: 'ref-picked-1',
+      tagName: 'button',
+      label: 'Save',
+      messageId: 'browser-element:ref-picked-1',
+      text: '[Browser element ref-picked-1: <button> Save]'
+    }
+
+    store.addComposerQuote(element)
+    store.addComposerQuote({
+      ...element,
+      id: 'browser-element-duplicate',
+      label: 'Save changes',
+      text: '[Browser element ref-picked-1: <button> Save changes]'
+    })
+
+    expect(store.draftQuotes).toEqual([
+      {
+        ...element,
+        label: 'Save changes',
+        text: '[Browser element ref-picked-1: <button> Save changes]'
+      }
+    ])
+  })
+
   it('清空当前 Composer 图片草稿', async () => {
     installCodingAgentApi({})
     const store = useWorkspaceSessionStore()
@@ -1752,9 +1784,33 @@ describe('workspace-session Project-first actions', () => {
         message: { type: 'state', status: 'running' }
       }
     })
+    capturedEventListener?.({
+      type: 'projection',
+      threadId: 'thread-a',
+      event: {
+        type: 'extensionPanel.message',
+        threadId: 'thread-a',
+        panelId: 'deploy',
+        message: { type: 'state', status: 'queued' }
+      }
+    })
     expect(store.activeExtensionPanelMessages.deploy).toEqual({
-      sequence: 1,
-      message: { type: 'state', status: 'running' }
+      sequence: 2,
+      message: { type: 'state', status: 'queued' },
+      messages: [
+        { sequence: 1, message: { type: 'state', status: 'running' } },
+        { sequence: 2, message: { type: 'state', status: 'queued' } }
+      ]
+    })
+    store.consumeExtensionPanelMessages('thread-a', 'deploy', 1)
+    expect(store.activeExtensionPanelMessages.deploy.messages).toEqual([
+      { sequence: 2, message: { type: 'state', status: 'queued' } }
+    ])
+    store.consumeExtensionPanelMessages('thread-a', 'deploy', 2)
+    expect(store.activeExtensionPanelMessages.deploy.messages).toEqual([])
+    expect(store.activeExtensionPanelMessages.deploy.message).toEqual({
+      type: 'state',
+      status: 'queued'
     })
 
     store.setExtensionPanelState('thread-a', 'deploy', { selectedDeploymentId: 'prod' })
@@ -2116,6 +2172,34 @@ describe('workspace-session Project-first actions', () => {
       args: 'openai/gpt-5'
     })
     expectLastSessionNotification(store, '已切换模型到 openai/gpt-5')
+  })
+
+  it('新会话草稿态直接暴露 Desktop 内置 Browser 和 Hermes Memory panels', () => {
+    const createThread = vi.fn()
+    installCodingAgentApi({ createThread })
+    const store = useWorkspaceSessionStore()
+
+    store.startNewSession('project-a')
+
+    expect(createThread).not.toHaveBeenCalled()
+    expect(store.activeSessionId).toBeUndefined()
+    expect(store.activeExtensionPanels['browser-preview']).toEqual({
+      id: 'browser-preview',
+      viewType: 'meta.browser-preview',
+      title: 'Browser',
+      icon: 'globe',
+      order: 15,
+      retainContextWhenHidden: true,
+      source: { type: 'native', component: 'browser-preview' }
+    })
+    expect(store.activeExtensionPanels['hermes-memory']).toEqual({
+      id: 'hermes-memory',
+      viewType: 'pi.hermes-memory',
+      title: '记忆',
+      icon: 'brain',
+      order: 35,
+      source: { type: 'native', component: 'memory' }
+    })
   })
 
   it('选择 Project 后自动发现新会话资源且不创建 thread', async () => {
@@ -2649,6 +2733,105 @@ describe('workspace-session Project-first actions', () => {
     expect(store.activePreviousLeafEntryId).toBeUndefined()
     expect(store.activeSnapshot?.currentEntryId).toBe('entry-a')
     expect(store.activeSessionActionMessage).toBe('已返回之前位置')
+  })
+
+  it('session tree 导航成功后立即移除新 leaf 之后的消息', async () => {
+    const messages: ThreadSnapshot['messages'] = [
+      {
+        id: 'message-a',
+        role: 'user',
+        text: 'first',
+        sessionEntryId: 'entry-a',
+        raw: { role: 'user', content: 'first', timestamp: fixtureTimestamp }
+      },
+      {
+        id: 'message-b',
+        role: 'assistant',
+        text: 'second',
+        sessionEntryId: 'entry-b',
+        raw: createAssistantMessage('second', fixtureTimestamp)
+      },
+      {
+        id: 'message-c',
+        role: 'user',
+        text: 'third',
+        sessionEntryId: 'entry-c',
+        raw: { role: 'user', content: 'third', timestamp: fixtureTimestamp + 1 }
+      },
+      {
+        id: 'message-d',
+        role: 'assistant',
+        text: 'fourth',
+        sessionEntryId: 'entry-d',
+        raw: createAssistantMessage('fourth', fixtureTimestamp + 2)
+      }
+    ]
+    const initialSnapshot: ThreadSnapshot = {
+      ...createSnapshot(),
+      currentEntryId: 'entry-d',
+      messages
+    }
+    const movedSnapshot: ThreadSnapshot = {
+      ...initialSnapshot,
+      currentEntryId: 'entry-b',
+      messages: messages.slice(0, 2)
+    }
+    const navigateTree = vi.fn().mockResolvedValue({ snapshot: movedSnapshot })
+    installCodingAgentApi({ getSnapshot: vi.fn().mockResolvedValue(initialSnapshot), navigateTree })
+    const store = useWorkspaceSessionStore()
+    store.sessions['thread-a'] = snapshotToWorkspaceSession(initialSnapshot)
+    await store.setActiveSessionId('thread-a')
+
+    await store.navigateActiveSessionTree('entry-b')
+
+    expect(store.activeSnapshot?.messages.map((message) => message.id)).toEqual([
+      'message-a',
+      'message-b'
+    ])
+  })
+
+  it('session tree 导航丢弃导航前尚未 flush 的旧分支消息事件', async () => {
+    const frameCallbacks: FrameRequestCallback[] = []
+    vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
+      frameCallbacks.push(callback)
+      return frameCallbacks.length
+    })
+    vi.stubGlobal('cancelAnimationFrame', vi.fn())
+    const initialSnapshot: ThreadSnapshot = {
+      ...createSnapshot(),
+      currentEntryId: 'entry-old',
+      messages: [
+        {
+          id: 'message-a',
+          role: 'user',
+          text: 'first',
+          sessionEntryId: 'entry-a',
+          raw: { role: 'user', content: 'first', timestamp: fixtureTimestamp }
+        }
+      ]
+    }
+    const movedSnapshot: ThreadSnapshot = {
+      ...initialSnapshot,
+      currentEntryId: 'entry-a'
+    }
+    installCodingAgentApi({
+      getSnapshot: vi.fn().mockResolvedValue(initialSnapshot),
+      navigateTree: vi.fn().mockResolvedValue({ snapshot: movedSnapshot })
+    })
+    const store = useWorkspaceSessionStore()
+    store.sessions['thread-a'] = snapshotToWorkspaceSession(initialSnapshot)
+    await store.setActiveSessionId('thread-a')
+
+    capturedEventListener?.({
+      type: 'message_end',
+      threadId: 'thread-a',
+      sessionEntryId: 'entry-old',
+      message: createAssistantMessage('old branch tail', fixtureTimestamp)
+    })
+    await store.navigateActiveSessionTree('entry-a')
+    for (const callback of frameCallbacks) callback(0)
+
+    expect(store.activeSnapshot?.messages.map((message) => message.id)).toEqual(['message-a'])
   })
 
   it('Tree 刷新只替换发生变化的 entry row', () => {
@@ -3437,6 +3620,38 @@ describe('workspace-session Project-first actions', () => {
     expect(store.hasDraftMessage).toBe(false)
   })
 
+  it('将 Browser element chip 作为结构化引用 context 发送', async () => {
+    const snapshot = createSnapshot()
+    const prompt = vi.fn().mockResolvedValue(undefined)
+    installCodingAgentApi({ prompt })
+    const store = useWorkspaceSessionStore()
+    store.sessions['thread-a'] = snapshotToWorkspaceSession(snapshot)
+    await store.setActiveSessionId('thread-a')
+    store.addComposerQuote({
+      id: 'browser-element-a',
+      kind: 'browser-element',
+      browserRef: 'ref-picked-1',
+      tagName: 'button',
+      label: 'Save',
+      messageId: 'browser-element:ref-picked-1',
+      text: '[Browser element ref-picked-1: <button> Save]'
+    })
+
+    await store.sendPrompt()
+
+    expect(prompt).toHaveBeenCalledWith({
+      threadId: 'thread-a',
+      message: '请基于引用内容回答',
+      quoteContexts: [
+        {
+          messageId: 'browser-element:ref-picked-1',
+          text: '[Browser element ref-picked-1: <button> Save]'
+        }
+      ]
+    })
+    expect(store.draftQuotes).toEqual([])
+  })
+
   it('发送文本引用失败时保留引用草稿', async () => {
     const snapshot = createSnapshot()
     const prompt = vi.fn().mockRejectedValue(new Error('network down'))
@@ -3626,6 +3841,8 @@ describe('workspace-session Project-first actions', () => {
     installCodingAgentApi({ createThread, prompt, setThreadTitle })
     const store = useWorkspaceSessionStore()
     store.startNewSession('project-a')
+    store.setActiveSessionPanelOpen(true)
+    store.setActiveSessionPanelWidth(560)
     store.draftMessage = createComposerContent('first prompt')
 
     await store.sendPrompt()
@@ -3637,27 +3854,50 @@ describe('workspace-session Project-first actions', () => {
     expect(store.activeSessionId).toBe('thread-new')
     expect(store.activeProjectId).toBe('project-a')
     expect(store.hasDraftMessage).toBe(false)
+    expect(store.activeSessionPanel).toEqual({ panelOpen: true, panelWidth: 560 })
   })
 
-  it('新 thread 创建后发送失败时不把引用留在 orphan 草稿', async () => {
+  it('新 thread 创建后原子转移并清空全部 orphan 草稿状态', async () => {
     const snapshot = {
       ...createSnapshot(),
       threadId: 'thread-new',
-      projectId: 'project-a'
+      projectId: 'project-a',
+      thinkingLevel: 'high' as const
     }
     const createThread = vi.fn().mockResolvedValue(snapshot)
     const prompt = vi.fn().mockRejectedValue(new Error('network down'))
     installCodingAgentApi({ createThread, prompt })
     const store = useWorkspaceSessionStore()
     store.startNewSession('project-a')
+    store.draftMessage = createComposerContent('first prompt')
     store.addComposerQuote({ id: 'quote-a', messageId: 'assistant-a', text: '引用正文' })
+    store.runningDelivery = 'followUp'
+    store.setActiveSessionPanelOpen(true)
+    store.setActiveSessionPanelWidth(560)
+    await store.setActiveModel('openai', 'gpt-5')
+    await store.setActiveThinkingLevel('high')
 
     await store.sendPrompt()
 
+    expect(createThread).toHaveBeenCalledWith({
+      projectId: 'project-a',
+      initialModel: { provider: 'openai', modelId: 'gpt-5' },
+      thinkingLevel: 'high'
+    })
     expect(store.activeSessionId).toBe('thread-new')
+    expect(store.getComposerDraft('thread-new')).toEqual(createComposerContent('first prompt'))
     expect(store.getComposerQuotes('thread-new')).toHaveLength(1)
+    expect(store.runningDelivery).toBe('followUp')
+    expect(store.activeSessionPanel).toEqual({ panelOpen: true, panelWidth: 560 })
+
     store.startNewSession('project-a')
+
+    expect(store.hasDraftMessage).toBe(false)
     expect(store.draftQuotes).toEqual([])
+    expect(store.runningDelivery).toBe('steer')
+    expect(store.activeSessionPanel).toEqual({ panelOpen: false, panelWidth: 420 })
+    expect(store.orphanModel).toBeUndefined()
+    expect(store.orphanThinkingLevel).toBeUndefined()
   })
 
   it('新会话草稿首次发送 pending 时忽略重复提交', async () => {

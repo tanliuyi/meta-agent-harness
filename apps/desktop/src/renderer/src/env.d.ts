@@ -21,6 +21,7 @@ declare module '*.vue' {
 
 interface Window {
   api: {
+    browserPreview: import('@shared/browser-preview').BrowserPreviewApi
     codingAgent: import('@shared/coding-agent/types').CodingAgentApi
     fileSystem: {
       getPathForFile: (file: File) => string

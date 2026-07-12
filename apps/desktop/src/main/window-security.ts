@@ -46,6 +46,17 @@ export function isMainWindowNavigationAllowed(
   return url.protocol === 'file:' && stripHash(url.toString()) === target.hrefWithoutHash
 }
 
+/** Allow browser previews to navigate to uncredentialed web URLs only. */
+export function isBrowserPreviewUrlAllowed(urlText: string): boolean {
+  try {
+    const url = new URL(urlText)
+    if (url.username || url.password) return false
+    return url.protocol === 'http:' || url.protocol === 'https:'
+  } catch {
+    return false
+  }
+}
+
 function stripHash(urlText: string): string {
   const url = new URL(urlText)
   url.hash = ''

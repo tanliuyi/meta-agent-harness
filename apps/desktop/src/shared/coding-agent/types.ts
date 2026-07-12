@@ -1184,6 +1184,39 @@ export type ResourceSnapshot = PackageResourcesSnapshot & {
   skillCommands?: ResourceSkillCommandInfo[]
 }
 
+/** Hermes Memory 设置页可管理的记忆范围。 */
+export type HermesMemoryTarget = 'memory' | 'user' | 'project' | 'failure'
+
+/** 无需会话即可读取的 Hermes Memory 快照。 */
+export interface HermesMemorySnapshot {
+  type: 'hermes.snapshot'
+  project: string | null
+  entries: Record<HermesMemoryTarget, string[]>
+  skills: Array<{
+    skillId: string
+    name: string
+    description: string
+    scope: string
+    updated: string
+  }>
+  limits: { memory: number; user: number; project: number }
+}
+
+/** Hermes Memory 快照查询。cwd 用于解析项目记忆。 */
+export interface HermesMemorySnapshotInput {
+  cwd?: string
+}
+
+/** Hermes Memory 设置页写操作。 */
+export type HermesMemoryMutationInput = {
+  cwd?: string
+  target: HermesMemoryTarget
+} & (
+  | { operation: 'add'; content: string }
+  | { operation: 'replace'; oldText: string; content: string }
+  | { operation: 'remove'; oldText: string }
+)
+
 /** 获取 Pi-compatible resource / extension 发现快照的输入。 */
 export interface ResourceSnapshotInput {
   /** 可选 thread ID；提供时 main 会使用该 thread 的 runtime cwd 与 Project trust 状态。 */
@@ -1597,6 +1630,10 @@ export interface CodingAgentApi {
   updateAgentSettings(input: UpdateAgentSettingsInput): Promise<AgentSettingsSnapshot>
   /** 获取 Pi-compatible resource / extension 发现快照。 */
   getResourceSnapshot(input?: ResourceSnapshotInput): Promise<ResourceSnapshot>
+  /** 获取无需活跃会话的 Hermes Memory 设置快照。 */
+  getHermesMemorySnapshot(input?: HermesMemorySnapshotInput): Promise<HermesMemorySnapshot>
+  /** 无需活跃会话地修改 Hermes Memory，并返回最新快照。 */
+  mutateHermesMemory(input: HermesMemoryMutationInput): Promise<HermesMemorySnapshot>
   /** 获取项目级 extension 路径配置。 */
   getProjectExtensionPaths(input: ProjectExtensionPathsInput): Promise<string[]>
   /** 更新项目级 extension 路径配置。 */

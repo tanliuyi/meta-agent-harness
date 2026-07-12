@@ -7,6 +7,8 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { detectProject } from '@meta-agent/hermes-memory/project.js'
+import { DatabaseManager } from '@meta-agent/hermes-memory/store/db.js'
+import { searchMemories } from '@meta-agent/hermes-memory/store/sqlite-memory-store.js'
 import { AgentSettingsService } from '../agent-settings-service'
 
 const tempDirs: string[] = []
@@ -69,6 +71,149 @@ describe('AgentSettingsService', () => {
         })
       ])
     )
+  })
+
+  it('无需活跃会话即可管理 global 和 project Hermes Memory', async () => {
+    const dir = createTempDir()
+    const agentDir = join(dir, 'agent')
+    const projectDir = join(dir, 'project')
+    mkdirSync(projectDir, { recursive: true })
+    const service = new AgentSettingsService({ agentDir, cwd: dir })
+
+    let snapshot = await service.mutateHermesMemory({
+      operation: 'add',
+      target: 'memory',
+      content: 'global memory globaltoken',
+      cwd: projectDir
+    })
+    expect(snapshot.entries.memory).toContain('global memory globaltoken')
+
+    snapshot = await service.mutateHermesMemory({
+      operation: 'add',
+      target: 'project',
+      content: 'project memory oldtoken',
+      cwd: projectDir
+    })
+    expect(snapshot.entries.project).toContain('project memory oldtoken')
+    expect(snapshot.project).toBe('project')
+
+    snapshot = await service.mutateHermesMemory({
+      operation: 'replace',
+      target: 'project',
+      oldText: 'project memory oldtoken',
+      content: 'updated project memory newtoken',
+      cwd: projectDir
+    })
+    expect(snapshot.entries.project).toContain('updated project memory newtoken')
+
+    snapshot = await service.mutateHermesMemory({
+      operation: 'remove',
+      target: 'memory',
+      oldText: 'global memory globaltoken',
+      cwd: projectDir
+    })
+    expect(snapshot.entries.memory).not.toContain('global memory globaltoken')
+
+    const dbManager = new DatabaseManager(join(agentDir, 'pi-hermes-memory'))
+    expect(searchMemories(dbManager, 'globaltoken')).toHaveLength(0)
+    expect(
+      searchMemories(dbManager, 'newtoken', {
+        project: detectProject(undefined, projectDir).id ?? undefined
+      })
+    ).toHaveLength(1)
+    expect(searchMemories(dbManager, 'oldtoken')).toHaveLength(0)
+    dbManager.close()
+  })
+
+  it('无需活跃会话即可合并迁移 legacy global、project 和 skill 数据', async () => {
+    const dir = createTempDir()
+    const agentDir = join(dir, 'agent')
+    const projectDir = join(dir, 'project')
+    mkdirSync(projectDir, { recursive: true })
+    const projectId = detectProject(undefined, projectDir).id!
+    const legacyGlobalDir = join(agentDir, 'memory')
+    const targetGlobalDir = join(agentDir, 'pi-hermes-memory')
+    const legacyProjectDir = join(agentDir, 'projects-memory', 'project')
+    const targetProjectDir = join(agentDir, 'projects-memory', projectId)
+    mkdirSync(join(legacyGlobalDir, 'skills', 'legacy-review'), { recursive: true })
+    mkdirSync(join(targetGlobalDir, 'skills', 'legacy-review'), { recursive: true })
+    mkdirSync(legacyProjectDir, { recursive: true })
+    mkdirSync(targetGlobalDir, { recursive: true })
+    mkdirSync(targetProjectDir, { recursive: true })
+    writeFileSync(join(legacyGlobalDir, 'MEMORY.md'), 'legacy global memory')
+    writeFileSync(join(targetGlobalDir, 'MEMORY.md'), 'current global memory')
+    writeFileSync(join(legacyProjectDir, 'MEMORY.md'), 'legacy project memory')
+    writeFileSync(join(targetProjectDir, 'MEMORY.md'), 'current project memory')
+    writeFileSync(
+      join(legacyGlobalDir, 'skills', 'legacy-review', 'SKILL.md'),
+      '---\nname: legacy-review\ndescription: Legacy review\n---\n\n# Legacy Review\n'
+    )
+    writeFileSync(
+      join(targetGlobalDir, 'skills', 'legacy-review', 'SKILL.md'),
+      '---\nname: legacy-review\ndescription: Current review\n---\n\n# Current Review\n'
+    )
+    const service = new AgentSettingsService({ agentDir, cwd: dir })
+
+    const snapshot = await service.getHermesMemorySnapshot({ cwd: projectDir })
+
+    expect(snapshot.entries.memory).toEqual(
+      expect.arrayContaining(['current global memory', 'legacy global memory'])
+    )
+    expect(snapshot.entries.project).toEqual(
+      expect.arrayContaining(['current project memory', 'legacy project memory'])
+    )
+    expect(snapshot.skills.filter((skill) => skill.name === 'legacy-review')).toHaveLength(2)
+    expect(snapshot.skills.map((skill) => skill.skillId)).toEqual(
+      expect.arrayContaining(['global:legacy-review', 'global:legacy-review-legacy'])
+    )
+    expect(existsSync(join(targetGlobalDir, 'MEMORY.md'))).toBe(true)
+    expect(existsSync(join(targetProjectDir, 'MEMORY.md'))).toBe(true)
+    expect(existsSync(legacyGlobalDir)).toBe(false)
+    expect(existsSync(legacyProjectDir)).toBe(false)
+  })
+
+  it('replace 会为尚未镜像的 Markdown 记忆补建 SQLite 索引', async () => {
+    const dir = createTempDir()
+    const agentDir = join(dir, 'agent')
+    const projectDir = join(dir, 'project')
+    mkdirSync(projectDir, { recursive: true })
+    const projectId = detectProject(undefined, projectDir).id!
+    const globalDir = join(agentDir, 'pi-hermes-memory')
+    const projectMemoryDir = join(agentDir, 'projects-memory', projectId)
+    mkdirSync(globalDir, { recursive: true })
+    mkdirSync(projectMemoryDir, { recursive: true })
+    writeFileSync(join(globalDir, 'MEMORY.md'), 'global presync oldglobal')
+    writeFileSync(join(globalDir, 'failures.md'), '[insight] failure presync oldfailure')
+    writeFileSync(join(projectMemoryDir, 'MEMORY.md'), 'project presync oldproject')
+    const service = new AgentSettingsService({ agentDir, cwd: dir })
+
+    await service.mutateHermesMemory({
+      operation: 'replace',
+      target: 'memory',
+      oldText: 'oldglobal',
+      content: 'global presync newglobal',
+      cwd: projectDir
+    })
+    await service.mutateHermesMemory({
+      operation: 'replace',
+      target: 'project',
+      oldText: 'oldproject',
+      content: 'project presync newproject',
+      cwd: projectDir
+    })
+    await service.mutateHermesMemory({
+      operation: 'replace',
+      target: 'failure',
+      oldText: 'oldfailure',
+      content: 'failure presync newfailure',
+      cwd: projectDir
+    })
+
+    const dbManager = new DatabaseManager(globalDir)
+    expect(searchMemories(dbManager, 'newglobal')).toHaveLength(1)
+    expect(searchMemories(dbManager, 'newproject', { project: projectId })).toHaveLength(1)
+    expect(searchMemories(dbManager, 'newfailure')).toHaveLength(1)
+    dbManager.close()
   })
 
   it('通过 SettingsManager 写入 Pi-compatible settings.json', async () => {

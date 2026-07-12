@@ -61,6 +61,8 @@ import type {
   RenameThreadInput,
   ResourcePackageInput,
   ResourceSnapshotInput,
+  HermesMemoryMutationInput,
+  HermesMemorySnapshotInput,
   RunCommandInput,
   RevealResourcePathInput,
   SelectResourcePathInput,
@@ -432,6 +434,14 @@ export function registerCodingAgentIpc(options: CodingAgentIpcOptions = {}): Cod
   )
   handle(manager, codingAgentChannels.getResourceSnapshot, (input?: ResourceSnapshotInput) =>
     manager.getResourceSnapshot(input)
+  )
+  handle(
+    manager,
+    codingAgentChannels.getHermesMemorySnapshot,
+    (input?: HermesMemorySnapshotInput) => manager.getHermesMemorySnapshot(input)
+  )
+  handle(manager, codingAgentChannels.mutateHermesMemory, (input: HermesMemoryMutationInput) =>
+    manager.mutateHermesMemory(input)
   )
   handle(
     manager,

@@ -3,6 +3,7 @@
 import type { StartThreadInput } from '@coding-agent-desktop-src/protocol/thread'
 import type { AgentSessionRuntime } from '@earendil-works/pi-coding-agent'
 import hermesMemoryExtension from '@meta-agent/hermes-memory'
+import browserPreviewExtension from './browser-preview-extension'
 import {
   createRuntimeForThread,
   type DesktopRuntimeFactoryOptions
@@ -15,7 +16,11 @@ export function createBuiltinRuntimeForThread(
 ): Promise<AgentSessionRuntime> {
   return createRuntimeForThread(input, {
     ...options,
-    extensionFactories: [hermesMemoryExtension, ...(options.extensionFactories ?? [])],
+    extensionFactories: [
+      hermesMemoryExtension,
+      browserPreviewExtension,
+      ...(options.extensionFactories ?? [])
+    ],
     replacedExtensionPackages: ['pi-hermes-memory', ...(options.replacedExtensionPackages ?? [])],
     syncProcessCwd: true
   })

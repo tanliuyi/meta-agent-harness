@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { computed, onActivated, onBeforeUnmount, onDeactivated, ref, watch } from 'vue'
-import { Brain, Pencil, Plus, RefreshCw, Search, Trash2, X } from 'lucide-vue-next'
+import { computed, onActivated, ref, watch } from 'vue'
+import { Pencil, Plus, RefreshCw, Search, Trash2, X } from 'lucide-vue-next'
 import { BaseButton, BaseIconButton } from '@renderer/components/base'
 import Input from '@renderer/components/ui/input/Input.vue'
 import ScrollArea from '@renderer/components/ui/scroll-area/ScrollArea.vue'
@@ -21,21 +21,17 @@ import {
   DialogTitle
 } from '@renderer/components/ui/dialog'
 import { confirm } from '@renderer/composables/useConfirmDialog'
-import useWorkspaceSessionStore from '@renderer/stores/workspace-session'
+import useWorkspaceProjectStore from '@renderer/stores/workspace-project'
 import MarkdownEditor from '@renderer/components/markdown/MarkdownEditor.vue'
 import StreamingMarkdown from '@renderer/components/markdown/StreamingMarkdown.vue'
-import {
-  applyMemoryPanelMessage,
-  selectThreadPanelMessage,
-  type MemorySnapshot,
-  type MemoryTarget,
-  type PendingMemoryAction
-} from './state/memoryPanelMessage'
+import type { MemorySnapshot, MemoryTarget } from './state/memoryPanelMessage'
 
-const MEMORY_PANEL_ID = 'hermes-memory'
+type MemoryOperation = 'refresh' | 'add' | 'replace' | 'remove'
 type Scope = MemoryTarget | 'skills'
 
-const store = useWorkspaceSessionStore()
+defineProps<{ compact?: boolean }>()
+
+const projectStore = useWorkspaceProjectStore()
 const selected = ref<Scope>('memory')
 const query = ref('')
 const draft = ref('')
@@ -45,54 +41,23 @@ const editingValue = ref('')
 const busy = ref(false)
 const error = ref('')
 const snapshot = ref<MemorySnapshot>()
-const pendingAction = ref<PendingMemoryAction>()
+let projectGeneration = 0
+let refreshPending = false
 
-const threadId = computed(() => store.activeSessionId)
-const panelAvailable = computed(() => Boolean(store.activeExtensionPanels[MEMORY_PANEL_ID]))
-const latestMessage = computed(() =>
-  selectThreadPanelMessage(store.runtimeByThreadId, threadId.value, MEMORY_PANEL_ID)
-)
+const activeProjectPath = computed(() => {
+  const projectId = projectStore.activeProjectId
+  return projectId ? projectStore.projects[projectId]?.path : undefined
+})
 
-watch(
-  latestMessage,
-  (message) => {
-    const pending = pendingAction.value
-    const update = applyMemoryPanelMessage(message, pending, snapshot.value)
-    if (!update) return
-
-    if (update.snapshotError) {
-      if (!pending) busy.value = false
-      error.value = '记忆数据格式不兼容，请刷新或升级应用'
-    } else {
-      snapshot.value = update.snapshot
-    }
-
-    if (!update.actionResult) {
-      if (!pendingAction.value) busy.value = false
-      if (!update.snapshotError) error.value = ''
-      return
-    }
-
-    if (!pending) return
-    pendingAction.value = undefined
-    busy.value = false
-    if (update.snapshotError) return
-    if (!update.actionResult.success) {
-      error.value = update.actionResult.error ?? '操作失败'
-      return
-    }
-
-    error.value = ''
-    if (pending.kind !== 'remove' && pending.kind !== 'refresh') closeEditorDialog()
-  },
-  { immediate: true }
-)
-
-watch(threadId, () => {
+watch(activeProjectPath, () => {
+  projectGeneration += 1
   snapshot.value = undefined
-  pendingAction.value = undefined
-  busy.value = false
   error.value = ''
+  if (busy.value) {
+    refreshPending = true
+    return
+  }
+  void refresh()
 })
 
 const scopes = computed(() => [
@@ -138,40 +103,54 @@ function selectScope(value: unknown): void {
   if (scope) selected.value = scope
 }
 
-async function send(message: unknown): Promise<boolean> {
-  if (!threadId.value || !panelAvailable.value) {
-    busy.value = false
-    error.value = '请先打开一个已启动的会话，再管理记忆'
-    return false
-  }
-  try {
-    await window.api.codingAgent.sendExtensionPanelMessage({
-      threadId: threadId.value,
-      panelId: MEMORY_PANEL_ID,
-      message
-    })
-    return true
-  } catch (cause) {
-    busy.value = false
-    error.value = cause instanceof Error ? cause.message : '无法连接记忆服务'
-    return false
-  }
-}
-
-async function sendAction(
-  kind: PendingMemoryAction['kind'],
-  message: Record<string, unknown>
+async function runMemoryOperation(
+  operation: MemoryOperation,
+  input?: { target: MemoryTarget; content?: string; oldText?: string }
 ): Promise<void> {
-  if (busy.value) return
-  const requestId = crypto.randomUUID()
-  pendingAction.value = { requestId, kind }
+  if (busy.value) {
+    if (operation === 'refresh') refreshPending = true
+    return
+  }
+  const requestedProjectPath = activeProjectPath.value
+  const requestedProjectGeneration = projectGeneration
   busy.value = true
   error.value = ''
-  if (!(await send({ ...message, requestId }))) pendingAction.value = undefined
+  try {
+    const nextSnapshot =
+      operation === 'refresh'
+        ? await window.api.codingAgent.getHermesMemorySnapshot({ cwd: requestedProjectPath })
+        : await window.api.codingAgent.mutateHermesMemory({
+            cwd: requestedProjectPath,
+            target: input!.target,
+            ...(operation === 'add'
+              ? { operation, content: input!.content! }
+              : operation === 'replace'
+                ? { operation, oldText: input!.oldText!, content: input!.content! }
+                : { operation, oldText: input!.oldText! })
+          })
+    if (requestedProjectGeneration === projectGeneration) {
+      snapshot.value = nextSnapshot
+    } else {
+      refreshPending = true
+    }
+    if (operation === 'add' || operation === 'replace') closeEditorDialog()
+  } catch (cause) {
+    if (requestedProjectGeneration === projectGeneration) {
+      error.value = cause instanceof Error ? cause.message : '无法读取记忆数据'
+    } else {
+      refreshPending = true
+    }
+  } finally {
+    busy.value = false
+    if (refreshPending) {
+      refreshPending = false
+      void refresh()
+    }
+  }
 }
 
 async function refresh(): Promise<void> {
-  await sendAction('refresh', { type: 'hermes.refresh' })
+  await runMemoryOperation('refresh')
 }
 function openComposer(): void {
   if (busy.value) return
@@ -190,8 +169,7 @@ async function submitEditor(): Promise<void> {
 }
 async function add(): Promise<void> {
   if (busy.value || selected.value === 'skills' || !draft.value.trim()) return
-  await sendAction('add', {
-    type: 'hermes.add',
+  await runMemoryOperation('add', {
     target: selected.value,
     content: draft.value.trim()
   })
@@ -204,8 +182,7 @@ function beginEdit(entry: string): void {
 async function saveEdit(): Promise<void> {
   if (busy.value || !editing.value || selected.value === 'skills' || !editingValue.value.trim())
     return
-  await sendAction('replace', {
-    type: 'hermes.replace',
+  await runMemoryOperation('replace', {
     target: selected.value,
     oldText: editing.value,
     content: editingValue.value.trim()
@@ -221,28 +198,19 @@ async function remove(entry: string): Promise<void> {
     tone: 'destructive'
   })
   if (!result.confirmed || busy.value) return
-  await sendAction('remove', {
-    type: 'hermes.remove',
+  await runMemoryOperation('remove', {
     target: selected.value,
     oldText: entry
   })
 }
-function sendVisibility(visible: boolean): void {
-  if (!threadId.value || !panelAvailable.value) return
-  void window.api.codingAgent.sendExtensionPanelLifecycleEvent({
-    threadId: threadId.value,
-    event: { type: 'viewStateChanged', panelId: MEMORY_PANEL_ID, visible, active: visible }
-  })
-}
-
-onActivated(() => sendVisibility(true))
-onDeactivated(() => sendVisibility(false))
-onBeforeUnmount(() => sendVisibility(false))
+onActivated(() => {
+  void refresh()
+})
 </script>
 
 <template>
   <ScrollArea class="memory-settings-scroll">
-    <div class="memory-settings-page">
+    <div class="memory-settings-page" :class="{ 'memory-settings-page--compact': compact }">
       <header class="memory-settings-page__header">
         <div>
           <h1>记忆</h1>
@@ -252,21 +220,13 @@ onBeforeUnmount(() => sendVisibility(false))
           v-if="selected !== 'skills'"
           size="sm"
           variant="primary"
-          :disabled="busy || !panelAvailable || isComposerOpen"
+          :disabled="busy || isComposerOpen"
           @click="openComposer"
         >
           <template #icon><Plus :size="14" /></template>
           新增记忆
         </BaseButton>
       </header>
-
-      <div v-if="!threadId || !panelAvailable" class="memory-settings-state">
-        <Brain :size="18" aria-hidden="true" />
-        <div>
-          <strong>记忆服务尚未连接</strong>
-          <span>请先打开一个已启动且启用了 Hermes Memory 的会话。</span>
-        </div>
-      </div>
 
       <div v-if="error" class="memory-settings-notice" role="alert">
         <span>{{ error }}</span>
@@ -296,7 +256,7 @@ onBeforeUnmount(() => sendVisibility(false))
               </SelectGroup>
             </SelectContent>
           </Select>
-          <BaseIconButton label="刷新记忆" :disabled="busy || !panelAvailable" @click="refresh">
+          <BaseIconButton label="刷新记忆" :disabled="busy" @click="refresh">
             <RefreshCw :class="{ spin: busy }" :size="14" />
           </BaseIconButton>
         </div>
@@ -400,6 +360,24 @@ onBeforeUnmount(() => sendVisibility(false))
   max-width: var(--settings-page-max-width);
   margin: 0 auto;
   padding: 40px 36px 56px;
+}
+.memory-settings-page--compact {
+  max-width: none;
+  padding: var(--space-4);
+}
+.memory-settings-page--compact .memory-settings-page__header {
+  align-items: center;
+  margin-bottom: var(--space-4);
+}
+.memory-settings-page--compact .memory-settings-page__header p {
+  display: none;
+}
+.memory-settings-page--compact .memory-settings-toolbar {
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+.memory-settings-page--compact .memory-settings-search,
+.memory-settings-page--compact .memory-settings-scope {
+  grid-column: 1 / -1;
 }
 .memory-settings-page__header {
   display: flex;

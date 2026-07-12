@@ -387,6 +387,8 @@ export default async function (pi: ExtensionAPI) {
   // ── 2. Inject memory policy by default; legacy mode keeps full frozen memory blocks ──
   pi.on('before_agent_start', async (event, _ctx) => {
     const project = activeProject.get()
+    await store.loadFromDisk()
+    if (project.store) await project.store.loadFromDisk()
     const promptContext = await buildPromptContext(config, store, project.store, project.info.name ?? '')
 
     if (promptContext) {

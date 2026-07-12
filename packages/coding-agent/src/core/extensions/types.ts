@@ -309,11 +309,13 @@ export interface DesktopNativePanelOptions {
 	/** User-visible tab title. */
 	title: string;
 	/** Host-owned native component capability. */
-	component: "memory";
+	component: "memory" | "browser-preview";
 	/** Optional icon name understood by the desktop host. */
 	icon?: string;
 	/** Optional order among extension-provided panels. */
 	order?: number;
+	/** Keep the native panel mounted when another tab is active. Defaults to false. */
+	retainContextWhenHidden?: boolean;
 }
 
 /** Desktop-only host APIs. Non-desktop hosts provide no-op implementations. */

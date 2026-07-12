@@ -535,13 +535,13 @@ onBeforeUnmount(() => {
         </BaseIconButton>
       </div>
       <span v-if="fileChanges.length" class="change-stats">
-        <span class="change-stats__additions">{{
-          formatAdditions(fileChangeStats.additions)
-        }}</span>
+        <span class="change-stats__additions">
+          {{ formatAdditions(fileChangeStats.additions) }}
+        </span>
         <span class="change-stats__separator">/</span>
-        <span class="change-stats__deletions">{{
-          formatDeletions(fileChangeStats.deletions)
-        }}</span>
+        <span class="change-stats__deletions">
+          {{ formatDeletions(fileChangeStats.deletions) }}
+        </span>
       </span>
     </header>
 

@@ -14,6 +14,7 @@ export interface FileSystemApi {
 }
 
 export interface MetaAgentApi {
+  browserPreview: import('@shared/browser-preview').BrowserPreviewApi
   codingAgent: import('@shared/coding-agent/types').CodingAgentApi
   fileSystem: FileSystemApi
   runtime: {

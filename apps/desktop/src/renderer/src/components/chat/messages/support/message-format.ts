@@ -116,6 +116,9 @@ export type UserMessageDisplaySegment =
       sessionEntryId?: string
       label: string
       text: string
+      kind?: 'quote' | 'browser-element'
+      browserRef?: string
+      tagName?: string
     }
 
 /**
@@ -350,13 +353,26 @@ function getUserMessageDisplaySegmentsFromText(text: string): UserMessageDisplay
             allowedFileArgs: fileReferenceNames
           })
         : []
-  const quoteSegments: UserMessageDisplaySegment[] = context.quotes.map((quote) => ({
-    type: 'quoteReference',
-    label: '文本引用',
-    messageId: quote.messageId,
-    ...(quote.sessionEntryId ? { sessionEntryId: quote.sessionEntryId } : {}),
-    text: quote.text
-  }))
+  const quoteSegments: UserMessageDisplaySegment[] = context.quotes.map((quote) => {
+    const isBrowserElement = quote.messageId.startsWith('browser-element:')
+    const browserMatch = isBrowserElement
+      ? quote.text.match(/^\[Browser element ([^:]+): <([^>]+)>(?: (.*))?\]$/s)
+      : undefined
+    return {
+      type: 'quoteReference',
+      label: isBrowserElement ? browserMatch?.[3] || 'Element' : '文本引用',
+      messageId: quote.messageId,
+      ...(quote.sessionEntryId ? { sessionEntryId: quote.sessionEntryId } : {}),
+      text: quote.text,
+      ...(isBrowserElement
+        ? {
+            kind: 'browser-element' as const,
+            browserRef: browserMatch?.[1] || quote.messageId.slice('browser-element:'.length),
+            tagName: browserMatch?.[2] || 'element'
+          }
+        : {})
+    }
+  })
   if (quoteSegments.length === 0) return contentSegments
   return contentSegments.length > 0
     ? [...quoteSegments, { type: 'text', text: '\n\n' }, ...contentSegments]

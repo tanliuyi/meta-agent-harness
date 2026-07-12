@@ -40,7 +40,7 @@ let sessionPathCopyTimeout: ReturnType<typeof setTimeout> | undefined
 const hasActiveThread = computed(() => Boolean(workspaceSession.activeSessionId))
 const currentEntryId = computed(() => workspaceSession.activeSnapshot?.currentEntryId)
 const sessionProject = computed(() => {
-  const projectId = workspaceSession.activeSession?.projectId
+  const projectId = workspaceSession.activeSession?.projectId ?? workspaceSession.activeProjectId
   return projectId ? workspaceProject.projects[projectId] : undefined
 })
 const sessionTreeEntryCount = computed(
