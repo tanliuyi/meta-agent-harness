@@ -1,16 +1,25 @@
 <script setup lang="ts">
-import { computed, defineAsyncComponent, reactive, watch } from 'vue'
+import { computed, defineAsyncComponent, reactive, shallowReactive, watch } from 'vue'
 import ScrollArea from '@renderer/components/ui/scroll-area/ScrollArea.vue'
 import { useSessionContext } from '@renderer/composables/useSessionContext'
 import { useAppStore } from '@renderer/stores/app'
 import useWorkspaceSessionStore from '@renderer/stores/workspace-session'
 import SessionPanelTabBar from './SessionPanelTabBar.vue'
-import type { ExtensionSessionPanelTabId, SessionPanelTabCountMap } from './model/types'
+import type {
+  ExtensionSessionPanelTabId,
+  SessionPanelTabCountMap,
+  SessionPanelTabId
+} from './model/types'
 import { countRecordKeys, createStableSessionPanelTabCounts } from './state/sessionPanelCounts'
 import {
   getSessionPanelTabComponent,
   getSessionPanelTabRegistrations
 } from './state/sessionPanelTabRegistry'
+import {
+  reconcileSessionPanelCache,
+  type SessionPanelCacheCandidate,
+  type SessionPanelCacheEntry
+} from './state/sessionPanelCache'
 import { useSessionPanelTabsState } from './state/useSessionPanelTabsState'
 import { shouldRetainExtensionPanelContext } from './tabs/display/extensionPanelDisplay'
 import { getBrowserSessionScope } from './tabs/state/browserPreviewTabs'
@@ -28,6 +37,7 @@ const workspaceSession = useWorkspaceSessionStore()
 const { panelTabRequest } = useSessionContext()
 
 const extensionPanelTabPrefix = 'extension:'
+const MAX_SESSION_PANEL_CACHE_ENTRIES = 12
 const ExtensionWebviewPanelTab = defineAsyncComponent(
   () => import('./tabs/ExtensionWebviewPanelTab.vue')
 )
@@ -135,6 +145,26 @@ const isPersistentBrowserPanelActive = computed(
     activeExtensionPanelId.value === persistentBrowserPanelId.value
 )
 
+function getExtensionPanelId(tabId: SessionPanelTabId | undefined): string | undefined {
+  return tabId?.startsWith(extensionPanelTabPrefix)
+    ? tabId.slice(extensionPanelTabPrefix.length)
+    : undefined
+}
+
+function getTabComponent(
+  tabId: SessionPanelTabId,
+  panels = workspaceSession.activeExtensionPanels
+): ReturnType<typeof getSessionPanelTabComponent> {
+  const panelId = getExtensionPanelId(tabId)
+  if (!panelId) return getSessionPanelTabComponent(tabId)
+
+  const panel = panels[panelId]
+  if (panel?.source.type === 'native') {
+    return panel.source.component === 'memory' ? MemoryPanelTab : undefined
+  }
+  return panel ? ExtensionWebviewPanelTab : undefined
+}
+
 const browserSessionInstances = reactive<BrowserSessionInstance[]>([])
 const busyBrowserSessionScopes = reactive(new Set<string>())
 let browserSessionAccessSequence = 0
@@ -198,7 +228,7 @@ watch(
   { flush: 'sync', immediate: true }
 )
 
-const shouldKeepActiveTabAlive = computed(() => {
+const shouldRetainActiveTab = computed(() => {
   if (!activeExtensionPanelId.value) return true
   return shouldRetainExtensionPanelContext(activeExtensionPanel.value)
 })
@@ -208,16 +238,74 @@ const isPersistentBrowserPanelVisible = computed(
 )
 
 const activeTabComponent = computed(() => {
-  if (isPersistentBrowserPanelActive.value) return undefined
-  if (activeExtensionPanel.value?.source.type === 'native') {
-    return activeExtensionPanel.value.source.component === 'memory' ? MemoryPanelTab : undefined
-  }
-  if (activeExtensionPanelId.value) return ExtensionWebviewPanelTab
-  return activeTabId.value ? getSessionPanelTabComponent(activeTabId.value) : undefined
+  return activeTabId.value ? getTabComponent(activeTabId.value) : undefined
 })
 
 const activeTabKey = computed(
   () => `${workspaceSession.activeSessionPanelTabsKey}:${activeTabInstanceId.value}`
+)
+
+type CachedOpenTab = SessionPanelCacheEntry<
+  NonNullable<ReturnType<typeof getSessionPanelTabComponent>>
+>
+type CachedOpenTabCandidate = SessionPanelCacheCandidate<CachedOpenTab['component']>
+
+const cachedOpenTabs = shallowReactive<CachedOpenTab[]>([])
+let cachedTabAccessSequence = 0
+
+watch(
+  () => ({
+    activeTabInstanceId: activeTabInstanceId.value,
+    openTabs: openTabs.value,
+    panels: workspaceSession.activeExtensionPanels,
+    runtimeThreadIds: Object.keys(workspaceSession.runtimeByThreadId),
+    sessionKey: workspaceSession.activeSessionPanelTabsKey,
+    sessionThreadIds: Object.keys(workspaceSession.sessions),
+    threadId: workspaceSession.activeSessionId
+  }),
+  ({
+    activeTabInstanceId: currentActiveTabInstanceId,
+    openTabs: currentOpenTabs,
+    panels,
+    runtimeThreadIds,
+    sessionKey,
+    sessionThreadIds,
+    threadId
+  }) => {
+    const currentCandidates: CachedOpenTabCandidate[] = []
+    for (const tab of currentOpenTabs) {
+      const panelId = getExtensionPanelId(tab.id)
+      const panel = panelId ? panels[panelId] : undefined
+      if (panelId && !shouldRetainExtensionPanelContext(panel)) continue
+
+      const component = getTabComponent(tab.id, panels)
+      if (!component) continue
+
+      const cacheKey = `${sessionKey}:${tab.instanceId}`
+      currentCandidates.push({
+        cacheKey,
+        compact: panel?.source.type === 'native' && panel.source.component === 'memory',
+        component,
+        instanceId: tab.instanceId,
+        panelId,
+        sessionKey,
+        threadId
+      })
+    }
+
+    const activeCacheKey = `${sessionKey}:${currentActiveTabInstanceId}`
+    const reconciled = reconcileSessionPanelCache(cachedOpenTabs, {
+      accessSequence: cachedTabAccessSequence,
+      activeCacheKey,
+      currentCandidates,
+      currentSessionKey: sessionKey,
+      liveThreadIds: new Set([...sessionThreadIds, ...runtimeThreadIds]),
+      maxEntries: MAX_SESSION_PANEL_CACHE_ENTRIES
+    })
+    cachedTabAccessSequence = reconciled.accessSequence
+    cachedOpenTabs.splice(0, cachedOpenTabs.length, ...reconciled.entries)
+  },
+  { flush: 'sync', immediate: true }
 )
 
 watch(
@@ -271,6 +359,19 @@ function handleBrowserAttention(threadId: string): void {
 function handleBrowserBusyChange(scope: string, busy: boolean): void {
   if (busy) busyBrowserSessionScopes.add(scope)
   else busyBrowserSessionScopes.delete(scope)
+}
+
+function handleCloseBrowserPanel(scope: string): void {
+  const panelId = persistentBrowserPanelId.value
+  if (
+    !panelId ||
+    scope !== activeBrowserSessionScope.value ||
+    !isPersistentBrowserPanelActive.value
+  ) {
+    return
+  }
+  const browserTab = openTabs.value.find((tab) => tab.id === `${extensionPanelTabPrefix}${panelId}`)
+  if (browserTab) closeTab(browserTab.instanceId)
 }
 
 function handleCloseTab(tabInstanceId: string): void {
@@ -334,23 +435,33 @@ function handleCloseTab(tabInstanceId: string): void {
         :visible="isPersistentBrowserPanelVisible && instance.scope === activeBrowserSessionScope"
         @attention="handleBrowserAttention"
         @busy-change="handleBrowserBusyChange(instance.scope, $event)"
+        @close="handleCloseBrowserPanel"
       />
     </template>
-    <KeepAlive>
+    <KeepAlive v-for="tab in cachedOpenTabs" :key="tab.cacheKey" :max="1">
       <component
-        :is="activeTabComponent"
-        v-if="!collapsed && !isAddPanelActive && activeTabComponent && shouldKeepActiveTabAlive"
-        :key="activeTabKey"
-        :compact="isNativeMemoryPanelActive"
-        :panel-id="activeExtensionPanelId"
+        :is="tab.component"
+        v-if="
+          !collapsed &&
+          !isAddPanelActive &&
+          tab.sessionKey === workspaceSession.activeSessionPanelTabsKey &&
+          tab.instanceId === activeTabInstanceId
+        "
+        :key="tab.cacheKey"
+        :compact="tab.compact"
+        :panel-id="tab.panelId"
+        :thread-id="tab.panelId ? tab.threadId : undefined"
+        :visible="tab.panelId ? true : undefined"
       />
     </KeepAlive>
     <component
       :is="activeTabComponent"
-      v-if="!collapsed && !isAddPanelActive && activeTabComponent && !shouldKeepActiveTabAlive"
+      v-if="!collapsed && !isAddPanelActive && activeTabComponent && !shouldRetainActiveTab"
       :key="activeTabKey"
       :compact="isNativeMemoryPanelActive"
       :panel-id="activeExtensionPanelId"
+      :thread-id="activeExtensionPanelId ? workspaceSession.activeSessionId : undefined"
+      :visible="activeExtensionPanelId ? true : undefined"
     />
   </div>
 </template>

@@ -1,8 +1,17 @@
 import type { VirtualItem } from '@tanstack/vue-virtual'
+import type { UiDensity } from '@shared/coding-agent/types'
 import type { TimelineItem } from './chatTimelineDisplay'
 
-export const CHAT_TIMELINE_GAP = 10
+const CHAT_TIMELINE_GAP_BY_DENSITY: Record<UiDensity, number> = {
+  compact: 8,
+  standard: 10,
+  comfortable: 14
+}
 export const CHAT_TIMELINE_OVERSCAN = 6
+
+export function getChatTimelineGap(density: UiDensity): number {
+  return CHAT_TIMELINE_GAP_BY_DENSITY[density]
+}
 
 export interface VirtualTimelineRow<Item> {
   item: Item
@@ -21,6 +30,13 @@ export function findDirectTimelineRow(
   ) as HTMLElement | undefined
 }
 
+export function getVirtualTimelineRowOffset(
+  virtualItem: Pick<VirtualItem, 'start'>,
+  scrollMargin: number
+): number {
+  return virtualItem.start - scrollMargin
+}
+
 export function createVirtualTimelineRows<Item>(
   virtualItems: VirtualItem[],
   items: Item[]
@@ -33,13 +49,6 @@ export function createVirtualTimelineRows<Item>(
     }
   }
   return rows
-}
-
-export function shouldAdjustTimelineScrollForItemResize(
-  item: VirtualItem,
-  scrollOffset: number
-): boolean {
-  return item.end <= scrollOffset
 }
 
 export interface TimelineFollowStateInput {
@@ -99,17 +108,15 @@ export function resolveTimelineFollowState(input: TimelineFollowStateInput): Tim
   }
 }
 
-export function resetTimelineVirtualizerForSession(
+export function prepareTimelineVirtualizerForSession(
   virtualizer: Pick<
     {
-      measure(): void
       scrollToOffset(offset: number, options: { behavior: 'auto' }): void
     },
-    'measure' | 'scrollToOffset'
+    'scrollToOffset'
   >
 ): void {
   virtualizer.scrollToOffset(0, { behavior: 'auto' })
-  virtualizer.measure()
 }
 
 export function estimateTimelineItemSize(item: TimelineItem | undefined): number {

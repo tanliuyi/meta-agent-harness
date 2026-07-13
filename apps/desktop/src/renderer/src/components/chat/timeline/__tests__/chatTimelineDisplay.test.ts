@@ -439,6 +439,81 @@ describe('chatTimelineDisplay', () => {
     ])
   })
 
+  it.each([
+    {
+      label: '压缩分割线',
+      item: {
+        type: 'compaction-divider',
+        key: 'compaction-a:compaction',
+        message: compactionMessage('compaction-a')
+      } satisfies TimelineItem
+    },
+    {
+      label: '运行时系统消息',
+      item: {
+        type: 'runtime-event',
+        key: 'runtime-event:worker-crash:worker-a:1000',
+        event: {
+          id: 'worker-crash:worker-a:1000',
+          type: 'worker-error',
+          title: 'Worker 已崩溃',
+          message: 'worker exited unexpectedly',
+          createdAt: '2026-07-09T00:00:02.000Z',
+          meta: ['worker', 'crash']
+        },
+        message: agentEventMessage('runtime-event:worker-crash:worker-a:1000')
+      } satisfies TimelineItem
+    }
+  ])('$label 不打断同一个折叠处理段', ({ item: systemItem }) => {
+    const toolCalls = [
+      toolCall('tool-read', 'read', { path: 'src/a.ts' }),
+      toolCall('tool-edit', 'edit', { path: 'src/a.ts' })
+    ]
+    const timelineItems = createTimelineItems({
+      messages: [
+        userMessage('user-a', 'hello'),
+        assistantTextToolMessage('assistant-read', '先读取文件', ['tool-read']),
+        assistantTextToolMessage('assistant-edit', '继续修改', ['tool-edit']),
+        assistantTextMessage('assistant-final', '完成')
+      ],
+      toolCallStructures: [],
+      getMessageRenderState,
+      resolveTimelineToolCall: (toolCallId) =>
+        toolCalls.find((toolCall) => toolCall.toolCallId === toolCallId),
+      getToolResultMessageToolCall: () => undefined,
+      hideThinkingBlock: true
+    })
+    timelineItems.splice(3, 0, systemItem)
+
+    const collapseResult = createProcessingCollapseResult({
+      items: timelineItems,
+      isRunning: false,
+      activeSessionId: 'thread-a',
+      now: Date.now()
+    })
+    const displayItems = createDisplayTimelineItems({
+      timelineItems,
+      contexts: collapseResult.contexts,
+      isCollapsedHistoryOpen: () => false
+    })
+
+    expect(collapseResult.contexts).toMatchObject([
+      {
+        boundaryIndex: 1,
+        processEndIndex: 6,
+        hiddenCount: 4,
+        collapsible: true
+      }
+    ])
+    expect(collapseResult.finalReplyKeys.has('assistant-final:text:0')).toBe(true)
+    expect(displayItems.map((item) => item.key)).toEqual([
+      'user-a',
+      'collapsed-history:thread-a:user-a',
+      systemItem.key,
+      'assistant-final:text:0'
+    ])
+  })
+
   it('将压缩系统消息转换为分割线 timeline item', () => {
     const items = createTimelineItems({
       messages: [
@@ -639,6 +714,25 @@ function compactionMessage(id: string): ThreadMessage {
       tokensBefore: 120000,
       timestamp: Date.now()
     } as ThreadMessage['raw']
+  }
+}
+
+function agentEventMessage(id: string): ThreadMessage {
+  return {
+    id,
+    role: 'system',
+    text: 'worker exited unexpectedly',
+    systemEvent: {
+      kind: 'agentEvent',
+      title: 'Worker 已崩溃',
+      description: 'worker exited unexpectedly',
+      meta: ['worker', 'crash']
+    },
+    raw: {
+      role: 'system',
+      content: 'worker exited unexpectedly'
+    } as unknown as ThreadMessage['raw'],
+    createdAt: '2026-07-09T00:00:02.000Z'
   }
 }
 

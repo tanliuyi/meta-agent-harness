@@ -552,10 +552,10 @@ const {
   min-width: 0;
   min-height: 0;
   z-index: 2;
-  overflow: visible;
+  overflow: hidden;
   background-color: var(--color-surface);
   border: 1px solid var(--color-border);
-  // border-radius: var(--radius-workspace-shell) 0 0 var(--radius-workspace-shell);
+  border-radius: var(--radius-workspace-shell) 0 0 var(--radius-workspace-shell);
 }
 
 .workspace-content__main-session {
@@ -709,13 +709,8 @@ const {
       transition: border-color var(--duration-fast) var(--ease-standard);
     }
 
-    &:hover::after,
-    &:focus-visible::after {
+    &:hover::after {
       border-color: var(--color-primary-strong);
-    }
-
-    &:focus-visible {
-      outline: none;
     }
   }
 
@@ -803,17 +798,11 @@ const {
   }
 
   &:hover::before,
-  &:focus-visible::before,
   &--active::before {
     background: var(--color-primary);
     box-shadow: var(--shadow-primary-halo);
   }
 
-  &:focus-visible {
-    outline: none;
-  }
-
-  &:focus-visible::before,
   &--active::before {
     transition-delay: 0ms;
   }

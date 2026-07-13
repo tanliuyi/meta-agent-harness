@@ -280,6 +280,20 @@ const useModelSettingsStore = defineStore('model-settings', () => {
     }
   }
 
+  async function clearProviderCredential(provider: string): Promise<void> {
+    saving.value = true
+    error.value = null
+    try {
+      applySnapshot(await window.api.codingAgent.setProviderApiKey({ provider, mode: 'clear' }))
+      toast.success('Provider 凭据已清除')
+    } catch (cause) {
+      error.value = cause instanceof Error ? cause.message : 'Provider 凭据清除失败'
+      toast.error('Provider 凭据清除失败', error.value)
+    } finally {
+      saving.value = false
+    }
+  }
+
   async function loginProviderOAuth(input: LoginProviderOAuthInput): Promise<void> {
     saving.value = true
     error.value = null
@@ -437,6 +451,7 @@ const useModelSettingsStore = defineStore('model-settings', () => {
     upsertCustomProvider,
     deleteCustomProvider,
     setProviderApiKey,
+    clearProviderCredential,
     loginProviderOAuth,
     respondOAuthPrompt,
     updateDefaultProvider,

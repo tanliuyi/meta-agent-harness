@@ -59,7 +59,6 @@ const CHANGE_LIST_GAP = 4
 const workspaceSession = useWorkspaceSessionStore()
 const toast = useToast()
 const changeListScrollRef = ref<ScrollAreaInstance>()
-const collapsedChangeIds = ref<Set<string>>(new Set())
 const fileChangeLayouts = shallowRef<FileChangeLayout[]>([])
 const diffDocuments = shallowRef<Map<string, DiffDocumentIndex>>(new Map())
 const fileChangeStats = ref<FileChangeStats>({ additions: 0, deletions: 0 })
@@ -68,6 +67,7 @@ const projectionResetVersion = ref(0)
 const pendingReviewActionByChangeId = ref<Record<string, ChangesReviewAction>>({})
 
 const fileChanges = computed(() => workspaceSession.activeSnapshot?.fileChanges ?? [])
+const collapsedChangeIds = computed(() => workspaceSession.activeCollapsedFileChangeIds)
 let layoutSource: FileChange[] | undefined
 let layoutSessionId: string | undefined
 const layoutIndexById = new Map<string, number>()
@@ -200,7 +200,6 @@ watch(
   ([sessionId, changes]) => {
     if (sessionId !== layoutSessionId) {
       diffDocumentIndexService.reset()
-      collapsedChangeIds.value = new Set()
       pendingReviewActionByChangeId.value = {}
       const viewport = changeListScrollRef.value?.getViewport()
       if (viewport) {
@@ -389,7 +388,7 @@ function handleChangeToggle(
   } else {
     nextCollapsedChangeIds.add(layout.changeId)
   }
-  collapsedChangeIds.value = nextCollapsedChangeIds
+  workspaceSession.setActiveCollapsedFileChangeIds(nextCollapsedChangeIds)
 
   const nextLayout = {
     ...layout,
@@ -409,9 +408,9 @@ function handleChangeToggle(
 }
 
 function setAllChangesCollapsed(collapsed: boolean): void {
-  collapsedChangeIds.value = collapsed
-    ? new Set(fileChangeLayouts.value.map((layout) => layout.changeId))
-    : new Set()
+  workspaceSession.setActiveCollapsedFileChangeIds(
+    collapsed ? new Set(fileChangeLayouts.value.map((layout) => layout.changeId)) : new Set()
+  )
   fileChangeLayouts.value = fileChangeLayouts.value.map((layout) => ({
     ...layout,
     size: getFileChangeLayoutSize(

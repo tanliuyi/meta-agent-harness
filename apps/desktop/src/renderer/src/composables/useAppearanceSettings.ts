@@ -287,7 +287,11 @@ function applyHydratedField<T>(
 }
 
 function hasLegacyPreference(key: string): boolean {
-  return window.localStorage.getItem(key) !== null
+  try {
+    return window.localStorage.getItem(key) !== null
+  } catch {
+    return false
+  }
 }
 
 function getDirtyFieldsSince(
@@ -300,6 +304,12 @@ function getDirtyFieldsSince(
 
 async function hydrateDesktopPreferences(): Promise<void> {
   const generationsAtStart = { ...appearanceFieldGenerations }
+  // 必须在第一个 await 前快照；hydration watcher 会同步维护这些 legacy fallback key。
+  const legacyPreferencesAtStart = {
+    uiFontSize: hasLegacyPreference(uiFontSizeStorageKey),
+    codeFontSize: hasLegacyPreference(codeFontSizeStorageKey),
+    showAvatars: hasLegacyPreference(showAvatarsStorageKey)
+  }
   try {
     const preferences = await window.api?.codingAgent.getDesktopUiPreferences?.()
     const appearance = preferences?.appearance
@@ -431,14 +441,14 @@ async function hydrateDesktopPreferences(): Promise<void> {
     if (
       appearance?.uiFontSize === undefined &&
       appearanceFieldGenerations.uiFontSize === generationsAtStart.uiFontSize &&
-      hasLegacyPreference(uiFontSizeStorageKey)
+      legacyPreferencesAtStart.uiFontSize
     ) {
       migrationFields.push('uiFontSize')
     }
     if (
       appearance?.codeFontSize === undefined &&
       appearanceFieldGenerations.codeFontSize === generationsAtStart.codeFontSize &&
-      hasLegacyPreference(codeFontSizeStorageKey)
+      legacyPreferencesAtStart.codeFontSize
     ) {
       migrationFields.push('codeFontSize')
     }
@@ -447,7 +457,7 @@ async function hydrateDesktopPreferences(): Promise<void> {
       appearance?.showAvatars === undefined &&
       appearanceFieldGenerations.avatarStyle === generationsAtStart.avatarStyle &&
       appearanceFieldGenerations.showAvatars === generationsAtStart.showAvatars &&
-      hasLegacyPreference(showAvatarsStorageKey)
+      legacyPreferencesAtStart.showAvatars
     ) {
       migrationFields.push('avatarStyle', 'showAvatars')
     }

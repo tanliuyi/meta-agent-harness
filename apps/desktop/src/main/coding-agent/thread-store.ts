@@ -2,15 +2,21 @@
  * 本文件实现 Electron main 侧轻量 thread metadata registry。
  */
 
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
-import { dirname, join } from 'node:path'
+import { existsSync } from 'node:fs'
+import { join } from 'node:path'
 import type {
   ApprovalRequest,
   ApprovalResponse,
   ListThreadsInput,
   ThreadSummary
 } from '@shared/coding-agent/types'
+import {
+  isSameFileChange,
+  mergeFileChangeProjection,
+  type FileChangeProjection
+} from '@coding-agent-desktop-src/protocol/tool'
 import { getDesktopAgentDir } from './agent-dir'
+import { readRecoverableJsonFile, writeRecoverableJsonFile } from './recoverable-json-file'
 
 /** Thread metadata 文件结构。 */
 interface ThreadMetadataFile {
@@ -33,18 +39,7 @@ export interface ToolCallRecord {
 }
 
 /** 文件变更投影记录。 */
-export interface FileChangeRecord {
-  threadId: string
-  toolCallId?: string
-  path: string
-  changeType: string
-  diff?: string
-  patch?: string
-  additions?: number
-  deletions?: number
-  firstChangedLine?: number
-  createdAt?: string
-}
+export interface FileChangeRecord extends FileChangeProjection {}
 
 /** 审批投影记录。 */
 export interface ApprovalRecord {
@@ -247,7 +242,16 @@ export class CodingThreadStore {
   }
 
   recordFileChange(record: FileChangeRecord): void {
-    this.fileChanges.push({ ...record, createdAt: record.createdAt ?? new Date().toISOString() })
+    const incoming = { ...record, createdAt: record.createdAt ?? new Date().toISOString() }
+    const existingIndex = this.fileChanges.findIndex((change) => isSameFileChange(change, incoming))
+    if (existingIndex >= 0) {
+      const existing = this.fileChanges[existingIndex]
+      if (existing) {
+        this.fileChanges[existingIndex] = mergeFileChangeProjection(existing, incoming)
+      }
+      return
+    }
+    this.fileChanges.push(incoming)
   }
 
   listFileChanges(threadId: string): FileChangeRecord[] {
@@ -357,12 +361,15 @@ export class CodingThreadStore {
 
   /** 从 metadata 文件加载。 */
   private load(): void {
-    if (!this.metadataPath || !existsSync(this.metadataPath)) {
+    if (
+      !this.metadataPath ||
+      (!existsSync(this.metadataPath) && !existsSync(`${this.metadataPath}.bak`))
+    ) {
       return
     }
-    const metadata = JSON.parse(readFileSync(this.metadataPath, 'utf8')) as ThreadMetadataFile
+    const metadata = readRecoverableJsonFile(this.metadataPath, isThreadMetadataFile)
 
-    for (const thread of metadata.threads ?? []) {
+    for (const thread of metadata.threads) {
       this.threads.set(thread.threadId, thread)
     }
   }
@@ -404,13 +411,34 @@ export class CodingThreadStore {
     if (!this.persist || !this.metadataPath) {
       return
     }
-    mkdirSync(dirname(this.metadataPath), { recursive: true })
     const metadata: ThreadMetadataFile = {
       version: 1,
       threads: [...this.threads.values()]
     }
-    writeFileSync(this.metadataPath, `${JSON.stringify(metadata, null, 2)}\n`)
+    writeRecoverableJsonFile(this.metadataPath, metadata, isThreadMetadataFile)
   }
+}
+
+function isThreadMetadataFile(value: unknown): value is ThreadMetadataFile {
+  if (!isRecord(value) || value.version !== 1 || !Array.isArray(value.threads)) {
+    return false
+  }
+  return value.threads.every(
+    (thread) =>
+      isRecord(thread) &&
+      typeof thread.threadId === 'string' &&
+      typeof thread.projectId === 'string' &&
+      typeof thread.status === 'string' &&
+      ['new', 'queued', 'starting', 'idle', 'running', 'stopping', 'stopped', 'error'].includes(
+        thread.status
+      ) &&
+      typeof thread.createdAt === 'string' &&
+      typeof thread.updatedAt === 'string'
+  )
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
 function defaultThreadMetadataPath(): string {

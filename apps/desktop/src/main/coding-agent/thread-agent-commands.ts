@@ -3,14 +3,20 @@
  */
 
 import { clipboard } from 'electron'
-import { readFileSync } from 'node:fs'
-import { readFile, stat } from 'node:fs/promises'
+import { readFileSync, type Stats } from 'node:fs'
+import { open, readFile, stat } from 'node:fs/promises'
 import { dirname } from 'node:path'
 import {
   serializePromptFileContext,
   serializePromptQuoteContexts,
   serializePromptSkillContext
 } from '@shared/coding-agent/prompt-context'
+import {
+  assertPromptImagePayload,
+  assertPromptImageTotalBytes,
+  assertResolvedPromptImages,
+  MAX_PROMPT_IMAGE_BYTES
+} from '@shared/coding-agent/prompt-image-limits'
 import type {
   PromptImage,
   PromptImageFile,
@@ -21,6 +27,7 @@ import type {
   TextInput
 } from '@shared/coding-agent/types'
 import type { ThreadManagerCore } from './thread-manager-core'
+import { readDesktopRuntimeConfig } from './desktop-runtime-config'
 type ConfigModule = typeof import('@coding-agent-src/config')
 type ShareViewerConfigModule = {
   getShareViewerUrl: ConfigModule['getShareViewerUrl']
@@ -40,12 +47,17 @@ type PromptFileSupportModule = {
   processImage: ImageProcessModule['processImage']
 }
 
+type PromptFilePreflight = {
+  absolutePath: string
+  fileStats?: Stats
+  mimeType: string | null
+}
+
 let shareViewerConfigModulePromise: Promise<ShareViewerConfigModule> | undefined
 let promptFileReferenceModulePromise: Promise<PromptFileReferenceModule> | undefined
 let promptFileSupportModulePromise: Promise<PromptFileSupportModule> | undefined
 
 const maxPromptTextFileBytes = 512 * 1024
-const maxPromptImageFileBytes = 20 * 1024 * 1024
 const maxTextProbeBytes = 4096
 
 function loadShareViewerConfigModule(): Promise<ShareViewerConfigModule> {
@@ -237,9 +249,12 @@ async function runBuiltinCommand(
       return { handled: true, result: { message: '已复制最后一条助手消息' } }
     }
     case 'export': {
+      if (args && readDesktopRuntimeConfig().filesystemAccess !== 'full') {
+        throw new Error('/export 在 Desktop 中不接受输出路径')
+      }
       const result = await core.sendData<{ path?: string }>(input.threadId, {
         type: 'export_html',
-        outputPath: args || undefined
+        ...(args ? { outputPath: args } : {})
       })
       return {
         handled: true,
@@ -415,6 +430,9 @@ async function resolvePromptInput(
   core: ThreadManagerCore,
   input: TextInput
 ): Promise<Pick<TextInput, 'message' | 'images'>> {
+  assertPromptImagePayload(input)
+  const initialImages = input.images ?? []
+  assertResolvedPromptImages(initialImages)
   const messageWithSkills = await resolvePromptSkillReferences(input.message, input.skillReferences)
   const message = serializePromptQuoteContexts(messageWithSkills, input.quoteContexts ?? [])
   if (
@@ -422,7 +440,7 @@ async function resolvePromptInput(
     (!input.fileArgs || input.fileArgs.length === 0) &&
     !input.message.includes('@')
   ) {
-    return { message, images: input.images }
+    return { message, images: initialImages.length > 0 ? initialImages : undefined }
   }
   const cwd = getPromptCwd(core, input.threadId)
   const { dedupeFileArgs, parseFileReferenceTokens } = await loadPromptFileReferenceModule()
@@ -436,19 +454,19 @@ async function resolvePromptInput(
     cwd
   )
   if (fileArgs.length === 0) {
-    return { message, images: input.images }
+    return { message, images: initialImages.length > 0 ? initialImages : undefined }
   }
   const autoResizeImages = await (await core.getAgentSettingsService()).getImageAutoResize()
   const processed = await processPromptFileArgs(
     fileArgs,
     input.imageFiles ?? [],
     cwd,
-    autoResizeImages
+    autoResizeImages,
+    initialImages
   )
-  const images = [...processed.images, ...(input.images ?? [])]
   return {
     message: `${processed.text}${message}`,
-    ...(images.length > 0 ? { images } : {})
+    ...(processed.images.length > 0 ? { images: processed.images } : {})
   }
 }
 
@@ -511,47 +529,78 @@ function stripSkillFrontmatter(content: string): string {
  * @param imageFiles - 图片文件引用，提供 inline fallback。
  * @param cwd - prompt cwd。
  * @param autoResizeImages - 是否启用 Pi 图片自动 resize。
+ * @param initialImages - renderer 直接提交的 inline 图片。
  * @returns 展开后的文本与图片。
  */
 async function processPromptFileArgs(
   fileArgs: string[],
   imageFiles: PromptImageFile[],
   cwd: string,
-  autoResizeImages: boolean
+  autoResizeImages: boolean,
+  initialImages: PromptImage[]
 ): Promise<{ text: string; images: PromptImage[] }> {
   let text = ''
-  const images: PromptImage[] = []
+  const images: PromptImage[] = [...initialImages]
+  let actualSourceImageBytes = 0
   const support = await loadPromptFileSupportModule()
   const imageFallbacks = createImageFallbackMap(imageFiles, cwd, support.resolveReadPath)
-  for (const fileArg of fileArgs) {
-    const absolutePath = support.resolveReadPath(fileArg, cwd)
-    const processed = await processPromptFileArg(absolutePath, support, autoResizeImages)
+  const preflightFiles = await preflightPromptFileArgs(fileArgs, cwd, support)
+  for (const preflight of preflightFiles) {
+    const processed = await processPromptFileArg(preflight, support, autoResizeImages)
+    actualSourceImageBytes += processed.sourceImageBytes ?? 0
+    assertPromptImageTotalBytes(actualSourceImageBytes)
+    const { absolutePath } = preflight
     const imageFile = imageFallbacks.get(absolutePath)
     text += imageFile ? getPromptImageFileText(processed.text, imageFile) : processed.text
     if (processed.images.length > 0) {
       images.push(...processed.images)
+      assertResolvedPromptImages(images)
       continue
     }
     if (imageFile?.inlineFallback) {
       images.push(imageFile.inlineFallback)
+      assertResolvedPromptImages(images)
     }
   }
   return { text, images }
 }
 
+async function preflightPromptFileArgs(
+  fileArgs: string[],
+  cwd: string,
+  support: PromptFileSupportModule
+): Promise<PromptFilePreflight[]> {
+  const files: PromptFilePreflight[] = []
+  let sourceImageBytes = 0
+  for (const fileArg of fileArgs) {
+    const absolutePath = support.resolveReadPath(fileArg, cwd)
+    const fileStats = await stat(absolutePath).catch(() => undefined)
+    const mimeType =
+      fileStats?.isFile() && fileStats.size > 0
+        ? await support.detectSupportedImageMimeTypeFromFile(absolutePath).catch(() => null)
+        : null
+    if (mimeType && fileStats && fileStats.size <= MAX_PROMPT_IMAGE_BYTES) {
+      sourceImageBytes += fileStats.size
+      assertPromptImageTotalBytes(sourceImageBytes)
+    }
+    files.push({ absolutePath, fileStats, mimeType })
+  }
+  return files
+}
+
 /**
  * 安全展开单个 prompt 文件参数，避免 desktop main 因 CLI process.exit 行为退出。
- * @param absolutePath - 已解析的绝对路径。
+ * @param preflight - 文件路径、stat 与 MIME 预检结果。
  * @param support - 文件处理依赖。
  * @param autoResizeImages - 是否启用图片自动 resize。
  * @returns 展开后的文本与图片。
  */
 async function processPromptFileArg(
-  absolutePath: string,
+  preflight: PromptFilePreflight,
   support: PromptFileSupportModule,
   autoResizeImages: boolean
-): Promise<{ text: string; images: PromptImage[] }> {
-  const fileStats = await stat(absolutePath).catch(() => undefined)
+): Promise<{ text: string; images: PromptImage[]; sourceImageBytes?: number }> {
+  const { absolutePath, fileStats, mimeType } = preflight
   if (!fileStats) {
     return { text: createSkippedPromptFileText(absolutePath, '文件不存在或不可访问'), images: [] }
   }
@@ -562,9 +611,6 @@ async function processPromptFileArg(
     return { text: '', images: [] }
   }
 
-  const mimeType = await support
-    .detectSupportedImageMimeTypeFromFile(absolutePath)
-    .catch(() => null)
   if (mimeType) {
     return processPromptImageFile(absolutePath, fileStats.size, mimeType, support, autoResizeImages)
   }
@@ -580,22 +626,39 @@ async function processPromptImageFile(
   mimeType: string,
   support: PromptFileSupportModule,
   autoResizeImages: boolean
-): Promise<{ text: string; images: PromptImage[] }> {
-  if (size > maxPromptImageFileBytes) {
+): Promise<{ text: string; images: PromptImage[]; sourceImageBytes?: number }> {
+  if (size > MAX_PROMPT_IMAGE_BYTES) {
     return {
       text: createSkippedPromptFileText(
         absolutePath,
-        `图片超过 ${formatBytes(maxPromptImageFileBytes)} 限制`
+        `图片超过 ${formatBytes(MAX_PROMPT_IMAGE_BYTES)} 限制`
       ),
       images: []
     }
   }
 
+  let sourceImageBytes = 0
   try {
-    const content = await readFile(absolutePath)
+    const read = await readFileUpTo(absolutePath, MAX_PROMPT_IMAGE_BYTES)
+    sourceImageBytes = read.bytes.byteLength
+    if (read.exceeded) {
+      return {
+        text: createSkippedPromptFileText(
+          absolutePath,
+          `图片超过 ${formatBytes(MAX_PROMPT_IMAGE_BYTES)} 限制`
+        ),
+        images: [],
+        sourceImageBytes
+      }
+    }
+    const content = read.bytes
     const processed = await support.processImage(content, mimeType, { autoResizeImages })
     if (!processed.ok) {
-      return { text: serializePromptFileContext(absolutePath, processed.message), images: [] }
+      return {
+        text: serializePromptFileContext(absolutePath, processed.message),
+        images: [],
+        sourceImageBytes
+      }
     }
     const attachment: PromptImage = {
       type: 'image',
@@ -603,11 +666,16 @@ async function processPromptImageFile(
       data: processed.data
     }
     const hints = processed.hints.length > 0 ? processed.hints.join('\n') : ''
-    return { text: serializePromptFileContext(absolutePath, hints), images: [attachment] }
+    return {
+      text: serializePromptFileContext(absolutePath, hints),
+      images: [attachment],
+      sourceImageBytes
+    }
   } catch (error) {
     return {
       text: createSkippedPromptFileText(absolutePath, getFileReadErrorMessage(error)),
-      images: []
+      images: [],
+      ...(sourceImageBytes > 0 ? { sourceImageBytes } : {})
     }
   }
 }
@@ -630,7 +698,17 @@ async function processPromptTextFile(
   }
 
   try {
-    const content = await readFile(absolutePath)
+    const read = await readFileUpTo(absolutePath, maxPromptTextFileBytes)
+    if (read.exceeded) {
+      return {
+        text: createSkippedPromptFileText(
+          absolutePath,
+          `文件超过 ${formatBytes(maxPromptTextFileBytes)} 限制`
+        ),
+        images: []
+      }
+    }
+    const content = read.bytes
     if (!isLikelyTextBuffer(content)) {
       return {
         text: createSkippedPromptFileText(absolutePath, '不是支持的文本或图片文件'),
@@ -646,6 +724,28 @@ async function processPromptTextFile(
       text: createSkippedPromptFileText(absolutePath, getFileReadErrorMessage(error)),
       images: []
     }
+  }
+}
+
+async function readFileUpTo(
+  path: string,
+  maximumBytes: number
+): Promise<{ bytes: Buffer; exceeded: boolean }> {
+  const handle = await open(path, 'r')
+  try {
+    const buffer = Buffer.allocUnsafe(maximumBytes + 1)
+    let offset = 0
+    while (offset < buffer.length) {
+      const { bytesRead } = await handle.read(buffer, offset, buffer.length - offset, offset)
+      if (bytesRead === 0) break
+      offset += bytesRead
+    }
+    return {
+      bytes: buffer.subarray(0, offset),
+      exceeded: offset > maximumBytes
+    }
+  } finally {
+    await handle.close()
   }
 }
 

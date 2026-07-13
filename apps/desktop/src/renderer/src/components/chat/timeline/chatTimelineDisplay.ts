@@ -752,7 +752,7 @@ export function createProcessingCollapseResult(
     const finalReplyIndex = findFinalReplyIndexInRange(items, boundaryIndex, endIndex)
     const hasFinalReply = finalReplyIndex >= boundaryIndex
     const processEndIndex = hasFinalReply ? finalReplyIndex : endIndex
-    const hiddenCount = Math.max(0, processEndIndex - boundaryIndex)
+    const hiddenCount = countHiddenItemsInCollapsedRange(items, boundaryIndex, processEndIndex)
     const isActiveSegment = segmentEndIndex < 0 && !hasFinalReply && input.isRunning
     if (hasFinalReply) {
       finalReplyKeys.add(items[finalReplyIndex].key)
@@ -954,10 +954,28 @@ function appendVisibleItemsInCollapsedRange(
 ): void {
   for (let index = startIndex; index < endIndex; index += 1) {
     const item = source[index]
-    if (item?.type === 'compaction-divider' || item?.type === 'runtime-event') {
+    if (isVisibleItemInCollapsedRange(item)) {
       target.push(item)
     }
   }
+}
+
+function countHiddenItemsInCollapsedRange(
+  items: TimelineItem[],
+  startIndex: number,
+  endIndex: number
+): number {
+  let count = 0
+  for (let index = startIndex; index < endIndex; index += 1) {
+    if (!isVisibleItemInCollapsedRange(items[index])) {
+      count += 1
+    }
+  }
+  return count
+}
+
+function isVisibleItemInCollapsedRange(item: TimelineItem | undefined): boolean {
+  return item?.type === 'compaction-divider' || item?.type === 'runtime-event'
 }
 
 function findFinalReplyIndexInRange(
@@ -983,11 +1001,7 @@ function findFinalReplyIndexInRange(
 
 function findNextProcessingSegmentBoundaryIndex(items: TimelineItem[], startIndex: number): number {
   for (let index = startIndex; index < items.length; index += 1) {
-    if (
-      isUserMessageItem(items[index]) ||
-      items[index]?.type === 'compaction-divider' ||
-      items[index]?.type === 'runtime-event'
-    ) {
+    if (isUserMessageItem(items[index])) {
       return index
     }
   }

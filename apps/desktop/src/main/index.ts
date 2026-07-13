@@ -2,8 +2,9 @@
  * 本文件启动 Electron main 进程并注册 desktop 后端能力。
  */
 
-import { app, shell, BrowserWindow, ipcMain, webContents } from 'electron'
+import { app, shell, BrowserWindow, ipcMain, session, webContents } from 'electron'
 import { join } from 'path'
+import { randomUUID } from 'node:crypto'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import windowStateKeeper from 'electron-window-state'
 import icon from '../../resources/icon.png?asset'
@@ -23,11 +24,25 @@ import {
   isMainWindowNavigationAllowed
 } from './window-security'
 import { setupAutoUpdater } from './updater'
+import { SingleInstanceFocusController } from './single-instance'
+import {
+  configureBrowserPreviewPermissions,
+  reloadBrowserPreviewPermissionGuests
+} from './browser-preview-permissions'
+import { BrowserPreviewCdpController } from './browser-preview-cdp'
+import {
+  onDesktopRuntimeConfigChanged,
+  readDesktopRuntimeConfig
+} from './coding-agent/desktop-runtime-config'
 import {
   browserPreviewChannels,
   browserPreviewPartition,
+  type BrowserPreviewCdpCommandInput,
   type BrowserPreviewNavigateInput,
   type BrowserPreviewOpenRequest,
+  type BrowserPreviewPermissionRequest,
+  type BrowserPreviewPermissionResponse,
+  type BrowserPreviewReadCdpEventsInput,
   type BrowserPreviewSetEmulationInput,
   validateBrowserPreviewEmulation
 } from '../shared/browser-preview'
@@ -42,8 +57,76 @@ const minimumWindowBounds = {
   height: 640
 }
 const initialRendererHash = '/new'
+const singleInstanceLockAcquired = app.requestSingleInstanceLock()
+const singleInstanceFocus = new SingleInstanceFocusController()
+let currentMainWindow: BrowserWindow | null = null
+let mainWindowLifecycleReady = false
+const pendingBrowserPermissions = new Map<
+  string,
+  { resolve: (allow: boolean) => void; timer: ReturnType<typeof setTimeout> }
+>()
+const browserPermissionResponseTimeoutMs = 60_000
+const maxPendingBrowserPermissions = 16
 
-registerWebviewResourceScheme()
+function requestBrowserPreviewPermission(
+  request: Omit<BrowserPreviewPermissionRequest, 'requestId'>
+): Promise<boolean> {
+  const mainWindow = currentMainWindow
+  if (
+    !mainWindow ||
+    mainWindow.isDestroyed() ||
+    pendingBrowserPermissions.size >= maxPendingBrowserPermissions
+  ) {
+    return Promise.resolve(false)
+  }
+  const requestId = randomUUID()
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => {
+      pendingBrowserPermissions.delete(requestId)
+      resolve(false)
+    }, browserPermissionResponseTimeoutMs)
+    pendingBrowserPermissions.set(requestId, { resolve, timer })
+    mainWindow.webContents.send(browserPreviewChannels.permissionRequested, {
+      requestId,
+      ...request
+    } satisfies BrowserPreviewPermissionRequest)
+  })
+}
+
+function rejectPendingBrowserPermissions(): void {
+  for (const pending of pendingBrowserPermissions.values()) {
+    clearTimeout(pending.timer)
+    pending.resolve(false)
+  }
+  pendingBrowserPermissions.clear()
+}
+
+function registerBrowserPreviewPermissionResponseIpc(): void {
+  ipcMain.removeHandler(browserPreviewChannels.respondPermission)
+  ipcMain.handle(
+    browserPreviewChannels.respondPermission,
+    (event, input: BrowserPreviewPermissionResponse): void => {
+      if (
+        event.sender !== currentMainWindow?.webContents ||
+        !input ||
+        typeof input.requestId !== 'string' ||
+        input.requestId.length > 128 ||
+        typeof input.allow !== 'boolean'
+      ) {
+        throw new Error('Invalid Browser permission response')
+      }
+      const pending = pendingBrowserPermissions.get(input.requestId)
+      if (!pending) throw new Error('Browser permission request is no longer pending')
+      pendingBrowserPermissions.delete(input.requestId)
+      clearTimeout(pending.timer)
+      pending.resolve(input.allow)
+    }
+  )
+}
+
+if (singleInstanceLockAcquired) {
+  registerWebviewResourceScheme()
+}
 
 /**
  * 为当前平台生成无边框窗口的 BrowserWindow 选项。
@@ -93,10 +176,20 @@ function createWindow(): BrowserWindow {
     ...getFramelessOptions(),
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
-      sandbox: false,
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true,
       webviewTag: true
     }
   })
+  currentMainWindow = mainWindow
+  mainWindow.once('closed', () => {
+    if (currentMainWindow === mainWindow) {
+      currentMainWindow = null
+    }
+    rejectPendingBrowserPermissions()
+  })
+  singleInstanceFocus.handleWindowCreated(mainWindow)
 
   mainWindow.webContents.on('will-attach-webview', (event, webPreferences, params) => {
     if (
@@ -118,8 +211,21 @@ function createWindow(): BrowserWindow {
   })
 
   const browserPreviewUserAgents = new Map<number, string>()
+  const browserPreviewCdp = new BrowserPreviewCdpController()
+  const stopWatchingDesktopRuntime = onDesktopRuntimeConfigChanged((config) => {
+    browserPreviewCdp.updateAllAccessModes(config.browserCdpAccess)
+  })
+  mainWindow.once('closed', stopWatchingDesktopRuntime)
   mainWindow.webContents.on('did-attach-webview', (_event, contents) => {
-    contents.once('destroyed', () => browserPreviewUserAgents.delete(contents.id))
+    browserPreviewCdp.register(
+      contents.id,
+      contents.debugger,
+      readDesktopRuntimeConfig().browserCdpAccess
+    )
+    contents.once('destroyed', () => {
+      browserPreviewUserAgents.delete(contents.id)
+      browserPreviewCdp.remove(contents.id)
+    })
     contents.on('before-input-event', (event, input) => {
       if (is.dev && isMainRendererDevToolsShortcut(input)) {
         event.preventDefault()
@@ -171,6 +277,55 @@ function createWindow(): BrowserWindow {
         throw new Error('Invalid browser navigation')
       }
       await getBrowserPreviewGuest(event.sender, input.webContentsId).loadURL(input.url)
+    }
+  )
+
+  // CDP capability is settings-driven. Full mode keeps the complete protocol surface; safe and
+  // disabled modes are enforced here in main so renderer code cannot bypass the configured level.
+  ipcMain.removeHandler(browserPreviewChannels.sendCdpCommand)
+  ipcMain.handle(
+    browserPreviewChannels.sendCdpCommand,
+    async (event, input: BrowserPreviewCdpCommandInput): Promise<unknown> => {
+      if (
+        !input ||
+        !Number.isInteger(input.webContentsId) ||
+        typeof input.method !== 'string' ||
+        !input.method.trim() ||
+        (input.params !== undefined &&
+          (!input.params || typeof input.params !== 'object' || Array.isArray(input.params))) ||
+        (input.sessionId !== undefined && (typeof input.sessionId !== 'string' || !input.sessionId))
+      ) {
+        throw new Error('Invalid Browser CDP command')
+      }
+      const guest = getBrowserPreviewGuest(event.sender, input.webContentsId)
+      return browserPreviewCdp.sendCommand(
+        guest.id,
+        guest.debugger,
+        input.method,
+        input.params,
+        input.sessionId,
+        readDesktopRuntimeConfig().browserCdpAccess
+      )
+    }
+  )
+
+  ipcMain.removeHandler(browserPreviewChannels.readCdpEvents)
+  ipcMain.handle(
+    browserPreviewChannels.readCdpEvents,
+    async (event, input: BrowserPreviewReadCdpEventsInput) => {
+      if (
+        !input ||
+        !Number.isInteger(input.webContentsId) ||
+        (input.clear !== undefined && typeof input.clear !== 'boolean') ||
+        (input.limit !== undefined &&
+          (!Number.isInteger(input.limit) || input.limit < 1 || input.limit > 1000))
+      ) {
+        throw new Error('Invalid Browser CDP event request')
+      }
+      const guest = getBrowserPreviewGuest(event.sender, input.webContentsId)
+      const accessMode = readDesktopRuntimeConfig().browserCdpAccess
+      browserPreviewCdp.register(guest.id, guest.debugger, accessMode)
+      return browserPreviewCdp.readEvents(guest.id, input, accessMode)
     }
   )
 
@@ -257,7 +412,9 @@ function createWindow(): BrowserWindow {
 
   mainWindow.webContents.setWindowOpenHandler((details) => {
     try {
-      void shell.openExternal(normalizeAllowedExternalUrl(details.url))
+      void shell.openExternal(
+        normalizeAllowedExternalUrl(details.url, readDesktopRuntimeConfig().externalProtocolAccess)
+      )
     } catch (error) {
       console.warn(
         'Blocked external window URL:',
@@ -321,36 +478,73 @@ function registerWindowControlIpc(): void {
   ipcMain.handle('window:platform', () => process.platform)
 }
 
-app.whenReady().then(async () => {
-  // await installIpcLogger({
-  //   disable: !is.dev,
-  //   logSize: 1000
-  // })
-
-  installCodingAgentPackageDirEnv()
-
-  // 在 Windows 上设置应用用户模型 ID
-  electronApp.setAppUserModelId('com.meta-agent.desktop')
-
-  app.on('browser-window-created', (_, window) => {
-    optimizer.watchWindowShortcuts(window)
+if (!singleInstanceLockAcquired) {
+  app.quit()
+} else {
+  app.on('second-instance', () => {
+    if (currentMainWindow) {
+      singleInstanceFocus.requestFocus(currentMainWindow)
+    } else if (mainWindowLifecycleReady) {
+      createWindow()
+    } else {
+      singleInstanceFocus.requestFocus(null)
+    }
   })
 
-  ipcMain.on('ping', () => console.log('pong'))
-  registerWindowControlIpc()
-  registerWebviewResourceProtocol(getLoadedCodingAgentManager)
+  app.whenReady().then(async () => {
+    // await installIpcLogger({
+    //   disable: !is.dev,
+    //   logSize: 1000
+    // })
 
-  createWindow()
-  registerDeferredCodingAgentIpc()
-  setupAutoUpdater()
+    installCodingAgentPackageDirEnv()
 
-  app.on('activate', function () {
-    if (BrowserWindow.getAllWindows().length === 0) createWindow()
+    // 在 Windows 上设置应用用户模型 ID
+    electronApp.setAppUserModelId('com.meta-agent.desktop')
+
+    app.on('browser-window-created', (_, window) => {
+      optimizer.watchWindowShortcuts(window)
+    })
+
+    ipcMain.on('ping', () => console.log('pong'))
+    registerWindowControlIpc()
+    registerBrowserPreviewPermissionResponseIpc()
+    registerWebviewResourceProtocol(getLoadedCodingAgentManager)
+    const browserPreviewSession = session.fromPartition(browserPreviewPartition)
+    const browserPreviewPermissions = configureBrowserPreviewPermissions(
+      browserPreviewSession,
+      readDesktopRuntimeConfig().browserWebPermissions,
+      requestBrowserPreviewPermission,
+      (change) => {
+        rejectPendingBrowserPermissions()
+        if (change.downgraded) {
+          reloadBrowserPreviewPermissionGuests(
+            webContents.getAllWebContents(),
+            browserPreviewSession,
+            (error) =>
+              console.warn('Failed to reload Browser Preview after permission downgrade:', error)
+          )
+        }
+      }
+    )
+    const stopWatchingBrowserPermissions = onDesktopRuntimeConfigChanged((config) => {
+      browserPreviewPermissions.updateMode(config.browserWebPermissions)
+    })
+    app.once('will-quit', stopWatchingBrowserPermissions)
+
+    mainWindowLifecycleReady = true
+    createWindow()
+    registerDeferredCodingAgentIpc()
+    setupAutoUpdater()
+
+    app.on('activate', function () {
+      if (BrowserWindow.getAllWindows().length === 0) createWindow()
+    })
   })
-})
 
-app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') {
-    app.quit()
-  }
-})
+  app.on('window-all-closed', () => {
+    if (process.platform !== 'darwin') {
+      app.quit()
+    }
+  })
+}

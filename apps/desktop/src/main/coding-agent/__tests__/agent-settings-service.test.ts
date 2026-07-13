@@ -5,11 +5,13 @@
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { detectProject } from '@meta-agent/hermes-memory/project.js'
 import { DatabaseManager } from '@meta-agent/hermes-memory/store/db.js'
 import { searchMemories } from '@meta-agent/hermes-memory/store/sqlite-memory-store.js'
-import { AgentSettingsService } from '../agent-settings-service'
+import type { SettingsManager } from '@coding-agent-src/core/settings-manager'
+import { AgentSettingsService, type ProjectResourceContext } from '../agent-settings-service'
+import { onDesktopRuntimeConfigChanged } from '../desktop-runtime-config'
 
 const tempDirs: string[] = []
 
@@ -79,39 +81,48 @@ describe('AgentSettingsService', () => {
     const projectDir = join(dir, 'project')
     mkdirSync(projectDir, { recursive: true })
     const service = new AgentSettingsService({ agentDir, cwd: dir })
+    const project = trustedProjectContext(projectDir)
 
-    let snapshot = await service.mutateHermesMemory({
-      operation: 'add',
-      target: 'memory',
-      content: 'global memory globaltoken',
-      cwd: projectDir
-    })
+    let snapshot = await service.mutateHermesMemory(
+      {
+        operation: 'add',
+        target: 'memory',
+        content: 'global memory globaltoken'
+      },
+      project
+    )
     expect(snapshot.entries.memory).toContain('global memory globaltoken')
 
-    snapshot = await service.mutateHermesMemory({
-      operation: 'add',
-      target: 'project',
-      content: 'project memory oldtoken',
-      cwd: projectDir
-    })
+    snapshot = await service.mutateHermesMemory(
+      {
+        operation: 'add',
+        target: 'project',
+        content: 'project memory oldtoken'
+      },
+      project
+    )
     expect(snapshot.entries.project).toContain('project memory oldtoken')
     expect(snapshot.project).toBe('project')
 
-    snapshot = await service.mutateHermesMemory({
-      operation: 'replace',
-      target: 'project',
-      oldText: 'project memory oldtoken',
-      content: 'updated project memory newtoken',
-      cwd: projectDir
-    })
+    snapshot = await service.mutateHermesMemory(
+      {
+        operation: 'replace',
+        target: 'project',
+        oldText: 'project memory oldtoken',
+        content: 'updated project memory newtoken'
+      },
+      project
+    )
     expect(snapshot.entries.project).toContain('updated project memory newtoken')
 
-    snapshot = await service.mutateHermesMemory({
-      operation: 'remove',
-      target: 'memory',
-      oldText: 'global memory globaltoken',
-      cwd: projectDir
-    })
+    snapshot = await service.mutateHermesMemory(
+      {
+        operation: 'remove',
+        target: 'memory',
+        oldText: 'global memory globaltoken'
+      },
+      project
+    )
     expect(snapshot.entries.memory).not.toContain('global memory globaltoken')
 
     const dbManager = new DatabaseManager(join(agentDir, 'pi-hermes-memory'))
@@ -123,6 +134,29 @@ describe('AgentSettingsService', () => {
     ).toHaveLength(1)
     expect(searchMemories(dbManager, 'oldtoken')).toHaveLength(0)
     dbManager.close()
+  })
+
+  it('保留无 Project 的全局写入，并拒绝不可信 project Hermes Memory', async () => {
+    const dir = createTempDir()
+    const agentDir = join(dir, 'agent')
+    const projectDir = join(dir, 'project')
+    mkdirSync(projectDir, { recursive: true })
+    const service = new AgentSettingsService({ agentDir, cwd: dir })
+
+    const snapshot = await service.mutateHermesMemory({
+      operation: 'add',
+      target: 'memory',
+      content: 'global without project'
+    })
+    expect(snapshot.project).toBeNull()
+    expect(snapshot.entries.memory).toContain('global without project')
+
+    await expect(
+      service.mutateHermesMemory(
+        { operation: 'add', target: 'project', content: 'untrusted project memory' },
+        { cwd: projectDir, projectTrusted: false }
+      )
+    ).rejects.toThrow('Project 未受信任')
   })
 
   it('无需活跃会话即可合并迁移 legacy global、project 和 skill 数据', async () => {
@@ -154,7 +188,7 @@ describe('AgentSettingsService', () => {
     )
     const service = new AgentSettingsService({ agentDir, cwd: dir })
 
-    const snapshot = await service.getHermesMemorySnapshot({ cwd: projectDir })
+    const snapshot = await service.getHermesMemorySnapshot(trustedProjectContext(projectDir))
 
     expect(snapshot.entries.memory).toEqual(
       expect.arrayContaining(['current global memory', 'legacy global memory'])
@@ -186,28 +220,35 @@ describe('AgentSettingsService', () => {
     writeFileSync(join(globalDir, 'failures.md'), '[insight] failure presync oldfailure')
     writeFileSync(join(projectMemoryDir, 'MEMORY.md'), 'project presync oldproject')
     const service = new AgentSettingsService({ agentDir, cwd: dir })
+    const project = trustedProjectContext(projectDir)
 
-    await service.mutateHermesMemory({
-      operation: 'replace',
-      target: 'memory',
-      oldText: 'oldglobal',
-      content: 'global presync newglobal',
-      cwd: projectDir
-    })
-    await service.mutateHermesMemory({
-      operation: 'replace',
-      target: 'project',
-      oldText: 'oldproject',
-      content: 'project presync newproject',
-      cwd: projectDir
-    })
-    await service.mutateHermesMemory({
-      operation: 'replace',
-      target: 'failure',
-      oldText: 'oldfailure',
-      content: 'failure presync newfailure',
-      cwd: projectDir
-    })
+    await service.mutateHermesMemory(
+      {
+        operation: 'replace',
+        target: 'memory',
+        oldText: 'oldglobal',
+        content: 'global presync newglobal'
+      },
+      project
+    )
+    await service.mutateHermesMemory(
+      {
+        operation: 'replace',
+        target: 'project',
+        oldText: 'oldproject',
+        content: 'project presync newproject'
+      },
+      project
+    )
+    await service.mutateHermesMemory(
+      {
+        operation: 'replace',
+        target: 'failure',
+        oldText: 'oldfailure',
+        content: 'failure presync newfailure'
+      },
+      project
+    )
 
     const dbManager = new DatabaseManager(globalDir)
     expect(searchMemories(dbManager, 'newglobal')).toHaveLength(1)
@@ -262,7 +303,12 @@ describe('AgentSettingsService', () => {
         enableAnalytics: true,
         enableSkillCommands: false,
         warnAnthropicExtraUsage: false,
-        httpProxy: 'http://127.0.0.1:7890'
+        httpProxy: 'http://127.0.0.1:7890',
+        browserCdpAccess: 'full',
+        browserWebPermissions: 'full',
+        filesystemAccess: 'full',
+        extensionUrlAccess: 'full',
+        externalProtocolAccess: 'full'
       },
       media: {
         imageAutoResize: false,
@@ -299,6 +345,11 @@ describe('AgentSettingsService', () => {
     expect(snapshot.delivery.transport).toBe('websocket')
     expect(snapshot.runtime.compactionEnabled).toBe(false)
     expect(snapshot.safety.defaultProjectTrust).toBe('never')
+    expect(snapshot.safety.browserCdpAccess).toBe('full')
+    expect(snapshot.safety.browserWebPermissions).toBe('full')
+    expect(snapshot.safety.filesystemAccess).toBe('full')
+    expect(snapshot.safety.extensionUrlAccess).toBe('full')
+    expect(snapshot.safety.externalProtocolAccess).toBe('full')
     expect(snapshot.media.blockImages).toBe(true)
 
     const settings = JSON.parse(readFileSync(join(agentDir, 'settings.json'), 'utf-8'))
@@ -366,6 +417,13 @@ describe('AgentSettingsService', () => {
       npmCommand: ['mise', 'exec', 'node@20', '--', 'npm'],
       sessionDir: '~/pi-sessions'
     })
+    expect(JSON.parse(readFileSync(join(dir, 'desktop-runtime.json'), 'utf-8'))).toMatchObject({
+      browserCdpAccess: 'full',
+      browserWebPermissions: 'full',
+      filesystemAccess: 'full',
+      extensionUrlAccess: 'full',
+      externalProtocolAccess: 'full'
+    })
   })
 
   it('将 Desktop worker 模式保存到 desktop-local runtime config', async () => {
@@ -389,12 +447,232 @@ describe('AgentSettingsService', () => {
     expect(snapshot.runtime.nodeSidecarExecPath).toBe('/opt/node/bin/node')
     expect(JSON.parse(readFileSync(desktopRuntimeConfigPath, 'utf-8'))).toEqual({
       workerMode: 'nodeSidecar',
-      nodeSidecarExecPath: '/opt/node/bin/node'
+      nodeSidecarExecPath: '/opt/node/bin/node',
+      browserCdpAccess: 'safe',
+      browserWebPermissions: 'prompt',
+      filesystemAccess: 'safe',
+      extensionUrlAccess: 'safe',
+      externalProtocolAccess: 'safe'
     })
     if (existsSync(join(agentDir, 'settings.json'))) {
       const settings = JSON.parse(readFileSync(join(agentDir, 'settings.json'), 'utf-8'))
       expect(settings.workerMode).toBeUndefined()
       expect(settings.nodeSidecarExecPath).toBeUndefined()
+    }
+  })
+
+  it('Pi settings flush 失败时不提交 Desktop 能力并恢复 settings 前态', async () => {
+    const dir = createTempDir()
+    const agentDir = join(dir, 'agent')
+    const desktopRuntimeConfigPath = join(dir, 'desktop-runtime.json')
+    const settingsPath = join(agentDir, 'settings.json')
+    const service = new AgentSettingsService({ agentDir, cwd: dir, desktopRuntimeConfigPath })
+
+    await service.updateAgentSettings({
+      safety: {
+        defaultProjectTrust: 'ask',
+        browserCdpAccess: 'safe',
+        browserWebPermissions: 'prompt',
+        filesystemAccess: 'safe',
+        extensionUrlAccess: 'safe',
+        externalProtocolAccess: 'safe'
+      }
+    })
+    const settingsBefore = readFileSync(settingsPath, 'utf-8')
+    const desktopRuntimeBefore = readFileSync(desktopRuntimeConfigPath, 'utf-8')
+    const listener = vi.fn()
+    const unsubscribe = onDesktopRuntimeConfigChanged(listener)
+    const internals = service as unknown as { settingsManager: SettingsManager }
+    const flush = internals.settingsManager.flush.bind(internals.settingsManager)
+    internals.settingsManager.flush = async () => {
+      await flush()
+      throw new Error('simulated settings flush failure')
+    }
+
+    try {
+      await expect(
+        service.updateAgentSettings({
+          safety: {
+            defaultProjectTrust: 'never',
+            browserCdpAccess: 'full',
+            browserWebPermissions: 'full',
+            filesystemAccess: 'full',
+            extensionUrlAccess: 'full',
+            externalProtocolAccess: 'full'
+          }
+        })
+      ).rejects.toThrow('simulated settings flush failure')
+    } finally {
+      internals.settingsManager.flush = flush
+      unsubscribe()
+    }
+
+    expect(readFileSync(settingsPath, 'utf-8')).toBe(settingsBefore)
+    expect(readFileSync(desktopRuntimeConfigPath, 'utf-8')).toBe(desktopRuntimeBefore)
+    expect(listener).not.toHaveBeenCalled()
+    const snapshot = await service.getAgentSettings()
+    expect(snapshot.safety).toMatchObject({
+      defaultProjectTrust: 'ask',
+      browserCdpAccess: 'safe',
+      browserWebPermissions: 'prompt',
+      filesystemAccess: 'safe',
+      extensionUrlAccess: 'safe',
+      externalProtocolAccess: 'safe'
+    })
+  })
+
+  it('SettingsManager 记录持久化错误时不提交 Desktop 能力', async () => {
+    const dir = createTempDir()
+    const agentDir = join(dir, 'agent')
+    const desktopRuntimeConfigPath = join(dir, 'desktop-runtime.json')
+    const settingsPath = join(agentDir, 'settings.json')
+    const service = new AgentSettingsService({ agentDir, cwd: dir, desktopRuntimeConfigPath })
+
+    await service.updateAgentSettings({
+      safety: { defaultProjectTrust: 'ask', browserCdpAccess: 'safe' }
+    })
+    const settingsBefore = readFileSync(settingsPath, 'utf-8')
+    const desktopRuntimeBefore = readFileSync(desktopRuntimeConfigPath, 'utf-8')
+    const listener = vi.fn()
+    const unsubscribe = onDesktopRuntimeConfigChanged(listener)
+    const internals = service as unknown as { settingsManager: SettingsManager }
+    const flush = internals.settingsManager.flush.bind(internals.settingsManager)
+    const drainErrors = internals.settingsManager.drainErrors.bind(internals.settingsManager)
+    let reportPersistenceError = false
+    internals.settingsManager.flush = async () => {
+      await flush()
+      reportPersistenceError = true
+    }
+    internals.settingsManager.drainErrors = () => {
+      const errors = drainErrors()
+      if (!reportPersistenceError) return errors
+      reportPersistenceError = false
+      return [
+        ...errors,
+        { scope: 'global' as const, error: new Error('simulated persisted settings error') }
+      ]
+    }
+
+    try {
+      await expect(
+        service.updateAgentSettings({
+          safety: { defaultProjectTrust: 'never', browserCdpAccess: 'full' }
+        })
+      ).rejects.toThrow('Pi settings 保存失败')
+    } finally {
+      internals.settingsManager.flush = flush
+      internals.settingsManager.drainErrors = drainErrors
+      unsubscribe()
+    }
+
+    expect(readFileSync(settingsPath, 'utf-8')).toBe(settingsBefore)
+    expect(readFileSync(desktopRuntimeConfigPath, 'utf-8')).toBe(desktopRuntimeBefore)
+    expect(listener).not.toHaveBeenCalled()
+    expect((await service.getAgentSettings()).safety).toMatchObject({
+      defaultProjectTrust: 'ask',
+      browserCdpAccess: 'safe'
+    })
+  })
+
+  it('Desktop runtime 写入失败时回滚 settings 文件与内存快照', async () => {
+    const dir = createTempDir()
+    const agentDir = join(dir, 'agent')
+    const desktopRuntimeConfigPath = join(dir, 'desktop-runtime.json')
+    const settingsPath = join(agentDir, 'settings.json')
+    const service = new AgentSettingsService({ agentDir, cwd: dir, desktopRuntimeConfigPath })
+
+    await service.updateAgentSettings({
+      safety: {
+        defaultProjectTrust: 'ask',
+        enableAnalytics: false,
+        browserCdpAccess: 'safe'
+      }
+    })
+    const settingsBefore = readFileSync(settingsPath, 'utf-8')
+    const desktopRuntimeBefore = readFileSync(desktopRuntimeConfigPath, 'utf-8')
+    const listener = vi.fn()
+    const unsubscribe = onDesktopRuntimeConfigChanged(listener)
+    const internals = service as unknown as {
+      commitDesktopRuntimeConfig(input: unknown): void
+    }
+    const commitDesktopRuntimeConfig = internals.commitDesktopRuntimeConfig.bind(service)
+    internals.commitDesktopRuntimeConfig = () => {
+      writeFileSync(desktopRuntimeConfigPath, '{"browserCdpAccess":"full"')
+      throw new Error('simulated desktop runtime write failure')
+    }
+
+    try {
+      await expect(
+        service.updateAgentSettings({
+          safety: {
+            defaultProjectTrust: 'always',
+            enableAnalytics: true,
+            browserCdpAccess: 'full'
+          }
+        })
+      ).rejects.toThrow('simulated desktop runtime write failure')
+    } finally {
+      internals.commitDesktopRuntimeConfig = commitDesktopRuntimeConfig
+      unsubscribe()
+    }
+
+    expect(readFileSync(settingsPath, 'utf-8')).toBe(settingsBefore)
+    expect(readFileSync(desktopRuntimeConfigPath, 'utf-8')).toBe(desktopRuntimeBefore)
+    expect(listener).not.toHaveBeenCalled()
+    const snapshot = await service.getAgentSettings()
+    expect(snapshot.safety).toMatchObject({
+      defaultProjectTrust: 'ask',
+      enableAnalytics: false,
+      browserCdpAccess: 'safe'
+    })
+  })
+
+  it('两份配置提交成功后广播 Desktop effective config', async () => {
+    const dir = createTempDir()
+    const agentDir = join(dir, 'agent')
+    const desktopRuntimeConfigPath = join(dir, 'desktop-runtime.json')
+    vi.stubEnv('CODING_AGENT_BROWSER_CDP_ACCESS', 'safe')
+    const service = new AgentSettingsService({ agentDir, cwd: dir, desktopRuntimeConfigPath })
+    const listener = vi.fn()
+    const unsubscribe = onDesktopRuntimeConfigChanged(listener)
+
+    try {
+      const snapshot = await service.updateAgentSettings({
+        safety: {
+          defaultProjectTrust: 'never',
+          browserCdpAccess: 'full',
+          browserWebPermissions: 'full',
+          filesystemAccess: 'full',
+          extensionUrlAccess: 'full',
+          externalProtocolAccess: 'full'
+        }
+      })
+
+      expect(snapshot.safety).toMatchObject({
+        defaultProjectTrust: 'never',
+        browserCdpAccess: 'safe',
+        browserWebPermissions: 'full',
+        filesystemAccess: 'full',
+        extensionUrlAccess: 'full',
+        externalProtocolAccess: 'full'
+      })
+      expect(listener).toHaveBeenCalledOnce()
+      expect(listener).toHaveBeenCalledWith(
+        expect.objectContaining({
+          browserCdpAccess: 'safe',
+          browserWebPermissions: 'full',
+          filesystemAccess: 'full',
+          extensionUrlAccess: 'full',
+          externalProtocolAccess: 'full'
+        }),
+        desktopRuntimeConfigPath
+      )
+      expect(JSON.parse(readFileSync(desktopRuntimeConfigPath, 'utf-8'))).toMatchObject({
+        browserCdpAccess: 'full'
+      })
+    } finally {
+      unsubscribe()
+      vi.unstubAllEnvs()
     }
   })
 
@@ -610,10 +888,13 @@ export default function(pi) {
       cwd: globalCwd
     })
 
-    const saved = await service.updateProjectExtensionPaths({
-      cwd: projectCwd,
-      extensions: [extensionPath, `-${extensionPath}`]
-    })
+    const saved = await service.updateProjectExtensionPaths(
+      {
+        projectId: 'project-a',
+        extensions: [extensionPath, `-${extensionPath}`]
+      },
+      { cwd: projectCwd, projectTrusted: true }
+    )
     const snapshot = await service.getResourceSnapshot({
       cwd: projectCwd,
       projectTrusted: true
@@ -635,6 +916,114 @@ export default function(pi) {
       })
     ])
     expect(snapshot.extensions).toEqual([])
+  })
+
+  it('按 Project scope 串行保存 extension 路径', async () => {
+    const dir = createTempDir()
+    const agentDir = join(dir, 'agent')
+    const projectCwd = join(dir, 'project')
+    mkdirSync(projectCwd, { recursive: true })
+    const service = new AgentSettingsService({ agentDir, cwd: dir })
+    const internals = service as unknown as {
+      createProjectSettingsManager(project: {
+        projectId?: string
+        cwd: string
+        projectTrusted: boolean
+      }): SettingsManager
+    }
+    const createManager = internals.createProjectSettingsManager.bind(service)
+    let managerCount = 0
+    let releaseFirstReload!: () => void
+    let resolveFirstReloadStarted!: () => void
+    const firstReloadStarted = new Promise<void>((resolve) => {
+      resolveFirstReloadStarted = resolve
+    })
+    const firstReloadRelease = new Promise<void>((resolve) => {
+      releaseFirstReload = resolve
+    })
+    internals.createProjectSettingsManager = (project) => {
+      const manager = createManager(project)
+      managerCount += 1
+      if (managerCount === 1) {
+        const reload = manager.reload.bind(manager)
+        manager.reload = async () => {
+          await reload()
+          resolveFirstReloadStarted()
+          await firstReloadRelease
+        }
+      }
+      return manager
+    }
+    const project = { projectId: 'project-a', cwd: projectCwd, projectTrusted: true }
+
+    const first = service.updateProjectExtensionPaths(
+      { projectId: project.projectId, extensions: ['first.ts'] },
+      project
+    )
+    await firstReloadStarted
+    const second = service.updateProjectExtensionPaths(
+      { projectId: project.projectId, extensions: ['second.ts'] },
+      project
+    )
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    expect(managerCount).toBe(1)
+    releaseFirstReload()
+    await Promise.all([first, second])
+
+    expect(managerCount).toBe(2)
+    expect(
+      JSON.parse(readFileSync(join(projectCwd, '.pi', 'settings.json'), 'utf8'))
+    ).toMatchObject({
+      extensions: ['second.ts']
+    })
+  })
+
+  it('将项目 package 操作绑定到真实 project cwd 与 trust', async () => {
+    const dir = createTempDir()
+    const agentDir = join(dir, 'agent')
+    const globalCwd = join(dir, 'global-cwd')
+    const projectCwd = join(dir, 'project')
+    mkdirSync(globalCwd, { recursive: true })
+    mkdirSync(projectCwd, { recursive: true })
+    const service = new AgentSettingsService({ agentDir, cwd: globalCwd })
+
+    const packages = await service.addResourcePackage(
+      { source: 'npm:project-ext', projectId: 'project-a' },
+      { cwd: projectCwd, projectTrusted: true }
+    )
+
+    expect(packages).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ source: 'npm:project-ext', scope: 'project' })
+      ])
+    )
+    expect(
+      JSON.parse(readFileSync(join(projectCwd, '.pi', 'settings.json'), 'utf8'))
+    ).toMatchObject({
+      packages: ['npm:project-ext']
+    })
+    expect(existsSync(join(agentDir, 'settings.json'))).toBe(false)
+  })
+
+  it('拒绝未受信任 Project 的 extension 与 package 写入', async () => {
+    const dir = createTempDir()
+    const agentDir = join(dir, 'agent')
+    const projectCwd = join(dir, 'project')
+    mkdirSync(projectCwd, { recursive: true })
+    const service = new AgentSettingsService({ agentDir, cwd: dir })
+    const project = { cwd: projectCwd, projectTrusted: false }
+
+    await expect(
+      service.updateProjectExtensionPaths(
+        { projectId: 'project-a', extensions: ['extension.ts'] },
+        project
+      )
+    ).rejects.toThrow('Project 未受信任')
+    await expect(
+      service.addResourcePackage({ source: 'npm:project-ext', projectId: 'project-a' }, project)
+    ).rejects.toThrow('Project 未受信任')
+    expect(existsSync(join(projectCwd, '.pi', 'settings.json'))).toBe(false)
   })
 
   it('安装 package source 时转发 package manager 进度', async () => {
@@ -736,6 +1125,10 @@ export default function(pi) {
     }
   })
 })
+
+function trustedProjectContext(cwd: string): ProjectResourceContext {
+  return { cwd, projectTrusted: true }
+}
 
 function createTempDir(): string {
   const dir = mkdtempSync(join(tmpdir(), 'meta-agent-agent-settings-'))

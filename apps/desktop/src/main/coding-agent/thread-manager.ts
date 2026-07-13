@@ -50,6 +50,7 @@ import type {
   HermesMemorySnapshot,
   HermesMemorySnapshotInput,
   ResourcePackageInput,
+  ResourcePackageListInput,
   ResourcePackageProgressEvent,
   ResourcePackageSummary,
   ResourceSnapshotInput,
@@ -76,6 +77,7 @@ import type {
   UpsertCustomProviderInput
 } from '@shared/coding-agent/types'
 import { abort, followUp, prompt, runCommand, steer } from './thread-agent-commands'
+import type { ModelOAuthPromptSession } from './model-oauth-prompts'
 import {
   archiveThread,
   createThread,
@@ -752,9 +754,12 @@ export class CodingThreadManager extends ThreadManagerCore {
    */
   async loginProviderOAuth(
     input: LoginProviderOAuthInput,
-    onEvent?: (event: ModelOAuthLoginEvent) => void
+    onEvent?: (event: ModelOAuthLoginEvent) => void,
+    session?: ModelOAuthPromptSession
   ): Promise<ModelSettingsSnapshot> {
-    const snapshot = await (await this.getModelSettingsService()).loginProviderOAuth(input, onEvent)
+    const snapshot = await (
+      await this.getModelSettingsService()
+    ).loginProviderOAuth(input, onEvent, session)
     this.refreshActiveThreadModelRegistries()
     return snapshot
   }
@@ -763,8 +768,11 @@ export class CodingThreadManager extends ThreadManagerCore {
    * 响应 OAuth 登录过程中的 renderer 输入请求。
    * @param input - OAuth prompt 响应。
    */
-  async respondModelOAuthPrompt(input: ModelOAuthPromptResponseInput): Promise<void> {
-    ;(await this.getModelSettingsService()).respondOAuthPrompt(input)
+  async respondModelOAuthPrompt(
+    input: ModelOAuthPromptResponseInput,
+    ownerId?: number
+  ): Promise<void> {
+    ;(await this.getModelSettingsService()).respondOAuthPrompt(input, ownerId)
   }
 
   /**
@@ -805,8 +813,10 @@ export class CodingThreadManager extends ThreadManagerCore {
   }
 
   /** 列出 Pi package manager 配置包。 */
-  listResourcePackages(): Promise<ResourcePackageSummary[]> {
-    return this.getAgentSettingsService().then((service) => service.listResourcePackages())
+  listResourcePackages(input: ResourcePackageListInput = {}): Promise<ResourcePackageSummary[]> {
+    return this.getAgentSettingsService().then((service) =>
+      service.listResourcePackages(this.resolveProjectResourceContext(input.projectId))
+    )
   }
 
   /** 获取 Pi-compatible resource / extension 发现快照。 */
@@ -820,34 +830,61 @@ export class CodingThreadManager extends ThreadManagerCore {
         projectTrusted: this.getProjectTrustOverride(cwd)
       })
     }
-    return service.getResourceSnapshot(input)
+    return service.getResourceSnapshot(this.resolveProjectResourceContext(input.projectId))
   }
 
   /** 获取无需会话的 Hermes Memory 设置快照。 */
-  getHermesMemorySnapshot(input: HermesMemorySnapshotInput = {}): Promise<HermesMemorySnapshot> {
-    return this.getAgentSettingsService().then((service) => service.getHermesMemorySnapshot(input))
+  async getHermesMemorySnapshot(
+    input: HermesMemorySnapshotInput = {}
+  ): Promise<HermesMemorySnapshot> {
+    const project = this.resolveProjectResourceContext(input.projectId)
+    const service = await this.getAgentSettingsService()
+    return service.getHermesMemorySnapshot(project)
   }
 
   /** 无需会话地修改 Hermes Memory。 */
-  mutateHermesMemory(input: HermesMemoryMutationInput): Promise<HermesMemorySnapshot> {
-    return this.getAgentSettingsService().then((service) => service.mutateHermesMemory(input))
+  async mutateHermesMemory(input: HermesMemoryMutationInput): Promise<HermesMemorySnapshot> {
+    const project =
+      input.target === 'project'
+        ? this.requireTrustedHermesMemoryProject(input.projectId)
+        : this.resolveProjectResourceContext(input.projectId)
+    const mutation =
+      input.operation === 'add'
+        ? { target: input.target, operation: input.operation, content: input.content }
+        : input.operation === 'replace'
+          ? {
+              target: input.target,
+              operation: input.operation,
+              oldText: input.oldText,
+              content: input.content
+            }
+          : { target: input.target, operation: input.operation, oldText: input.oldText }
+    const service = await this.getAgentSettingsService()
+    return service.mutateHermesMemory(mutation, project)
   }
 
   /** 获取 Project 本地 extension 路径配置。 */
   getProjectExtensionPaths(input: ProjectExtensionPathsInput): Promise<string[]> {
-    return this.getAgentSettingsService().then((service) => service.getProjectExtensionPaths(input))
+    return this.getAgentSettingsService().then((service) =>
+      service.getProjectExtensionPaths(this.requireProjectResourceContext(input.projectId))
+    )
   }
 
   /** 更新 Project 本地 extension 路径配置。 */
   updateProjectExtensionPaths(input: UpdateProjectExtensionPathsInput): Promise<string[]> {
     return this.getAgentSettingsService().then((service) =>
-      service.updateProjectExtensionPaths(input)
+      service.updateProjectExtensionPaths(
+        input,
+        this.requireProjectResourceContext(input.projectId)
+      )
     )
   }
 
   /** 新增并持久化 package source。 */
   addResourcePackage(input: ResourcePackageInput): Promise<ResourcePackageSummary[]> {
-    return this.getAgentSettingsService().then((service) => service.addResourcePackage(input))
+    return this.getAgentSettingsService().then((service) =>
+      service.addResourcePackage(input, this.resolveProjectResourceContext(input.projectId))
+    )
   }
 
   /** 安装并持久化 package source。 */
@@ -856,13 +893,19 @@ export class CodingThreadManager extends ThreadManagerCore {
     onEvent?: (event: ResourcePackageProgressEvent) => void
   ): Promise<ResourcePackageSummary[]> {
     return this.getAgentSettingsService().then((service) =>
-      service.installResourcePackage(input, onEvent)
+      service.installResourcePackage(
+        input,
+        onEvent,
+        this.resolveProjectResourceContext(input.projectId)
+      )
     )
   }
 
   /** 移除并持久化 package source。 */
   removeResourcePackage(input: ResourcePackageInput): Promise<ResourcePackageSummary[]> {
-    return this.getAgentSettingsService().then((service) => service.removeResourcePackage(input))
+    return this.getAgentSettingsService().then((service) =>
+      service.removeResourcePackage(input, this.resolveProjectResourceContext(input.projectId))
+    )
   }
 
   /** 更新已配置 package source。 */
@@ -871,8 +914,56 @@ export class CodingThreadManager extends ThreadManagerCore {
     onEvent?: (event: ResourcePackageProgressEvent) => void
   ): Promise<ResourcePackageSummary[]> {
     return this.getAgentSettingsService().then((service) =>
-      service.updateResourcePackage(input, onEvent)
+      service.updateResourcePackage(
+        input,
+        onEvent,
+        this.resolveProjectResourceContext(input?.projectId)
+      )
     )
+  }
+
+  private resolveProjectResourceContext(
+    projectId: string | undefined
+  ): { projectId: string; cwd: string; projectTrusted: boolean } | undefined {
+    if (projectId === undefined) {
+      return undefined
+    }
+    if (typeof projectId !== 'string' || !projectId.trim()) {
+      throw new Error('projectId 无效')
+    }
+    const project = this.getProject(projectId)
+    return {
+      projectId,
+      cwd: project.path,
+      projectTrusted: this.getProjectTrustOverride(project.path)
+    }
+  }
+
+  private requireProjectResourceContext(projectId: string): {
+    projectId: string
+    cwd: string
+    projectTrusted: boolean
+  } {
+    const context = this.resolveProjectResourceContext(projectId)
+    if (!context) {
+      throw new Error(`project not found: ${projectId}`)
+    }
+    return context
+  }
+
+  private requireTrustedHermesMemoryProject(projectId: string | undefined): {
+    projectId: string
+    cwd: string
+    projectTrusted: true
+  } {
+    if (projectId === undefined) {
+      throw new Error('修改项目记忆需要 projectId')
+    }
+    const context = this.requireProjectResourceContext(projectId)
+    if (!context.projectTrusted) {
+      throw new Error('Project 未受信任，无法修改项目记忆')
+    }
+    return { ...context, projectTrusted: true }
   }
 
   /**

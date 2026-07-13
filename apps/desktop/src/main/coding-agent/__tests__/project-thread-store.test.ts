@@ -2,7 +2,7 @@
  * 本文件测试 Project/Thread metadata registry。
  */
 
-import { mkdirSync, readFileSync, rmSync, unlinkSync, writeFileSync } from 'node:fs'
+import { mkdirSync, readdirSync, readFileSync, rmSync, unlinkSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { describe, expect, it, vi } from 'vitest'
@@ -203,6 +203,54 @@ describe('CodingThreadStore', () => {
     expect(reopenedThreadStore.listThreads()).toEqual([thread])
     reopenedProjectStore.close()
     reopenedThreadStore.close()
+    rmSync(root, { recursive: true, force: true })
+  })
+
+  it('metadata 主文件损坏时从上一份有效快照恢复', () => {
+    const root = createTempDir()
+    const projectFile = join(root, 'projects.json')
+    const threadFile = join(root, 'threads.json')
+    const cwd = join(root, 'repo')
+    mkdirSync(cwd, { recursive: true })
+    const projectStore = new ProjectStore(projectFile)
+    const threadStore = new CodingThreadStore(threadFile)
+    const project = projectStore.createProject({ path: cwd })
+    const thread: ThreadSummary = {
+      threadId: 'thread-recover',
+      projectId: project.projectId,
+      status: 'idle',
+      createdAt: '2026-07-13T00:00:00.000Z',
+      updatedAt: '2026-07-13T00:00:00.000Z'
+    }
+    threadStore.saveThread(thread)
+    projectStore.close()
+    threadStore.close()
+    writeFileSync(projectFile, '{')
+    writeFileSync(threadFile, '{"version":1,"threads":"invalid"}\n')
+
+    const recoveredProjects = new ProjectStore(projectFile)
+    const recoveredThreads = new CodingThreadStore(threadFile)
+
+    expect(recoveredProjects.getProject(project.projectId)).toEqual(project)
+    expect(recoveredThreads.listThreads()).toEqual([thread])
+    expect(() => JSON.parse(readFileSync(projectFile, 'utf8'))).not.toThrow()
+    expect(() => JSON.parse(readFileSync(threadFile, 'utf8'))).not.toThrow()
+    expect(readdirSync(root).filter((entry) => entry.endsWith('.tmp'))).toEqual([])
+    recoveredProjects.close()
+    recoveredThreads.close()
+    rmSync(root, { recursive: true, force: true })
+  })
+
+  it('metadata 与恢复快照均损坏时拒绝静默清空 registry', () => {
+    const root = createTempDir()
+    const projectFile = join(root, 'projects.json')
+    mkdirSync(root, { recursive: true })
+    writeFileSync(projectFile, '{')
+    writeFileSync(`${projectFile}.bak`, '[]')
+
+    expect(() => new ProjectStore(projectFile)).toThrow(
+      'failed to read metadata and recovery snapshot'
+    )
     rmSync(root, { recursive: true, force: true })
   })
 

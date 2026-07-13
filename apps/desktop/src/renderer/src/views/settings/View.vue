@@ -147,6 +147,7 @@ const settingsTitle = computed(() => {
   background-color: var(--color-surface);
   border: 1px solid var(--color-border);
   box-shadow: -4px 0 12px rgba($color: #000000, $alpha: 0.03);
+  border-radius: var(--radius-workspace-shell) 0 0 var(--radius-workspace-shell);
 }
 
 .settings-content__header {

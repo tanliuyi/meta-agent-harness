@@ -60,6 +60,21 @@ describe('useAppearanceSettings Desktop hydration', () => {
       appearance: { density: 'comfortable' }
     })
   })
+
+  it('不把 hydration watcher 新写入的 legacy key 误判为待迁移配置', async () => {
+    const updateDesktopUiPreferences = vi.fn().mockResolvedValue({})
+    installWindow(
+      Promise.resolve({ appearance: { density: 'compact', avatarStyle: 'circle' } }),
+      updateDesktopUiPreferences
+    )
+
+    const settings = useAppearanceSettings()
+    await vi.waitFor(() => expect(settings.density.value).toBe('compact'))
+    await nextTick()
+
+    expect(settings.avatarStyle.value).toBe('circle')
+    expect(updateDesktopUiPreferences).not.toHaveBeenCalled()
+  })
 })
 
 function installDocument(): void {

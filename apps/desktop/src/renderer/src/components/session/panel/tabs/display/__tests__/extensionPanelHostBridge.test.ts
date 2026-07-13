@@ -3,7 +3,6 @@ import type { DesktopExtensionWebviewPanel } from '@shared/coding-agent/types'
 import {
   getNextExtensionPanelViewState,
   handleExtensionPanelHostMessage,
-  isExtensionPanelNavigationBlocked,
   postExtensionPanelMessage,
   postExtensionPanelState,
   postExtensionPanelTheme,
@@ -23,12 +22,12 @@ const htmlPanel: DesktopExtensionWebviewPanel = {
   source: { type: 'html', html: '<main>Panel</main>' }
 }
 
-function createTarget() {
+function createTarget(): Pick<Window, 'postMessage'> {
   return { postMessage: vi.fn() } as Pick<Window, 'postMessage'>
 }
 
 describe('extensionPanelHostBridge', () => {
-  it('向 iframe 投递消息时使用 panel targetOrigin，并在 blocked 时停止投递', () => {
+  it('向 opaque host iframe 投递消息，并在 blocked 时停止投递', () => {
     const target = createTarget()
 
     expect(
@@ -39,7 +38,7 @@ describe('extensionPanelHostBridge', () => {
         message: { sequence: 1, message: { type: 'ping' } }
       })
     ).toBe(true)
-    expect(target.postMessage).toHaveBeenCalledWith({ type: 'ping' }, 'https://example.com')
+    expect(target.postMessage).toHaveBeenCalledWith({ type: 'ping' }, '*')
 
     expect(
       postExtensionPanelMessage({
@@ -105,6 +104,7 @@ describe('extensionPanelHostBridge', () => {
         panelId: 'html-panel',
         threadId: 'thread-a',
         panel: htmlPanel,
+        hostActive: true,
         navigationBlocked: false,
         event: {
           origin: 'null',
@@ -125,6 +125,7 @@ describe('extensionPanelHostBridge', () => {
         panelId: 'html-panel',
         threadId: 'thread-a',
         panel: htmlPanel,
+        hostActive: true,
         navigationBlocked: false,
         event: {
           origin: 'null',
@@ -150,9 +151,10 @@ describe('extensionPanelHostBridge', () => {
         panelId: 'url-panel',
         threadId: 'thread-a',
         panel: urlPanel,
+        hostActive: true,
         navigationBlocked: false,
         event: {
-          origin: 'https://example.com',
+          origin: 'null',
           source: frameWindow,
           data: { type: 'ready' }
         },
@@ -169,9 +171,10 @@ describe('extensionPanelHostBridge', () => {
         panelId: 'url-panel',
         threadId: 'thread-a',
         panel: urlPanel,
+        hostActive: true,
         navigationBlocked: false,
         event: {
-          origin: 'https://evil.example',
+          origin: 'https://example.com',
           source: frameWindow,
           data: { type: 'ready' }
         },
@@ -182,6 +185,29 @@ describe('extensionPanelHostBridge', () => {
       })
     ).toBe('ignored')
     expect(sendPanelMessage).toHaveBeenCalledTimes(1)
+
+    expect(
+      handleExtensionPanelHostMessage({
+        panelId: 'url-panel',
+        threadId: 'thread-a',
+        panel: urlPanel,
+        hostActive: true,
+        navigationBlocked: false,
+        unrestrictedUrlAccess: true,
+        event: {
+          origin: 'https://redirected.example',
+          source: frameWindow,
+          data: { type: 'redirected-ready' }
+        },
+        frameWindow,
+        setPanelState: vi.fn(),
+        openExternalUrl: vi.fn(),
+        sendPanelMessage
+      })
+    ).toBe('forwarded')
+    expect(sendPanelMessage).toHaveBeenLastCalledWith('thread-a', 'url-panel', {
+      type: 'redirected-ready'
+    })
   })
 
   it('blocked navigation 会停止接收 iframe 消息', () => {
@@ -193,6 +219,7 @@ describe('extensionPanelHostBridge', () => {
         panelId: 'url-panel',
         threadId: 'thread-a',
         panel: urlPanel,
+        hostActive: true,
         navigationBlocked: true,
         event: {
           origin: 'https://example.com',
@@ -208,28 +235,29 @@ describe('extensionPanelHostBridge', () => {
     expect(sendPanelMessage).not.toHaveBeenCalled()
   })
 
-  it('URL panel navigation blocked 规则跟随 resolved entry origin', () => {
+  it('已停用的 retained host 不再接收旧 iframe 消息', () => {
+    const frameWindow = {} as Window
+    const sendPanelMessage = vi.fn()
+
     expect(
-      isExtensionPanelNavigationBlocked({
+      handleExtensionPanelHostMessage({
+        panelId: 'url-panel',
+        threadId: 'thread-a',
         panel: urlPanel,
-        readableFrameLocation: 'https://example.com/next',
-        urlSource: 'https://example.com/panel.html'
+        hostActive: false,
+        navigationBlocked: false,
+        event: {
+          origin: 'null',
+          source: frameWindow,
+          data: { type: 'ready' }
+        },
+        frameWindow,
+        setPanelState: vi.fn(),
+        openExternalUrl: vi.fn(),
+        sendPanelMessage
       })
-    ).toBe(false)
-    expect(
-      isExtensionPanelNavigationBlocked({
-        panel: urlPanel,
-        readableFrameLocation: 'https://evil.example/next',
-        urlSource: 'https://example.com/panel.html'
-      })
-    ).toBe(true)
-    expect(
-      isExtensionPanelNavigationBlocked({
-        panel: htmlPanel,
-        readableFrameLocation: undefined,
-        urlSource: ''
-      })
-    ).toBe(false)
+    ).toBe('ignored')
+    expect(sendPanelMessage).not.toHaveBeenCalled()
   })
 
   it('view state lifecycle 去重并保持 active 与 visible 一致', () => {

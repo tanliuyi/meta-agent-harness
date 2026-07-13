@@ -7,6 +7,7 @@ import type { AgentMessage } from '@earendil-works/pi-agent-core'
 import type { DesktopMessage } from './snapshot.ts'
 import {
   createDesktopFileChangeFromEditResult,
+  mergeDesktopFileChanges,
   type DesktopFileChange,
   type DesktopToolCall
 } from './tool.ts'
@@ -158,11 +159,13 @@ export function toDesktopToolCalls(
  * 从 AgentMessage 列表派生 Desktop 文件变更。
  * @param messages - Pi live/context messages。
  * @param threadId - 关联线程 ID。
+ * @param cwd - edit 工具运行目录。
  * @returns desktop 文件变更列表。
  */
 export function toDesktopFileChanges(
   messages: AgentMessage[],
-  threadId: ThreadId
+  threadId: ThreadId,
+  cwd?: string
 ): DesktopFileChange[] {
   const toolCalls = new Map<string, { toolName: string; args: unknown }>()
   const changes: DesktopFileChange[] = []
@@ -191,6 +194,7 @@ export function toDesktopFileChanges(
     const toolCall = toolCalls.get(message.toolCallId)
     const change = createDesktopFileChangeFromEditResult({
       threadId,
+      cwd,
       toolCallId: message.toolCallId,
       toolName: hasDisplayToolName(message.toolName)
         ? message.toolName
@@ -207,7 +211,7 @@ export function toDesktopFileChanges(
       changes.push(change)
     }
   }
-  return changes
+  return mergeDesktopFileChanges(changes)
 }
 
 /**

@@ -11,7 +11,10 @@ import {
 } from '@/components/ui/dialog'
 import type {
   CustomModelConfigInput,
+  CustomModelConfigSummary,
   CustomModelOverrideInput,
+  CustomModelOverrideSummary,
+  SensitiveConfigUpdate,
   ThinkingLevel
 } from '@shared/coding-agent/types'
 import { Database, Pencil, Plus, Save } from 'lucide-vue-next'
@@ -23,7 +26,10 @@ type ThinkingLevelDraft = {
   value: string
 }
 
+type SensitiveConfigMode = SensitiveConfigUpdate<unknown>['mode']
+
 type CustomModelDraft = {
+  previousId: string
   id: string
   name: string
   api: string
@@ -37,6 +43,8 @@ type CustomModelDraft = {
   costOutput: string
   costCacheRead: string
   costCacheWrite: string
+  headersMode: SensitiveConfigMode
+  hasHeadersConfig: boolean
   headersJson: string
   compatJson: string
   thinkingLevelMap: Record<ThinkingLevel, ThinkingLevelDraft>
@@ -48,11 +56,18 @@ type CustomProviderDraft = {
   name: string
   baseUrl: string
   api: string
+  apiKeyMode: SensitiveConfigMode
+  hasApiKeyConfig: boolean
   apiKey: string
   authHeader: boolean
+  headersMode: SensitiveConfigMode
+  hasHeadersConfig: boolean
   headersJson: string
   compatJson: string
   modelOverridesJson: string
+  modelOverrideHeadersMode: SensitiveConfigMode
+  hasModelOverrideHeadersConfig: boolean
+  modelOverrideHeadersJson: string
   models: CustomModelDraft[]
 }
 
@@ -87,7 +102,7 @@ const customProviderDialogTitle = computed(() =>
 )
 const customProviderDialogDescription = computed(() =>
   isEditingCustomProvider.value
-    ? '更新 Pi-compatible models.json provider；已保存的 API Key 会回填以便编辑。'
+    ? '更新 Pi-compatible models.json provider；敏感配置仅显示状态，不回显原文。'
     : '添加 Pi-compatible models.json provider；可配置模型、思考等级和兼容字段。'
 )
 const customProviderItems = computed<CustomProviderListItem[]>(() =>
@@ -119,9 +134,10 @@ function createThinkingLevelMap(
   ) as Record<ThinkingLevel, ThinkingLevelDraft>
 }
 
-function createBlankModelDraft(model?: CustomModelConfigInput): CustomModelDraft {
+function createBlankModelDraft(model?: CustomModelConfigSummary): CustomModelDraft {
   const input = model?.input ?? ['text']
   return {
+    previousId: model?.id ?? '',
     id: model?.id ?? '',
     name: model?.name ?? '',
     api: model?.api ?? inheritProviderApiValue,
@@ -135,7 +151,9 @@ function createBlankModelDraft(model?: CustomModelConfigInput): CustomModelDraft
     costOutput: model?.cost?.output !== undefined ? String(model.cost.output) : '',
     costCacheRead: model?.cost?.cacheRead !== undefined ? String(model.cost.cacheRead) : '',
     costCacheWrite: model?.cost?.cacheWrite !== undefined ? String(model.cost.cacheWrite) : '',
-    headersJson: formatJson(model?.headers),
+    headersMode: model?.hasHeadersConfig ? 'preserve' : 'clear',
+    hasHeadersConfig: Boolean(model?.hasHeadersConfig),
+    headersJson: '',
     compatJson: formatJson(model?.compat),
     thinkingLevelMap: createThinkingLevelMap(model?.thinkingLevelMap)
   }
@@ -148,11 +166,18 @@ function createBlankProviderDraft(): CustomProviderDraft {
     name: '',
     baseUrl: '',
     api: 'openai-completions',
+    apiKeyMode: 'clear',
+    hasApiKeyConfig: false,
     apiKey: '',
     authHeader: true,
+    headersMode: 'clear',
+    hasHeadersConfig: false,
     headersJson: '',
     compatJson: '',
     modelOverridesJson: '',
+    modelOverrideHeadersMode: 'clear',
+    hasModelOverrideHeadersConfig: false,
+    modelOverrideHeadersJson: '',
     models: [createBlankModelDraft()]
   }
 }
@@ -166,11 +191,20 @@ function createDraftFromProvider(
     name: provider.name ?? '',
     baseUrl: provider.baseUrl ?? '',
     api: provider.api ?? 'openai-completions',
-    apiKey: provider.apiKey ?? '',
+    apiKeyMode: provider.hasApiKeyConfig ? 'preserve' : 'clear',
+    hasApiKeyConfig: provider.hasApiKeyConfig,
+    apiKey: '',
     authHeader: provider.authHeader ?? true,
-    headersJson: formatJson(provider.headers),
+    headersMode: provider.hasHeadersConfig ? 'preserve' : 'clear',
+    hasHeadersConfig: provider.hasHeadersConfig,
+    headersJson: '',
     compatJson: formatJson(provider.compat),
-    modelOverridesJson: formatJson(provider.modelOverrides),
+    modelOverridesJson: formatModelOverrides(provider.modelOverrides),
+    modelOverrideHeadersMode: hasModelOverrideHeaders(provider.modelOverrides)
+      ? 'preserve'
+      : 'clear',
+    hasModelOverrideHeadersConfig: hasModelOverrideHeaders(provider.modelOverrides),
+    modelOverrideHeadersJson: '',
     models: provider.models?.length
       ? provider.models.map(createBlankModelDraft)
       : [createBlankModelDraft()]
@@ -223,13 +257,22 @@ async function saveCustomProvider(): Promise<void> {
     name: draft.name.trim() || undefined,
     baseUrl: draft.baseUrl.trim() || undefined,
     api: draft.api || undefined,
-    apiKey: draft.apiKey.trim() || undefined,
+    apiKeyUpdate: toSensitiveStringUpdate(draft.apiKeyMode, draft.apiKey),
     authHeader: draft.authHeader,
-    headers: parseJsonStringRecord(draft.headersJson, 'Provider headers'),
+    headersUpdate: toSensitiveHeadersUpdate(
+      draft.headersMode,
+      draft.headersJson,
+      'Provider headers'
+    ),
     compat: parseJsonObject(draft.compatJson, 'Provider compat'),
     modelOverrides: parseJsonObject<Record<string, CustomModelOverrideInput>>(
       draft.modelOverridesJson,
       'Model overrides'
+    ),
+    modelOverrideHeadersUpdate: toSensitiveNestedHeadersUpdate(
+      draft.modelOverrideHeadersMode,
+      draft.modelOverrideHeadersJson,
+      'Model override headers'
     ),
     models: draft.models.map(toModelConfigInput)
   })
@@ -253,6 +296,7 @@ function toModelConfigInput(model: CustomModelDraft): CustomModelConfigInput {
   ].some((value) => value.trim())
 
   return {
+    previousId: model.previousId || undefined,
     id: model.id.trim(),
     name: model.name.trim() || undefined,
     api: model.api === inheritProviderApiValue ? undefined : model.api.trim() || undefined,
@@ -272,7 +316,11 @@ function toModelConfigInput(model: CustomModelDraft): CustomModelConfigInput {
           cacheWrite: numberOrZero(model.costCacheWrite)
         }
       : undefined,
-    headers: parseJsonStringRecord(model.headersJson, `Model ${model.id || '未命名'} headers`),
+    headersUpdate: toSensitiveHeadersUpdate(
+      model.headersMode,
+      model.headersJson,
+      `Model ${model.id || '未命名'} headers`
+    ),
     compat: parseJsonObject(model.compatJson, `Model ${model.id || '未命名'} compat`)
   }
 }
@@ -282,6 +330,86 @@ function formatJson(value: unknown): string {
     return ''
   }
   return JSON.stringify(value, null, 2)
+}
+
+function formatModelOverrides(
+  value: Record<string, CustomModelOverrideSummary> | undefined
+): string {
+  if (!value) {
+    return ''
+  }
+  return formatJson(
+    Object.fromEntries(
+      Object.entries(value).map(([modelId, modelOverride]) => [
+        modelId,
+        toEditableModelOverride(modelOverride)
+      ])
+    )
+  )
+}
+
+function toEditableModelOverride(
+  modelOverride: CustomModelOverrideSummary
+): CustomModelOverrideInput {
+  return {
+    name: modelOverride.name,
+    reasoning: modelOverride.reasoning,
+    thinkingLevelMap: modelOverride.thinkingLevelMap,
+    input: modelOverride.input,
+    contextWindow: modelOverride.contextWindow,
+    maxTokens: modelOverride.maxTokens,
+    cost: modelOverride.cost,
+    compat: modelOverride.compat
+  }
+}
+
+function hasModelOverrideHeaders(
+  value: Record<string, CustomModelOverrideSummary> | undefined
+): boolean {
+  return Object.values(value ?? {}).some((modelOverride) => modelOverride.hasHeadersConfig)
+}
+
+function toSensitiveStringUpdate(
+  mode: SensitiveConfigMode,
+  value: string
+): SensitiveConfigUpdate<string> {
+  if (mode !== 'replace') {
+    return { mode }
+  }
+  return { mode, value: value.trim() }
+}
+
+function toSensitiveHeadersUpdate(
+  mode: SensitiveConfigMode,
+  value: string,
+  label: string
+): SensitiveConfigUpdate<Record<string, string>> {
+  if (mode !== 'replace') {
+    return { mode }
+  }
+  return { mode, value: parseJsonStringRecord(value, label) ?? {} }
+}
+
+function toSensitiveNestedHeadersUpdate(
+  mode: SensitiveConfigMode,
+  value: string,
+  label: string
+): SensitiveConfigUpdate<Record<string, Record<string, string>>> {
+  if (mode !== 'replace') {
+    return { mode }
+  }
+  const parsed = parseJsonObject<Record<string, Record<string, string>>>(value, label) ?? {}
+  for (const [modelId, headers] of Object.entries(parsed)) {
+    if (!headers || typeof headers !== 'object' || Array.isArray(headers)) {
+      throw new Error(`${label}.${modelId} 必须是 JSON object`)
+    }
+    for (const [key, item] of Object.entries(headers)) {
+      if (typeof item !== 'string') {
+        throw new Error(`${label}.${modelId}.${key} 必须是字符串`)
+      }
+    }
+  }
+  return { mode, value: parsed }
 }
 
 function parseJsonObject<T extends Record<string, unknown> = Record<string, unknown>>(
@@ -401,7 +529,7 @@ function numberOrZero(value: string): number {
           <ScrollArea class="custom-provider-dialog__scroll">
             <div class="custom-provider-dialog__body">
               <ProviderEditorFields
-                :draft="customProviderDraft"
+                v-model:draft="customProviderDraft"
                 :supported-apis="supportedApis"
                 :inherit-provider-api-value="inheritProviderApiValue"
                 :thinking-levels="thinkingLevels"

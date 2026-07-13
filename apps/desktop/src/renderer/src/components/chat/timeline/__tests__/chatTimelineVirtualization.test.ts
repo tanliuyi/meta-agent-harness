@@ -6,9 +6,10 @@ import {
   createVirtualTimelineRows,
   estimateTimelineItemSize,
   findDirectTimelineRow,
-  resetTimelineVirtualizerForSession,
-  resolveTimelineFollowState,
-  shouldAdjustTimelineScrollForItemResize
+  getChatTimelineGap,
+  getVirtualTimelineRowOffset,
+  prepareTimelineVirtualizerForSession,
+  resolveTimelineFollowState
 } from '../chatTimelineVirtualization'
 
 interface TestElement {
@@ -51,13 +52,16 @@ describe('chat timeline virtualization', () => {
     expect(rows.map((row) => row.virtualItem.index)).toEqual([1])
   })
 
-  it('adjusts size changes only for rows entirely above the viewport', () => {
-    const aboveViewport = createVirtualItem(1)
-    const containingViewport = { ...createVirtualItem(1), end: 900 }
+  it('keeps the virtualizer gap aligned with each density layout', () => {
+    expect(getChatTimelineGap('compact')).toBe(8)
+    expect(getChatTimelineGap('standard')).toBe(10)
+    expect(getChatTimelineGap('comfortable')).toBe(14)
+  })
 
-    expect(shouldAdjustTimelineScrollForItemResize(aboveViewport, 250)).toBe(true)
-    expect(shouldAdjustTimelineScrollForItemResize(containingViewport, 250)).toBe(false)
-    expect(shouldAdjustTimelineScrollForItemResize(createVirtualItem(3), 250)).toBe(false)
+  it('positions every row from its own TanStack start relative to the list margin', () => {
+    const virtualItems = [createVirtualItem(3), createVirtualItem(4)]
+
+    expect(virtualItems.map((item) => getVirtualTimelineRowOffset(item, 16))).toEqual([284, 384])
   })
 
   it('keeps the interaction lock when a programmatic scroll reaches the bottom', () => {
@@ -117,19 +121,16 @@ describe('chat timeline virtualization', () => {
     })
   })
 
-  it('uses virtualizer APIs to reset session measurements and offset', () => {
+  it('cancels stale session scrolling without clearing keyed measurements', () => {
     const calls: string[] = []
 
-    resetTimelineVirtualizerForSession({
+    prepareTimelineVirtualizerForSession({
       scrollToOffset: (offset, options) => {
         calls.push(`scroll:${offset}:${options.behavior}`)
-      },
-      measure: () => {
-        calls.push('measure')
       }
     })
 
-    expect(calls).toEqual(['scroll:0:auto', 'measure'])
+    expect(calls).toEqual(['scroll:0:auto'])
   })
 
   it('selects only a direct timeline row when nested virtual content reuses the index', () => {

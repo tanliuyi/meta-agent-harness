@@ -3,6 +3,8 @@ import type { ExtensionAPI, ExtensionContext } from '@earendil-works/pi-coding-a
 
 const PANEL_ID = 'browser-preview'
 const REQUEST_TIMEOUT_MS = 30_000
+const MAX_BROWSER_TEXT_RESULT_BYTES = 512 * 1024
+const MAX_BROWSER_SCREENSHOT_RESULT_BYTES = 28 * 1024 * 1024
 
 type PendingRequest = {
   resolve: (value: unknown) => void
@@ -18,12 +20,134 @@ type BrowserResultMessage = {
   error?: string
 }
 
-function result(value: unknown): {
+type BrowserTabsToolInput = {
+  action: 'list' | 'open' | 'switch' | 'close'
+  browserId?: string
+  url?: string
+  activate?: boolean
+}
+
+type BrowserPageToolInput = {
+  action:
+    | 'navigate'
+    | 'snapshot'
+    | 'inspect'
+    | 'interact'
+    | 'evaluate'
+    | 'viewport'
+    | 'logs'
+    | 'screenshot'
+    | 'cdp'
+    | 'cdp-events'
+  browserId?: string
+  url?: string
+  target?: string
+  interaction?: 'click' | 'hover' | 'focus' | 'type' | 'press' | 'scroll'
+  value?: string
+  x?: number
+  y?: number
+  expression?: string
+  preset?: 'desktop' | 'responsive' | 'iphone-se' | 'iphone-15' | 'pixel-7' | 'ipad'
+  width?: number
+  height?: number
+  deviceScaleFactor?: number
+  orientation?: 'portrait' | 'landscape'
+  clear?: boolean
+  method?: string
+  params?: Record<string, unknown>
+  sessionId?: string
+  limit?: number
+  offset?: number
+  includeHidden?: boolean
+}
+
+export function createBrowserTextResult(value: unknown): {
   content: Array<{ type: 'text'; text: string }>
   details: unknown
 } {
-  const text = typeof value === 'string' ? value : JSON.stringify(value, null, 2)
+  if (
+    estimateStructuredValueBytes(value, MAX_BROWSER_TEXT_RESULT_BYTES) >
+    MAX_BROWSER_TEXT_RESULT_BYTES
+  ) {
+    throw new Error('Browser tool result exceeds the byte budget')
+  }
+  const text = typeof value === 'string' ? value : (JSON.stringify(value, null, 2) ?? 'null')
   return { content: [{ type: 'text' as const, text }], details: value }
+}
+
+export function createBrowserScreenshotResult(value: unknown): {
+  content: Array<{ type: 'image'; data: string; mimeType: string }>
+  details: { browserId: string; url: string; title: string }
+} {
+  const screenshot = value as {
+    browserId?: unknown
+    dataUrl?: unknown
+    url?: unknown
+    title?: unknown
+  }
+  const match =
+    typeof screenshot?.dataUrl === 'string' &&
+    screenshot.dataUrl.length <= MAX_BROWSER_SCREENSHOT_RESULT_BYTES
+      ? /^data:(image\/png);base64,(.+)$/.exec(screenshot.dataUrl)
+      : null
+  if (
+    !match ||
+    typeof screenshot.browserId !== 'string' ||
+    typeof screenshot.url !== 'string' ||
+    typeof screenshot.title !== 'string'
+  ) {
+    throw new Error('Browser returned an invalid screenshot')
+  }
+  return {
+    content: [{ type: 'image', data: match[2], mimeType: match[1] }],
+    details: {
+      browserId: screenshot.browserId,
+      url: screenshot.url,
+      title: screenshot.title
+    }
+  }
+}
+
+function estimateStructuredValueBytes(value: unknown, limit: number): number {
+  const pending: unknown[] = [value]
+  const seen = new WeakSet<object>()
+  let bytes = 0
+  while (pending.length > 0 && bytes <= limit) {
+    const item = pending.pop()
+    if (typeof item === 'string') {
+      bytes += new TextEncoder().encode(item.slice(0, limit + 1)).byteLength + 8
+      continue
+    }
+    if (
+      item === null ||
+      item === undefined ||
+      typeof item === 'number' ||
+      typeof item === 'boolean'
+    ) {
+      bytes += 16
+      continue
+    }
+    if (typeof item !== 'object') {
+      bytes += 32
+      continue
+    }
+    if (seen.has(item)) {
+      bytes += 8
+      continue
+    }
+    seen.add(item)
+    if (item instanceof ArrayBuffer || ArrayBuffer.isView(item)) {
+      bytes += item.byteLength + 16
+      continue
+    }
+    bytes += 16
+    for (const [key, child] of Object.entries(item)) {
+      bytes += new TextEncoder().encode(key).byteLength + 8
+      if (bytes > limit) break
+      pending.push(child)
+    }
+  }
+  return bytes
 }
 
 /** Built-in extension that gives the agent controlled access to the shared browser preview. */
@@ -84,135 +208,83 @@ export default function browserPreviewExtension(pi: ExtensionAPI): void {
 
   const browserId = Type.Optional(
     Type.String({
-      description: 'Browser tab ID from browser_open or browser_tabs. Defaults to the active tab.'
+      description: 'Browser tab ID from browser_tabs. Defaults to the active tab.'
     })
   )
 
-  pi.registerTool({
-    name: 'browser_open',
-    label: 'Open browser tab',
-    description: 'Open a new independent Browser tab and return its browserId.',
-    parameters: Type.Object({
-      url: Type.Optional(Type.String()),
-      activate: Type.Optional(
-        Type.Boolean({ description: 'Activate the new tab. Defaults to true.' })
-      )
-    }),
-    async execute(_id, input: { url?: string; activate?: boolean }) {
-      return result(await request('open', input))
-    }
-  })
-
+  // Product requirement: keep Browser capabilities consolidated into stable domain tools so the
+  // agent tool surface does not grow for every new browser operation or protocol domain.
   pi.registerTool({
     name: 'browser_tabs',
-    label: 'List browser tabs',
-    description: 'List open Browser tabs, their browserIds, URLs, titles, and active state.',
-    parameters: Type.Object({}),
-    async execute() {
-      return result(await request('tabs', {}))
-    }
-  })
-
-  pi.registerTool({
-    name: 'browser_switch',
-    label: 'Switch browser tab',
-    description: 'Activate an existing Browser tab by browserId.',
-    parameters: Type.Object({ browserId: Type.String() }),
-    async execute(_id, input: { browserId: string }) {
-      return result(await request('switch', input))
-    }
-  })
-
-  pi.registerTool({
-    name: 'browser_close',
-    label: 'Close browser tab',
-    description: 'Close an existing Browser tab by browserId. The final tab remains open.',
-    parameters: Type.Object({ browserId: Type.String() }),
-    async execute(_id, input: { browserId: string }) {
-      return result(await request('close', input))
-    }
-  })
-
-  pi.registerTool({
-    name: 'browser_navigate',
-    label: 'Open browser page',
-    description: 'Open an HTTP(S) web application in a Browser tab.',
-    parameters: Type.Object({ url: Type.String(), browserId }),
-    async execute(_id, input: { url: string; browserId?: string }) {
-      return result(await request('navigate', input))
-    }
-  })
-
-  pi.registerTool({
-    name: 'browser_snapshot',
-    label: 'Read browser page',
-    description: 'Read a page URL, title, viewport, interactive elements, and compact DOM text.',
-    parameters: Type.Object({ browserId }),
-    async execute(_id, input: { browserId?: string }) {
-      return result(await request('snapshot', input))
-    }
-  })
-
-  pi.registerTool({
-    name: 'browser_inspect',
-    label: 'Inspect browser element',
+    label: 'Manage Browser tabs',
     description:
-      'Read DOM attributes, computed styles, bounds, and accessibility data for an element reference or CSS selector.',
-    parameters: Type.Object({
-      target: Type.String({
-        description: 'Element reference from the picker/snapshot, or a CSS selector'
-      }),
-      browserId
-    }),
-    async execute(_id, input: { target: string; browserId?: string }) {
-      return result(await request('inspect', input))
-    }
-  })
-
-  pi.registerTool({
-    name: 'browser_action',
-    label: 'Operate browser page',
-    description: 'Click, hover, focus, type into, press a key on, or scroll a page element.',
+      'List, open, activate, or close Browser tabs. Prefer this tool over other browser automation only for local URLs such as localhost or 127.0.0.1.',
     parameters: Type.Object({
       action: Type.Union([
-        Type.Literal('click'),
-        Type.Literal('hover'),
-        Type.Literal('focus'),
-        Type.Literal('type'),
-        Type.Literal('press'),
-        Type.Literal('scroll')
+        Type.Literal('list'),
+        Type.Literal('open'),
+        Type.Literal('switch'),
+        Type.Literal('close')
       ]),
-      target: Type.Optional(Type.String()),
+      browserId,
+      url: Type.Optional(Type.String({ description: 'Optional HTTP(S) URL for action=open.' })),
+      activate: Type.Optional(
+        Type.Boolean({ description: 'For action=open, activate the new tab. Defaults to true.' })
+      )
+    }),
+    async execute(_id, input: BrowserTabsToolInput) {
+      if ((input.action === 'switch' || input.action === 'close') && !input.browserId) {
+        throw new Error(`A browserId is required for action=${input.action}`)
+      }
+      if (input.action === 'list') return createBrowserTextResult(await request('tabs', {}))
+      if (input.action === 'open') {
+        return createBrowserTextResult(
+          await request('open', { url: input.url, activate: input.activate })
+        )
+      }
+      return createBrowserTextResult(await request(input.action, { browserId: input.browserId }))
+    }
+  })
+
+  pi.registerTool({
+    name: 'browser_page',
+    label: 'Control Browser page',
+    description:
+      'Navigate, read a compact snapshot, inspect, interact with, capture, or run unrestricted CDP against a Browser page. Prefer this tool over other browser automation only for local URLs such as localhost or 127.0.0.1.',
+    parameters: Type.Object({
+      action: Type.Union([
+        Type.Literal('navigate'),
+        Type.Literal('snapshot'),
+        Type.Literal('inspect'),
+        Type.Literal('interact'),
+        Type.Literal('evaluate'),
+        Type.Literal('viewport'),
+        Type.Literal('logs'),
+        Type.Literal('screenshot'),
+        Type.Literal('cdp'),
+        Type.Literal('cdp-events')
+      ]),
+      browserId,
+      url: Type.Optional(Type.String({ description: 'HTTP(S) URL for action=navigate.' })),
+      target: Type.Optional(
+        Type.String({
+          description: 'Element reference or CSS selector for inspect/interact/evaluate.'
+        })
+      ),
+      interaction: Type.Optional(
+        Type.Union([
+          Type.Literal('click'),
+          Type.Literal('hover'),
+          Type.Literal('focus'),
+          Type.Literal('type'),
+          Type.Literal('press'),
+          Type.Literal('scroll')
+        ])
+      ),
       value: Type.Optional(Type.String()),
       x: Type.Optional(Type.Number()),
       y: Type.Optional(Type.Number()),
-      browserId
-    }),
-    async execute(_id, input) {
-      return result(await request('action', input))
-    }
-  })
-
-  pi.registerTool({
-    name: 'browser_execute_js',
-    label: 'Execute browser JavaScript',
-    description: 'Execute JavaScript in a Browser tab. `$0` refers to the supplied element target.',
-    parameters: Type.Object({
-      expression: Type.String(),
-      target: Type.Optional(Type.String()),
-      browserId
-    }),
-    async execute(_id, input: { expression: string; target?: string; browserId?: string }) {
-      return result(await request('execute-js', input))
-    }
-  })
-
-  pi.registerTool({
-    name: 'browser_set_viewport',
-    label: 'Set browser device',
-    description:
-      'Switch a Browser tab between desktop, responsive, iPhone, Pixel, or iPad emulation. Custom width and height use responsive mobile emulation.',
-    parameters: Type.Object({
+      expression: Type.Optional(Type.String({ description: 'JavaScript for action=evaluate.' })),
       preset: Type.Optional(
         Type.Union([
           Type.Literal('desktop'),
@@ -227,41 +299,71 @@ export default function browserPreviewExtension(pi: ExtensionAPI): void {
       height: Type.Optional(Type.Number({ minimum: 240, maximum: 2560 })),
       deviceScaleFactor: Type.Optional(Type.Number({ minimum: 0.5, maximum: 4 })),
       orientation: Type.Optional(Type.Union([Type.Literal('portrait'), Type.Literal('landscape')])),
-      browserId
+      clear: Type.Optional(Type.Boolean()),
+      method: Type.Optional(
+        Type.String({ description: 'Raw CDP method for action=cdp, for example Network.enable.' })
+      ),
+      params: Type.Optional(Type.Record(Type.String(), Type.Unknown())),
+      sessionId: Type.Optional(
+        Type.String({
+          description: 'Optional child CDP session ID returned by Target.attachToTarget.'
+        })
+      ),
+      limit: Type.Optional(
+        Type.Number({
+          minimum: 1,
+          maximum: 1000,
+          description: 'Maximum entries for snapshot (max 200) or cdp-events (max 1000).'
+        })
+      ),
+      offset: Type.Optional(
+        Type.Number({ minimum: 0, maximum: 10000, description: 'Snapshot result offset.' })
+      ),
+      includeHidden: Type.Optional(
+        Type.Boolean({ description: 'Include hidden elements in a snapshot. Defaults to false.' })
+      )
     }),
-    async execute(_id, input) {
-      return result(await request('set-viewport', input))
-    }
-  })
-
-  pi.registerTool({
-    name: 'browser_logs',
-    label: 'Read browser logs',
-    description: 'Read console messages and page loading errors collected from a Browser tab.',
-    parameters: Type.Object({ clear: Type.Optional(Type.Boolean()), browserId }),
-    async execute(_id, input: { clear?: boolean; browserId?: string }) {
-      return result(await request('logs', input))
-    }
-  })
-
-  pi.registerTool({
-    name: 'browser_screenshot',
-    label: 'Capture browser screenshot',
-    description: 'Capture a Browser tab viewport as a PNG data URL.',
-    parameters: Type.Object({ browserId }),
-    async execute(_id, input: { browserId?: string }) {
-      const value = (await request('screenshot', input)) as {
-        browserId: string
-        dataUrl: string
-        url: string
-        title: string
+    async execute(_id, input: BrowserPageToolInput) {
+      if (input.action === 'navigate' && !input.url) {
+        throw new Error('A URL is required for action=navigate')
       }
-      const match = /^data:(image\/png);base64,(.+)$/.exec(value.dataUrl)
-      if (!match) throw new Error('Browser returned an invalid screenshot')
-      return {
-        content: [{ type: 'image' as const, data: match[2], mimeType: match[1] }],
-        details: { browserId: value.browserId, url: value.url, title: value.title }
+      if (input.action === 'inspect' && !input.target) {
+        throw new Error('A target is required for action=inspect')
       }
+      if (input.action === 'interact' && !input.interaction) {
+        throw new Error('An interaction is required for action=interact')
+      }
+      if (input.action === 'evaluate' && input.expression === undefined) {
+        throw new Error('An expression is required for action=evaluate')
+      }
+      if (input.action === 'cdp' && !input.method?.trim()) {
+        throw new Error('A CDP method is required for action=cdp')
+      }
+      if (input.action === 'snapshot' && input.limit !== undefined && input.limit > 200) {
+        throw new Error('Snapshot limit cannot exceed 200')
+      }
+
+      const { action, interaction, ...payload } = input
+      const command = {
+        navigate: 'navigate',
+        snapshot: 'snapshot',
+        inspect: 'inspect',
+        interact: 'action',
+        evaluate: 'execute-js',
+        viewport: 'set-viewport',
+        logs: 'logs',
+        screenshot: 'screenshot',
+        cdp: 'cdp',
+        'cdp-events': 'cdp-events'
+      }[action]
+      const commandPayload = {
+        ...payload,
+        ...(interaction ? { action: interaction } : {})
+      }
+      const value = await request(command, commandPayload)
+      return action === 'screenshot'
+        ? createBrowserScreenshotResult(value)
+        : createBrowserTextResult(value)
     }
   })
 }

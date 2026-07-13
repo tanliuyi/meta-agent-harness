@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   countFileChangeStats,
   formatFileChangePath,
+  getFileChangeId,
   getFileChangeLayoutSize,
   getVisibleDiffLineRange,
   type FileChange
@@ -50,6 +51,14 @@ describe('formatFileChangePath', () => {
 
   it('returns the normalized relative path when the workspace is unavailable', () => {
     expect(formatFileChangePath('./src\\main.ts', undefined)).toBe('src/main.ts')
+  })
+
+  it('keeps the row ID stable when the same file receives another tool call', () => {
+    const first = { path: 'src/app.ts', toolCallId: 'tool-a' } as FileChange
+    const second = { path: './src\\app.ts', toolCallId: 'tool-b' } as FileChange
+
+    expect(getFileChangeId(first)).toBe('src/app.ts')
+    expect(getFileChangeId(second)).toBe(getFileChangeId(first))
   })
 })
 

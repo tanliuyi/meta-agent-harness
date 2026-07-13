@@ -224,8 +224,7 @@ watch(
   opacity: 0;
 }
 
-.streaming-code-block:hover .streaming-code-block__copy,
-.streaming-code-block__copy:focus-visible {
+.streaming-code-block:hover .streaming-code-block__copy {
   opacity: 1;
 }
 

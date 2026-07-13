@@ -8,7 +8,7 @@
 
 import { app } from 'electron'
 import { existsSync } from 'node:fs'
-import { readFile } from 'node:fs/promises'
+import { mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { basename, dirname, extname, join, resolve } from 'node:path'
 import { loadConfig as loadHermesMemoryConfig } from '@meta-agent/hermes-memory/config.js'
 import {
@@ -38,7 +38,11 @@ import { DefaultPackageManager } from '@coding-agent-src/core/package-manager'
 import { buildResourcesSnapshot } from '@coding-agent-src/core/resource-snapshot'
 import type { ProgressEvent as PackageProgressEvent } from '@coding-agent-src/core/package-manager'
 import { getAgentDir } from '@coding-agent-src/config'
-import { readDesktopRuntimeConfig, writeDesktopRuntimeConfig } from './desktop-runtime-config'
+import {
+  readDesktopRuntimeConfig,
+  writeDesktopRuntimeConfig,
+  type DesktopRuntimeConfigInput
+} from './desktop-runtime-config'
 import type {
   AgentDefaultProjectTrust,
   AgentDoubleEscapeAction,
@@ -47,14 +51,14 @@ import type {
   AgentSettingsSnapshot,
   AgentTransportMode,
   AgentTreeFilterMode,
+  BrowserCdpAccessMode,
+  BrowserWebPermissionMode,
+  DesktopCapabilityAccessMode,
   HermesMemoryMutationInput,
   HermesMemorySnapshot,
-  HermesMemorySnapshotInput,
   ResourcePackageInput,
   ResourcePackageProgressEvent,
   ResourcePackageSummary,
-  ProjectExtensionPathsInput,
-  ResourceSnapshotInput,
   ResourceSnapshot,
   ResourceSkillCommandInfo,
   UpdateResourcePackageInput,
@@ -70,6 +74,24 @@ export interface AgentSettingsServiceOptions {
 
 export type ResourcePackageEventHandler = (event: ResourcePackageProgressEvent) => void
 
+/** 由 main ProjectStore/ProjectTrustService 解析的项目资源上下文。 */
+export interface ProjectResourceContext {
+  projectId?: string
+  cwd: string
+  projectTrusted: boolean
+}
+
+interface ResourcePackageContext {
+  settingsManager: SettingsManager
+  packageManager: DefaultPackageManager
+  local: boolean
+}
+
+interface PersistedFileSnapshot {
+  exists: boolean
+  content?: string
+}
+
 /** Desktop 全局 Pi agent 设置服务。 */
 export class AgentSettingsService {
   private readonly agentDir: string
@@ -78,7 +100,7 @@ export class AgentSettingsService {
   private readonly desktopRuntimeConfigPath: string
   private readonly settingsManager: SettingsManager
   private readonly packageManager: DefaultPackageManager
-  private packageOperationQueue: Promise<void> = Promise.resolve()
+  private readonly mutationQueues = new Map<string, Promise<void>>()
 
   constructor(options: AgentSettingsServiceOptions = {}) {
     this.agentDir = options.agentDir ?? getAgentDir()
@@ -104,28 +126,62 @@ export class AgentSettingsService {
 
   /** 更新全局 agent 设置。 */
   async updateAgentSettings(input: UpdateAgentSettingsInput): Promise<AgentSettingsSnapshot> {
-    this.applyDelivery(input.delivery)
-    this.applyRuntime(input.runtime)
-    this.applyDisplay(input.display)
-    this.applySafety(input.safety)
-    this.applyMedia(input.media)
-    this.applyResources(input.resources)
-    this.applyShell(input.shell)
-    this.applyAdvanced(input.advanced)
-    await this.settingsManager.flush()
-    return this.getAgentSettings()
+    return this.runScopedMutation('global', async () => {
+      this.settingsManager.drainErrors()
+      await this.settingsManager.reload()
+      const [settingsBefore, desktopRuntimeBefore] = await Promise.all([
+        this.capturePersistedFile(this.settingsPath),
+        this.capturePersistedFile(this.desktopRuntimeConfigPath)
+      ])
+      const desktopRuntimeInput: DesktopRuntimeConfigInput = {}
+
+      try {
+        this.applyDelivery(input.delivery)
+        this.applyRuntime(input.runtime, desktopRuntimeInput)
+        this.applyDisplay(input.display)
+        this.applySafety(input.safety, desktopRuntimeInput)
+        this.applyMedia(input.media)
+        this.applyResources(input.resources)
+        this.applyShell(input.shell)
+        this.applyAdvanced(input.advanced)
+
+        // Desktop capabilities are committed only after Pi settings are durably flushed.
+        await this.settingsManager.flush()
+        this.assertSettingsPersistenceSucceeded()
+        await this.settingsManager.reload()
+        this.assertSettingsPersistenceSucceeded()
+        if (Object.keys(desktopRuntimeInput).length > 0) {
+          this.commitDesktopRuntimeConfig(desktopRuntimeInput)
+        }
+        return this.createSnapshot()
+      } catch (error) {
+        try {
+          await this.rollbackAgentSettingsUpdate(
+            settingsBefore,
+            desktopRuntimeBefore,
+            Object.keys(desktopRuntimeInput).length > 0
+          )
+        } catch (rollbackError) {
+          throw new AggregateError(
+            [error, rollbackError],
+            'Agent 设置保存失败，且无法完整恢复保存前状态'
+          )
+        }
+        throw error
+      }
+    })
   }
 
   /** 列出 Pi package manager 配置包。 */
-  async listResourcePackages(): Promise<ResourcePackageSummary[]> {
-    await this.settingsManager.reload()
-    return this.createResourcePackageSummaries()
+  async listResourcePackages(project?: ProjectResourceContext): Promise<ResourcePackageSummary[]> {
+    const context = await this.createResourcePackageContext(project, false)
+    return this.createResourcePackageSummaries(context.packageManager)
   }
 
   /** 获取 Pi-compatible resource / extension 发现快照。 */
-  async getResourceSnapshot(input: ResourceSnapshotInput = {}): Promise<ResourceSnapshot> {
+  async getResourceSnapshot(input?: ProjectResourceContext): Promise<ResourceSnapshot> {
     let snapshot: ResourceSnapshot
-    if (input.cwd) {
+    if (input) {
       const settingsManager = SettingsManager.create(input.cwd, this.agentDir, {
         projectTrusted: input.projectTrusted ?? false
       })
@@ -152,10 +208,8 @@ export class AgentSettingsService {
   }
 
   /** 获取不依赖活跃会话的 Hermes Memory 设置快照。 */
-  async getHermesMemorySnapshot(
-    input: HermesMemorySnapshotInput = {}
-  ): Promise<HermesMemorySnapshot> {
-    const context = await this.createHermesMemoryContext(input.cwd)
+  async getHermesMemorySnapshot(project?: ProjectResourceContext): Promise<HermesMemorySnapshot> {
+    const context = await this.createHermesMemoryContext(project?.cwd)
     await context.globalStore.loadFromDisk()
     if (context.projectStore) await context.projectStore.loadFromDisk()
     await context.skillStore.migrateLegacySkills()
@@ -179,8 +233,17 @@ export class AgentSettingsService {
   }
 
   /** 修改 Hermes Memory 文件并返回最新设置快照。 */
-  async mutateHermesMemory(input: HermesMemoryMutationInput): Promise<HermesMemorySnapshot> {
-    const context = await this.createHermesMemoryContext(input.cwd)
+  async mutateHermesMemory(
+    input: HermesMemoryMutationInput,
+    project?: ProjectResourceContext
+  ): Promise<HermesMemorySnapshot> {
+    if (input.target === 'project' && !project) {
+      throw new Error('当前没有可用的项目记忆')
+    }
+    if (input.target === 'project' && !project?.projectTrusted) {
+      throw new Error('Project 未受信任，无法修改项目记忆')
+    }
+    const context = await this.createHermesMemoryContext(project?.cwd)
     const store = input.target === 'project' ? context.projectStore : context.globalStore
     if (!store) throw new Error('当前没有可用的项目记忆')
     const target = input.target === 'project' ? 'memory' : input.target
@@ -235,74 +298,88 @@ export class AgentSettingsService {
     } finally {
       dbManager.close()
     }
-    return this.getHermesMemorySnapshot({ cwd: input.cwd })
+    return this.getHermesMemorySnapshot(project)
   }
 
   /** 获取项目级 extension 路径配置。 */
-  async getProjectExtensionPaths(input: ProjectExtensionPathsInput): Promise<string[]> {
-    const settingsManager = this.createProjectSettingsManager(input.cwd)
+  async getProjectExtensionPaths(project: ProjectResourceContext): Promise<string[]> {
+    const settingsManager = this.createProjectSettingsManager(project)
     await settingsManager.reload()
     return settingsManager.getProjectSettings().extensions ?? []
   }
 
   /** 更新项目级 extension 路径配置。 */
-  async updateProjectExtensionPaths(input: UpdateProjectExtensionPathsInput): Promise<string[]> {
-    const settingsManager = this.createProjectSettingsManager(input.cwd)
-    await settingsManager.reload()
-    settingsManager.setProjectExtensionPaths(this.cleanStringList(input.extensions))
-    await settingsManager.flush()
-    return settingsManager.getProjectSettings().extensions ?? []
+  async updateProjectExtensionPaths(
+    input: UpdateProjectExtensionPathsInput,
+    project: ProjectResourceContext
+  ): Promise<string[]> {
+    return this.runScopedMutation(this.getMutationScope(project), async () => {
+      const settingsManager = this.createProjectSettingsManager(project)
+      await settingsManager.reload()
+      settingsManager.setProjectExtensionPaths(this.cleanStringList(input.extensions))
+      await settingsManager.flush()
+      await settingsManager.reload()
+      return settingsManager.getProjectSettings().extensions ?? []
+    })
   }
 
   /** 新增并持久化 package source。 */
-  async addResourcePackage(input: ResourcePackageInput): Promise<ResourcePackageSummary[]> {
+  async addResourcePackage(
+    input: ResourcePackageInput,
+    project?: ProjectResourceContext
+  ): Promise<ResourcePackageSummary[]> {
     const source = this.requirePackageSource(input.source)
-    return this.runPackageOperation(async () => {
-      await this.settingsManager.reload()
-      this.packageManager.addSourceToSettings(source, { local: input.local })
-      await this.settingsManager.flush()
-      return this.listResourcePackages()
+    return this.runScopedMutation(this.getMutationScope(project), async () => {
+      const context = await this.createResourcePackageContext(project, true)
+      context.packageManager.addSourceToSettings(source, { local: context.local })
+      await context.settingsManager.flush()
+      return this.createResourcePackageSummaries(context.packageManager)
     })
   }
 
   /** 安装并持久化 package source。 */
   async installResourcePackage(
     input: ResourcePackageInput,
-    onEvent?: ResourcePackageEventHandler
+    onEvent?: ResourcePackageEventHandler,
+    project?: ProjectResourceContext
   ): Promise<ResourcePackageSummary[]> {
     const source = this.requirePackageSource(input.source)
-    return this.runPackageOperation(async () => {
-      await this.settingsManager.reload()
-      await this.withPackageProgress(onEvent, async () => {
-        await this.packageManager.installAndPersist(source, { local: input.local })
-        await this.settingsManager.flush()
+    return this.runScopedMutation(this.getMutationScope(project), async () => {
+      const context = await this.createResourcePackageContext(project, true)
+      await this.withPackageProgress(context.packageManager, onEvent, async () => {
+        await context.packageManager.installAndPersist(source, { local: context.local })
+        await context.settingsManager.flush()
       })
-      return this.listResourcePackages()
+      return this.createResourcePackageSummaries(context.packageManager)
     })
   }
 
   /** 移除并持久化 package source。 */
-  async removeResourcePackage(input: ResourcePackageInput): Promise<ResourcePackageSummary[]> {
+  async removeResourcePackage(
+    input: ResourcePackageInput,
+    project?: ProjectResourceContext
+  ): Promise<ResourcePackageSummary[]> {
     const source = this.requirePackageSource(input.source)
-    return this.runPackageOperation(async () => {
-      await this.settingsManager.reload()
-      this.packageManager.removeSourceFromSettings(source, { local: input.local })
-      await this.settingsManager.flush()
-      return this.listResourcePackages()
+    return this.runScopedMutation(this.getMutationScope(project), async () => {
+      const context = await this.createResourcePackageContext(project, true)
+      context.packageManager.removeSourceFromSettings(source, { local: context.local })
+      await context.settingsManager.flush()
+      return this.createResourcePackageSummaries(context.packageManager)
     })
   }
 
   /** 更新已配置 package source。 */
   async updateResourcePackage(
     input: UpdateResourcePackageInput = {},
-    onEvent?: ResourcePackageEventHandler
+    onEvent?: ResourcePackageEventHandler,
+    project?: ProjectResourceContext
   ): Promise<ResourcePackageSummary[]> {
-    return this.runPackageOperation(async () => {
-      await this.settingsManager.reload()
-      await this.withPackageProgress(onEvent, async () => {
-        await this.packageManager.update(input.source)
+    return this.runScopedMutation(this.getMutationScope(project), async () => {
+      const context = await this.createResourcePackageContext(project, Boolean(project))
+      await this.withPackageProgress(context.packageManager, onEvent, async () => {
+        await context.packageManager.update(input.source)
       })
-      return this.listResourcePackages()
+      return this.createResourcePackageSummaries(context.packageManager)
     })
   }
 
@@ -355,7 +432,12 @@ export class AgentSettingsService {
         enableAnalytics: this.settingsManager.getEnableAnalytics(),
         enableSkillCommands: this.settingsManager.getEnableSkillCommands(),
         warnAnthropicExtraUsage: this.settingsManager.getWarnings().anthropicExtraUsage ?? true,
-        httpProxy: this.settingsManager.getHttpProxy()
+        httpProxy: this.settingsManager.getHttpProxy(),
+        browserCdpAccess: desktopRuntimeConfig.browserCdpAccess,
+        browserWebPermissions: desktopRuntimeConfig.browserWebPermissions,
+        filesystemAccess: desktopRuntimeConfig.filesystemAccess,
+        extensionUrlAccess: desktopRuntimeConfig.extensionUrlAccess,
+        externalProtocolAccess: desktopRuntimeConfig.externalProtocolAccess
       },
       media: {
         imageAutoResize: this.settingsManager.getImageAutoResize(),
@@ -502,10 +584,43 @@ export class AgentSettingsService {
     }
   }
 
-  private createProjectSettingsManager(cwd: string): SettingsManager {
-    return SettingsManager.create(cwd, this.agentDir, {
-      projectTrusted: true
+  private createProjectSettingsManager(project: ProjectResourceContext): SettingsManager {
+    if (!project.projectTrusted) {
+      throw new Error('Project 未受信任，无法修改项目本地设置')
+    }
+    return SettingsManager.create(project.cwd, this.agentDir, {
+      projectTrusted: project.projectTrusted
     })
+  }
+
+  private async createResourcePackageContext(
+    project: ProjectResourceContext | undefined,
+    requireProjectTrust: boolean
+  ): Promise<ResourcePackageContext> {
+    if (!project) {
+      await this.settingsManager.reload()
+      return {
+        settingsManager: this.settingsManager,
+        packageManager: this.packageManager,
+        local: false
+      }
+    }
+    if (requireProjectTrust && !project.projectTrusted) {
+      throw new Error('Project 未受信任，无法修改项目本地 package 配置')
+    }
+    const settingsManager = SettingsManager.create(project.cwd, this.agentDir, {
+      projectTrusted: project.projectTrusted
+    })
+    await settingsManager.reload()
+    return {
+      settingsManager,
+      packageManager: new DefaultPackageManager({
+        cwd: project.cwd,
+        agentDir: this.agentDir,
+        settingsManager
+      }),
+      local: true
+    }
   }
 
   private applyDelivery(input: UpdateAgentSettingsInput['delivery']): void {
@@ -521,16 +636,16 @@ export class AgentSettingsService {
     }
   }
 
-  private applyRuntime(input: UpdateAgentSettingsInput['runtime']): void {
+  private applyRuntime(
+    input: UpdateAgentSettingsInput['runtime'],
+    desktopRuntimeInput: DesktopRuntimeConfigInput
+  ): void {
     if (!input) return
-    if (input.workerMode !== undefined || 'nodeSidecarExecPath' in input) {
-      writeDesktopRuntimeConfig(
-        {
-          workerMode: input.workerMode,
-          nodeSidecarExecPath: input.nodeSidecarExecPath
-        },
-        this.desktopRuntimeConfigPath
-      )
+    if (input.workerMode !== undefined) {
+      desktopRuntimeInput.workerMode = input.workerMode
+    }
+    if ('nodeSidecarExecPath' in input) {
+      desktopRuntimeInput.nodeSidecarExecPath = input.nodeSidecarExecPath
     }
     if (input.compactionEnabled !== undefined) {
       this.settingsManager.setCompactionEnabled(input.compactionEnabled)
@@ -606,7 +721,10 @@ export class AgentSettingsService {
     }
   }
 
-  private applySafety(input: UpdateAgentSettingsInput['safety']): void {
+  private applySafety(
+    input: UpdateAgentSettingsInput['safety'],
+    desktopRuntimeInput: DesktopRuntimeConfigInput
+  ): void {
     if (!input) return
     if (input.defaultProjectTrust !== undefined) {
       this.settingsManager.setDefaultProjectTrust(
@@ -630,6 +748,34 @@ export class AgentSettingsService {
     }
     if ('httpProxy' in input) {
       this.settingsManager.setHttpProxy(this.optionalString(input.httpProxy))
+    }
+    if (input.browserCdpAccess !== undefined) {
+      desktopRuntimeInput.browserCdpAccess = this.requireBrowserCdpAccessMode(
+        input.browserCdpAccess
+      )
+    }
+    if (input.browserWebPermissions !== undefined) {
+      desktopRuntimeInput.browserWebPermissions = this.requireBrowserWebPermissionMode(
+        input.browserWebPermissions
+      )
+    }
+    if (input.filesystemAccess !== undefined) {
+      desktopRuntimeInput.filesystemAccess = this.requireDesktopCapabilityAccessMode(
+        input.filesystemAccess,
+        'filesystemAccess'
+      )
+    }
+    if (input.extensionUrlAccess !== undefined) {
+      desktopRuntimeInput.extensionUrlAccess = this.requireDesktopCapabilityAccessMode(
+        input.extensionUrlAccess,
+        'extensionUrlAccess'
+      )
+    }
+    if (input.externalProtocolAccess !== undefined) {
+      desktopRuntimeInput.externalProtocolAccess = this.requireDesktopCapabilityAccessMode(
+        input.externalProtocolAccess,
+        'externalProtocolAccess'
+      )
     }
   }
 
@@ -700,6 +846,82 @@ export class AgentSettingsService {
     }
   }
 
+  private commitDesktopRuntimeConfig(input: DesktopRuntimeConfigInput): void {
+    writeDesktopRuntimeConfig(input, this.desktopRuntimeConfigPath)
+  }
+
+  private assertSettingsPersistenceSucceeded(): void {
+    const errors = this.settingsManager.drainErrors()
+    if (errors.length === 0) return
+    throw new AggregateError(
+      errors.map((entry) => entry.error),
+      'Pi settings 保存失败，Desktop runtime 配置未提交'
+    )
+  }
+
+  private async capturePersistedFile(path: string): Promise<PersistedFileSnapshot> {
+    try {
+      return { exists: true, content: await readFile(path, 'utf-8') }
+    } catch (error) {
+      if (this.isFileNotFoundError(error)) return { exists: false }
+      throw error
+    }
+  }
+
+  private async restorePersistedFile(path: string, snapshot: PersistedFileSnapshot): Promise<void> {
+    if (!snapshot.exists) {
+      await rm(path, { force: true })
+      return
+    }
+    await mkdir(dirname(path), { recursive: true })
+    await writeFile(path, snapshot.content ?? '', 'utf-8')
+  }
+
+  private async rollbackAgentSettingsUpdate(
+    settingsBefore: PersistedFileSnapshot,
+    desktopRuntimeBefore: PersistedFileSnapshot,
+    restoreDesktopRuntime: boolean
+  ): Promise<void> {
+    const rollbackErrors: unknown[] = []
+
+    // Setters enqueue writes immediately; wait for that queue before restoring the file snapshot.
+    try {
+      await this.settingsManager.reload()
+    } catch (error) {
+      rollbackErrors.push(error)
+    }
+    try {
+      await this.restorePersistedFile(this.settingsPath, settingsBefore)
+    } catch (error) {
+      rollbackErrors.push(error)
+    }
+    if (restoreDesktopRuntime) {
+      try {
+        await this.restorePersistedFile(this.desktopRuntimeConfigPath, desktopRuntimeBefore)
+      } catch (error) {
+        rollbackErrors.push(error)
+      }
+    }
+    try {
+      await this.settingsManager.reload()
+    } catch (error) {
+      rollbackErrors.push(error)
+    }
+
+    if (rollbackErrors.length > 0) {
+      throw new AggregateError(rollbackErrors, '无法恢复 Agent 设置保存前状态')
+    }
+  }
+
+  private isFileNotFoundError(error: unknown): boolean {
+    return (
+      typeof error === 'object' &&
+      error !== null &&
+      'code' in error &&
+      (error as { code?: unknown }).code === 'ENOENT'
+    )
+  }
+
   private createDiagnostics(): AgentSettingsDiagnostic[] {
     return this.settingsManager.drainErrors().map((error, index) => ({
       id: `settings-${error.scope}-${index}`,
@@ -714,8 +936,10 @@ export class AgentSettingsService {
     return packages.map((source) => (typeof source === 'string' ? source : JSON.stringify(source)))
   }
 
-  private createResourcePackageSummaries(): ResourcePackageSummary[] {
-    return this.packageManager.listConfiguredPackages().map((item) => ({
+  private createResourcePackageSummaries(
+    packageManager: DefaultPackageManager
+  ): ResourcePackageSummary[] {
+    return packageManager.listConfiguredPackages().map((item) => ({
       source: item.source,
       scope: item.scope,
       filtered: item.filtered,
@@ -724,26 +948,45 @@ export class AgentSettingsService {
   }
 
   private async withPackageProgress<T>(
+    packageManager: DefaultPackageManager,
     onEvent: ResourcePackageEventHandler | undefined,
     operation: () => Promise<T>
   ): Promise<T> {
-    this.packageManager.setProgressCallback(
+    packageManager.setProgressCallback(
       onEvent ? (event) => onEvent(this.toResourcePackageProgressEvent(event)) : undefined
     )
     try {
       return await operation()
     } finally {
-      this.packageManager.setProgressCallback(undefined)
+      packageManager.setProgressCallback(undefined)
     }
   }
 
-  private async runPackageOperation<T>(operation: () => Promise<T>): Promise<T> {
-    const run = this.packageOperationQueue.then(operation, operation)
-    this.packageOperationQueue = run.then(
+  private runScopedMutation<T>(scope: string, operation: () => Promise<T>): Promise<T> {
+    const previous = this.mutationQueues.get(scope) ?? Promise.resolve()
+    const run = previous.then(operation, operation)
+    const tail = run.then(
       () => undefined,
       () => undefined
     )
+    this.mutationQueues.set(scope, tail)
+    void tail.then(() => {
+      if (this.mutationQueues.get(scope) === tail) {
+        this.mutationQueues.delete(scope)
+      }
+    })
     return run
+  }
+
+  private getMutationScope(project?: ProjectResourceContext): string {
+    if (!project) return 'global'
+    const identity = project.projectId?.trim() || this.normalizeProjectPath(project.cwd)
+    return `project:${identity}`
+  }
+
+  private normalizeProjectPath(path: string): string {
+    const normalized = resolve(path)
+    return process.platform === 'win32' ? normalized.toLowerCase() : normalized
   }
 
   private toResourcePackageProgressEvent(
@@ -814,6 +1057,26 @@ export class AgentSettingsService {
   private requireDefaultProjectTrust(value: AgentDefaultProjectTrust): AgentDefaultProjectTrust {
     if (value === 'ask' || value === 'always' || value === 'never') return value
     throw new Error(`invalid defaultProjectTrust: ${String(value)}`)
+  }
+
+  private requireBrowserCdpAccessMode(value: BrowserCdpAccessMode): BrowserCdpAccessMode {
+    if (value === 'disabled' || value === 'safe' || value === 'full') return value
+    throw new Error(`invalid browserCdpAccess: ${String(value)}`)
+  }
+
+  private requireBrowserWebPermissionMode(
+    value: BrowserWebPermissionMode
+  ): BrowserWebPermissionMode {
+    if (value === 'disabled' || value === 'prompt' || value === 'full') return value
+    throw new Error(`invalid browserWebPermissions: ${String(value)}`)
+  }
+
+  private requireDesktopCapabilityAccessMode(
+    value: DesktopCapabilityAccessMode,
+    field: string
+  ): DesktopCapabilityAccessMode {
+    if (value === 'safe' || value === 'full') return value
+    throw new Error(`invalid ${field}: ${String(value)}`)
   }
 
   private requireDoubleEscapeAction(value: AgentDoubleEscapeAction): AgentDoubleEscapeAction {

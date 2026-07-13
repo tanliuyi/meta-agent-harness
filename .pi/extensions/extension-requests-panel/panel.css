@@ -124,8 +124,7 @@ button {
   white-space: nowrap;
 }
 
-button:hover:not(:disabled),
-button:focus-visible {
+button:hover:not(:disabled) {
   border-color: var(--pi-panel-accent, #2563eb);
   outline: none;
 }

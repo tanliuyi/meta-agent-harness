@@ -2,18 +2,11 @@
  * 本文件实现 Electron main 侧轻量 Project metadata registry。
  */
 
-import {
-  accessSync,
-  constants,
-  existsSync,
-  mkdirSync,
-  readFileSync,
-  statSync,
-  writeFileSync
-} from 'node:fs'
-import { basename, dirname, join, resolve } from 'node:path'
+import { accessSync, constants, existsSync, statSync } from 'node:fs'
+import { basename, join, resolve } from 'node:path'
 import type { CreateProjectInput, ProjectStatus, ProjectSummary } from '@shared/coding-agent/types'
 import { getDesktopAgentDir } from './agent-dir'
+import { readRecoverableJsonFile, writeRecoverableJsonFile } from './recoverable-json-file'
 
 /** Project metadata 文件结构。 */
 interface ProjectMetadataFile {
@@ -215,11 +208,14 @@ export class ProjectStore {
 
   /** 从 metadata 文件加载。 */
   private load(): void {
-    if (!this.metadataPath || !existsSync(this.metadataPath)) {
+    if (
+      !this.metadataPath ||
+      (!existsSync(this.metadataPath) && !existsSync(`${this.metadataPath}.bak`))
+    ) {
       return
     }
-    const metadata = JSON.parse(readFileSync(this.metadataPath, 'utf8')) as ProjectMetadataFile
-    for (const project of metadata.projects ?? []) {
+    const metadata = readRecoverableJsonFile(this.metadataPath, isProjectMetadataFile)
+    for (const project of metadata.projects) {
       this.projects.set(project.projectId, project)
     }
   }
@@ -237,13 +233,33 @@ export class ProjectStore {
     if (!this.persist || !this.metadataPath) {
       return
     }
-    mkdirSync(dirname(this.metadataPath), { recursive: true })
     const metadata: ProjectMetadataFile = {
       version: 1,
       projects: [...this.projects.values()]
     }
-    writeFileSync(this.metadataPath, `${JSON.stringify(metadata, null, 2)}\n`)
+    writeRecoverableJsonFile(this.metadataPath, metadata, isProjectMetadataFile)
   }
+}
+
+function isProjectMetadataFile(value: unknown): value is ProjectMetadataFile {
+  if (!isRecord(value) || value.version !== 1 || !Array.isArray(value.projects)) {
+    return false
+  }
+  return value.projects.every(
+    (project) =>
+      isRecord(project) &&
+      typeof project.projectId === 'string' &&
+      typeof project.name === 'string' &&
+      typeof project.path === 'string' &&
+      typeof project.status === 'string' &&
+      ['available', 'missing', 'permissionDenied', 'invalid'].includes(project.status) &&
+      typeof project.createdAt === 'string' &&
+      typeof project.updatedAt === 'string'
+  )
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
 /**

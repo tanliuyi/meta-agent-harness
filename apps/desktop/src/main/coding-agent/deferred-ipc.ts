@@ -12,10 +12,12 @@ import {
 
 const subscribers = new Set<WebContents>()
 const initialLoadDelayMs = 750
+const retryLoadDelayMs = 1000
 
 let eventSubscriptionRegistered = false
 let metadataIpcRegistration: LightweightMetadataIpcRegistration | undefined
 let managerPromise: Promise<CodingThreadManager> | undefined
+let loadTimer: ReturnType<typeof setTimeout> | undefined
 
 /**
  * 注册轻量事件订阅入口，并异步加载完整 coding-agent IPC handlers。
@@ -23,9 +25,19 @@ let managerPromise: Promise<CodingThreadManager> | undefined
 export function registerDeferredCodingAgentIpc(): void {
   registerEventSubscription()
   registerMetadataIpc()
-  setTimeout(() => {
-    void loadCodingAgentIpc()
-  }, initialLoadDelayMs)
+  scheduleCodingAgentIpcLoad(initialLoadDelayMs)
+}
+
+function scheduleCodingAgentIpcLoad(delayMs: number): void {
+  if (loadTimer || managerPromise) {
+    return
+  }
+  loadTimer = setTimeout(() => {
+    loadTimer = undefined
+    void loadCodingAgentIpc().catch(() => {
+      scheduleCodingAgentIpcLoad(retryLoadDelayMs)
+    })
+  }, delayMs)
 }
 
 function registerEventSubscription(): void {
@@ -48,11 +60,17 @@ function registerMetadataIpc(): void {
   metadataIpcRegistration ??= registerLightweightMetadataIpc()
 }
 
+function disposeMetadataIpc(): void {
+  const registration = metadataIpcRegistration
+  metadataIpcRegistration = undefined
+  registration?.dispose()
+}
+
 function loadCodingAgentIpc(): Promise<CodingThreadManager> {
   managerPromise ??= import('./ipc')
     .then(({ registerCodingAgentIpc }) => {
-      metadataIpcRegistration?.dispose()
-      metadataIpcRegistration = undefined
+      disposeMetadataIpc()
+      removeCodingAgentInvokeHandlers()
       return registerCodingAgentIpc({
         registerEventHandler: false,
         subscribers
@@ -60,11 +78,19 @@ function loadCodingAgentIpc(): Promise<CodingThreadManager> {
     })
     .catch((error: unknown) => {
       managerPromise = undefined
+      disposeMetadataIpc()
+      removeCodingAgentInvokeHandlers()
       registerMetadataIpc()
       console.error('Failed to register coding-agent IPC handlers', error)
       throw error
     })
   return managerPromise
+}
+
+function removeCodingAgentInvokeHandlers(): void {
+  for (const channel of Object.values(codingAgentChannels)) {
+    ipcMain.removeHandler(channel)
+  }
 }
 
 /**

@@ -2,14 +2,18 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   addBrowserTab,
   closeBrowserTab,
+  createBrowserGuideTab,
   createBrowserTab,
+  createBrowserCommandLifecycle,
+  enqueueSerialBrowserCommand,
+  getBrowserEmptyState,
   getBrowserSessionScope,
+  hasBrowserTabs,
   MAX_BROWSER_TABS,
   requireBrowserTab,
   restoreBrowserTabs,
   switchBrowserTab,
   transferBrowserSessionScope,
-  withBrowserCommandTimeout,
   type BrowserTabsState
 } from '../browserPreviewTabs'
 
@@ -83,6 +87,18 @@ describe('browser preview tabs', () => {
     }
   })
 
+  it('creates a local new-tab guide without a page URL', () => {
+    const guide = createBrowserGuideTab('guide-a')
+
+    expect(guide).toEqual({
+      id: 'guide-a',
+      kind: 'guide',
+      title: 'New tab',
+      url: '',
+      loading: false
+    })
+  })
+
   it('opens, targets, and switches independent browser tabs', () => {
     const tabs = state()
     addBrowserTab(tabs, createBrowserTab('tab-b', 'https://b.example/'), false)
@@ -105,13 +121,31 @@ describe('browser preview tabs', () => {
     expect(tabs.tabs.map((tab) => tab.id)).toEqual(['tab-a', 'tab-c'])
   })
 
-  it('rejects unknown targets and keeps one tab alive', () => {
+  it('rejects unknown targets', () => {
     const tabs = state()
     expect(() => requireBrowserTab(tabs, 'missing')).toThrow('Browser tab not found')
     expect(() => switchBrowserTab(tabs, 'missing')).toThrow('Browser tab not found')
-    expect(() => closeBrowserTab(tabs, 'tab-a')).toThrow('last browser tab')
+  })
+
+  it('allows closing the last tab', () => {
+    const tabs = state()
     expect(tabs.tabs).toHaveLength(1)
-    expect(tabs.activeBrowserId).toBe('tab-a')
+    const closed = closeBrowserTab(tabs, 'tab-a')
+    expect(closed.id).toBe('tab-a')
+    expect(tabs.tabs).toHaveLength(0)
+    expect(tabs.activeBrowserId).toBe('')
+    expect(hasBrowserTabs(tabs)).toBe(false)
+  })
+
+  it('provides empty state when no tabs exist', () => {
+    const emptyState = getBrowserEmptyState()
+    expect(emptyState.title).toBe('No browser tabs')
+    expect(emptyState.message).toBe('Open a new tab to start browsing')
+
+    const tabs = state()
+    expect(hasBrowserTabs(tabs)).toBe(true)
+    closeBrowserTab(tabs, 'tab-a')
+    expect(hasBrowserTabs(tabs)).toBe(false)
   })
 
   it('enforces the tab limit', () => {
@@ -123,20 +157,56 @@ describe('browser preview tabs', () => {
     expect(() => addBrowserTab(tabs, createBrowserTab('overflow'))).toThrow('tab limit')
   })
 
-  it('releases a command queue when page execution never settles', async () => {
+  it('times out the response but keeps the queue blocked until the page operation settles', async () => {
     vi.useFakeTimers()
     try {
-      const timedOut = expect(
-        withBrowserCommandTimeout(new Promise(() => undefined), 'execute-js', 25_000)
-      ).rejects.toThrow('Browser command timed out in renderer: execute-js')
+      let releaseOperation!: () => void
+      const operation = new Promise<void>((resolve) => {
+        releaseOperation = resolve
+      })
+      const lifecycle = createBrowserCommandLifecycle(operation, 'execute-js', 25_000)
+      let settled = false
+      void lifecycle.settled.then(() => {
+        settled = true
+      })
+      const timedOut = expect(lifecycle.response).rejects.toThrow(
+        'Browser command timed out in renderer: execute-js'
+      )
+
       await vi.advanceTimersByTimeAsync(25_000)
       await timedOut
-      await expect(
-        withBrowserCommandTimeout(Promise.resolve('next'), 'snapshot', 25_000)
-      ).resolves.toBe('next')
+      expect(settled).toBe(false)
+
+      releaseOperation()
+      await lifecycle.settled
+      expect(settled).toBe(true)
     } finally {
       vi.useRealTimers()
     }
+  })
+
+  it('keeps control and page commands in one protocol-ordered queue', async () => {
+    const events: string[] = []
+    let releaseOpen!: () => void
+    const openGate = new Promise<void>((resolve) => {
+      releaseOpen = resolve
+    })
+
+    const open = enqueueSerialBrowserCommand(Promise.resolve(), async () => {
+      events.push('open:start')
+      await openGate
+      events.push('open:end')
+    })
+    const navigate = enqueueSerialBrowserCommand(open, async () => {
+      events.push('navigate')
+    })
+
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(events).toEqual(['open:start'])
+    releaseOpen()
+    await navigate
+    expect(events).toEqual(['open:start', 'open:end', 'navigate'])
   })
 
   it('restores only unique valid persisted tabs', () => {
@@ -160,5 +230,8 @@ describe('browser preview tabs', () => {
       ]
     })
     expect(restoreBrowserTabs({ tabs: [{ id: 'bad', url: 'not-a-url' }] })).toBeNull()
+    expect(
+      restoreBrowserTabs({ tabs: [{ id: 'x'.repeat(129), url: 'https://valid.example/' }] })
+    ).toBeNull()
   })
 })

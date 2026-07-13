@@ -404,6 +404,7 @@ export class RuntimeDesktopWorkerService implements DesktopWorkerService {
       }
       const change = createDesktopFileChangeFromEditResult({
         threadId,
+        cwd: runtime.session.sessionManager.getCwd(),
         toolCallId: event.toolCallId,
         toolName: event.toolName,
         args: this.toolArgsByCallId.get(event.toolCallId),

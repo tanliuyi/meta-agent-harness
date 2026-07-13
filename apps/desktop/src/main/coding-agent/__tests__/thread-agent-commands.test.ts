@@ -3,15 +3,17 @@
  */
 
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'fs'
+import { mkdirSync, mkdtempSync, rmSync, truncateSync, writeFileSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import { clipboard } from 'electron'
-import { prompt, runCommand, toSlashCommand } from '../thread-agent-commands'
+import { followUp, prompt, runCommand, steer, toSlashCommand } from '../thread-agent-commands'
+import { exportSession } from '../thread-session-commands'
 import type { ThreadManagerCore } from '../thread-manager-core'
 import type { WorkerCommand } from '../worker-types'
 
 vi.mock('electron', () => ({
+  app: { getPath: vi.fn(() => tmpdir()) },
   clipboard: {
     writeText: vi.fn()
   }
@@ -119,6 +121,88 @@ describe('thread-agent-commands', () => {
     } finally {
       rmSync(root, { recursive: true, force: true })
     }
+  })
+
+  it('prompt 在最终 worker 边界拒绝累计超过数量限制的 inline 图片', async () => {
+    const core = {
+      requireThread: vi.fn(() => ({ threadId: 'thread-a' })),
+      updateThread: vi.fn(),
+      sendOk: vi.fn()
+    } as unknown as ThreadManagerCore
+    const image = { type: 'image' as const, mimeType: 'image/png', data: 'YQ==' }
+
+    await expect(
+      prompt(core, {
+        threadId: 'thread-a',
+        message: 'images',
+        images: Array.from({ length: 11 }, () => image)
+      })
+    ).rejects.toThrow('最多添加 10 张图片')
+    expect(core.sendOk).not.toHaveBeenCalled()
+  })
+
+  it('prompt、steer 与 followUp 在读取路径图片前统一拒绝源文件总预算溢出', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'desktop-prompt-image-budget-'))
+    const pngHeader = Buffer.from('89504e470d0a1a0a0000000d49484452', 'hex')
+    const imagePaths = Array.from({ length: 3 }, (_, index) => {
+      const filePath = join(root, `large-${index}.png`)
+      writeFileSync(filePath, pngHeader)
+      truncateSync(filePath, 18 * 1024 * 1024)
+      return filePath
+    })
+
+    try {
+      for (const send of [prompt, steer, followUp]) {
+        const core = {
+          requireThread: vi.fn(() => ({ threadId: 'thread-a' })),
+          getThreadCwd: vi.fn(() => root),
+          getAgentSettingsService: vi.fn(async () => ({
+            getImageAutoResize: vi.fn(() => true)
+          })),
+          updateThread: vi.fn(),
+          sendOk: vi.fn()
+        } as unknown as ThreadManagerCore
+
+        await expect(
+          send(core, {
+            threadId: 'thread-a',
+            message: 'images',
+            imageFiles: imagePaths.map((path) => ({ path }))
+          })
+        ).rejects.toThrow('图片总大小超过限制')
+        expect(core.sendOk).not.toHaveBeenCalled()
+      }
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it('Desktop export API 在受控模式使用默认路径，完整模式允许指定路径', async () => {
+    const commands: WorkerCommand[] = []
+    const core = {
+      sendData: vi.fn(async (_threadId: string, command: WorkerCommand) => {
+        commands.push(command)
+        return { path: '/tmp/session.html' }
+      })
+    } as unknown as ThreadManagerCore
+
+    await expect(exportSession(core, { threadId: 'thread-a' })).resolves.toEqual({
+      path: '/tmp/session.html'
+    })
+    expect(commands).toEqual([{ type: 'export_html' }])
+
+    await expect(
+      exportSession(core, { threadId: 'thread-a', outputPath: 'C:\\exports\\session.html' })
+    ).rejects.toThrow('完整文件系统能力')
+    vi.stubEnv('CODING_AGENT_FILESYSTEM_ACCESS', 'full')
+    await exportSession(core, {
+      threadId: 'thread-a',
+      outputPath: 'C:\\exports\\session.html'
+    })
+    expect(commands.at(-1)).toEqual({
+      type: 'export_html',
+      outputPath: 'C:\\exports\\session.html'
+    })
   })
 
   it('prompt 不展开手打的 $skill 文本', async () => {
@@ -356,23 +440,47 @@ describe('thread-agent-commands', () => {
     })
     const sessionResult = await runCommand(core, { threadId: 'thread-a', command: 'session' })
     const copyResult = await runCommand(core, { threadId: 'thread-a', command: 'copy' })
-    const exportResult = await runCommand(core, {
-      threadId: 'thread-a',
-      command: 'export',
-      args: '/tmp/session.html'
-    })
+    const exportResult = await runCommand(core, { threadId: 'thread-a', command: 'export' })
 
     expect(commands).toEqual([
       { type: 'set_session_name', name: 'Demo' },
       { type: 'get_session_stats' },
       { type: 'get_last_assistant_text' },
-      { type: 'export_html', outputPath: '/tmp/session.html' }
+      { type: 'export_html' }
     ])
     expect(core.updateThread).toHaveBeenCalledWith('thread-a', { title: 'Demo' })
     expect(nameResult).toEqual({ message: '已重命名为 Demo', refreshSnapshot: true })
     expect(sessionResult?.message).toBe('会话统计：用户 2，助手 3，工具 4，tokens 99')
     expect(copyResult?.message).toBe('已复制最后一条助手消息')
     expect(exportResult?.message).toBe('已导出到 /tmp/session.html')
+  })
+
+  it('Desktop /export 受控模式拒绝、完整模式恢复指定输出路径', async () => {
+    const core = { sendData: vi.fn() } as unknown as ThreadManagerCore
+
+    await expect(
+      runCommand(core, {
+        threadId: 'thread-a',
+        command: 'export',
+        args: 'C:\\sensitive.json'
+      })
+    ).rejects.toThrow('不接受输出路径')
+    expect(core.sendData).not.toHaveBeenCalled()
+
+    vi.stubEnv('CODING_AGENT_FILESYSTEM_ACCESS', 'full')
+    const sendData = vi.fn(async <T>(): Promise<T> => ({ path: 'C:\\sensitive.json' }) as T)
+    const fullAccessCore = { sendData } as unknown as ThreadManagerCore
+    await expect(
+      runCommand(fullAccessCore, {
+        threadId: 'thread-a',
+        command: 'export',
+        args: 'C:\\sensitive.json'
+      })
+    ).resolves.toMatchObject({ message: '已导出到 C:\\sensitive.json' })
+    expect(sendData).toHaveBeenCalledWith('thread-a', {
+      type: 'export_html',
+      outputPath: 'C:\\sensitive.json'
+    })
   })
 
   it('runCommand 对带参数的 fork/tree/resume/model 映射到 Pi canonical commands', async () => {

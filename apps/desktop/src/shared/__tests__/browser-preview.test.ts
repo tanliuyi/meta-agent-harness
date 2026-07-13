@@ -21,6 +21,8 @@ describe('browser preview emulation contract', () => {
   it('provides a persistent shared guest partition and tab open request channel', () => {
     expect(browserPreviewPartition).toBe('persist:browser-preview')
     expect(browserPreviewChannels.openRequested).toBe('browser-preview:open-requested')
+    expect(browserPreviewChannels.sendCdpCommand).toBe('browser-preview:send-cdp-command')
+    expect(browserPreviewChannels.readCdpEvents).toBe('browser-preview:read-cdp-events')
   })
 
   it('accepts bounded mobile device metrics', () => {
@@ -35,7 +37,9 @@ describe('browser preview emulation contract', () => {
     { ...iphone, deviceScaleFactor: 0 },
     { ...iphone, orientation: 'upside-down' },
     { ...iphone, touch: 'yes' },
-    { ...iphone, userAgent: 42 }
+    { ...iphone, userAgent: 42 },
+    { ...iphone, userAgent: 'x'.repeat(513) },
+    { ...iphone, platform: 'x'.repeat(129) }
   ])('rejects unsafe or malformed metrics %#', (value) => {
     expect(() => validateBrowserPreviewEmulation(value)).toThrow('Invalid browser device emulation')
   })

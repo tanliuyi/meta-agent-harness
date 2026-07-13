@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { registerOAuthProvider } from '@earendil-works/pi-ai/oauth'
+import { registerOAuthProvider, unregisterOAuthProvider } from '@earendil-works/pi-ai/oauth'
 import lockfile from 'proper-lockfile'
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 import { AuthStorage } from '../src/core/auth-storage.ts'
@@ -539,6 +539,89 @@ describe('AuthStorage', () => {
 
       const secondTry = await authStorage.getApiKey(providerId)
       expect(secondTry).toBe('Bearer refreshed-access-token')
+    })
+  })
+
+  describe('oauth login cancellation', () => {
+    test('does not start the provider when the signal is already aborted', async () => {
+      const providerId = `test-oauth-pre-abort-${Date.now()}-${Math.random().toString(36).slice(2)}`
+      const login = vi.fn(async () => ({
+        refresh: 'must-not-persist-refresh',
+        access: 'must-not-persist-access',
+        expires: Date.now() + 60_000
+      }))
+      registerOAuthProvider({
+        id: providerId,
+        name: 'Pre-abort Test Provider',
+        login,
+        async refreshToken(credentials) {
+          return credentials
+        },
+        getApiKey(credentials) {
+          return credentials.access
+        }
+      })
+      authStorage = AuthStorage.create(authJsonPath)
+      const controller = new AbortController()
+      controller.abort()
+
+      try {
+        await expect(
+          authStorage.login(providerId, {
+            signal: controller.signal,
+            onAuth: () => undefined,
+            onDeviceCode: () => undefined,
+            onPrompt: async () => '',
+            onSelect: async () => undefined
+          })
+        ).rejects.toMatchObject({ name: 'AbortError' })
+        expect(login).not.toHaveBeenCalled()
+        expect(authStorage.has(providerId)).toBe(false)
+      } finally {
+        unregisterOAuthProvider(providerId)
+      }
+    })
+
+    test('does not persist credentials when the signal aborts after the provider returns', async () => {
+      const providerId = `test-oauth-abort-${Date.now()}-${Math.random().toString(36).slice(2)}`
+      const controller = new AbortController()
+      registerOAuthProvider({
+        id: providerId,
+        name: 'Abort Test Provider',
+        async login() {
+          controller.abort()
+          return {
+            refresh: 'must-not-persist-refresh',
+            access: 'must-not-persist-access',
+            expires: Date.now() + 60_000
+          }
+        },
+        async refreshToken(credentials) {
+          return credentials
+        },
+        getApiKey(credentials) {
+          return credentials.access
+        }
+      })
+      authStorage = AuthStorage.create(authJsonPath)
+
+      try {
+        await expect(
+          authStorage.login(providerId, {
+            signal: controller.signal,
+            onAuth: () => undefined,
+            onDeviceCode: () => undefined,
+            onPrompt: async () => '',
+            onSelect: async () => undefined
+          })
+        ).rejects.toMatchObject({ name: 'AbortError' })
+        expect(authStorage.has(providerId)).toBe(false)
+        expect(existsSync(authJsonPath) ? readFileSync(authJsonPath, 'utf-8') : '').not.toContain(
+          'must-not-persist'
+        )
+      } finally {
+        unregisterOAuthProvider(providerId)
+      }
     })
   })
 

@@ -1,10 +1,12 @@
 export const DEFAULT_BROWSER_URL = 'http://127.0.0.1:3000'
 export const MAX_BROWSER_TABS = 20
+const MAX_BROWSER_ID_BYTES = 128
 const BROWSER_SESSION_SCOPE_STORAGE_PREFIX = 'meta-agent.browser-preview.session-scope:'
 const browserSessionScopeByThreadId = new Map<string, string>()
 
 export interface BrowserTab {
   id: string
+  kind: 'guide' | 'page'
   title: string
   url: string
   loading: boolean
@@ -62,7 +64,7 @@ export function restoreBrowserTabs(value: unknown): BrowserTabsState | null {
     const tab = candidate as { id?: unknown; url?: unknown }
     if (
       typeof tab.id !== 'string' ||
-      !tab.id.trim() ||
+      !isValidBrowserId(tab.id) ||
       typeof tab.url !== 'string' ||
       seenIds.has(tab.id)
     ) {
@@ -108,8 +110,54 @@ export function withBrowserCommandTimeout<T>(
   })
 }
 
+export interface BrowserCommandLifecycle<T> {
+  response: Promise<T>
+  settled: Promise<void>
+}
+
+/**
+ * Timeout controls when the caller receives a response; settlement controls when the serial queue
+ * may advance. Electron page operations are not cancellable, so advancing on timeout would allow a
+ * late navigation or script to race the next command.
+ */
+export function createBrowserCommandLifecycle<T>(
+  operation: Promise<T>,
+  command: string,
+  timeoutMs: number
+): BrowserCommandLifecycle<T> {
+  return {
+    response: withBrowserCommandTimeout(operation, command, timeoutMs),
+    settled: operation.then(
+      () => undefined,
+      () => undefined
+    )
+  }
+}
+
+/** 将 Browser 协议命令串到同一条队列，确保控制命令与页面命令保持到达顺序。 */
+export function enqueueSerialBrowserCommand<T>(
+  previous: Promise<unknown>,
+  operation: () => Promise<T>
+): Promise<T> {
+  return previous.catch(() => undefined).then(operation)
+}
+
+export function createBrowserGuideTab(id: string): BrowserTab {
+  if (!isValidBrowserId(id)) throw new Error('Invalid Browser tab ID')
+  return { id, kind: 'guide', title: 'New tab', url: '', loading: false }
+}
+
 export function createBrowserTab(id: string, url = DEFAULT_BROWSER_URL): BrowserTab {
-  return { id, title: 'New tab', url, loading: false }
+  if (!isValidBrowserId(id)) throw new Error('Invalid Browser tab ID')
+  return { id, kind: 'page', title: 'New tab', url, loading: false }
+}
+
+export function isBrowserPageTab(tab: BrowserTab): boolean {
+  return tab.kind === 'page'
+}
+
+function isValidBrowserId(value: string): boolean {
+  return Boolean(value.trim()) && new TextEncoder().encode(value).byteLength <= MAX_BROWSER_ID_BYTES
 }
 
 export function addBrowserTab(
@@ -135,12 +183,11 @@ export function switchBrowserTab(state: BrowserTabsState, browserId: string): Br
 }
 
 export function closeBrowserTab(state: BrowserTabsState, browserId: string): BrowserTab {
-  if (state.tabs.length === 1) throw new Error('The last browser tab cannot be closed')
   const index = state.tabs.findIndex((tab) => tab.id === browserId)
   if (index < 0) throw new Error(`Browser tab not found: ${browserId}`)
   const [closed] = state.tabs.splice(index, 1)
   if (state.activeBrowserId === browserId) {
-    state.activeBrowserId = state.tabs[Math.min(index, state.tabs.length - 1)].id
+    state.activeBrowserId = state.tabs[Math.min(index, state.tabs.length - 1)]?.id ?? ''
   }
   return closed
 }
@@ -150,4 +197,20 @@ export function requireBrowserTab(state: BrowserTabsState, browserId?: string): 
   const tab = state.tabs.find((entry) => entry.id === resolvedId)
   if (!tab) throw new Error(`Browser tab not found: ${resolvedId}`)
   return tab
+}
+
+export interface BrowserEmptyState {
+  title: string
+  message: string
+}
+
+export function getBrowserEmptyState(): BrowserEmptyState {
+  return {
+    title: 'No browser tabs',
+    message: 'Open a new tab to start browsing'
+  }
+}
+
+export function hasBrowserTabs(state: BrowserTabsState): boolean {
+  return state.tabs.length > 0
 }

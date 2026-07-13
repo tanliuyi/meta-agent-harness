@@ -2,6 +2,7 @@
 import { ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import ConfirmDialogProvider from './components/confirm/ConfirmDialogProvider.vue'
+import BrowserPermissionRequestHost from './components/browser/BrowserPermissionRequestHost.vue'
 import TitleBar from './components/title-bar/TitleBar.vue'
 import ToastProvider from './components/toast/ToastProvider.vue'
 import { useAppearanceSettings } from './composables/useAppearanceSettings'
@@ -28,6 +29,7 @@ watch(
 
 <template>
   <ConfirmDialogProvider>
+    <BrowserPermissionRequestHost />
     <div class="app-shell">
       <TitleBar />
       <div class="app-shell__content">

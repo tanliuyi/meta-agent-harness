@@ -15,6 +15,44 @@ import type {
 } from '../worker-types'
 
 describe('ThreadWorkerRegistry', () => {
+  it('shutdown 等待尚未完成的 worker 创建并立即终止返回的 worker', async () => {
+    let resolveWorker: ((worker: WorkerClient) => void) | undefined
+    const stopReasons: string[] = []
+    const registry = new ThreadWorkerRegistry({
+      createWorker: () =>
+        new Promise<WorkerClient>((resolve) => {
+          resolveWorker = resolve
+        })
+    })
+
+    const acquisition = registry
+      .acquireThreadWorker({ threadId: 'thread-a', cwd: '/tmp/project-a' })
+      .then(
+        () => undefined,
+        (error: unknown) => error
+      )
+    await waitUntil(() => Boolean(resolveWorker))
+
+    let shutdownFinished = false
+    const shutdown = registry.shutdown().then(() => {
+      shutdownFinished = true
+    })
+    await waitMs(0)
+    expect(shutdownFinished).toBe(false)
+
+    resolveWorker?.({
+      ...createFakeWorker('worker-a'),
+      stop: async (reason: string) => {
+        stopReasons.push(reason)
+      }
+    })
+
+    await shutdown
+    expect(await acquisition).toMatchObject({ message: 'worker registry is closed' })
+    expect(stopReasons).toEqual(['shutdown'])
+    expect(registry.listLeases()).toEqual([])
+  })
+
   it('为并行 thread 立即创建独立 worker，不排队等待其它 thread 释放', async () => {
     let count = 0
     const registry = new ThreadWorkerRegistry({

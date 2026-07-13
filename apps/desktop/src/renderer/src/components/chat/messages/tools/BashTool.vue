@@ -99,22 +99,18 @@ watch(
   { immediate: true }
 )
 
-async function openFullOutput(): Promise<void> {
-  await revealFullOutput('open')
-}
-
 async function showFullOutput(): Promise<void> {
-  await revealFullOutput('reveal')
+  await revealFullOutput()
 }
 
-async function revealFullOutput(mode: 'open' | 'reveal'): Promise<void> {
+async function revealFullOutput(): Promise<void> {
   const path = fullOutputPath.value
   if (!path) {
     return
   }
   actionError.value = undefined
   try {
-    await window.api.codingAgent.revealResourcePath({ path, mode })
+    await window.api.codingAgent.revealResourcePath({ path, mode: 'reveal' })
   } catch (error) {
     actionError.value = error instanceof Error ? error.message : String(error)
   }
@@ -150,7 +146,6 @@ async function revealFullOutput(mode: 'open' | 'reveal'): Promise<void> {
           <span v-if="actionError" class="bash-tool__error">{{ actionError }}</span>
         </div>
         <div v-if="fullOutputPath" class="bash-tool__actions">
-          <BaseButton size="sm" variant="ghost" @click.stop="openFullOutput">打开</BaseButton>
           <BaseButton size="sm" variant="ghost" @click.stop="showFullOutput">显示</BaseButton>
         </div>
       </div>

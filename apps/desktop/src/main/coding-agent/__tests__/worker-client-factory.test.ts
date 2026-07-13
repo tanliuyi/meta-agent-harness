@@ -30,7 +30,12 @@ describe('createConfiguredWorkerClient', () => {
       createConfiguredWorkerClient({
         readConfig: () => ({
           workerMode: 'nodeSidecar',
-          nodeSidecarExecPath: '/opt/node/bin/node'
+          nodeSidecarExecPath: '/opt/node/bin/node',
+          browserCdpAccess: 'safe',
+          browserWebPermissions: 'prompt',
+          filesystemAccess: 'safe',
+          extensionUrlAccess: 'safe',
+          externalProtocolAccess: 'safe'
         })
       })
     ).resolves.toBe(client)
@@ -48,7 +53,12 @@ describe('createConfiguredWorkerClient', () => {
     await expect(
       createConfiguredWorkerClient({
         readConfig: () => ({
-          workerMode: 'utilityProcess'
+          workerMode: 'utilityProcess',
+          browserCdpAccess: 'safe',
+          browserWebPermissions: 'prompt',
+          filesystemAccess: 'safe',
+          extensionUrlAccess: 'safe',
+          externalProtocolAccess: 'safe'
         })
       })
     ).resolves.toBe(client)

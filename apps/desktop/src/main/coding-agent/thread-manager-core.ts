@@ -446,7 +446,10 @@ export class ThreadManagerCore {
       const liveState = response.data as Partial<ThreadLiveState>
       this.syncThreadMetadataFromLiveState(thread, liveState)
       const currentThread = this.requireThread(threadId)
-      const liveProjection = await this.getLiveProjection(threadId)
+      const liveProjection = await this.getLiveProjection(
+        threadId,
+        liveState.cwd ?? this.getThreadCwd(currentThread)
+      )
       const persistedProjection = await this.getPersistedProjection(
         currentThread,
         liveState.currentEntryId
@@ -541,10 +544,12 @@ export class ThreadManagerCore {
   /**
    * 从 Pi live runtime 读取完整 message/tool call projection。
    * @param threadId - 线程 ID。
+   * @param cwd - 当前 worker session 的工作目录。
    * @returns desktop live projection 或 undefined。
    */
   private async getLiveProjection(
-    threadId: string
+    threadId: string,
+    cwd: string
   ): Promise<Pick<ThreadSnapshot, 'messages' | 'toolCalls' | 'fileChanges'> | undefined> {
     const response = await this.workers.send(threadId, { type: 'get_messages' })
     if (!response.success) {
@@ -561,7 +566,7 @@ export class ThreadManagerCore {
     return {
       messages: sessionSnapshot.toThreadMessages(data.messages, data.messageEntryIds),
       toolCalls: sessionSnapshot.toThreadToolCalls(data.messages, threadId),
-      fileChanges: sessionSnapshot.toThreadFileChanges(data.messages, threadId)
+      fileChanges: sessionSnapshot.toThreadFileChanges(data.messages, threadId, cwd)
     }
   }
 

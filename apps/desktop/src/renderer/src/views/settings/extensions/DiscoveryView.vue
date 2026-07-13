@@ -67,6 +67,8 @@ const pathSettingsDialogOpen = ref(false)
 const pathDraft = ref('')
 const scopeDraft = ref<ExtensionScope>('user')
 const selectedRow = ref<ExtensionListRow | null>(null)
+const addDialogProjectId = ref<string | null>(null)
+const selectedRowProjectId = ref<string | null>(null)
 
 const searchQuery = ref('')
 const scopeFilter = ref<'all' | 'project' | 'user' | 'package'>('all')
@@ -90,13 +92,10 @@ const extensionRows = computed(() => agentSettings.discoveredExtensions)
 const extensionPathRows = computed(() => agentSettings.resolvedExtensionPaths)
 const resourceSnapshot = computed(() => agentSettings.resourceSnapshot)
 const activeProject = computed(() => workspaceProject.activeProject)
-const activeProjectCwd = computed(
-  () =>
-    workspaceSession.activeSnapshot?.cwd ??
-    activeProject.value?.path ??
-    projectSnapshotInput.value?.cwd
+const activeProjectId = computed(
+  () => workspaceSession.activeProjectId ?? activeProject.value?.projectId
 )
-const canWriteProjectSettings = computed(() => Boolean(activeProjectCwd.value))
+const canWriteProjectSettings = computed(() => Boolean(activeProjectId.value))
 const projectSnapshotInput = computed<ResourceSnapshotInput | undefined>(() => {
   if (workspaceSession.activeSessionId) {
     return { threadId: workspaceSession.activeSessionId }
@@ -104,12 +103,7 @@ const projectSnapshotInput = computed<ResourceSnapshotInput | undefined>(() => {
   if (!activeProject.value) {
     return undefined
   }
-  return {
-    cwd: activeProject.value.path,
-    projectTrusted:
-      activeProject.value.trust?.state === 'trusted' ||
-      activeProject.value.trust?.state === 'notRequired'
-  }
+  return { projectId: activeProject.value.projectId }
 })
 const snapshotInput = computed<ResourceSnapshotInput>(() =>
   snapshotScope.value === 'project' ? (projectSnapshotInput.value ?? {}) : {}
@@ -238,14 +232,20 @@ onMounted(async () => {
   if (!agentSettings.snapshot) {
     await agentSettings.load()
   }
-  if (!agentSettings.resourceSnapshot) {
-    await refreshResourceSnapshot()
-  }
+  await refreshResourceSnapshot()
   await loadProjectPathsForCurrentView()
 })
 
-watch(activeProjectCwd, () => {
+watch(activeProjectId, (projectId, previousProjectId) => {
+  if (projectId !== previousProjectId) {
+    closeAddDialog()
+    closePathSettings()
+  }
   void loadProjectPathsForCurrentView()
+})
+
+watch(snapshotInput, () => {
+  void refreshResourceSnapshot()
 })
 
 function refreshResourceSnapshot(): Promise<void> {
@@ -260,7 +260,6 @@ async function refreshResourceSnapshotWithSpin(): Promise<void> {
 
 function selectSnapshotScope(scope: typeof snapshotScope.value): void {
   snapshotScope.value = scope
-  void refreshResourceSnapshot()
   void loadProjectPathsForCurrentView()
 }
 
@@ -304,11 +303,13 @@ function getCapabilityTypeLabel(type: 'commands' | 'tools' | 'flags'): string {
 function openAddDialog(): void {
   pathDraft.value = ''
   scopeDraft.value = canWriteProjectSettings.value ? 'project' : 'user'
+  addDialogProjectId.value = activeProjectId.value ?? null
   addDialogOpen.value = true
 }
 
 function closeAddDialog(): void {
   addDialogOpen.value = false
+  addDialogProjectId.value = null
 }
 
 async function selectPathForDraft(): Promise<void> {
@@ -326,11 +327,15 @@ async function saveAddedPath(): Promise<void> {
   const path = pathDraft.value.trim()
   if (!path) return
   if (scopeDraft.value === 'project') {
-    const cwd = activeProjectCwd.value
-    if (!cwd) return
-    await ensureProjectPathsLoaded(cwd)
+    const projectId = addDialogProjectId.value
+    if (!projectId || projectId !== activeProjectId.value) {
+      closeAddDialog()
+      await refreshResourceSnapshot()
+      return
+    }
+    if (!(await ensureProjectPathsLoaded(projectId))) return
     await agentSettings.saveProjectExtensionPaths(
-      cwd,
+      projectId,
       appendPathSetting(agentSettings.projectExtensionPaths, path)
     )
   } else {
@@ -344,22 +349,30 @@ async function saveAddedPath(): Promise<void> {
 
 function openPathSettings(row: ExtensionListRow): void {
   selectedRow.value = row
+  selectedRowProjectId.value =
+    row.path.sourceInfo.scope === 'project' ? (activeProjectId.value ?? null) : null
   pathSettingsDialogOpen.value = true
 }
 
 function closePathSettings(): void {
   pathSettingsDialogOpen.value = false
+  selectedRow.value = null
+  selectedRowProjectId.value = null
 }
 
 async function setSelectedPathEnabled(enabled: boolean): Promise<void> {
   if (!selectedRow.value) return
   const path = selectedRow.value.path
   if (path.sourceInfo.scope === 'project') {
-    const cwd = activeProjectCwd.value
-    if (!cwd) return
-    await ensureProjectPathsLoaded(cwd)
+    const projectId = selectedRowProjectId.value
+    if (!projectId || projectId !== activeProjectId.value) {
+      closePathSettings()
+      await refreshResourceSnapshot()
+      return
+    }
+    if (!(await ensureProjectPathsLoaded(projectId))) return
     await agentSettings.saveProjectExtensionPaths(
-      cwd,
+      projectId,
       setPathEnabled(agentSettings.projectExtensionPaths, path.path, enabled)
     )
   } else if (path.sourceInfo.scope === 'user') {
@@ -375,11 +388,15 @@ async function removeSelectedPath(): Promise<void> {
   if (!selectedRow.value) return
   const path = selectedRow.value.path
   if (path.sourceInfo.scope === 'project') {
-    const cwd = activeProjectCwd.value
-    if (!cwd) return
-    await ensureProjectPathsLoaded(cwd)
+    const projectId = selectedRowProjectId.value
+    if (!projectId || projectId !== activeProjectId.value) {
+      closePathSettings()
+      await refreshResourceSnapshot()
+      return
+    }
+    if (!(await ensureProjectPathsLoaded(projectId))) return
     await agentSettings.saveProjectExtensionPaths(
-      cwd,
+      projectId,
       removePathSetting(agentSettings.projectExtensionPaths, path.path)
     )
   } else if (path.sourceInfo.scope === 'user') {
@@ -398,14 +415,22 @@ async function saveUserExtensionPaths(extensions: string[]): Promise<void> {
 }
 
 async function loadProjectPathsForCurrentView(): Promise<void> {
-  const cwd = activeProjectCwd.value
-  if (!cwd) return
-  await ensureProjectPathsLoaded(cwd)
+  const projectId = activeProjectId.value
+  if (!projectId) {
+    await agentSettings.loadProjectExtensionPaths()
+    return
+  }
+  await ensureProjectPathsLoaded(projectId)
 }
 
-async function ensureProjectPathsLoaded(cwd: string): Promise<void> {
-  if (agentSettings.projectExtensionPathsCwd === cwd) return
-  await agentSettings.loadProjectExtensionPaths(cwd)
+async function ensureProjectPathsLoaded(projectId: string): Promise<boolean> {
+  if (agentSettings.projectExtensionPathsProjectId !== projectId) {
+    await agentSettings.loadProjectExtensionPaths(projectId)
+  }
+  return (
+    activeProjectId.value === projectId &&
+    agentSettings.projectExtensionPathsProjectId === projectId
+  )
 }
 
 function canConfigureExtensionPath(path: ExtensionPathRow): boolean {
@@ -816,7 +841,9 @@ function getDiagnosticTypeLabel(type: string): string {
               size="sm"
               variant="primary"
               :disabled="
-                !pathDraft.trim() || (scopeDraft === 'project' && !canWriteProjectSettings)
+                agentSettings.saving ||
+                !pathDraft.trim() ||
+                (scopeDraft === 'project' && !canWriteProjectSettings)
               "
             >
               保存
@@ -846,11 +873,18 @@ function getDiagnosticTypeLabel(type: string): string {
             type="button"
             size="sm"
             variant="danger"
+            :disabled="agentSettings.saving"
             @click="removeSelectedPath"
           >
             移除
           </BaseButton>
-          <BaseButton type="button" size="sm" variant="ghost" @click="closePathSettings">
+          <BaseButton
+            type="button"
+            size="sm"
+            variant="ghost"
+            :disabled="agentSettings.saving"
+            @click="closePathSettings"
+          >
             取消
           </BaseButton>
           <BaseButton
@@ -858,15 +892,17 @@ function getDiagnosticTypeLabel(type: string): string {
             type="button"
             size="sm"
             variant="secondary"
+            :disabled="agentSettings.saving"
             @click="setSelectedPathEnabled(false)"
           >
             禁用
           </BaseButton>
           <BaseButton
-            v-else
+            v-else-if="selectedRow"
             type="button"
             size="sm"
             variant="primary"
+            :disabled="agentSettings.saving"
             @click="setSelectedPathEnabled(true)"
           >
             启用

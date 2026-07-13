@@ -100,7 +100,7 @@ export function getVisibleDiffLineRange(
 }
 
 export function getFileChangeId(change: FileChange): string {
-  return `${change.toolCallId ?? change.createdAt}:${change.path}`
+  return normalizeFilePath(change.path).replace(/^(?:\.\/)+/, '')
 }
 
 export function formatFileChangePath(path: string, workspacePath: string | undefined): string {

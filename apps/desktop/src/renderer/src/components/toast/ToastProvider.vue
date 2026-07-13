@@ -131,10 +131,6 @@ const toastMessages = computed(() => [...toast.toasts.value])
     background: var(--color-surface-hover);
   }
 
-  &:focus-visible {
-    box-shadow: inset 0 0 0 1px var(--color-primary);
-  }
-
   svg {
     width: 13px;
     height: 13px;

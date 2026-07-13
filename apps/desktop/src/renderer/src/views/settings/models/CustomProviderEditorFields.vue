@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { BaseBadge, BaseButton, BaseField } from '@renderer/components/base'
+import { BaseBadge, BaseButton, BaseField, BaseSegmentedControl } from '@renderer/components/base'
 import { SettingsSelectField } from '@renderer/views/settings/components/form'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import type { ThinkingLevel } from '@shared/coding-agent/types'
@@ -11,7 +11,10 @@ type ThinkingLevelDraft = {
   value: string
 }
 
+type SensitiveConfigMode = 'preserve' | 'replace' | 'clear'
+
 type CustomModelDraft = {
+  previousId: string
   id: string
   name: string
   api: string
@@ -25,6 +28,8 @@ type CustomModelDraft = {
   costOutput: string
   costCacheRead: string
   costCacheWrite: string
+  headersMode: SensitiveConfigMode
+  hasHeadersConfig: boolean
   headersJson: string
   compatJson: string
   thinkingLevelMap: Record<ThinkingLevel, ThinkingLevelDraft>
@@ -36,16 +41,30 @@ type CustomProviderDraft = {
   name: string
   baseUrl: string
   api: string
+  apiKeyMode: SensitiveConfigMode
+  hasApiKeyConfig: boolean
   apiKey: string
   authHeader: boolean
+  headersMode: SensitiveConfigMode
+  hasHeadersConfig: boolean
   headersJson: string
   compatJson: string
   modelOverridesJson: string
+  modelOverrideHeadersMode: SensitiveConfigMode
+  hasModelOverrideHeadersConfig: boolean
+  modelOverrideHeadersJson: string
   models: CustomModelDraft[]
 }
 
-const props = defineProps<{
-  draft: CustomProviderDraft
+const sensitiveConfigModeOptions: Array<{ label: string; value: SensitiveConfigMode }> = [
+  { label: '保留', value: 'preserve' },
+  { label: '替换', value: 'replace' },
+  { label: '清除', value: 'clear' }
+]
+
+const draft = defineModel<CustomProviderDraft>('draft', { required: true })
+
+defineProps<{
   supportedApis: Array<{ label: string; value: string }>
   inheritProviderApiValue: string
   thinkingLevels: ThinkingLevel[]
@@ -59,7 +78,7 @@ const emit = defineEmits<{
 const activeModelTab = ref('0')
 
 function addModel(): void {
-  activeModelTab.value = String(props.draft.models.length)
+  activeModelTab.value = String(draft.value.models.length)
   emit('addModel')
 }
 
@@ -71,6 +90,18 @@ function removeModel(index: number): void {
     activeModelTab.value = String(Math.max(0, index - 1))
   }
   emit('removeModel', index)
+}
+
+function sensitiveConfigHint(configured: boolean, mode: SensitiveConfigMode): string {
+  if (mode === 'replace') {
+    return configured
+      ? '输入新值以替换现有配置；已保存的敏感原文不会显示。'
+      : '输入要保存的新值；敏感原文不会在后续编辑中显示。'
+  }
+  if (mode === 'clear') {
+    return configured ? '保存后删除现有配置。' : '保持未配置状态。'
+  }
+  return configured ? '保留现有配置，不读取或回显原文。' : '当前没有已保存配置。'
 }
 </script>
 
@@ -103,14 +134,28 @@ function removeModel(index: number): void {
         placeholder="http://localhost:11434/v1"
       />
       <SettingsSelectField v-model="draft.api" label="默认 API 协议" :options="supportedApis" />
-      <BaseField
-        id="custom-provider-api-key"
-        v-model="draft.apiKey"
-        type="password"
-        label="API Key 配置"
-        placeholder="$LOCAL_MODEL_API_KEY 或 literal"
-        hint="编辑 Provider 时会回填当前配置值。"
-      />
+      <div class="sensitive-config-field">
+        <div class="sensitive-config-field__header">
+          <span>API Key 配置</span>
+          <BaseSegmentedControl
+            v-model="draft.apiKeyMode"
+            label="API Key 更新方式"
+            size="small"
+            :options="sensitiveConfigModeOptions"
+          />
+        </div>
+        <BaseField
+          v-if="draft.apiKeyMode === 'replace'"
+          id="custom-provider-api-key"
+          v-model="draft.apiKey"
+          type="password"
+          aria-label="新的 API Key 配置"
+          placeholder="$LOCAL_MODEL_API_KEY 或 literal"
+        />
+        <p class="sensitive-config-field__hint">
+          {{ sensitiveConfigHint(draft.hasApiKeyConfig, draft.apiKeyMode) }}
+        </p>
+      </div>
       <label class="settings-check-field">
         <input v-model="draft.authHeader" type="checkbox" />
         <span>自动添加 Authorization bearer header</span>
@@ -120,13 +165,26 @@ function removeModel(index: number): void {
     <details class="provider-advanced">
       <summary>高级 Provider 配置</summary>
       <div class="json-field-grid json-field-grid--provider">
-        <label class="json-field">
-          <span>Provider headers JSON</span>
+        <div class="json-field sensitive-config-field">
+          <div class="sensitive-config-field__header">
+            <span>Provider headers JSON</span>
+            <BaseSegmentedControl
+              v-model="draft.headersMode"
+              label="Provider headers 更新方式"
+              size="small"
+              :options="sensitiveConfigModeOptions"
+            />
+          </div>
           <textarea
+            v-if="draft.headersMode === 'replace'"
             v-model="draft.headersJson"
+            aria-label="新的 Provider headers JSON"
             placeholder='{ "X-Header": "$ENV_OR_LITERAL" }'
           ></textarea>
-        </label>
+          <p class="sensitive-config-field__hint">
+            {{ sensitiveConfigHint(draft.hasHeadersConfig, draft.headersMode) }}
+          </p>
+        </div>
         <label class="json-field">
           <span>Provider compat JSON</span>
           <textarea
@@ -141,6 +199,31 @@ function removeModel(index: number): void {
             placeholder='{ "builtin-model-id": { "maxTokens": 8192 } }'
           ></textarea>
         </label>
+        <div class="json-field is-wide sensitive-config-field">
+          <div class="sensitive-config-field__header">
+            <span>Model override headers JSON</span>
+            <BaseSegmentedControl
+              v-model="draft.modelOverrideHeadersMode"
+              label="Model override headers 更新方式"
+              size="small"
+              :options="sensitiveConfigModeOptions"
+            />
+          </div>
+          <textarea
+            v-if="draft.modelOverrideHeadersMode === 'replace'"
+            v-model="draft.modelOverrideHeadersJson"
+            aria-label="新的 Model override headers JSON"
+            placeholder='{ "builtin-model-id": { "X-Model": "value" } }'
+          ></textarea>
+          <p class="sensitive-config-field__hint">
+            {{
+              sensitiveConfigHint(
+                draft.hasModelOverrideHeadersConfig,
+                draft.modelOverrideHeadersMode
+              )
+            }}
+          </p>
+        </div>
       </div>
     </details>
   </section>
@@ -292,10 +375,26 @@ function removeModel(index: number): void {
           </div>
 
           <div class="json-field-grid json-field-grid--model">
-            <label class="json-field">
-              <span>Model headers JSON</span>
-              <textarea v-model="model.headersJson" placeholder='{ "X-Model": "value" }'></textarea>
-            </label>
+            <div class="json-field sensitive-config-field">
+              <div class="sensitive-config-field__header">
+                <span>Model headers JSON</span>
+                <BaseSegmentedControl
+                  v-model="model.headersMode"
+                  :label="`Model ${index + 1} headers 更新方式`"
+                  size="small"
+                  :options="sensitiveConfigModeOptions"
+                />
+              </div>
+              <textarea
+                v-if="model.headersMode === 'replace'"
+                v-model="model.headersJson"
+                :aria-label="`新的 Model ${index + 1} headers JSON`"
+                placeholder='{ "X-Model": "value" }'
+              ></textarea>
+              <p class="sensitive-config-field__hint">
+                {{ sensitiveConfigHint(model.hasHeadersConfig, model.headersMode) }}
+              </p>
+            </div>
             <label class="json-field">
               <span>Model compat JSON</span>
               <textarea
@@ -309,3 +408,44 @@ function removeModel(index: number): void {
     </Tabs>
   </section>
 </template>
+
+<style lang="scss" scoped>
+.sensitive-config-field {
+  display: grid;
+  gap: var(--space-1);
+  min-width: 0;
+}
+
+.sensitive-config-field__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  min-width: 0;
+
+  > span {
+    min-width: 0;
+    color: var(--color-text-muted);
+    font-size: var(--font-size-ui-xs);
+    font-weight: 650;
+  }
+}
+
+.sensitive-config-field__hint {
+  margin: 0;
+  color: var(--color-text-subtle);
+  font-size: var(--font-size-ui-xs);
+  line-height: 1.35;
+}
+
+.sensitive-config-field :deep(.base-segmented-control) {
+  flex: 0 0 auto;
+}
+
+@media (width <= 980px) {
+  .sensitive-config-field__header {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+}
+</style>

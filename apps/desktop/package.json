@@ -1,6 +1,6 @@
 {
   "name": "@meta-agent/desktop",
-  "version": "0.0.24",
+  "version": "0.0.25",
   "description": "Meta Agent desktop workbench",
   "main": "./out/main/index.js",
   "author": "Meta Agent",
@@ -9,6 +9,7 @@
     "format": "prettier --write .",
     "lint": "eslint --cache .",
     "test": "vitest --run",
+    "test:extension-url-panel-csp": "electron scripts/extension-url-panel-csp-smoke.cjs",
     "typecheck:node": "tsc --noEmit -p tsconfig.node.json --composite false",
     "typecheck:web": "vue-tsc --noEmit -p tsconfig.web.json --composite false",
     "typecheck": "npm run typecheck:node && npm run typecheck:web",

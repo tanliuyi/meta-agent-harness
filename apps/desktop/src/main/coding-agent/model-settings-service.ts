@@ -6,14 +6,21 @@
  */
 
 import { app, shell } from 'electron'
+import { randomUUID } from 'node:crypto'
 import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
-import { randomUUID } from 'node:crypto'
 import { AuthStorage } from '@coding-agent-src/core/auth-storage'
 import { ModelRegistry } from '@coding-agent-src/core/model-registry'
 import { SettingsManager } from '@coding-agent-src/core/settings-manager'
 import { getAgentDir } from '@coding-agent-src/config'
+import { normalizeAllowedExternalUrl } from './external-url'
+import { readDesktopRuntimeConfig } from './desktop-runtime-config'
 import type {
+  CustomModelConfigFields,
+  CustomModelConfigInput,
+  CustomModelConfigSummary,
+  CustomModelOverrideInput,
+  CustomModelOverrideSummary,
   CustomProviderSummary,
   ModelProviderSummary,
   ModelRegistrySnapshot,
@@ -24,12 +31,14 @@ import type {
   ModelOAuthPromptResponseInput,
   ProviderCredentialState,
   ProviderCredentialStatus,
+  SensitiveConfigUpdate,
   ThinkingLevel,
   LoginProviderOAuthInput,
   SetProviderApiKeyInput,
   UpdateModelSettingsInput,
   UpsertCustomProviderInput
 } from '@shared/coding-agent/types'
+import { ModelOAuthPromptCoordinator, type ModelOAuthPromptSession } from './model-oauth-prompts'
 
 interface ModelsJsonConfig {
   providers?: Record<string, StoredCustomProviderConfig>
@@ -43,22 +52,25 @@ interface StoredCustomProviderConfig {
   headers?: Record<string, string>
   compat?: Record<string, unknown>
   authHeader?: boolean
-  models?: UpsertCustomProviderInput['models']
-  modelOverrides?: UpsertCustomProviderInput['modelOverrides']
+  models?: StoredCustomModelConfig[]
+  modelOverrides?: Record<string, StoredCustomModelOverrideConfig>
+}
+
+type StoredCustomModelConfig = CustomModelConfigFields & {
+  headers?: Record<string, string>
+}
+
+type StoredCustomModelOverrideConfig = CustomModelOverrideInput & {
+  headers?: Record<string, string>
 }
 
 export interface ModelSettingsServiceOptions {
   agentDir?: string
   cwd?: string
+  openExternal?: (url: string) => Promise<void>
 }
 
 export type ModelOAuthEventHandler = (event: ModelOAuthLoginEvent) => void
-
-interface PendingOAuthPrompt {
-  provider: string
-  resolve: (value: string) => void
-  reject: (error: Error) => void
-}
 
 /** Desktop 全局模型设置服务。 */
 export class ModelSettingsService {
@@ -68,10 +80,12 @@ export class ModelSettingsService {
   private readonly modelsPath: string
   private readonly authPath: string
   private readonly authStorage: AuthStorage
+  private readonly openExternal: (url: string) => Promise<void>
   private readonly settingsManager: SettingsManager
   private readonly modelRegistry: ModelRegistry
   private modelsJsonLoadError: Error | undefined
-  private readonly pendingOAuthPrompts = new Map<string, PendingOAuthPrompt>()
+  private readonly oauthPrompts = new ModelOAuthPromptCoordinator()
+  private readonly activeOAuthProviderIds = new Set<string>()
 
   constructor(options: ModelSettingsServiceOptions = {}) {
     this.agentDir = options.agentDir ?? getAgentDir()
@@ -79,6 +93,7 @@ export class ModelSettingsService {
     this.settingsPath = join(this.agentDir, 'settings.json')
     this.modelsPath = join(this.agentDir, 'models.json')
     this.authPath = join(this.agentDir, 'auth.json')
+    this.openExternal = options.openExternal ?? ((url) => shell.openExternal(url))
     mkdirSync(this.agentDir, { recursive: true })
     this.authStorage = AuthStorage.create(this.authPath)
     this.settingsManager = SettingsManager.create(this.cwd, this.agentDir, {
@@ -145,6 +160,7 @@ export class ModelSettingsService {
 
   /** 新增或更新自定义 provider。 */
   async upsertCustomProvider(input: UpsertCustomProviderInput): Promise<ModelSettingsSnapshot> {
+    this.authStorage.reload()
     this.validateCustomProviderInput(input)
     const config = this.readModelsJsonForWrite()
     const providers = { ...(config.providers ?? {}) }
@@ -158,24 +174,20 @@ export class ModelSettingsService {
     if (isRename && providers[input.provider]) {
       throw new Error(`custom provider already exists: ${input.provider}`)
     }
-    const credential = isRename ? this.authStorage.get(originalProvider!) : undefined
-    if (credential && this.authStorage.has(input.provider)) {
-      throw new Error(`provider credential already exists: ${input.provider}`)
-    }
 
-    providers[input.provider] = {
-      ...this.toStoredProviderConfig(input),
-      apiKey: input.apiKey ?? previous?.apiKey
-    }
+    this.validateModelIdentityChanges(input, previous)
+    const nextProvider = this.toStoredProviderConfig(input, previous)
+    this.assertRequestCredentialBoundary(
+      originalProvider || input.provider,
+      input,
+      previous,
+      nextProvider
+    )
+    providers[input.provider] = nextProvider
     if (isRename) {
       delete providers[originalProvider!]
     }
     this.writeModelsJson({ providers })
-
-    if (credential) {
-      this.authStorage.set(input.provider, credential)
-      this.authStorage.remove(originalProvider!)
-    }
 
     this.modelRegistry.refresh()
     return this.getModelSettings()
@@ -194,10 +206,16 @@ export class ModelSettingsService {
     return this.getModelSettings()
   }
 
-  /** 保存 provider API key 到 Pi-compatible auth.json。 */
+  /** 保存或清除 Pi-compatible auth.json 中的 provider 凭据。 */
   async setProviderApiKey(input: SetProviderApiKeyInput): Promise<ModelSettingsSnapshot> {
     if (!input.provider.trim()) {
       throw new Error('provider is required')
+    }
+    if (input.mode === 'clear') {
+      this.authStorage.remove(input.provider)
+      this.authStorage.reload()
+      this.modelRegistry.refresh()
+      return this.getModelSettings()
     }
     if (!input.key.trim()) {
       throw new Error('api key is required')
@@ -215,7 +233,8 @@ export class ModelSettingsService {
   /** 使用 OAuth 登录 provider，并写入 Pi-compatible auth.json。 */
   async loginProviderOAuth(
     input: LoginProviderOAuthInput,
-    onEvent?: ModelOAuthEventHandler
+    onEvent?: ModelOAuthEventHandler,
+    session: ModelOAuthPromptSession = {}
   ): Promise<ModelSettingsSnapshot> {
     const providerId = input.provider.trim()
     if (!providerId) {
@@ -226,18 +245,25 @@ export class ModelSettingsService {
     if (!provider) {
       throw new Error(`provider does not support OAuth: ${providerId}`)
     }
+    if (this.activeOAuthProviderIds.has(providerId)) {
+      throw new Error(`OAuth login is already in progress for provider: ${providerId}`)
+    }
+    const loginId = randomUUID()
+    this.activeOAuthProviderIds.add(providerId)
 
-    onEvent?.({ type: 'started', provider: providerId, providerName: provider.name })
     try {
+      onEvent?.({ type: 'started', provider: providerId, providerName: provider.name })
       await this.authStorage.login(providerId, {
+        signal: session.signal,
         onAuth: (info) => {
+          const authUrl = normalizeOAuthExternalUrl(info.url, this.cwd)
           onEvent?.({
             type: 'authUrl',
             provider: providerId,
-            url: info.url,
+            url: authUrl,
             instructions: info.instructions
           })
-          void shell.openExternal(info.url).catch((error) => {
+          void this.openExternal(authUrl).catch((error) => {
             onEvent?.({
               type: 'progress',
               provider: providerId,
@@ -246,15 +272,16 @@ export class ModelSettingsService {
           })
         },
         onDeviceCode: (info) => {
+          const verificationUri = normalizeOAuthExternalUrl(info.verificationUri, this.cwd)
           onEvent?.({
             type: 'deviceCode',
             provider: providerId,
             userCode: info.userCode,
-            verificationUri: info.verificationUri,
+            verificationUri,
             intervalSeconds: info.intervalSeconds,
             expiresInSeconds: info.expiresInSeconds
           })
-          void shell.openExternal(info.verificationUri).catch((error) => {
+          void this.openExternal(verificationUri).catch((error) => {
             onEvent?.({
               type: 'progress',
               provider: providerId,
@@ -279,19 +306,31 @@ export class ModelSettingsService {
           return selectedOptionId
         },
         onPrompt: async (prompt) => {
-          return this.requestOAuthPrompt(providerId, prompt, onEvent)
+          return this.oauthPrompts.request({
+            loginId,
+            provider: providerId,
+            ownerId: session.ownerId,
+            prompt,
+            signal: session.signal,
+            timeoutMs: session.promptTimeoutMs,
+            onEvent
+          })
         },
         onManualCodeInput: async () => {
-          return this.requestOAuthPrompt(
-            providerId,
-            {
+          return this.oauthPrompts.request({
+            loginId,
+            provider: providerId,
+            ownerId: session.ownerId,
+            prompt: {
               message: '粘贴授权回调 URL 或授权码',
               placeholder: 'http://127.0.0.1:.../?code=... 或 code',
               allowEmpty: false,
               manualCode: true
             },
+            signal: session.signal,
+            timeoutMs: session.promptTimeoutMs,
             onEvent
-          )
+          })
         }
       })
       this.authStorage.reload()
@@ -306,70 +345,20 @@ export class ModelSettingsService {
       })
       throw error
     } finally {
-      this.rejectPendingOAuthPrompts(providerId)
+      this.oauthPrompts.rejectLogin(loginId)
+      this.activeOAuthProviderIds.delete(providerId)
     }
   }
 
   /** 响应 OAuth 登录过程中的 renderer 输入请求。 */
-  respondOAuthPrompt(input: ModelOAuthPromptResponseInput): void {
-    const pending = this.pendingOAuthPrompts.get(input.requestId)
-    if (!pending || pending.provider !== input.provider) {
-      throw new Error(`OAuth prompt request not found: ${input.requestId}`)
-    }
-    this.pendingOAuthPrompts.delete(input.requestId)
-    if (input.cancelled) {
-      pending.reject(new Error('OAuth 输入已取消'))
-      return
-    }
-    pending.resolve(input.value ?? '')
+  respondOAuthPrompt(input: ModelOAuthPromptResponseInput, ownerId?: number): void {
+    this.oauthPrompts.respond(input, ownerId)
   }
 
   /** 强制刷新模型 registry。 */
   async refreshModelRegistry(): Promise<ModelSettingsSnapshot> {
     this.modelRegistry.refresh()
     return this.getModelSettings()
-  }
-
-  private requestOAuthPrompt(
-    provider: string,
-    prompt: {
-      message: string
-      placeholder?: string
-      allowEmpty?: boolean
-      manualCode?: boolean
-    },
-    onEvent?: ModelOAuthEventHandler
-  ): Promise<string> {
-    const requestId = randomUUID()
-    return new Promise<string>((resolve, reject) => {
-      this.pendingOAuthPrompts.set(requestId, { provider, resolve, reject })
-      onEvent?.({
-        type: 'promptRequested',
-        provider,
-        requestId,
-        message: prompt.message,
-        placeholder: prompt.placeholder,
-        allowEmpty: prompt.allowEmpty,
-        manualCode: prompt.manualCode
-      })
-    }).then((value) => {
-      this.pendingOAuthPrompts.delete(requestId)
-      if (prompt.allowEmpty === false && !value.trim()) {
-        throw new Error(`${prompt.message} 不能为空`)
-      }
-      onEvent?.({ type: 'promptResolved', provider, requestId })
-      return value
-    })
-  }
-
-  private rejectPendingOAuthPrompts(provider?: string): void {
-    for (const [requestId, pending] of this.pendingOAuthPrompts) {
-      if (provider && pending.provider !== provider) {
-        continue
-      }
-      this.pendingOAuthPrompts.delete(requestId)
-      pending.reject(new Error('OAuth 登录已结束'))
-    }
   }
 
   private createSnapshot(): ModelSettingsSnapshot {
@@ -517,18 +506,44 @@ export class ModelSettingsService {
         provider,
         name: value.name,
         baseUrl: value.baseUrl,
-        apiKey: value.apiKey,
         api: value.api,
-        headers: value.headers,
         compat: value.compat,
         authHeader: value.authHeader,
         modelCount: value.models?.length ?? 0,
-        models: value.models,
-        modelOverrides: value.modelOverrides,
+        models: value.models?.map((model) => this.toCustomModelSummary(model)),
+        modelOverrides: value.modelOverrides
+          ? Object.fromEntries(
+              Object.entries(value.modelOverrides).map(([modelId, modelOverride]) => [
+                modelId,
+                this.toCustomModelOverrideSummary(modelOverride)
+              ])
+            )
+          : undefined,
         overridesBuiltIn: this.modelRegistry.getAll().some((model) => model.provider === provider),
-        hasApiKeyConfig: Boolean(value.apiKey)
+        hasApiKeyConfig: Boolean(value.apiKey),
+        hasHeadersConfig: this.hasConfiguredHeaders(value.headers)
       }))
       .sort((a, b) => a.provider.localeCompare(b.provider))
+  }
+
+  private toCustomModelSummary(model: StoredCustomModelConfig): CustomModelConfigSummary {
+    return {
+      ...this.toStoredModelFields(model),
+      hasHeadersConfig: this.hasConfiguredHeaders(model.headers)
+    }
+  }
+
+  private toCustomModelOverrideSummary(
+    modelOverride: StoredCustomModelOverrideConfig
+  ): CustomModelOverrideSummary {
+    return {
+      ...this.toStoredModelOverrideFields(modelOverride),
+      hasHeadersConfig: this.hasConfiguredHeaders(modelOverride.headers)
+    }
+  }
+
+  private hasConfiguredHeaders(headers: Record<string, string> | undefined): boolean {
+    return Boolean(headers && Object.keys(headers).length > 0)
   }
 
   private mapAuthStatus(provider: string): ProviderCredentialState {
@@ -609,6 +624,27 @@ export class ModelSettingsService {
     if (!input.provider.trim()) {
       throw new Error('provider is required')
     }
+    this.validateSensitiveConfigUpdate(
+      input.apiKeyUpdate,
+      'apiKeyUpdate',
+      (value) => typeof value === 'string' && Boolean(value.trim())
+    )
+    this.validateSensitiveConfigUpdate(input.headersUpdate, 'headersUpdate', (value) =>
+      this.isStringRecord(value)
+    )
+    this.validateSensitiveConfigUpdate(
+      input.modelOverrideHeadersUpdate,
+      'modelOverrideHeadersUpdate',
+      (value) => this.isNestedStringRecord(value)
+    )
+    if (input.modelOverrideHeadersUpdate?.mode === 'replace') {
+      const modelOverrides = input.modelOverrides ?? {}
+      for (const modelId of Object.keys(input.modelOverrideHeadersUpdate.value)) {
+        if (!Object.hasOwn(modelOverrides, modelId)) {
+          throw new Error(`model override headers reference unknown model: ${modelId}`)
+        }
+      }
+    }
     if (input.models?.length) {
       if (!input.baseUrl && input.models.some((model) => !model.baseUrl)) {
         throw new Error('baseUrl is required when defining custom models')
@@ -617,6 +653,12 @@ export class ModelSettingsService {
       for (const model of input.models) {
         if (!model.id.trim()) {
           throw new Error('model id is required')
+        }
+        if (
+          model.previousId !== undefined &&
+          (typeof model.previousId !== 'string' || !model.previousId.trim())
+        ) {
+          throw new Error(`previous model id is invalid for model: ${model.id}`)
         }
         if (seen.has(model.id)) {
           throw new Error(`duplicate model id: ${model.id}`)
@@ -631,31 +673,366 @@ export class ModelSettingsService {
         if (model.maxTokens !== undefined && model.maxTokens <= 0) {
           throw new Error(`maxTokens must be greater than 0 for model: ${model.id}`)
         }
+        this.validateSensitiveConfigUpdate(
+          model.headersUpdate,
+          `headersUpdate for model: ${model.id}`,
+          (value) => this.isStringRecord(value)
+        )
       }
     }
   }
 
-  private toStoredProviderConfig(input: UpsertCustomProviderInput): StoredCustomProviderConfig {
+  private toStoredProviderConfig(
+    input: UpsertCustomProviderInput,
+    previous: StoredCustomProviderConfig | undefined
+  ): StoredCustomProviderConfig {
     return {
       name: input.name,
       baseUrl: input.baseUrl,
-      apiKey: input.apiKey,
+      apiKey: this.resolveSensitiveConfigUpdate(previous?.apiKey, input.apiKeyUpdate),
       api: input.api,
-      headers: input.headers,
+      headers: this.resolveSensitiveConfigUpdate(previous?.headers, input.headersUpdate),
       compat: input.compat,
       authHeader: input.authHeader,
-      models: input.models,
-      modelOverrides: input.modelOverrides
+      models: this.toStoredModels(input.models, previous?.models),
+      modelOverrides: this.toStoredModelOverrides(
+        input.modelOverrides,
+        previous?.modelOverrides,
+        input.modelOverrideHeadersUpdate
+      )
     }
+  }
+
+  private assertRequestCredentialBoundary(
+    previousProviderId: string,
+    input: UpsertCustomProviderInput,
+    previous: StoredCustomProviderConfig | undefined,
+    next: StoredCustomProviderConfig
+  ): void {
+    const previousTargets = previous
+      ? this.getProviderRequestTargets(previousProviderId, previous)
+      : new Set<string>()
+    const nextTargets = this.getProviderRequestTargets(input.provider, next)
+    const introducesNewTarget =
+      !previous || [...nextTargets].some((target) => !previousTargets.has(target))
+
+    if (
+      introducesNewTarget &&
+      (this.activeOAuthProviderIds.has(previousProviderId) ||
+        this.activeOAuthProviderIds.has(input.provider))
+    ) {
+      throw new Error(
+        'provider identity or request targets cannot change while OAuth login is in progress'
+      )
+    }
+    if (
+      introducesNewTarget &&
+      (this.authStorage.hasAuth(previousProviderId) || this.authStorage.hasAuth(input.provider))
+    ) {
+      throw new Error(
+        'stored provider credential must be cleared before changing provider identity or request targets'
+      )
+    }
+    if (!previous) {
+      return
+    }
+
+    if (introducesNewTarget) {
+      this.assertSensitiveConfigIsNotPreserved(previous.apiKey, input.apiKeyUpdate, 'apiKeyUpdate')
+      this.assertSensitiveConfigIsNotPreserved(
+        previous.headers,
+        input.headersUpdate,
+        'headersUpdate'
+      )
+    }
+
+    const previousModels = new Map(previous.models?.map((model) => [model.id, model]) ?? [])
+    for (const [index, inputModel] of (input.models ?? []).entries()) {
+      const previousModel = previousModels.get(inputModel.previousId?.trim() || inputModel.id)
+      if (!this.hasSensitiveConfig(previousModel?.headers)) {
+        continue
+      }
+      if (
+        inputModel.headersUpdate?.mode === 'replace' ||
+        inputModel.headersUpdate?.mode === 'clear'
+      ) {
+        continue
+      }
+      const nextModel = next.models?.[index]
+      if (
+        !nextModel ||
+        this.getModelRequestTarget(previousProviderId, previous, previousModel!) !==
+          this.getModelRequestTarget(input.provider, next, nextModel)
+      ) {
+        throw new Error(
+          `headersUpdate for model ${inputModel.id} cannot preserve headers across request targets`
+        )
+      }
+    }
+
+    if (!input.modelOverrideHeadersUpdate || input.modelOverrideHeadersUpdate.mode === 'preserve') {
+      for (const modelId of Object.keys(next.modelOverrides ?? {})) {
+        const previousOverride = previous.modelOverrides?.[modelId]
+        if (!this.hasSensitiveConfig(previousOverride?.headers)) {
+          continue
+        }
+        if (
+          this.getModelOverrideRequestTarget(previousProviderId, previous, modelId) !==
+          this.getModelOverrideRequestTarget(input.provider, next, modelId)
+        ) {
+          throw new Error(
+            `modelOverrideHeadersUpdate cannot preserve headers for ${modelId} across request targets`
+          )
+        }
+      }
+    }
+  }
+
+  private validateModelIdentityChanges(
+    input: UpsertCustomProviderInput,
+    previous: StoredCustomProviderConfig | undefined
+  ): void {
+    const previousModelIds = new Set(previous?.models?.map((model) => model.id) ?? [])
+    const claimedPreviousIds = new Set<string>()
+    for (const model of input.models ?? []) {
+      const previousId = model.previousId?.trim()
+      if (!previousId) {
+        continue
+      }
+      if (!previousModelIds.has(previousId)) {
+        throw new Error(`previous model id does not exist: ${previousId}`)
+      }
+      if (claimedPreviousIds.has(previousId)) {
+        throw new Error(`previous model id is claimed more than once: ${previousId}`)
+      }
+      claimedPreviousIds.add(previousId)
+      if (previousId !== model.id && previousModelIds.has(model.id)) {
+        throw new Error(`model rename target already exists: ${model.id}`)
+      }
+    }
+  }
+
+  private assertSensitiveConfigIsNotPreserved<T>(
+    previous: T | undefined,
+    update: SensitiveConfigUpdate<T> | undefined,
+    label: string
+  ): void {
+    if (this.hasSensitiveConfig(previous) && (!update || update.mode === 'preserve')) {
+      throw new Error(`${label} cannot preserve sensitive configuration across request targets`)
+    }
+  }
+
+  private hasSensitiveConfig(value: unknown): boolean {
+    if (typeof value === 'string') {
+      return Boolean(value)
+    }
+    return Boolean(
+      value && typeof value === 'object' && !Array.isArray(value) && Object.keys(value).length > 0
+    )
+  }
+
+  private getProviderRequestTargets(
+    providerId: string,
+    provider: StoredCustomProviderConfig
+  ): Set<string> {
+    const targets = new Set<string>()
+    const models = provider.models ?? []
+    for (const model of models) {
+      targets.add(this.getModelRequestTarget(providerId, provider, model))
+    }
+    if (models.length === 0 || models.some((model) => !model.baseUrl)) {
+      targets.add(this.getRequestTarget(providerId, provider.baseUrl, provider.api))
+    }
+    for (const modelId of Object.keys(provider.modelOverrides ?? {})) {
+      targets.add(this.getModelOverrideRequestTarget(providerId, provider, modelId))
+    }
+    return targets
+  }
+
+  private getModelRequestTarget(
+    providerId: string,
+    provider: StoredCustomProviderConfig,
+    model: StoredCustomModelConfig
+  ): string {
+    return this.getRequestTarget(
+      providerId,
+      model.baseUrl ?? provider.baseUrl,
+      model.api ?? provider.api
+    )
+  }
+
+  private getModelOverrideRequestTarget(
+    providerId: string,
+    provider: StoredCustomProviderConfig,
+    modelId: string
+  ): string {
+    return JSON.stringify([
+      this.getRequestTarget(providerId, provider.baseUrl, provider.api),
+      modelId
+    ])
+  }
+
+  private getRequestTarget(
+    providerId: string,
+    baseUrl: string | undefined,
+    api: string | undefined
+  ): string {
+    let normalizedBaseUrl = baseUrl?.trim() || '<inherited>'
+    try {
+      const parsed = new URL(normalizedBaseUrl)
+      parsed.hash = ''
+      normalizedBaseUrl = parsed.toString()
+    } catch {
+      // Invalid URLs are diagnosed by the model registry; preserve their exact request identity here.
+    }
+    return JSON.stringify([providerId.trim(), normalizedBaseUrl, api?.trim() || '<inherited>'])
+  }
+
+  private toStoredModels(
+    models: CustomModelConfigInput[] | undefined,
+    previousModels: StoredCustomModelConfig[] | undefined
+  ): StoredCustomModelConfig[] | undefined {
+    if (!models) {
+      return undefined
+    }
+    const previousById = new Map(previousModels?.map((model) => [model.id, model]) ?? [])
+    return models.map((model) => ({
+      ...this.toStoredModelFields(model),
+      headers: this.resolveSensitiveConfigUpdate(
+        previousById.get(model.previousId?.trim() || model.id)?.headers,
+        model.headersUpdate
+      )
+    }))
+  }
+
+  private toStoredModelOverrides(
+    modelOverrides: Record<string, CustomModelOverrideInput> | undefined,
+    previousOverrides: Record<string, StoredCustomModelOverrideConfig> | undefined,
+    headersUpdate: SensitiveConfigUpdate<Record<string, Record<string, string>>> | undefined
+  ): Record<string, StoredCustomModelOverrideConfig> | undefined {
+    if (!modelOverrides) {
+      return undefined
+    }
+    const previousHeaders = Object.fromEntries(
+      Object.entries(previousOverrides ?? {}).flatMap(([modelId, modelOverride]) =>
+        modelOverride.headers ? [[modelId, modelOverride.headers]] : []
+      )
+    )
+    const nextHeaders = this.resolveSensitiveConfigUpdate(
+      Object.keys(previousHeaders).length > 0 ? previousHeaders : undefined,
+      headersUpdate
+    )
+    return Object.fromEntries(
+      Object.entries(modelOverrides).map(([modelId, modelOverride]) => [
+        modelId,
+        {
+          ...this.toStoredModelOverrideFields(modelOverride),
+          headers: nextHeaders?.[modelId]
+        }
+      ])
+    )
+  }
+
+  private toStoredModelFields(model: CustomModelConfigFields): CustomModelConfigFields {
+    return {
+      id: model.id,
+      name: model.name,
+      api: model.api,
+      baseUrl: model.baseUrl,
+      reasoning: model.reasoning,
+      thinkingLevelMap: model.thinkingLevelMap,
+      input: model.input,
+      contextWindow: model.contextWindow,
+      maxTokens: model.maxTokens,
+      cost: model.cost,
+      compat: model.compat
+    }
+  }
+
+  private toStoredModelOverrideFields(
+    modelOverride: CustomModelOverrideInput
+  ): CustomModelOverrideInput {
+    return {
+      name: modelOverride.name,
+      reasoning: modelOverride.reasoning,
+      thinkingLevelMap: modelOverride.thinkingLevelMap,
+      input: modelOverride.input,
+      contextWindow: modelOverride.contextWindow,
+      maxTokens: modelOverride.maxTokens,
+      cost: modelOverride.cost,
+      compat: modelOverride.compat
+    }
+  }
+
+  private resolveSensitiveConfigUpdate<T>(
+    previous: T | undefined,
+    update: SensitiveConfigUpdate<T> | undefined
+  ): T | undefined {
+    if (!update || update.mode === 'preserve') {
+      return previous
+    }
+    if (update.mode === 'clear') {
+      return undefined
+    }
+    return update.value
+  }
+
+  private validateSensitiveConfigUpdate<T>(
+    update: SensitiveConfigUpdate<T> | undefined,
+    label: string,
+    validateValue: (value: unknown) => boolean
+  ): void {
+    if (update === undefined) {
+      return
+    }
+    if (!update || typeof update !== 'object' || Array.isArray(update)) {
+      throw new Error(`${label} must be a sensitive config update`)
+    }
+    if (update.mode === 'preserve' || update.mode === 'clear') {
+      return
+    }
+    if (update.mode !== 'replace' || !validateValue(update.value)) {
+      throw new Error(`${label} has an invalid replacement value`)
+    }
+  }
+
+  private isStringRecord(value: unknown): value is Record<string, string> {
+    return (
+      value !== null &&
+      typeof value === 'object' &&
+      !Array.isArray(value) &&
+      Object.entries(value).every(([key, item]) => Boolean(key.trim()) && typeof item === 'string')
+    )
+  }
+
+  private isNestedStringRecord(value: unknown): value is Record<string, Record<string, string>> {
+    return (
+      value !== null &&
+      typeof value === 'object' &&
+      !Array.isArray(value) &&
+      Object.entries(value).every(([key, item]) => Boolean(key.trim()) && this.isStringRecord(item))
+    )
   }
 
   /** 测试清理用。 */
   dispose(): void {
-    this.rejectPendingOAuthPrompts()
+    this.oauthPrompts.dispose()
     try {
       rmSync(this.agentDir, { recursive: true, force: true })
     } catch {
       // ignore cleanup errors in tests
     }
   }
+}
+
+function normalizeOAuthExternalUrl(uri: string, cwd: string): string {
+  const accessMode = readDesktopRuntimeConfig(
+    join(cwd, 'desktop-runtime.json')
+  ).externalProtocolAccess
+  const normalized = normalizeAllowedExternalUrl(uri, accessMode)
+  const protocol = new URL(normalized).protocol
+  if (accessMode !== 'full' && protocol !== 'http:' && protocol !== 'https:') {
+    throw new Error(`OAuth URL protocol is not allowed: ${protocol}`)
+  }
+  return normalized
 }

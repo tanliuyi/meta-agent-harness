@@ -74,11 +74,6 @@ button {
   background: var(--color-primary-strong);
 }
 
-:focus-visible {
-  outline: none;
-  box-shadow: var(--shadow-focus);
-}
-
 .sr-only {
   position: absolute;
   width: 1px;

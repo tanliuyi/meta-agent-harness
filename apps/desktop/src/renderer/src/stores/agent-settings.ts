@@ -8,6 +8,7 @@
 import type {
   AgentSettingsSnapshot,
   ResourcePackageInput,
+  ResourcePackageListInput,
   ResourcePackageProgressEvent,
   ResourcePackageSummary,
   ResourceSnapshotInput,
@@ -29,6 +30,11 @@ export interface ResourcePackageProgressState {
   error?: string
 }
 
+interface ResourcePackagesRequest {
+  generation: number
+  input: ResourcePackageListInput
+}
+
 const useAgentSettingsStore = defineStore('agent-settings', () => {
   const toast = useToast()
   const loading = ref(false)
@@ -39,10 +45,15 @@ const useAgentSettingsStore = defineStore('agent-settings', () => {
   const resourceSnapshot = ref<ResourceSnapshot | null>(null)
   const resourceSnapshotInput = ref<ResourceSnapshotInput>({})
   const resourcePackages = ref<ResourcePackageSummary[]>([])
+  const resourcePackagesInput = ref<ResourcePackageListInput>({})
   const projectExtensionPaths = ref<string[]>([])
-  const projectExtensionPathsCwd = ref<string | null>(null)
+  const projectExtensionPathsProjectId = ref<string | null>(null)
   const resourcePackagesLoading = ref(false)
   const resourcePackageProgress = ref<Record<string, ResourcePackageProgressState>>({})
+  let resourceSnapshotGeneration = 0
+  let projectExtensionPathsGeneration = 0
+  let resourcePackagesGeneration = 0
+  let savingOperations = 0
 
   const diagnostics = computed(() => snapshot.value?.diagnostics ?? [])
   const resourceDiagnostics = computed(() => resourceSnapshot.value?.diagnostics ?? [])
@@ -65,17 +76,23 @@ const useAgentSettingsStore = defineStore('agent-settings', () => {
   }
 
   async function save(): Promise<void> {
-    if (!draft.value) return
-    saving.value = true
+    if (!draft.value || saving.value) return
+    const submittedDraft = cloneAgentSettingsDraft(draft.value)
+    const input = toUpdateInput(submittedDraft)
+    beginSaving()
     error.value = null
     try {
-      applySnapshot(await window.api.codingAgent.updateAgentSettings(toUpdateInput(draft.value)))
+      applySavedSnapshot(
+        await window.api.codingAgent.updateAgentSettings(input),
+        submittedDraft,
+        input
+      )
       toast.success('Agent 设置已保存')
     } catch (cause) {
       error.value = cause instanceof Error ? cause.message : 'Agent 设置保存失败'
       toast.error('Agent 设置保存失败', error.value)
     } finally {
-      saving.value = false
+      finishSaving()
     }
   }
 
@@ -144,11 +161,23 @@ const useAgentSettingsStore = defineStore('agent-settings', () => {
 
   async function loadResourceSnapshot(input: ResourceSnapshotInput = {}): Promise<void> {
     const normalizedInput = normalizeResourceSnapshotInput(input)
+    const generation = ++resourceSnapshotGeneration
+    if (
+      getResourceSnapshotInputKey(normalizedInput) !==
+      getResourceSnapshotInputKey(resourceSnapshotInput.value)
+    ) {
+      resourceSnapshot.value = null
+    }
     resourceSnapshotInput.value = normalizedInput
     try {
-      resourceSnapshot.value = await window.api.codingAgent.getResourceSnapshot(normalizedInput)
+      const nextSnapshot = await window.api.codingAgent.getResourceSnapshot(normalizedInput)
+      if (generation === resourceSnapshotGeneration) {
+        resourceSnapshot.value = nextSnapshot
+      }
     } catch (cause) {
-      error.value = cause instanceof Error ? cause.message : '资源发现快照加载失败'
+      if (generation === resourceSnapshotGeneration) {
+        error.value = cause instanceof Error ? cause.message : '资源发现快照加载失败'
+      }
     }
   }
 
@@ -164,66 +193,100 @@ const useAgentSettingsStore = defineStore('agent-settings', () => {
     await saveResources()
   }
 
-  async function loadProjectExtensionPaths(cwd: string): Promise<void> {
+  async function loadProjectExtensionPaths(projectId?: string): Promise<void> {
+    const generation = ++projectExtensionPathsGeneration
     error.value = null
+    if (!projectId) {
+      projectExtensionPaths.value = []
+      projectExtensionPathsProjectId.value = null
+      return
+    }
+    if (projectExtensionPathsProjectId.value !== projectId) {
+      projectExtensionPaths.value = []
+      projectExtensionPathsProjectId.value = null
+    }
     try {
-      projectExtensionPaths.value = await window.api.codingAgent.getProjectExtensionPaths({ cwd })
-      projectExtensionPathsCwd.value = cwd
+      const paths = await window.api.codingAgent.getProjectExtensionPaths({ projectId })
+      if (generation === projectExtensionPathsGeneration) {
+        projectExtensionPaths.value = paths
+        projectExtensionPathsProjectId.value = projectId
+      }
     } catch (cause) {
-      error.value = cause instanceof Error ? cause.message : '项目扩展路径加载失败'
+      if (generation === projectExtensionPathsGeneration) {
+        error.value = cause instanceof Error ? cause.message : '项目扩展路径加载失败'
+      }
     }
   }
 
-  async function saveProjectExtensionPaths(cwd: string, extensions: string[]): Promise<void> {
-    saving.value = true
+  async function saveProjectExtensionPaths(projectId: string, extensions: string[]): Promise<void> {
+    const generation = ++projectExtensionPathsGeneration
+    beginSaving()
     error.value = null
     try {
-      projectExtensionPaths.value = await window.api.codingAgent.updateProjectExtensionPaths({
-        cwd,
+      const paths = await window.api.codingAgent.updateProjectExtensionPaths({
+        projectId,
         extensions: cleanStringList(extensions)
       })
-      projectExtensionPathsCwd.value = cwd
+      if (generation !== projectExtensionPathsGeneration) return
+      projectExtensionPaths.value = paths
+      projectExtensionPathsProjectId.value = projectId
       await loadResourceSnapshot(resourceSnapshotInput.value)
       toast.success('项目扩展路径已保存')
     } catch (cause) {
-      error.value = cause instanceof Error ? cause.message : '项目扩展路径保存失败'
-      toast.error('项目扩展路径保存失败', error.value)
+      if (generation === projectExtensionPathsGeneration) {
+        error.value = cause instanceof Error ? cause.message : '项目扩展路径保存失败'
+        toast.error('项目扩展路径保存失败', error.value)
+      }
     } finally {
-      saving.value = false
+      finishSaving()
     }
   }
 
-  async function loadResourcePackages(): Promise<void> {
-    resourcePackagesLoading.value = true
-    error.value = null
+  async function loadResourcePackages(input: ResourcePackageListInput = {}): Promise<void> {
+    const normalizedInput = normalizeResourcePackageListInput(input)
+    if (
+      getResourcePackagesInputKey(normalizedInput) !==
+      getResourcePackagesInputKey(resourcePackagesInput.value)
+    ) {
+      resourcePackages.value = []
+    }
+    resourcePackagesInput.value = normalizedInput
+    const request = beginResourcePackagesRequest(normalizedInput)
     try {
-      resourcePackages.value = await window.api.codingAgent.listResourcePackages()
+      const packages = await window.api.codingAgent.listResourcePackages(request.input)
+      if (isCurrentResourcePackagesRequest(request)) {
+        resourcePackages.value = packages
+      }
     } catch (cause) {
-      error.value = cause instanceof Error ? cause.message : '资源包加载失败'
+      if (isCurrentResourcePackagesRequest(request)) {
+        error.value = cause instanceof Error ? cause.message : '资源包加载失败'
+      }
     } finally {
-      resourcePackagesLoading.value = false
+      finishResourcePackagesRequest(request)
     }
   }
 
   async function addResourcePackage(input: ResourcePackageInput): Promise<void> {
-    resourcePackagesLoading.value = true
-    error.value = null
+    if (!canRunResourcePackageMutation(input.projectId)) return
+    const request = beginResourcePackagesRequest(resourcePackagesInput.value)
     try {
-      resourcePackages.value = await window.api.codingAgent.addResourcePackage(input)
-      applySnapshot(await window.api.codingAgent.getAgentSettings())
-      await loadResourceSnapshot(resourceSnapshotInput.value)
-      toast.success('Package source 已添加')
+      await window.api.codingAgent.addResourcePackage(input)
+      if (await refreshAfterResourcePackageMutation(request, !input.projectId)) {
+        toast.success('Package source 已添加')
+      }
     } catch (cause) {
-      error.value = cause instanceof Error ? cause.message : 'Package source 添加失败'
-      toast.error('Package source 添加失败', error.value)
+      if (isCurrentResourcePackagesRequest(request)) {
+        error.value = cause instanceof Error ? cause.message : 'Package source 添加失败'
+        toast.error('Package source 添加失败', error.value)
+      }
     } finally {
-      resourcePackagesLoading.value = false
+      finishResourcePackagesRequest(request)
     }
   }
 
   async function installResourcePackage(input: ResourcePackageInput): Promise<void> {
-    resourcePackagesLoading.value = true
-    error.value = null
+    if (!canRunResourcePackageMutation(input.projectId)) return
+    const request = beginResourcePackagesRequest(resourcePackagesInput.value)
     applyResourcePackageProgress({
       type: 'start',
       action: 'install',
@@ -231,43 +294,47 @@ const useAgentSettingsStore = defineStore('agent-settings', () => {
       message: `Installing ${input.source}...`
     })
     try {
-      resourcePackages.value = await window.api.codingAgent.installResourcePackage(input)
-      applySnapshot(await window.api.codingAgent.getAgentSettings())
-      await loadResourceSnapshot(resourceSnapshotInput.value)
-      toast.success('Package 已安装')
+      await window.api.codingAgent.installResourcePackage(input)
+      if (await refreshAfterResourcePackageMutation(request, !input.projectId)) {
+        toast.success('Package 已安装')
+      }
     } catch (cause) {
-      error.value = cause instanceof Error ? cause.message : 'Package 安装失败'
-      applyResourcePackageProgress({
-        type: 'error',
-        action: 'install',
-        source: input.source,
-        message: error.value
-      })
-      toast.error('Package 安装失败', error.value)
+      if (isCurrentResourcePackagesRequest(request)) {
+        error.value = cause instanceof Error ? cause.message : 'Package 安装失败'
+        applyResourcePackageProgress({
+          type: 'error',
+          action: 'install',
+          source: input.source,
+          message: error.value
+        })
+        toast.error('Package 安装失败', error.value)
+      }
     } finally {
-      resourcePackagesLoading.value = false
+      finishResourcePackagesRequest(request)
     }
   }
 
   async function removeResourcePackage(input: ResourcePackageInput): Promise<void> {
-    resourcePackagesLoading.value = true
-    error.value = null
+    if (!canRunResourcePackageMutation(input.projectId)) return
+    const request = beginResourcePackagesRequest(resourcePackagesInput.value)
     try {
-      resourcePackages.value = await window.api.codingAgent.removeResourcePackage(input)
-      applySnapshot(await window.api.codingAgent.getAgentSettings())
-      await loadResourceSnapshot(resourceSnapshotInput.value)
-      toast.success('Package source 已移除')
+      await window.api.codingAgent.removeResourcePackage(input)
+      if (await refreshAfterResourcePackageMutation(request, !input.projectId)) {
+        toast.success('Package source 已移除')
+      }
     } catch (cause) {
-      error.value = cause instanceof Error ? cause.message : 'Package source 移除失败'
-      toast.error('Package source 移除失败', error.value)
+      if (isCurrentResourcePackagesRequest(request)) {
+        error.value = cause instanceof Error ? cause.message : 'Package source 移除失败'
+        toast.error('Package source 移除失败', error.value)
+      }
     } finally {
-      resourcePackagesLoading.value = false
+      finishResourcePackagesRequest(request)
     }
   }
 
   async function updateResourcePackage(input: UpdateResourcePackageInput = {}): Promise<void> {
-    resourcePackagesLoading.value = true
-    error.value = null
+    if (!canRunResourcePackageMutation(input.projectId)) return
+    const request = beginResourcePackagesRequest(resourcePackagesInput.value)
     if (input.source) {
       applyResourcePackageProgress({
         type: 'start',
@@ -277,23 +344,71 @@ const useAgentSettingsStore = defineStore('agent-settings', () => {
       })
     }
     try {
-      resourcePackages.value = await window.api.codingAgent.updateResourcePackage(input)
-      await loadResourceSnapshot(resourceSnapshotInput.value)
-      toast.success(input.source ? 'Package 已更新' : 'Packages 已更新')
-    } catch (cause) {
-      error.value = cause instanceof Error ? cause.message : 'Package 更新失败'
-      if (input.source) {
-        applyResourcePackageProgress({
-          type: 'error',
-          action: 'update',
-          source: input.source,
-          message: error.value
-        })
+      await window.api.codingAgent.updateResourcePackage(input)
+      if (await refreshAfterResourcePackageMutation(request, false)) {
+        toast.success(input.source ? 'Package 已更新' : 'Packages 已更新')
       }
-      toast.error('Package 更新失败', error.value)
+    } catch (cause) {
+      if (isCurrentResourcePackagesRequest(request)) {
+        error.value = cause instanceof Error ? cause.message : 'Package 更新失败'
+        if (input.source) {
+          applyResourcePackageProgress({
+            type: 'error',
+            action: 'update',
+            source: input.source,
+            message: error.value
+          })
+        }
+        toast.error('Package 更新失败', error.value)
+      }
     } finally {
+      finishResourcePackagesRequest(request)
+    }
+  }
+
+  function beginResourcePackagesRequest(input: ResourcePackageListInput): ResourcePackagesRequest {
+    const request = {
+      generation: ++resourcePackagesGeneration,
+      input: normalizeResourcePackageListInput(input)
+    }
+    resourcePackagesLoading.value = true
+    error.value = null
+    return request
+  }
+
+  function canRunResourcePackageMutation(projectId: string | undefined): boolean {
+    return !projectId || projectId === resourcePackagesInput.value.projectId
+  }
+
+  function isCurrentResourcePackagesRequest(request: ResourcePackagesRequest): boolean {
+    return (
+      request.generation === resourcePackagesGeneration &&
+      getResourcePackagesInputKey(request.input) ===
+        getResourcePackagesInputKey(resourcePackagesInput.value)
+    )
+  }
+
+  function finishResourcePackagesRequest(request: ResourcePackagesRequest): void {
+    if (isCurrentResourcePackagesRequest(request)) {
       resourcePackagesLoading.value = false
     }
+  }
+
+  async function refreshAfterResourcePackageMutation(
+    request: ResourcePackagesRequest,
+    refreshAgentSettings: boolean
+  ): Promise<boolean> {
+    if (!isCurrentResourcePackagesRequest(request)) return false
+    if (refreshAgentSettings) {
+      const nextSnapshot = await window.api.codingAgent.getAgentSettings()
+      if (!isCurrentResourcePackagesRequest(request)) return false
+      applySnapshot(nextSnapshot)
+    }
+    const packages = await window.api.codingAgent.listResourcePackages(request.input)
+    if (!isCurrentResourcePackagesRequest(request)) return false
+    resourcePackages.value = packages
+    await loadResourceSnapshot(resourceSnapshotInput.value)
+    return isCurrentResourcePackagesRequest(request)
   }
 
   function applyResourcePackageProgress(event: ResourcePackageProgressEvent): void {
@@ -352,44 +467,95 @@ const useAgentSettingsStore = defineStore('agent-settings', () => {
     input: UpdateAgentSettingsInput,
     fallbackMessage: string
   ): Promise<void> {
-    saving.value = true
+    if (!draft.value || saving.value) return
+    const submittedDraft = cloneAgentSettingsDraft(draft.value)
+    beginSaving()
     error.value = null
     try {
-      applySnapshot(await window.api.codingAgent.updateAgentSettings(input))
+      applySavedSnapshot(
+        await window.api.codingAgent.updateAgentSettings(input),
+        submittedDraft,
+        input
+      )
       toast.success('设置已保存')
     } catch (cause) {
       error.value = cause instanceof Error ? cause.message : fallbackMessage
       toast.error(fallbackMessage, error.value)
     } finally {
-      saving.value = false
+      finishSaving()
     }
+  }
+
+  function beginSaving(): void {
+    savingOperations += 1
+    saving.value = true
+  }
+
+  function finishSaving(): void {
+    savingOperations = Math.max(0, savingOperations - 1)
+    saving.value = savingOperations > 0
   }
 
   function applySnapshot(nextSnapshot: AgentSettingsSnapshot): void {
     snapshot.value = nextSnapshot
+    draft.value = cloneAgentSettingsDraft(nextSnapshot)
+  }
+
+  function applySavedSnapshot(
+    nextSnapshot: AgentSettingsSnapshot,
+    submittedDraft: AgentSettingsDraft,
+    input: UpdateAgentSettingsInput
+  ): void {
+    const currentDraft = draft.value
+      ? cloneAgentSettingsDraft(draft.value)
+      : cloneAgentSettingsDraft(submittedDraft)
+    const persistedDraft = cloneAgentSettingsDraft(nextSnapshot)
+    snapshot.value = nextSnapshot
     draft.value = {
-      delivery: { ...nextSnapshot.delivery },
-      runtime: { ...nextSnapshot.runtime },
-      display: { ...nextSnapshot.display },
-      safety: { ...nextSnapshot.safety },
-      media: { ...nextSnapshot.media },
-      resources: {
-        packages: [...nextSnapshot.resources.packages],
-        extensions: [...nextSnapshot.resources.extensions],
-        skills: [...nextSnapshot.resources.skills],
-        prompts: [...nextSnapshot.resources.prompts],
-        themes: [...nextSnapshot.resources.themes]
-      },
-      shell: {
-        shellPath: nextSnapshot.shell.shellPath,
-        shellCommandPrefix: nextSnapshot.shell.shellCommandPrefix,
-        npmCommand: [...nextSnapshot.shell.npmCommand],
-        sessionDir: nextSnapshot.shell.sessionDir
-      },
-      advanced: {
-        thinkingBudgets: { ...nextSnapshot.advanced.thinkingBudgets },
-        codeBlockIndent: nextSnapshot.advanced.codeBlockIndent
-      }
+      delivery:
+        input.delivery !== undefined
+          ? mergeSavedSection(
+              submittedDraft.delivery,
+              currentDraft.delivery,
+              persistedDraft.delivery
+            )
+          : currentDraft.delivery,
+      runtime:
+        input.runtime !== undefined
+          ? mergeSavedSection(submittedDraft.runtime, currentDraft.runtime, persistedDraft.runtime)
+          : currentDraft.runtime,
+      display:
+        input.display !== undefined
+          ? mergeSavedSection(submittedDraft.display, currentDraft.display, persistedDraft.display)
+          : currentDraft.display,
+      safety:
+        input.safety !== undefined
+          ? mergeSavedSection(submittedDraft.safety, currentDraft.safety, persistedDraft.safety)
+          : currentDraft.safety,
+      media:
+        input.media !== undefined
+          ? mergeSavedSection(submittedDraft.media, currentDraft.media, persistedDraft.media)
+          : currentDraft.media,
+      resources:
+        input.resources !== undefined
+          ? mergeSavedSection(
+              submittedDraft.resources,
+              currentDraft.resources,
+              persistedDraft.resources
+            )
+          : currentDraft.resources,
+      shell:
+        input.shell !== undefined
+          ? mergeSavedSection(submittedDraft.shell, currentDraft.shell, persistedDraft.shell)
+          : currentDraft.shell,
+      advanced:
+        input.advanced !== undefined
+          ? mergeSavedSection(
+              submittedDraft.advanced,
+              currentDraft.advanced,
+              persistedDraft.advanced
+            )
+          : currentDraft.advanced
     }
   }
 
@@ -400,8 +566,9 @@ const useAgentSettingsStore = defineStore('agent-settings', () => {
     snapshot,
     draft,
     resourcePackages,
+    resourcePackagesInput,
     projectExtensionPaths,
-    projectExtensionPathsCwd,
+    projectExtensionPathsProjectId,
     resourceSnapshot,
     resourcePackagesLoading,
     resourcePackageProgress,
@@ -433,6 +600,65 @@ const useAgentSettingsStore = defineStore('agent-settings', () => {
     saveAdvanced
   }
 })
+
+function cloneAgentSettingsDraft(value: AgentSettingsDraft): AgentSettingsDraft {
+  return {
+    delivery: { ...value.delivery },
+    runtime: { ...value.runtime },
+    display: { ...value.display },
+    safety: { ...value.safety },
+    media: { ...value.media },
+    resources: {
+      packages: [...value.resources.packages],
+      extensions: [...value.resources.extensions],
+      skills: [...value.resources.skills],
+      prompts: [...value.resources.prompts],
+      themes: [...value.resources.themes]
+    },
+    shell: {
+      shellPath: value.shell.shellPath,
+      shellCommandPrefix: value.shell.shellCommandPrefix,
+      npmCommand: [...value.shell.npmCommand],
+      sessionDir: value.shell.sessionDir
+    },
+    advanced: {
+      thinkingBudgets: { ...value.advanced.thinkingBudgets },
+      codeBlockIndent: value.advanced.codeBlockIndent
+    }
+  }
+}
+
+function mergeSavedSection<T>(submitted: T, current: T, persisted: T): T {
+  return settingsValuesEqual(submitted, current) ? persisted : current
+}
+
+function settingsValuesEqual(left: unknown, right: unknown): boolean {
+  if (Object.is(left, right)) return true
+  if (Array.isArray(left) || Array.isArray(right)) {
+    return (
+      Array.isArray(left) &&
+      Array.isArray(right) &&
+      left.length === right.length &&
+      left.every((value, index) => settingsValuesEqual(value, right[index]))
+    )
+  }
+  if (!isSettingsRecord(left) || !isSettingsRecord(right)) return false
+
+  const leftKeys = Object.keys(left)
+  const rightKeys = Object.keys(right)
+  return (
+    leftKeys.length === rightKeys.length &&
+    leftKeys.every(
+      (key) =>
+        Object.prototype.hasOwnProperty.call(right, key) &&
+        settingsValuesEqual(left[key], right[key])
+    )
+  )
+}
+
+function isSettingsRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
 
 function toUpdateInput(draft: AgentSettingsDraft): UpdateAgentSettingsInput {
   return {
@@ -478,9 +704,24 @@ function cleanStringList(values: string[]): string[] {
 function normalizeResourceSnapshotInput(input: ResourceSnapshotInput): ResourceSnapshotInput {
   return {
     ...(input.threadId ? { threadId: input.threadId } : {}),
-    ...(input.cwd ? { cwd: input.cwd } : {}),
-    ...(input.projectTrusted !== undefined ? { projectTrusted: input.projectTrusted } : {})
+    ...(input.projectId ? { projectId: input.projectId } : {})
   }
+}
+
+function getResourceSnapshotInputKey(input: ResourceSnapshotInput): string {
+  if (input.threadId) return `thread:${input.threadId}`
+  if (input.projectId) return `project:${input.projectId}`
+  return 'global'
+}
+
+function normalizeResourcePackageListInput(
+  input: ResourcePackageListInput
+): ResourcePackageListInput {
+  return input.projectId ? { projectId: input.projectId } : {}
+}
+
+function getResourcePackagesInputKey(input: ResourcePackageListInput): string {
+  return input.projectId ?? ''
 }
 
 export default useAgentSettingsStore

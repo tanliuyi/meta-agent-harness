@@ -69,9 +69,10 @@ export function buildSnapshotFromSession(input: BuildSnapshotFromSessionInput): 
     ? input.modelContextWindows?.[modelKey(modelIdentity.provider, modelIdentity.id)]
     : undefined
   const thinkingEntry = findLastEntry(branchEntries, isThinkingLevelChangeEntry)
+  const cwd = header?.cwd || input.thread.cwd
   return {
     threadId: input.thread.threadId,
-    cwd: header?.cwd || input.thread.cwd,
+    cwd,
     sessionFile: input.sessionFile,
     title,
     status: input.thread.status,
@@ -82,7 +83,7 @@ export function buildSnapshotFromSession(input: BuildSnapshotFromSessionInput): 
     sessionTree: toDesktopSessionTree(manager.getTree()),
     currentEntryId,
     toolCalls: toDesktopToolCalls(timelineMessages, input.thread.threadId),
-    fileChanges: toDesktopFileChanges(timelineMessages, input.thread.threadId),
+    fileChanges: toDesktopFileChanges(timelineMessages, input.thread.threadId, cwd),
     approvals: [],
     extensionDialogs: [],
     queue: { steering: [], followUp: [] },

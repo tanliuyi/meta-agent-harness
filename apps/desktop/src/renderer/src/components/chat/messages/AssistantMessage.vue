@@ -342,8 +342,7 @@ watch(() => [props.revision, props.isStreaming], scheduleSelectionCapture)
     border-radius: var(--radius-md);
     cursor: pointer;
 
-    &:hover,
-    &:focus-visible {
+    &:hover {
       background: var(--color-surface-hover);
       outline: none;
     }

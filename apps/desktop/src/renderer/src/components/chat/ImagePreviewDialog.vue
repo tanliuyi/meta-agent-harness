@@ -266,8 +266,7 @@ function handleKeydown(event: KeyboardEvent): void {
     height: 18px;
   }
 
-  &:hover,
-  &:focus-visible {
+  &:hover {
     color: #fff;
     background: rgb(255 255 255 / 12%);
     border-color: rgb(255 255 255 / 28%);

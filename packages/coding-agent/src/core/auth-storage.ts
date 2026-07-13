@@ -424,7 +424,9 @@ export class AuthStorage {
       throw new Error(`Unknown OAuth provider: ${providerId}`)
     }
 
+    callbacks.signal?.throwIfAborted()
     const credentials = await provider.login(callbacks)
+    callbacks.signal?.throwIfAborted()
     this.set(providerId, { type: 'oauth', ...credentials })
   }
 

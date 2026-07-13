@@ -27,7 +27,7 @@
   gap: 0;
   width: 100%;
   height: var(--session-header-height);
-  padding: 0 var(--space-3) 0 var(--space-2);
+  padding: 0 var(--space-2) 0 var(--space-2);
   background: var(--color-surface);
 }
 
@@ -60,7 +60,6 @@
   gap: 2px;
   min-width: 0;
   height: 32px;
-  padding: 2px;
   overflow-x: auto;
   overflow-y: hidden;
   background: transparent;
@@ -126,11 +125,6 @@
   border-radius: inherit;
   cursor: pointer;
   transition: padding-right 140ms var(--ease-standard);
-
-  &:focus-visible {
-    outline: none;
-    box-shadow: inset 0 0 0 1px var(--color-primary);
-  }
 
   span:first-child {
     min-width: 0;
@@ -206,12 +200,6 @@
     color: var(--color-text);
     background: var(--color-surface-hover);
   }
-
-  &:focus-visible {
-    color: var(--color-text);
-    outline: none;
-    box-shadow: inset 0 0 0 1px var(--color-primary);
-  }
 }
 
 .session-panel__tab:hover .session-panel__tab-close,
@@ -253,11 +241,6 @@
     border-color: var(--color-border);
   }
 
-  &:focus-visible {
-    outline: none;
-    box-shadow: inset 0 0 0 1px var(--color-primary);
-  }
-
   &.has-attention:not(.is-active)::after {
     content: '';
     position: absolute;
@@ -286,9 +269,10 @@
   flex-direction: row;
   justify-content: center;
   align-items: center;
+  gap: var(--space-1);
   flex-shrink: 0;
   height: 32px;
-  padding: 2px;
+  padding: 2px 0;
   background: transparent;
   border: 0;
   border-radius: 0;
@@ -494,8 +478,7 @@
   height: 15px;
 }
 
-.session-section__menu:hover,
-.session-section__menu:focus-visible {
+.session-section__menu:hover {
   color: var(--color-text);
 }
 
@@ -604,8 +587,7 @@
   height: 14px;
 }
 
-.session-overview__copy:hover:not(:disabled),
-.session-overview__copy:focus-visible {
+.session-overview__copy:hover:not(:disabled) {
   color: var(--color-text);
   background: var(--color-surface-hover);
   border-color: var(--color-border-strong);
@@ -735,8 +717,7 @@
   border-radius: var(--radius-sm);
   cursor: pointer;
 
-  &:hover,
-  &:focus-visible {
+  &:hover {
     color: var(--color-text-muted);
   }
 }
@@ -1138,11 +1119,6 @@
   border-radius: var(--radius-sm);
   cursor: pointer;
   transition: background var(--duration-fast) var(--ease-standard);
-
-  &:focus-visible {
-    outline: none;
-    box-shadow: inset var(--shadow-focus);
-  }
 }
 
 .session-tree__row {
@@ -1423,8 +1399,7 @@
   border-radius: 2px;
 }
 
-.command-item:hover,
-.command-item:focus-visible {
+.command-item:hover {
   background: color-mix(in srgb, var(--session-panel-cyan) 6%, var(--color-surface-raised));
   border-color: color-mix(in srgb, var(--session-panel-cyan) 34%, var(--color-border));
   box-shadow: inset 2px 0 0 var(--session-panel-cyan);
@@ -1685,10 +1660,6 @@
   padding: 4px 6px;
   border: 1px solid transparent;
   border-radius: 2px;
-}
-
-.session-tree__content:focus-visible {
-  box-shadow: inset 0 0 0 1px var(--session-tree-cyan);
 }
 
 .session-tree__marker {

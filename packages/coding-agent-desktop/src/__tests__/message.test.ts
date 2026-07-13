@@ -392,4 +392,102 @@ describe('desktop message conversion', () => {
       }
     ])
   })
+
+  it('按文件合并多次 edit projection 并保持首次出现顺序', () => {
+    const messages: AgentMessage[] = [
+      {
+        role: 'assistant',
+        content: [
+          { type: 'toolCall', id: 'tool-app-a', name: 'edit', arguments: { path: 'src/app.ts' } },
+          {
+            type: 'toolCall',
+            id: 'tool-readme',
+            name: 'edit',
+            arguments: { path: 'README.md' }
+          },
+          {
+            type: 'toolCall',
+            id: 'tool-app-b',
+            name: 'edit',
+            arguments: { path: 'H:\\repo\\src\\app.ts' }
+          }
+        ],
+        api: 'responses',
+        provider: 'openai',
+        model: 'gpt-5',
+        usage: {
+          input: 1,
+          output: 1,
+          cacheRead: 0,
+          cacheWrite: 0,
+          totalTokens: 2,
+          cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 }
+        },
+        stopReason: 'toolUse',
+        timestamp: 1
+      },
+      {
+        role: 'toolResult',
+        content: 'edited app once',
+        toolCallId: 'tool-app-a',
+        isError: false,
+        timestamp: Date.parse('2026-07-01T00:00:01.000Z'),
+        details: {
+          diff: '-8 old\n+8 first',
+          patch: '@@ app-a\n-old\n+first\n',
+          firstChangedLine: 8
+        }
+      } as AgentMessage,
+      {
+        role: 'toolResult',
+        content: 'edited readme',
+        toolCallId: 'tool-readme',
+        isError: false,
+        timestamp: Date.parse('2026-07-01T00:00:02.000Z'),
+        details: {
+          diff: '-1 before\n+1 after',
+          patch: '@@ readme\n-before\n+after\n',
+          firstChangedLine: 1
+        }
+      } as AgentMessage,
+      {
+        role: 'toolResult',
+        content: 'edited app twice',
+        toolCallId: 'tool-app-b',
+        isError: false,
+        timestamp: Date.parse('2026-07-01T00:00:03.000Z'),
+        details: {
+          patch: '@@ app-b\n-first\n+second\n+extra\n',
+          firstChangedLine: 3
+        }
+      } as AgentMessage
+    ]
+
+    expect(toDesktopFileChanges(messages, 'thread-1', 'H:\\repo')).toEqual([
+      {
+        threadId: 'thread-1',
+        toolCallId: 'tool-app-a',
+        path: 'src/app.ts',
+        changeType: 'updated',
+        diff: '-8 old\n+8 first\n@@ app-b\n-first\n+second\n+extra',
+        patch: '@@ app-a\n-old\n+first\n@@ app-b\n-first\n+second\n+extra',
+        additions: 3,
+        deletions: 2,
+        firstChangedLine: 3,
+        createdAt: '2026-07-01T00:00:01.000Z'
+      },
+      {
+        threadId: 'thread-1',
+        toolCallId: 'tool-readme',
+        path: 'README.md',
+        changeType: 'updated',
+        diff: '-1 before\n+1 after',
+        patch: '@@ readme\n-before\n+after\n',
+        additions: 1,
+        deletions: 1,
+        firstChangedLine: 1,
+        createdAt: '2026-07-01T00:00:02.000Z'
+      }
+    ])
+  })
 })

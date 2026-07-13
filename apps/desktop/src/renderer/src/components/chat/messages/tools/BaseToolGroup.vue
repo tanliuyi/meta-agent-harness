@@ -106,18 +106,11 @@ const open = computed({
     color: var(--color-hover);
   }
 
-  &:focus-visible {
-    outline: none;
-    box-shadow: inset var(--shadow-focus);
-  }
-
-  &:hover .tool-group__summary,
-  &:focus-visible .tool-group__summary {
+  &:hover .tool-group__summary {
     color: var(--color-text);
   }
 
-  &:hover .tool-group__icon,
-  &:focus-visible .tool-group__icon {
+  &:hover .tool-group__icon {
     opacity: 1;
   }
 }

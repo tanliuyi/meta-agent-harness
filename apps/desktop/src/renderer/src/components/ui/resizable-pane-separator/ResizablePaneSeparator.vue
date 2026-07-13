@@ -88,7 +88,6 @@ watch(
   }
 
   &:hover::before,
-  &:focus-visible::before,
   &--active::before {
     background: linear-gradient(
       to bottom,
@@ -98,11 +97,6 @@ watch(
     );
   }
 
-  &:focus-visible {
-    outline: none;
-  }
-
-  &:focus-visible::before,
   &--active::before {
     transition-delay: 0ms;
   }

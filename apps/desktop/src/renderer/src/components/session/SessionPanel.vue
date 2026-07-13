@@ -43,14 +43,14 @@ defineEmits<{
             <Minimize2
               v-if="fullscreen"
               class="session-panel__fullscreen-icon"
-              :size="16"
+              :size="13"
               :stroke-width="1.8"
               aria-hidden="true"
             />
             <Maximize2
               v-else
               class="session-panel__fullscreen-icon"
-              :size="16"
+              :size="13"
               :stroke-width="1.8"
               aria-hidden="true"
             />

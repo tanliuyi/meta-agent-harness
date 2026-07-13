@@ -50,8 +50,7 @@ const forwardedProps = useForwardProps(delegatedProps)
 }
 
 [data-slot='select-trigger'][data-variant='borderless'],
-[data-slot='select-trigger'][data-variant='borderless']:hover,
-[data-slot='select-trigger'][data-variant='borderless']:focus-visible {
+[data-slot='select-trigger'][data-variant='borderless']:hover {
   background: transparent;
   border-color: transparent;
   box-shadow: none;

@@ -144,11 +144,6 @@ async function handleDoubleClick(): Promise<void> {
     background: var(--color-surface-hover);
     color: var(--color-text);
   }
-
-  &:focus-visible {
-    outline: none;
-    box-shadow: var(--shadow-focus);
-  }
 }
 
 .title-bar__workspace-icon {
@@ -185,11 +180,6 @@ async function handleDoubleClick(): Promise<void> {
   &:hover {
     background: var(--color-surface-hover);
     color: var(--color-text);
-  }
-
-  &:focus-visible {
-    outline: none;
-    box-shadow: var(--shadow-focus);
   }
 
   &--close:hover {

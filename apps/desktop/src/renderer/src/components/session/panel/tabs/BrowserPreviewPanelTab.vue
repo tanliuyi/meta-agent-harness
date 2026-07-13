@@ -1,24 +1,40 @@
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, onMounted, reactive, watch } from 'vue'
-import { Globe2, LoaderCircle, Plus, X } from 'lucide-vue-next'
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
+import {
+  ArrowLeft,
+  ArrowRight,
+  Chrome,
+  Github,
+  Globe2,
+  LoaderCircle,
+  Plus,
+  RefreshCw,
+  Search,
+  Server,
+  X
+} from 'lucide-vue-next'
 import BaseIconButton from '@renderer/components/base/BaseIconButton.vue'
 import { useSessionContext } from '@renderer/composables/useSessionContext'
 import type { ExtensionSessionPanelTabId } from '@renderer/components/session/panel/model/types'
 import useWorkspaceSessionStore from '@renderer/stores/workspace-session'
 import BrowserPreviewPage from './BrowserPreviewPage.vue'
+import { resolveBrowserAddress } from './state/browserAddress'
+import { assertBrowserCommandResultBudget } from './state/browserCommandBudget'
 import { migrateLegacyBrowserPreviewStorage } from './state/browserPreviewMigration'
 import { decideBrowserReveal } from './state/browserRevealPolicy'
 import {
   addBrowserTab,
   closeBrowserTab,
+  createBrowserCommandLifecycle,
+  createBrowserGuideTab,
   createBrowserTab,
-  DEFAULT_BROWSER_URL,
+  enqueueSerialBrowserCommand,
+  isBrowserPageTab,
   MAX_BROWSER_TABS,
   normalizeBrowserUrl,
   requireBrowserTab,
   restoreBrowserTabs,
   switchBrowserTab,
-  withBrowserCommandTimeout,
   type BrowserTab,
   type BrowserTabsState
 } from './state/browserPreviewTabs'
@@ -53,6 +69,7 @@ const props = defineProps<{
 const emit = defineEmits<{
   attention: [threadId: string]
   busyChange: [busy: boolean]
+  close: [sessionScope: string]
 }>()
 const store = useWorkspaceSessionStore()
 const { panel, openPanelTab } = useSessionContext()
@@ -61,13 +78,20 @@ const storageScope = `${legacyStorageScope}:${props.sessionScope}`
 const tabsStorageKey = `meta-agent.browser-preview.tabs:${storageScope}`
 const pageRefs = new Map<string, BrowserPageHandle>()
 const processedCommandRequestIds = new Set<string>()
-const commandExecutionQueues = new Map<string, Promise<void>>()
+let commandExecutionQueue: Promise<void> = Promise.resolve()
 const PAGE_COMMAND_TIMEOUT_MS = 25_000
 const PANEL_COLLAPSE_COOLDOWN_MS = 10_000
 const autoRevealedThreadIds = new Set<string>()
 const lastPanelCollapsedAtByThreadId = new Map<string, number>()
 let removeOpenRequestedListener: (() => void) | undefined
 let inFlightCommandCount = 0
+const guideAddress = ref('')
+const guideError = ref('')
+const guideShortcuts = [
+  { label: 'Localhost', url: 'http://127.0.0.1:3000', icon: Server },
+  { label: 'Vite', url: 'http://127.0.0.1:5173', icon: Server },
+  { label: 'GitHub', url: 'https://github.com', icon: Github }
+] as const
 
 function beginBrowserCommand(): void {
   inFlightCommandCount += 1
@@ -131,28 +155,26 @@ function readStoredTabs(): BrowserTabsState {
     const restored = restoreBrowserTabs(JSON.parse(localStorage.getItem(tabsStorageKey) || ''))
     if (restored) return restored
   } catch {
-    // Invalid persisted state falls back to one tab.
+    // Invalid persisted state falls back to empty.
   }
-  let initialUrl = DEFAULT_BROWSER_URL
-  try {
-    initialUrl = normalizeBrowserUrl(
-      localStorage.getItem(`meta-agent.browser-preview.url:${storageScope}`) || DEFAULT_BROWSER_URL
-    )
-  } catch {
-    // Invalid legacy URL falls back to the default page.
-  }
-  const tab = createBrowserTab(createBrowserId(), initialUrl)
-  return { tabs: [tab], activeBrowserId: tab.id }
+  return { tabs: [], activeBrowserId: '' }
 }
 
 const tabsState = reactive<BrowserTabsState>(readStoredTabs())
+const pageTabs = computed(() => tabsState.tabs.filter(isBrowserPageTab))
+const activeGuideTab = computed(() =>
+  tabsState.tabs.find((tab) => tab.kind === 'guide' && tab.id === tabsState.activeBrowserId)
+)
 
 function persistTabs(): void {
+  const persistedTabs = tabsState.tabs.filter(isBrowserPageTab)
   localStorage.setItem(
     tabsStorageKey,
     JSON.stringify({
-      activeBrowserId: tabsState.activeBrowserId,
-      tabs: tabsState.tabs.map(({ id, url }) => ({ id, url }))
+      activeBrowserId: persistedTabs.some((tab) => tab.id === tabsState.activeBrowserId)
+        ? tabsState.activeBrowserId
+        : '',
+      tabs: persistedTabs.map(({ id, url }) => ({ id, url }))
     })
   )
 }
@@ -173,7 +195,15 @@ function tabSummary(tab: BrowserTab): {
   }
 }
 
+function openGuideTab(): BrowserTab {
+  guideAddress.value = ''
+  guideError.value = ''
+  return addBrowserTab(tabsState, createBrowserGuideTab(createBrowserId()))
+}
+
 function openBrowserTab(url?: unknown, activate = true): BrowserTab {
+  const activeTab = tabsState.tabs.find((tab) => tab.id === tabsState.activeBrowserId)
+  if (activate && activeTab?.kind === 'guide') closeBrowserTab(tabsState, activeTab.id)
   const tab = addBrowserTab(
     tabsState,
     createBrowserTab(createBrowserId(), normalizeBrowserUrl(url)),
@@ -183,17 +213,30 @@ function openBrowserTab(url?: unknown, activate = true): BrowserTab {
   return tab
 }
 
+function submitGuideAddress(): void {
+  try {
+    guideError.value = ''
+    openBrowserTab(resolveBrowserAddress(guideAddress.value))
+  } catch (cause) {
+    guideError.value = cause instanceof Error ? cause.message : String(cause)
+  }
+}
+
 function activateBrowserTab(browserId: string): BrowserTab {
   const tab = switchBrowserTab(tabsState, browserId)
   persistTabs()
   return tab
 }
 
-function removeBrowserTab(browserId: string): BrowserTab {
+async function removeBrowserTab(browserId: string): Promise<BrowserTab> {
   const tab = closeBrowserTab(tabsState, browserId)
   pageRefs.get(browserId)?.stop()
   pageRefs.delete(browserId)
   persistTabs()
+  if (tabsState.tabs.length === 0) {
+    await nextTick()
+    if (tabsState.tabs.length === 0) emit('close', props.sessionScope)
+  }
   return tab
 }
 
@@ -213,6 +256,7 @@ function setPageRef(browserId: string, value: unknown): void {
 }
 
 function tabLabel(tab: BrowserTab): string {
+  if (tab.kind === 'guide') return tab.title
   if (tab.title && !['Browser', 'New tab'].includes(tab.title)) return tab.title
   try {
     return new URL(tab.url).host || 'New tab'
@@ -242,7 +286,7 @@ async function executeBrowserCommand(message: BrowserCommand): Promise<unknown> 
     return tabSummary(tab)
   }
   if (message.command === 'close') {
-    const closed = removeBrowserTab(String(payload.browserId || ''))
+    const closed = await removeBrowserTab(String(payload.browserId || ''))
     return {
       closedBrowserId: closed.id,
       activeBrowserId: tabsState.activeBrowserId,
@@ -256,7 +300,9 @@ async function executeBrowserCommand(message: BrowserCommand): Promise<unknown> 
   )
   const page = pageRefs.get(tab.id)
   if (!page) throw new Error(`Browser tab is not ready: ${tab.id}`)
-  return browserIdentity(tab.id, await page.executeCommand(message))
+  const result = browserIdentity(tab.id, await page.executeCommand(message))
+  assertBrowserCommandResultBudget(message.command, result)
+  return result
 }
 
 async function sendResult(
@@ -300,39 +346,36 @@ const panelCommands = computed(() => {
 })
 
 function enqueueBrowserCommand(threadId: string, message: BrowserCommand): void {
-  const payload = (message.payload || {}) as Record<string, unknown>
-  const isPageCommand = !['open', 'tabs', 'switch', 'close'].includes(message.command)
-  const targetBrowserId = isPageCommand
-    ? requireBrowserTab(
-        tabsState,
-        typeof payload.browserId === 'string' ? payload.browserId : undefined
-      ).id
-    : undefined
-  const routedMessage = targetBrowserId
-    ? { ...message, payload: { ...payload, browserId: targetBrowserId } }
-    : message
   applyBrowserRevealPolicy(threadId, message.command)
   beginBrowserCommand()
-  const queueKey = targetBrowserId ? `page:${targetBrowserId}` : 'browser-controls'
-  const previous = commandExecutionQueues.get(queueKey) ?? Promise.resolve()
-  const queued = previous
-    .catch(() => undefined)
-    .then(() =>
-      sendResult(threadId, message.requestId, () =>
-        withBrowserCommandTimeout(
-          executeBrowserCommand(routedMessage),
-          message.command,
-          PAGE_COMMAND_TIMEOUT_MS
-        )
-      )
+  const queued = enqueueSerialBrowserCommand(commandExecutionQueue, async () => {
+    const lifecycle = createBrowserCommandLifecycle(
+      executeBrowserCommand(message).then((value) => {
+        assertBrowserCommandResultBudget(message.command, value)
+        return value
+      }),
+      message.command,
+      PAGE_COMMAND_TIMEOUT_MS
     )
-    .catch((cause: unknown) => console.error('Failed to send Browser command result', cause))
-  commandExecutionQueues.set(queueKey, queued)
+    try {
+      await sendResult(threadId, message.requestId, () => lifecycle.response)
+    } finally {
+      await lifecycle.settled
+    }
+  }).catch((cause: unknown) => console.error('Failed to send Browser command result', cause))
+  commandExecutionQueue = queued
   void queued.finally(() => {
-    if (commandExecutionQueues.get(queueKey) === queued) commandExecutionQueues.delete(queueKey)
     finishBrowserCommand()
   })
 }
+
+watch(
+  () => props.visible,
+  (visible) => {
+    if (visible && tabsState.tabs.length === 0) openGuideTab()
+  },
+  { immediate: true }
+)
 
 watch(
   panelCommands,
@@ -402,7 +445,7 @@ onBeforeUnmount(() => {
           class="browser-preview-tab__select"
           role="tab"
           :aria-selected="tab.id === tabsState.activeBrowserId"
-          :title="`${tabLabel(tab)} - ${tab.url}`"
+          :title="tab.url ? `${tabLabel(tab)} - ${tab.url}` : tabLabel(tab)"
           @click="activateBrowserTab(tab.id)"
         >
           <LoaderCircle v-if="tab.loading" class="browser-preview-tab__loading" />
@@ -412,7 +455,6 @@ onBeforeUnmount(() => {
         <button
           type="button"
           class="browser-preview-tab__close"
-          :disabled="tabsState.tabs.length === 1"
           :aria-label="`Close ${tabLabel(tab)}`"
           @click="removeBrowserTab(tab.id)"
         >
@@ -421,16 +463,15 @@ onBeforeUnmount(() => {
       </div>
       <BaseIconButton
         label="New browser tab"
-        size="medium"
         :disabled="tabsState.tabs.length >= MAX_BROWSER_TABS"
-        @click="openBrowserTab()"
+        @click="openGuideTab()"
       >
         <Plus :size="14" />
       </BaseIconButton>
     </nav>
 
     <BrowserPreviewPage
-      v-for="tab in tabsState.tabs"
+      v-for="tab in pageTabs"
       v-show="tab.id === tabsState.activeBrowserId"
       :key="tab.id"
       :ref="(value) => setPageRef(tab.id, value)"
@@ -441,6 +482,59 @@ onBeforeUnmount(() => {
       :thread-id="threadId"
       @state="updatePageState"
     />
+    <div v-if="activeGuideTab" class="browser-preview-guide">
+      <div class="browser-preview-guide__toolbar">
+        <BaseIconButton label="Back" size="small" disabled>
+          <ArrowLeft :size="12" />
+        </BaseIconButton>
+        <BaseIconButton label="Forward" size="small" disabled>
+          <ArrowRight :size="12" />
+        </BaseIconButton>
+        <BaseIconButton label="Reload" size="small" disabled>
+          <RefreshCw :size="12" />
+        </BaseIconButton>
+        <form class="browser-preview-guide__address" @submit.prevent="submitGuideAddress">
+          <Globe2 aria-hidden="true" />
+          <input
+            v-model="guideAddress"
+            aria-label="Address and search bar"
+            autocomplete="off"
+            placeholder="Search Google or enter a URL"
+            :spellcheck="false"
+          />
+        </form>
+      </div>
+      <div class="browser-preview-new-tab-page">
+        <div class="browser-preview-new-tab-page__brand">
+          <Chrome aria-hidden="true" />
+          <h1>Browser</h1>
+        </div>
+        <form class="browser-preview-new-tab-page__search" @submit.prevent="submitGuideAddress">
+          <Search aria-hidden="true" />
+          <input
+            v-model="guideAddress"
+            aria-label="Search Google or enter a URL"
+            autocomplete="off"
+            placeholder="Search Google or enter a URL"
+            :spellcheck="false"
+          />
+        </form>
+        <p v-if="guideError" class="browser-preview-new-tab-page__error" role="alert">
+          {{ guideError }}
+        </p>
+        <div class="browser-preview-new-tab-page__shortcuts" aria-label="Shortcuts">
+          <button
+            v-for="shortcut in guideShortcuts"
+            :key="shortcut.url"
+            type="button"
+            @click="openBrowserTab(shortcut.url)"
+          >
+            <span><component :is="shortcut.icon" aria-hidden="true" /></span>
+            {{ shortcut.label }}
+          </button>
+        </div>
+      </div>
+    </div>
   </section>
 </template>
 
@@ -535,11 +629,6 @@ onBeforeUnmount(() => {
   background: var(--color-surface-hover);
 }
 
-.browser-preview-tab__close:disabled {
-  opacity: 0;
-  pointer-events: none;
-}
-
 .browser-preview-tab__loading {
   animation: browser-tab-spin 1s linear infinite;
 }
@@ -548,5 +637,191 @@ onBeforeUnmount(() => {
   to {
     transform: rotate(360deg);
   }
+}
+
+.browser-preview-guide {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+
+.browser-preview-guide__toolbar {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+  padding: 4px 8px;
+  background: var(--color-background);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.browser-preview-guide__address {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: 7px;
+  min-width: 120px;
+  height: 26px;
+  padding: 0 8px;
+  background: var(--color-surface-raised);
+  border: 1px solid transparent;
+  border-radius: 6px;
+}
+
+.browser-preview-guide__address:focus-within {
+  background: var(--color-surface);
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--color-primary) 28%, transparent);
+}
+
+.browser-preview-guide__address > svg {
+  flex: none;
+  width: 13px;
+  height: 13px;
+  color: var(--color-text-muted);
+}
+
+.browser-preview-guide__address input {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  padding: 0;
+  color: var(--color-text);
+  font: inherit;
+  font-size: 11px;
+  letter-spacing: 0;
+  outline: none;
+  background: transparent;
+  border: 0;
+}
+
+.browser-preview-new-tab-page {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 24px;
+  min-width: 0;
+  height: 100%;
+  padding: 32px;
+  overflow: auto;
+  color: var(--color-text);
+  background: var(--color-surface);
+}
+
+.browser-preview-new-tab-page__brand {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.browser-preview-new-tab-page__brand > svg {
+  width: 40px;
+  height: 40px;
+  color: var(--color-primary);
+}
+
+.browser-preview-new-tab-page__brand h1 {
+  margin: 0;
+  font-size: 28px;
+  font-weight: 600;
+  letter-spacing: 0;
+}
+
+.browser-preview-new-tab-page__search {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: min(100%, 560px);
+  height: 44px;
+  padding: 0 14px;
+  background: var(--color-surface-raised);
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  box-shadow: var(--shadow-sm);
+}
+
+.browser-preview-new-tab-page__search:focus-within {
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-primary) 20%, transparent);
+}
+
+.browser-preview-new-tab-page__search > svg {
+  flex: none;
+  width: 17px;
+  height: 17px;
+  color: var(--color-text-muted);
+}
+
+.browser-preview-new-tab-page__search input {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  padding: 0;
+  color: var(--color-text);
+  font: inherit;
+  font-size: var(--font-size-ui-sm);
+  letter-spacing: 0;
+  outline: none;
+  background: transparent;
+  border: 0;
+}
+
+.browser-preview-new-tab-page__error {
+  width: min(100%, 560px);
+  margin: -14px 0 0;
+  color: var(--color-destructive);
+  font-size: var(--font-size-ui-xs);
+}
+
+.browser-preview-new-tab-page__shortcuts {
+  display: grid;
+  grid-template-columns: repeat(3, 76px);
+  gap: 12px;
+  justify-content: center;
+}
+
+.browser-preview-new-tab-page__shortcuts button {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  width: 76px;
+  min-width: 0;
+  padding: 8px 4px;
+  overflow: hidden;
+  color: var(--color-text-muted);
+  font: inherit;
+  font-size: var(--font-size-ui-xs);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  background: transparent;
+  border: 0;
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.browser-preview-new-tab-page__shortcuts button:hover {
+  color: var(--color-text);
+  background: var(--color-surface-hover);
+}
+
+.browser-preview-new-tab-page__shortcuts button > span {
+  display: grid;
+  width: 38px;
+  height: 38px;
+  place-items: center;
+  color: var(--color-text);
+  background: var(--color-surface-raised);
+  border: 1px solid var(--color-border);
+  border-radius: 50%;
+}
+
+.browser-preview-new-tab-page__shortcuts svg {
+  width: 17px;
+  height: 17px;
 }
 </style>

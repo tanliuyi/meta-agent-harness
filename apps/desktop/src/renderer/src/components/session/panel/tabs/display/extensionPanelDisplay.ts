@@ -395,8 +395,10 @@ function createExtensionPanelThemeStyle(theme: ExtensionPanelThemePayload): stri
 `
 }
 
-/** 获取 panel iframe sandbox token。 */
-export function getExtensionPanelSandbox(panel: DesktopExtensionWebviewPanel | undefined): string {
+/** 获取扩展内容本身的 sandbox token。 */
+export function getExtensionPanelContentSandbox(
+  panel: DesktopExtensionWebviewPanel | undefined
+): string {
   const source = panel?.source
   if (!source || source.type === 'native') return ''
   const permissions = source.permissions
@@ -407,6 +409,23 @@ export function getExtensionPanelSandbox(panel: DesktopExtensionWebviewPanel | u
   if (permissions?.downloads) tokens.push('allow-downloads')
   if (source?.type === 'url' && permissions?.sameOrigin) tokens.push('allow-same-origin')
   return tokens.join(' ')
+}
+
+/** 获取 renderer 直接承载的 iframe sandbox token。 */
+export function getExtensionPanelSandbox(panel: DesktopExtensionWebviewPanel | undefined): string {
+  return getExtensionPanelSandboxForAccess(panel, false)
+}
+
+export function getExtensionPanelSandboxForAccess(
+  panel: DesktopExtensionWebviewPanel | undefined,
+  unrestrictedUrlAccess: boolean
+): string {
+  if (panel?.source.type === 'url') {
+    if (unrestrictedUrlAccess) return getExtensionPanelContentSandbox(panel)
+    // URL host 使用 data: opaque origin；allow-same-origin 只用于避免把限制继承给内层 URL。
+    return 'allow-scripts allow-same-origin'
+  }
+  return getExtensionPanelContentSandbox(panel)
 }
 
 function isLocalhostHostname(hostname: string): boolean {
@@ -511,11 +530,15 @@ export function isExtensionPanelNavigationAllowed(
   }
 }
 
-/** renderer 向 panel postMessage 时使用的 targetOrigin。 */
+/** renderer 向 host iframe postMessage 时使用的 targetOrigin。 */
 export function getExtensionPanelTargetOrigin(
-  panel: DesktopExtensionWebviewPanel | undefined
+  panel: DesktopExtensionWebviewPanel | undefined,
+  unrestrictedUrlAccess = false
 ): string {
-  return getExtensionPanelMessageOrigin(panel) ?? '*'
+  if (unrestrictedUrlAccess && panel?.source.type === 'url') return '*'
+  // HTML panel 使用 sandboxed srcdoc，URL panel host 使用 sandboxed data 文档；
+  // 两者均为 opaque origin。
+  return '*'
 }
 
 /** 判断来自 iframe 的 message 是否应被转发给 extension。 */
@@ -524,12 +547,109 @@ export function shouldAcceptExtensionPanelMessage(input: {
   eventOrigin: string
   eventSource: MessageEventSource | null
   frameWindow: Window | null | undefined
+  unrestrictedUrlAccess?: boolean
 }): boolean {
   if (!input.panel || input.eventSource !== input.frameWindow) {
     return false
   }
-  const expectedOrigin = getExtensionPanelMessageOrigin(input.panel)
-  return expectedOrigin === undefined || input.eventOrigin === expectedOrigin
+  if (input.unrestrictedUrlAccess && input.panel.source.type === 'url') return true
+  // renderer 只和 sandboxed HTML/data host 通信。URL 内容的真实 origin 由 host 内部校验，
+  // 远程页面直接向 top 投递时 event.source 不会等于 frameWindow。
+  return input.eventOrigin === 'null'
+}
+
+function escapeHtmlAttribute(value: string): string {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/"/g, '&quot;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+}
+
+/**
+ * 为 URL panel 构造受控 data host 文档内容。
+ *
+ * 顶层 renderer 将文档编码为 opaque-origin data URL。host 的精确 frame-src CSP
+ * 会对内层 iframe 的初始请求与重定向共同生效，且消息只能经由匹配的 contentWindow 转发。
+ */
+export function prepareExtensionPanelUrlHost(
+  panel: DesktopExtensionWebviewPanel | undefined
+): string {
+  if (panel?.source.type !== 'url') {
+    return ''
+  }
+  const resolvedUrl = getExtensionPanelResolvedUrl(panel)
+  const allowedOrigin = getExtensionPanelAllowedNavigationOrigin(panel)
+  if (!resolvedUrl || !allowedOrigin) {
+    return ''
+  }
+
+  const nonce = createPanelNonce()
+  const contentSandbox = getExtensionPanelContentSandbox(panel)
+  const preservesOrigin = panel.source.permissions?.sameOrigin === true
+  const expectedChildOrigin = preservesOrigin ? allowedOrigin : 'null'
+  const childTargetOrigin = preservesOrigin ? allowedOrigin : '*'
+  const csp = [
+    "default-src 'none'",
+    `frame-src ${allowedOrigin}`,
+    `script-src 'nonce-${nonce}'`,
+    `style-src 'nonce-${nonce}'`,
+    "base-uri 'none'",
+    "form-action 'none'"
+  ].join('; ')
+
+  return `<!doctype html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <meta http-equiv="Content-Security-Policy" content="${escapeHtmlAttribute(csp)}">
+  <style nonce="${nonce}">
+    html, body, iframe { width: 100%; height: 100%; margin: 0; border: 0; }
+    body { overflow: hidden; background: #fff; }
+  </style>
+</head>
+<body>
+  <script nonce="${nonce}">
+    ;(() => {
+      const childUrl = ${serializeForInlineScript(resolvedUrl)};
+      const childTitle = ${serializeForInlineScript(panel.title)};
+      const contentSandbox = ${serializeForInlineScript(contentSandbox)};
+      const expectedChildOrigin = ${serializeForInlineScript(expectedChildOrigin)};
+      const childTargetOrigin = ${serializeForInlineScript(childTargetOrigin)};
+      const pendingHostMessages = [];
+      let childReady = false;
+      const frame = document.createElement('iframe');
+      frame.id = 'pi-url-panel-content';
+      frame.title = childTitle;
+      frame.setAttribute('sandbox', contentSandbox);
+      frame.referrerPolicy = 'no-referrer';
+
+      const postToChild = (message) => {
+        if (!frame.contentWindow) return;
+        frame.contentWindow.postMessage(message, childTargetOrigin);
+      };
+
+      frame.addEventListener('load', () => {
+        childReady = true;
+        for (const message of pendingHostMessages.splice(0)) postToChild(message);
+      });
+
+      window.addEventListener('message', (event) => {
+        if (event.source === parent) {
+          if (childReady) postToChild(event.data);
+          else if (pendingHostMessages.length < 32) pendingHostMessages.push(event.data);
+          return;
+        }
+        if (event.source !== frame.contentWindow || event.origin !== expectedChildOrigin) return;
+        parent.postMessage(event.data, '*');
+      });
+
+      document.body.appendChild(frame);
+      frame.src = childUrl;
+    })();
+  </script>
+</body>
+</html>`
 }
 
 /** 判断 panel 隐藏后是否应保留 iframe context。 */

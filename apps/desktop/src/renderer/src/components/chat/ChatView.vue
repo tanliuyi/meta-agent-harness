@@ -8,7 +8,7 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import type { JSONContent } from '@tiptap/vue-3'
 import { useElementSize, useResizeObserver } from '@vueuse/core'
-import { useVirtualizer, type VirtualItem, type Virtualizer } from '@tanstack/vue-virtual'
+import { useVirtualizer, type VirtualItem } from '@tanstack/vue-virtual'
 import { ChevronDown, CornerDownRight, ListEnd, MapPin, Undo2, X } from 'lucide-vue-next'
 import Composer from './composer/Composer.vue'
 import ExtensionDialogHost from './ExtensionDialogHost.vue'
@@ -72,14 +72,14 @@ import {
   type ChatTimelineOpenStateBySession
 } from './timeline/chatTimelineOpenState'
 import {
-  CHAT_TIMELINE_GAP,
   CHAT_TIMELINE_OVERSCAN,
   createVirtualTimelineRows,
   estimateTimelineItemSize,
   findDirectTimelineRow,
-  resetTimelineVirtualizerForSession,
-  resolveTimelineFollowState,
-  shouldAdjustTimelineScrollForItemResize
+  getChatTimelineGap,
+  getVirtualTimelineRowOffset,
+  prepareTimelineVirtualizerForSession,
+  resolveTimelineFollowState
 } from './timeline/chatTimelineVirtualization'
 import { isWorkspaceRouteName } from '@renderer/router/workspace-route-host'
 
@@ -421,9 +421,16 @@ watch(timelineItems, (items) => {
 
 /** 消息滚动容器。 */
 const timelineRef = ref<ScrollAreaInstance | null>(null)
+const timelineListRef = ref<HTMLElement | null>(null)
 const timelineWindowRef = ref<HTMLElement | null>(null)
 const isNearBottom = ref(true)
 const shouldFollowBottom = ref(true)
+const timelineGap = computed(() => getChatTimelineGap(appearanceSettings.density.value))
+const timelineScrollMargin = ref(0)
+
+function syncTimelineScrollMargin(): void {
+  timelineScrollMargin.value = timelineListRef.value?.offsetTop ?? 0
+}
 
 function getTimelineScrollElement(): HTMLElement | null {
   return timelineRef.value?.getViewport() ?? null
@@ -438,27 +445,20 @@ function estimateTimelineVirtualItemSize(index: number): number {
   return estimateTimelineItemSize(displayTimelineViewItems.value[index]?.item)
 }
 
-function shouldAdjustTimelineScrollPosition(
-  item: VirtualItem,
-  _delta: number,
-  instance: Virtualizer<HTMLElement, Element>
-): boolean {
-  return shouldAdjustTimelineScrollForItemResize(item, instance.scrollOffset ?? 0)
-}
-
 const timelineVirtualizer = useVirtualizer(
   computed(() => ({
     count: displayTimelineViewItems.value.length,
     getScrollElement: getTimelineScrollElement,
     getItemKey: getTimelineVirtualItemKey,
     estimateSize: estimateTimelineVirtualItemSize,
-    gap: CHAT_TIMELINE_GAP,
+    gap: timelineGap.value,
     overscan: CHAT_TIMELINE_OVERSCAN,
-    scrollEndThreshold: NEAR_BOTTOM_DISTANCE
+    scrollMargin: timelineScrollMargin.value,
+    scrollEndThreshold: NEAR_BOTTOM_DISTANCE,
+    anchorTo: shouldFollowBottom.value ? ('end' as const) : ('start' as const),
+    followOnAppend: shouldFollowBottom.value ? ('auto' as const) : false
   }))
 )
-timelineVirtualizer.value.shouldAdjustScrollPositionOnItemSizeChange =
-  shouldAdjustTimelineScrollPosition
 const virtualTimelineItems = computed(() => timelineVirtualizer.value.getVirtualItems())
 const virtualTimelineTotalSize = computed(() => timelineVirtualizer.value.getTotalSize())
 const virtualTimelineRows = computed(() =>
@@ -467,9 +467,14 @@ const virtualTimelineRows = computed(() =>
 const timelineListStyle = computed<CSSProperties>(() => ({
   height: `${virtualTimelineTotalSize.value}px`
 }))
-const timelineWindowStyle = computed<CSSProperties>(() => ({
-  top: `${virtualTimelineItems.value[0]?.start ?? 0}px`
-}))
+function getTimelineVirtualItemStyle(virtualItem: VirtualItem): CSSProperties {
+  return {
+    transform: `translateY(${getVirtualTimelineRowOffset(
+      virtualItem,
+      timelineVirtualizer.value.options.scrollMargin
+    )}px)`
+  }
+}
 
 function measureTimelineItem(refValue: Element | ComponentPublicInstance | null): void {
   const element = refValue instanceof Element ? refValue : refValue?.$el
@@ -491,8 +496,7 @@ function handleTimelineItemHeightChange(index: number): void {
     if (!shouldFollowBottom.value) {
       return
     }
-    keepBottomInCurrentFrame()
-    startFollowBottomLoop(2)
+    scrollToLatest('auto')
   })
 }
 
@@ -705,18 +709,18 @@ async function handleSelectImages(threadId?: string): Promise<void> {
 }
 
 /**
- * 处理拖拽进来的本地图片路径。
- * @param paths - 本地图片路径。
+ * 处理拖拽进来的本地图片文件。
+ * @param files - 由 preload 解析可信路径的 File 对象。
  * @param threadId - 拖拽图片时绑定的 thread ID。
  */
-async function handleAddImagePaths(paths: string[], threadId?: string): Promise<void> {
-  if (paths.length === 0) {
+async function handleAddImageFiles(files: File[], threadId?: string): Promise<void> {
+  if (files.length === 0) {
     return
   }
   imageSelectionError.value = undefined
   selectingImages.value = true
   try {
-    const images = await window.api.codingAgent.processPromptImageFiles(paths)
+    const images = await window.api.codingAgent.processPromptImageFiles(files)
     workspaceSession.addComposerImages(
       images.map(toComposerImageAttachment),
       workspaceSession.defaultSessionContextId,
@@ -1295,14 +1299,13 @@ function scrollToLatest(behavior: TimelineScrollBehavior = 'smooth'): void {
   isUserScrollLocked = false
   allowBottomUnlockOnNextScroll = false
   shouldFollowBottom.value = true
-  timelineRef.value?.scrollBottom(behavior)
+  timelineVirtualizer.value.scrollToEnd({ behavior })
 }
 
 /** 滚动更新 rAF 句柄。 */
 let scrollRafId: number | null = null
+let cancelVirtualizerScrollRafId: number | null = null
 let pendingScrollBehavior: TimelineScrollBehavior = 'smooth'
-let followBottomRafId: number | null = null
-let followBottomSettleFrames = 0
 let timelineSessionGeneration = 0
 let isUserScrollLocked = false
 let allowBottomUnlockOnNextScroll = false
@@ -1321,21 +1324,34 @@ function getDistanceToBottom(): number | undefined {
 }
 
 /**
+ * 用当前 DOM offset 覆盖未完成的 smooth reconcile，避免用户操作后被再次拉回。
+ */
+function cancelTimelineVirtualizerScroll(): void {
+  if (cancelVirtualizerScrollRafId !== null) {
+    return
+  }
+  const metrics = timelineRef.value?.getScrollMetrics()
+  if (!metrics) {
+    return
+  }
+  timelineVirtualizer.value.scrollToOffset(metrics.scrollTop, { behavior: 'auto' })
+  cancelVirtualizerScrollRafId = requestAnimationFrame(() => {
+    cancelVirtualizerScrollRafId = null
+  })
+}
+
+/**
  * 用户开始操作滚动时暂停自动贴底。
  */
 function holdUserScroll(): void {
   isUserScrollLocked = true
   allowBottomUnlockOnNextScroll = false
   shouldFollowBottom.value = false
+  cancelTimelineVirtualizerScroll()
   if (scrollRafId !== null) {
     cancelAnimationFrame(scrollRafId)
     scrollRafId = null
   }
-  if (followBottomRafId !== null) {
-    cancelAnimationFrame(followBottomRafId)
-    followBottomRafId = null
-  }
-  followBottomSettleFrames = 0
 }
 
 /**
@@ -1349,44 +1365,6 @@ function scheduleScrollToLatest(behavior: TimelineScrollBehavior = 'smooth'): vo
     scrollRafId = null
     scrollToLatest(pendingScrollBehavior)
   })
-}
-
-/**
- * streaming 期间持续把 timeline 贴到底部，覆盖 Markdown 分批渲染带来的晚到布局变化。
- */
-function startFollowBottomLoop(settleFrames = 2): void {
-  followBottomSettleFrames = Math.max(followBottomSettleFrames, settleFrames)
-  if (followBottomRafId !== null) return
-
-  followBottomRafId = requestAnimationFrame(() => {
-    followBottomRafId = null
-    if (!shouldFollowBottom.value) {
-      followBottomSettleFrames = 0
-      return
-    }
-
-    keepBottomInCurrentFrame()
-    updateScrollState()
-
-    const shouldKeepFollowing = isRunning.value || followBottomSettleFrames > 0
-    if (followBottomSettleFrames > 0) {
-      followBottomSettleFrames -= 1
-    }
-    if (shouldKeepFollowing) {
-      startFollowBottomLoop(0)
-    }
-  })
-}
-
-/**
- * 内容高度变化时同步贴底，避免渲染批次之间露出底部空隙。
- */
-function keepBottomInCurrentFrame(): void {
-  if (!shouldFollowBottom.value) {
-    return
-  }
-  timelineRef.value?.scrollBottom('auto')
-  isNearBottom.value = true
 }
 
 /**
@@ -1406,8 +1384,7 @@ function handleTimelineWheel(event: WheelEvent): void {
     isUserScrollLocked = false
     allowBottomUnlockOnNextScroll = false
     isNearBottom.value = true
-    shouldFollowBottom.value = true
-    startFollowBottomLoop(2)
+    scrollToLatest('auto')
     return
   }
   holdUserScroll()
@@ -1418,6 +1395,9 @@ function handleTimelineWheel(event: WheelEvent): void {
  * 只有紧邻用户向下滚动的 scroll 事件可以在底部解除交互锁。
  */
 function handleTimelineScroll(): void {
+  if (isUserScrollLocked) {
+    cancelTimelineVirtualizerScroll()
+  }
   const allowBottomUnlock = allowBottomUnlockOnNextScroll
   allowBottomUnlockOnNextScroll = false
   updateScrollState(allowBottomUnlock)
@@ -1445,7 +1425,7 @@ function handleTimelineScrollbarPointerEnd(): void {
   window.removeEventListener('pointercancel', handleTimelineScrollbarPointerEnd, { capture: true })
   updateScrollState(true)
   if (shouldFollowBottom.value) {
-    startFollowBottomLoop(2)
+    scrollToLatest('auto')
   }
 }
 
@@ -1570,11 +1550,10 @@ watch(
       cancelAnimationFrame(scrollRafId)
       scrollRafId = null
     }
-    if (followBottomRafId !== null) {
-      cancelAnimationFrame(followBottomRafId)
-      followBottomRafId = null
+    if (cancelVirtualizerScrollRafId !== null) {
+      cancelAnimationFrame(cancelVirtualizerScrollRafId)
+      cancelVirtualizerScrollRafId = null
     }
-    followBottomSettleFrames = 0
     isUserScrollLocked = false
     isTimelineScrollbarDragging = false
     window.removeEventListener('pointerup', handleTimelineScrollbarPointerEnd, { capture: true })
@@ -1583,18 +1562,18 @@ watch(
     })
     shouldFollowBottom.value = true
     isNearBottom.value = true
+    prepareTimelineVirtualizerForSession(timelineVirtualizer.value)
 
     await nextTick()
     if (generation !== timelineSessionGeneration) {
       return
     }
-    resetTimelineVirtualizerForSession(timelineVirtualizer.value)
+    syncTimelineScrollMargin()
     await nextTick()
     if (generation !== timelineSessionGeneration) {
       return
     }
     scrollToLatest('auto')
-    startFollowBottomLoop(2)
   },
   { immediate: true }
 )
@@ -1660,12 +1639,25 @@ watch(
     }
     if (shouldFollow) {
       if (isRunning.value) {
-        startFollowBottomLoop(4)
+        scrollToLatest('auto')
       } else {
         scheduleScrollToLatest('smooth')
       }
     } else {
       updateScrollState()
+    }
+  },
+  { flush: 'post' }
+)
+
+watch(
+  () => appearanceSettings.density.value,
+  async () => {
+    await nextTick()
+    syncTimelineScrollMargin()
+    await nextTick()
+    if (shouldFollowBottom.value) {
+      scrollToLatest('auto')
     }
   },
   { flush: 'post' }
@@ -1710,17 +1702,18 @@ watch(
   { immediate: true }
 )
 
-useResizeObserver(timelineWindowRef, () => {
-  if (!shouldFollowBottom.value) {
-    return
+useResizeObserver(timelineListRef, () => {
+  syncTimelineScrollMargin()
+  if (shouldFollowBottom.value) {
+    scrollToLatest('auto')
   }
-  keepBottomInCurrentFrame()
-  startFollowBottomLoop(2)
 })
 
 onMounted(async () => {
   window.addEventListener('keydown', handleExtensionShortcutKeyDown, { capture: true })
   initialSettingsLoadSchedule = scheduleInitialSettingsLoad(agentSettings, modelSettings)
+  await nextTick()
+  syncTimelineScrollMargin()
   await nextTick()
   scheduleScrollToLatest('auto')
   updateScrollState()
@@ -1735,8 +1728,8 @@ onBeforeUnmount(() => {
   if (scrollRafId !== null) {
     cancelAnimationFrame(scrollRafId)
   }
-  if (followBottomRafId !== null) {
-    cancelAnimationFrame(followBottomRafId)
+  if (cancelVirtualizerScrollRafId !== null) {
+    cancelAnimationFrame(cancelVirtualizerScrollRafId)
   }
   if (processingTimerId !== null) {
     window.clearInterval(processingTimerId)
@@ -1792,14 +1785,11 @@ function getTimelineItemRevision(item: TimelineItem | undefined): unknown[] {
       <div class="chat-view__timeline-inner" :style="timelineStyle">
         <div
           :key="workspaceSession.activeSessionId ?? 'draft'"
+          ref="timelineListRef"
           class="chat-view__timeline-list"
           :style="timelineListStyle"
         >
-          <div
-            ref="timelineWindowRef"
-            class="chat-view__timeline-window"
-            :style="timelineWindowStyle"
-          >
+          <div ref="timelineWindowRef" class="chat-view__timeline-window">
             <div
               v-for="{ item: viewItem, virtualItem } in virtualTimelineRows"
               :key="`${workspaceSession.activeSessionId ?? 'draft'}:${viewItem.key}`"
@@ -1828,6 +1818,7 @@ function getTimelineItemRevision(item: TimelineItem | undefined): unknown[] {
               :data-index="virtualItem.index"
               :data-timeline-key="viewItem.key"
               class="chat-view__message"
+              :style="getTimelineVirtualItemStyle(virtualItem)"
               :class="[
                 viewItem.className,
                 appearanceSettings.showAvatars.value &&
@@ -2108,7 +2099,7 @@ function getTimelineItemRevision(item: TimelineItem | undefined): unknown[] {
         @select-project="workspaceSession.startNewSession"
         @select-images="handleSelectImages"
         @paste-images="handlePasteImages"
-        @add-image-paths="handleAddImagePaths"
+        @add-image-files="handleAddImageFiles"
         @add-files="handleAddFiles"
         @remove-image="workspaceSession.removeComposerImage"
         @remove-file="workspaceSession.removeComposerFile"
@@ -2236,8 +2227,7 @@ function getTimelineItemRevision(item: TimelineItem | undefined): unknown[] {
   opacity: 0;
 }
 
-.chat-view--time-always :deep(.message:hover .message__action-btn),
-.chat-view--time-always :deep(.message__action-btn:focus-visible) {
+.chat-view--time-always :deep(.message:hover .message__action-btn) {
   opacity: 1;
 }
 
@@ -2341,11 +2331,6 @@ function getTimelineItemRevision(item: TimelineItem | undefined): unknown[] {
     color: var(--color-text);
     background: var(--color-surface-hover);
   }
-
-  &:focus-visible {
-    outline: none;
-    box-shadow: var(--shadow-focus);
-  }
 }
 
 .session-notification-enter-active,
@@ -2434,15 +2419,14 @@ function getTimelineItemRevision(item: TimelineItem | undefined): unknown[] {
 
 .chat-view__timeline-window {
   position: absolute;
-  left: 0;
-  display: flex;
-  flex-direction: column;
-  gap: var(--chat-message-gap);
+  inset: 0;
   width: 100%;
 }
 
 .chat-view__message {
-  position: relative;
+  position: absolute;
+  top: 0;
+  left: 0;
   display: flex;
   align-items: flex-start;
   width: 100%;
@@ -2543,12 +2527,6 @@ function getTimelineItemRevision(item: TimelineItem | undefined): unknown[] {
   &:hover {
     color: var(--color-text);
     border-color: var(--color-border);
-  }
-
-  &:focus-visible {
-    outline: none;
-    color: var(--color-text);
-    border-color: var(--color-primary);
   }
 
   &.is-pending {
@@ -2685,11 +2663,6 @@ function getTimelineItemRevision(item: TimelineItem | undefined): unknown[] {
   &:hover {
     background: var(--color-primary-strong);
     transform: translate(-50%, -1px);
-  }
-
-  &:focus-visible {
-    outline: none;
-    box-shadow: var(--shadow-focus), var(--shadow-md);
   }
 }
 

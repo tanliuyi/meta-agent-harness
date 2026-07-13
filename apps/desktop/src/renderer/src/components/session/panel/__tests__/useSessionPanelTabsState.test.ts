@@ -177,6 +177,28 @@ describe('useSessionPanelTabsState', () => {
     expect(state.openTabs.value.map((tab) => tab.label)).toContain('Deploy')
   })
 
+  it('关闭目标 extension tab 时保留其他 tab 的稳定 instanceId', () => {
+    const sessionKey = ref<string | undefined>('thread-a')
+    const extensionTabs: SessionPanelTab[] = [
+      ...singleSessionTabs,
+      { id: 'extension:deploy', label: 'Deploy', allowMultiple: false },
+      { id: 'extension:logs', label: 'Logs', allowMultiple: false }
+    ]
+    const state = useSessionPanelTabsState(ref(extensionTabs), sessionKey)
+
+    state.openTab('extension:deploy')
+    const deployInstanceId = state.activeTabInstanceId.value
+    state.openTab('extension:logs')
+    const logsInstanceId = state.activeTabInstanceId.value
+    state.closeTab(deployInstanceId)
+
+    expect(state.activeTabId.value).toBe('extension:logs')
+    expect(state.activeTabInstanceId.value).toBe(logsInstanceId)
+    expect(state.openTabs.value).toEqual([
+      expect.objectContaining({ id: 'extension:logs', instanceId: logsInstanceId })
+    ])
+  })
+
   it('reload 后保留尚未重新注册的 extension tab，并在注册后刷新 label', () => {
     const sessionKey = ref<string | undefined>('thread-a')
     const initialTabs = ref<SessionPanelTab[]>([

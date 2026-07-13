@@ -7,7 +7,13 @@
 import { app } from 'electron'
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
-import type { AgentWorkerMode, DesktopUiPreferences } from '@shared/coding-agent/types'
+import type {
+  AgentWorkerMode,
+  BrowserWebPermissionMode,
+  BrowserCdpAccessMode,
+  DesktopCapabilityAccessMode,
+  DesktopUiPreferences
+} from '@shared/coding-agent/types'
 
 /** Desktop runtime 配置。 */
 export interface DesktopRuntimeConfig {
@@ -17,13 +23,32 @@ export interface DesktopRuntimeConfig {
   nodeSidecarExecPath?: string
   /** Desktop renderer UI 偏好。 */
   uiPreferences?: DesktopUiPreferences
+  /** Browser Preview 的 Chrome DevTools Protocol 权限级别。 */
+  browserCdpAccess: BrowserCdpAccessMode
+  /** Browser Preview 网页权限策略。 */
+  browserWebPermissions: BrowserWebPermissionMode
+  /** renderer 任意文件系统操作权限。 */
+  filesystemAccess: DesktopCapabilityAccessMode
+  /** URL extension panel 跨源能力。 */
+  extensionUrlAccess: DesktopCapabilityAccessMode
+  /** 自定义外部 URI scheme 能力。 */
+  externalProtocolAccess: DesktopCapabilityAccessMode
 }
 
 /** Desktop runtime 配置更新输入。 */
 export type DesktopRuntimeConfigInput = Partial<DesktopRuntimeConfig>
 
+type DesktopRuntimeConfigListener = (config: DesktopRuntimeConfig, configPath: string) => void
+
+const desktopRuntimeConfigListeners = new Set<DesktopRuntimeConfigListener>()
+
 const defaultRuntimeConfig: DesktopRuntimeConfig = {
-  workerMode: 'nodeSidecar'
+  workerMode: 'nodeSidecar',
+  browserCdpAccess: 'safe',
+  browserWebPermissions: 'prompt',
+  filesystemAccess: 'safe',
+  extensionUrlAccess: 'safe',
+  externalProtocolAccess: 'safe'
 }
 
 /**
@@ -84,7 +109,20 @@ export function writeDesktopRuntimeConfig(
   })
   mkdirSync(dirname(configPath), { recursive: true })
   writeFileSync(configPath, `${JSON.stringify(next, null, 2)}\n`)
+  const effectiveConfig = normalizeDesktopRuntimeConfig({
+    ...next,
+    ...getDesktopRuntimeConfigEnvOverride()
+  })
+  for (const listener of desktopRuntimeConfigListeners) {
+    listener(effectiveConfig, configPath)
+  }
   return next
+}
+
+/** 订阅当前进程内 Desktop runtime 配置写入。 */
+export function onDesktopRuntimeConfigChanged(listener: DesktopRuntimeConfigListener): () => void {
+  desktopRuntimeConfigListeners.add(listener)
+  return () => desktopRuntimeConfigListeners.delete(listener)
 }
 
 /**
@@ -114,6 +152,35 @@ function getDesktopRuntimeConfigEnvOverride(): DesktopRuntimeConfigInput {
       : {}),
     ...(process.env.CODING_AGENT_NODE_SIDECAR_EXEC_PATH
       ? { nodeSidecarExecPath: process.env.CODING_AGENT_NODE_SIDECAR_EXEC_PATH }
+      : {}),
+    ...(process.env.CODING_AGENT_BROWSER_CDP_ACCESS
+      ? {
+          browserCdpAccess: process.env.CODING_AGENT_BROWSER_CDP_ACCESS as BrowserCdpAccessMode
+        }
+      : {}),
+    ...(process.env.CODING_AGENT_BROWSER_WEB_PERMISSIONS
+      ? {
+          browserWebPermissions: process.env
+            .CODING_AGENT_BROWSER_WEB_PERMISSIONS as BrowserWebPermissionMode
+        }
+      : {}),
+    ...(process.env.CODING_AGENT_FILESYSTEM_ACCESS
+      ? {
+          filesystemAccess: process.env
+            .CODING_AGENT_FILESYSTEM_ACCESS as DesktopCapabilityAccessMode
+        }
+      : {}),
+    ...(process.env.CODING_AGENT_EXTENSION_URL_ACCESS
+      ? {
+          extensionUrlAccess: process.env
+            .CODING_AGENT_EXTENSION_URL_ACCESS as DesktopCapabilityAccessMode
+        }
+      : {}),
+    ...(process.env.CODING_AGENT_EXTERNAL_PROTOCOL_ACCESS
+      ? {
+          externalProtocolAccess: process.env
+            .CODING_AGENT_EXTERNAL_PROTOCOL_ACCESS as DesktopCapabilityAccessMode
+        }
       : {})
   }
 }
@@ -127,6 +194,21 @@ function normalizeDesktopRuntimeConfig(input: DesktopRuntimeConfigInput): Deskto
   const workerMode = input.workerMode === 'utilityProcess' ? 'utilityProcess' : 'nodeSidecar'
   return {
     workerMode,
+    browserCdpAccess: isOneOf(input.browserCdpAccess, ['disabled', 'safe', 'full'])
+      ? input.browserCdpAccess
+      : 'safe',
+    browserWebPermissions: isOneOf(input.browserWebPermissions, ['disabled', 'prompt', 'full'])
+      ? input.browserWebPermissions
+      : 'prompt',
+    filesystemAccess: isOneOf(input.filesystemAccess, ['safe', 'full'])
+      ? input.filesystemAccess
+      : 'safe',
+    extensionUrlAccess: isOneOf(input.extensionUrlAccess, ['safe', 'full'])
+      ? input.extensionUrlAccess
+      : 'safe',
+    externalProtocolAccess: isOneOf(input.externalProtocolAccess, ['safe', 'full'])
+      ? input.externalProtocolAccess
+      : 'safe',
     ...(input.nodeSidecarExecPath?.trim()
       ? { nodeSidecarExecPath: input.nodeSidecarExecPath.trim() }
       : {}),

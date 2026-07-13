@@ -14,6 +14,7 @@ import type {
   PromptFileReferenceCandidate
 } from '@shared/coding-agent/types'
 import { formatFileArgForInsertion } from '@shared/coding-agent/file-reference-format'
+import { isSamePlainTextEditorDocument } from './plainTextEditorDocument'
 
 export interface FileReferenceCompletionState {
   candidates: PromptFileReferenceCandidate[]
@@ -371,7 +372,10 @@ watch(
     const nextContent = value ?? emptyDocument
     const nextText = getPlainText(nextContent)
 
-    if (nextContent === lastEmittedContent || nextText === currentText.value) {
+    if (
+      nextContent === lastEmittedContent ||
+      isSamePlainTextEditorDocument(nextContent, currentEditor.getJSON())
+    ) {
       return
     }
 

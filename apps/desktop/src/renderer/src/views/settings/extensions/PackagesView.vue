@@ -4,11 +4,13 @@ import { confirm } from '@renderer/composables/useConfirmDialog'
 import useAgentSettingsStore, {
   type ResourcePackageProgressState
 } from '@renderer/stores/agent-settings'
+import useWorkspaceProjectStore from '@renderer/stores/workspace-project'
 import type { ResourcePackageSummary } from '@shared/coding-agent/types'
 import { PackagePlus, RefreshCw, Trash2 } from 'lucide-vue-next'
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 
 const agentSettings = useAgentSettingsStore()
+const workspaceProject = useWorkspaceProjectStore()
 const packageDraft = ref({
   source: '',
   local: false
@@ -16,6 +18,11 @@ const packageDraft = ref({
 const refreshSpinKey = ref(0)
 const addingPackageSource = ref(false)
 const removingPackageSource = ref<string>()
+const activeProjectId = computed(() => workspaceProject.activeProjectId)
+const canUseProjectScope = computed(() => {
+  const state = workspaceProject.activeProject?.trust?.state
+  return Boolean(activeProjectId.value) && (state === 'trusted' || state === 'notRequired')
+})
 
 const packageRows = computed(() => agentSettings.resourcePackages)
 const normalizedPackageSource = computed(() => packageDraft.value.source.trim())
@@ -29,6 +36,7 @@ const packageAlreadyConfigured = computed(() =>
 const canAddPackageSource = computed(
   () =>
     Boolean(normalizedPackageSource.value) &&
+    (!packageDraft.value.local || canUseProjectScope.value) &&
     !packageAlreadyConfigured.value &&
     !agentSettings.resourcePackagesLoading &&
     !addingPackageSource.value
@@ -42,12 +50,23 @@ const packageSummaryLabel = computed(() => {
 })
 
 onMounted(() => {
-  void agentSettings.loadResourcePackages()
+  void loadPackagesForActiveProject()
 })
+
+watch(activeProjectId, () => {
+  if (!canUseProjectScope.value) packageDraft.value.local = false
+  void loadPackagesForActiveProject()
+})
+
+function loadPackagesForActiveProject(): Promise<void> {
+  return agentSettings.loadResourcePackages(
+    activeProjectId.value ? { projectId: activeProjectId.value } : {}
+  )
+}
 
 async function refreshResourcePackages(): Promise<void> {
   refreshSpinKey.value += 1
-  await agentSettings.loadResourcePackages()
+  await loadPackagesForActiveProject()
 }
 
 async function addPackageSource(): Promise<void> {
@@ -57,7 +76,7 @@ async function addPackageSource(): Promise<void> {
   try {
     await agentSettings.addResourcePackage({
       source,
-      local: packageDraft.value.local
+      ...(packageDraft.value.local ? { projectId: activeProjectId.value } : {})
     })
     if (!agentSettings.error) {
       packageDraft.value.source = ''
@@ -87,6 +106,8 @@ function getPackageActionLabel(source: string): string | undefined {
 }
 
 async function removePackageSource(item: ResourcePackageSummary): Promise<void> {
+  const projectId = item.scope === 'project' ? activeProjectId.value : undefined
+  if (item.scope === 'project' && !projectId) return
   const result = await confirm({
     cancelText: '取消',
     confirmText: '移除',
@@ -96,12 +117,13 @@ async function removePackageSource(item: ResourcePackageSummary): Promise<void> 
     tone: 'destructive'
   })
   if (!result.confirmed) return
+  if (projectId && projectId !== activeProjectId.value) return
 
   removingPackageSource.value = item.source
   try {
     await agentSettings.removeResourcePackage({
       source: item.source,
-      local: item.scope === 'project'
+      ...(projectId ? { projectId } : {})
     })
   } finally {
     removingPackageSource.value = undefined
@@ -158,7 +180,9 @@ async function removePackageSource(item: ResourcePackageSummary): Promise<void> 
             <input
               v-model="packageDraft.local"
               type="checkbox"
-              :disabled="agentSettings.resourcePackagesLoading || addingPackageSource"
+              :disabled="
+                !canUseProjectScope || agentSettings.resourcePackagesLoading || addingPackageSource
+              "
             />
             <span>项目本地</span>
           </label>
@@ -215,7 +239,7 @@ async function removePackageSource(item: ResourcePackageSummary): Promise<void> 
               @click="
                 agentSettings.installResourcePackage({
                   source: item.source,
-                  local: item.scope === 'project'
+                  ...(item.scope === 'project' ? { projectId: activeProjectId } : {})
                 })
               "
             >
@@ -225,7 +249,12 @@ async function removePackageSource(item: ResourcePackageSummary): Promise<void> 
               size="sm"
               variant="ghost"
               :disabled="agentSettings.resourcePackagesLoading"
-              @click="agentSettings.updateResourcePackage({ source: item.source })"
+              @click="
+                agentSettings.updateResourcePackage({
+                  source: item.source,
+                  ...(item.scope === 'project' ? { projectId: activeProjectId } : {})
+                })
+              "
             >
               <template #icon><RefreshCw :size="14" /></template>
               {{ getPackageActionLabel(item.source) ?? '更新' }}

@@ -2,53 +2,33 @@
  * 本文件把 project trust 规则包装为 desktop Project 级产品状态。
  */
 
-import { existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
-import { homedir } from 'node:os'
-import { dirname, join, resolve } from 'node:path'
+import { realpathSync } from 'node:fs'
+import { resolve } from 'node:path'
+import {
+  getProjectTrustParentPath,
+  hasTrustRequiringProjectResources,
+  ProjectTrustStore
+} from '@coding-agent-src/core/trust-manager'
 import type {
   ProjectSummary,
   ProjectTrustDecision,
   ProjectTrustSummary
 } from '@shared/coding-agent/types'
-
-/** Project 配置目录名。 */
-const projectConfigDirName = '.pi'
-
-/** 需要 trust 才加载的 Project 本地资源。 */
-const trustRequiringProjectResources = [
-  'settings.json',
-  'extensions',
-  'skills',
-  'prompts',
-  'themes',
-  'SYSTEM.md',
-  'APPEND_SYSTEM.md'
-] as const
-
-/** trust.json 内容。 */
-type TrustFile = Record<string, boolean | null | undefined>
-
-/** 已保存的 trust 决策。 */
-interface SavedTrustDecision {
-  /** 命中的路径。 */
-  path: string
-  /** trust 决策。 */
-  decision: boolean
-}
+import { getDesktopAgentDir } from './agent-dir'
 
 /**
  * Desktop Project trust 服务。
  */
 export class ProjectTrustService {
-  private readonly trustPath: string
+  private readonly trustStore: ProjectTrustStore
   private readonly sessionDecisions = new Map<string, boolean>()
 
   /**
    * 创建 ProjectTrustService。
    * @param agentDir - agent 目录。
    */
-  constructor(agentDir = getDefaultAgentDir()) {
-    this.trustPath = join(resolvePath(agentDir), 'trust.json')
+  constructor(agentDir = getDesktopAgentDir()) {
+    this.trustStore = new ProjectTrustStore(agentDir)
   }
 
   /**
@@ -91,17 +71,19 @@ export class ProjectTrustService {
     switch (decision) {
       case 'trustProject':
         this.sessionDecisions.delete(normalizePath(project.path))
-        this.setTrust(project.path, true)
+        this.trustStore.set(project.path, true)
         return
       case 'trustParent': {
         const parentPath = getProjectTrustParentPath(project.path)
         if (!parentPath) {
-          this.setTrust(project.path, true)
+          this.trustStore.set(project.path, true)
           return
         }
         this.sessionDecisions.delete(normalizePath(project.path))
-        this.setTrust(parentPath, true)
-        this.setTrust(project.path, null)
+        this.trustStore.setMany([
+          { path: parentPath, decision: true },
+          { path: project.path, decision: null }
+        ])
         return
       }
       case 'trustSession':
@@ -109,7 +91,7 @@ export class ProjectTrustService {
         return
       case 'doNotTrust':
         this.sessionDecisions.delete(normalizePath(project.path))
-        this.setTrust(project.path, false)
+        this.trustStore.set(project.path, false)
         return
     }
   }
@@ -152,114 +134,8 @@ export class ProjectTrustService {
    * @param cwd - Project cwd。
    * @returns 已保存决策。
    */
-  private getSavedTrust(cwd: string): SavedTrustDecision | undefined {
-    const data = this.readTrustFile()
-    let currentDir = normalizePath(cwd)
-    while (true) {
-      const value = data[currentDir]
-      if (value === true || value === false) {
-        return { path: currentDir, decision: value }
-      }
-      const parentDir = dirname(currentDir)
-      if (parentDir === currentDir) {
-        return undefined
-      }
-      currentDir = parentDir
-    }
-  }
-
-  /**
-   * 写入 trust 决策。
-   * @param cwd - 路径。
-   * @param decision - 决策；null 表示删除。
-   */
-  private setTrust(cwd: string, decision: boolean | null): void {
-    const data = this.readTrustFile()
-    const key = normalizePath(cwd)
-    if (decision === null) {
-      delete data[key]
-    } else {
-      data[key] = decision
-    }
-    this.writeTrustFile(data)
-  }
-
-  /**
-   * 读取 trust.json。
-   * @returns trust 数据。
-   */
-  private readTrustFile(): TrustFile {
-    if (!existsSync(this.trustPath)) {
-      return {}
-    }
-    const parsed = JSON.parse(readFileSync(this.trustPath, 'utf8')) as unknown
-    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
-      return {}
-    }
-    return parsed as TrustFile
-  }
-
-  /**
-   * 写入 trust.json。
-   * @param data - trust 数据。
-   */
-  private writeTrustFile(data: TrustFile): void {
-    const sorted: TrustFile = {}
-    for (const key of Object.keys(data).sort()) {
-      const value = data[key]
-      if (value === true || value === false || value === null) {
-        sorted[key] = value
-      }
-    }
-    mkdirSync(dirname(this.trustPath), { recursive: true })
-    writeFileSync(this.trustPath, `${JSON.stringify(sorted, null, 2)}\n`, 'utf8')
-  }
-}
-
-/**
- * 获取默认 agent 目录。
- * @returns 默认 agent 目录。
- */
-function getDefaultAgentDir(): string {
-  return join(homedir(), projectConfigDirName, 'agent')
-}
-
-/**
- * 获取 Project trust 父路径。
- * @param cwd - Project cwd。
- * @returns 父路径。
- */
-function getProjectTrustParentPath(cwd: string): string | undefined {
-  const trustPath = normalizePath(cwd)
-  const parentDir = dirname(trustPath)
-  return parentDir === trustPath ? undefined : parentDir
-}
-
-/**
- * 检查 Project 是否存在需要 trust 的本地资源。
- * @param cwd - Project cwd。
- * @returns 是否需要 trust。
- */
-function hasTrustRequiringProjectResources(cwd: string): boolean {
-  const homeDir = normalizePath(homedir())
-  const userAgentsSkillsDir = join(homeDir, '.agents', 'skills')
-  let currentDir = normalizePath(cwd)
-
-  const configDir = join(currentDir, projectConfigDirName)
-  if (trustRequiringProjectResources.some((entry) => existsSync(join(configDir, entry)))) {
-    return true
-  }
-
-  while (true) {
-    const agentsSkillsDir = join(currentDir, '.agents', 'skills')
-    if (agentsSkillsDir !== userAgentsSkillsDir && existsSync(agentsSkillsDir)) {
-      return true
-    }
-    const parentDir = dirname(currentDir)
-    if (parentDir === currentDir) {
-      return false
-    }
-    currentDir = parentDir
+  private getSavedTrust(cwd: string): { path: string; decision: boolean } | undefined {
+    return this.trustStore.getEntry(cwd) ?? undefined
   }
 }
 

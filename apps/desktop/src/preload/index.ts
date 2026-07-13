@@ -6,6 +6,12 @@ import { contextBridge, ipcRenderer, webUtils } from 'electron'
 import type { CodingAgentApi, CodingAgentIpcEvent } from '@shared/coding-agent/types'
 import { codingAgentChannels } from '@shared/coding-agent/channels'
 import { unwrapIpcResult } from '@shared/coding-agent/ipc-contract'
+import {
+  assertPromptImageBytes,
+  assertPromptImageCount,
+  assertPromptImagePayload,
+  assertPromptImageTotalBytes
+} from '@shared/coding-agent/prompt-image-limits'
 import { updaterChannels, type UpdaterApi, type UpdaterState } from '@shared/updater'
 import { browserPreviewChannels, type BrowserPreviewApi } from '@shared/browser-preview'
 
@@ -65,6 +71,21 @@ function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
+function invokePromptInput<T>(channel: string, input: T & object): Promise<void> {
+  assertPromptImagePayload(input)
+  return invokeCodingAgent(channel, input)
+}
+
+function assertPromptImageFiles(files: File[]): void {
+  assertPromptImageCount(files.length)
+  let totalBytes = 0
+  for (const file of files) {
+    assertPromptImageBytes(file.size, file.name || '图片')
+    totalBytes += file.size
+    assertPromptImageTotalBytes(totalBytes)
+  }
+}
+
 /**
  * 暴露给渲染进程的 Coding Agent IPC API 实现。
  * 通过 ipcRenderer.invoke/on 与 main 进程通信。
@@ -83,13 +104,22 @@ const codingAgent: CodingAgentApi = {
   listThreads: (input) => invokeCodingAgent(codingAgentChannels.listThreads, input),
   getThread: (threadId) => invokeCodingAgent(codingAgentChannels.getThread, threadId),
   getSnapshot: (threadId) => invokeCodingAgent(codingAgentChannels.getSnapshot, threadId),
-  prompt: (input) => invokeCodingAgent(codingAgentChannels.prompt, input),
-  steer: (input) => invokeCodingAgent(codingAgentChannels.steer, input),
-  followUp: (input) => invokeCodingAgent(codingAgentChannels.followUp, input),
+  prompt: (input) => invokePromptInput(codingAgentChannels.prompt, input),
+  steer: (input) => invokePromptInput(codingAgentChannels.steer, input),
+  followUp: (input) => invokePromptInput(codingAgentChannels.followUp, input),
   selectPromptImages: () => invokeCodingAgent(codingAgentChannels.selectPromptImages),
-  processPromptImageFiles: (paths) =>
-    invokeCodingAgent(codingAgentChannels.processPromptImageFiles, paths),
-  stagePromptImages: (images) => invokeCodingAgent(codingAgentChannels.stagePromptImages, images),
+  processPromptImageFiles: (files) => {
+    assertPromptImageFiles(files)
+    const paths = files.map((file) => webUtils.getPathForFile(file)).filter(Boolean)
+    if (paths.length !== files.length) {
+      return Promise.reject(new Error('无法获取拖拽图片的可信本地路径'))
+    }
+    return invokeCodingAgent(codingAgentChannels.processPromptImageFiles, paths)
+  },
+  stagePromptImages: (images) => {
+    assertPromptImagePayload({ images })
+    return invokeCodingAgent(codingAgentChannels.stagePromptImages, images)
+  },
   selectResourcePath: (input) => invokeCodingAgent(codingAgentChannels.selectResourcePath, input),
   selectSessionFile: (input) => invokeCodingAgent(codingAgentChannels.selectSessionFile, input),
   revealResourcePath: (input) => invokeCodingAgent(codingAgentChannels.revealResourcePath, input),
@@ -172,7 +202,8 @@ const codingAgent: CodingAgentApi = {
     invokeCodingAgent(codingAgentChannels.getProjectExtensionPaths, input),
   updateProjectExtensionPaths: (input) =>
     invokeCodingAgent(codingAgentChannels.updateProjectExtensionPaths, input),
-  listResourcePackages: () => invokeCodingAgent(codingAgentChannels.listResourcePackages),
+  listResourcePackages: (input) =>
+    invokeCodingAgent(codingAgentChannels.listResourcePackages, input),
   addResourcePackage: (input) => invokeCodingAgent(codingAgentChannels.addResourcePackage, input),
   installResourcePackage: (input) =>
     invokeCodingAgent(codingAgentChannels.installResourcePackage, input),
@@ -233,6 +264,8 @@ const updater: UpdaterApi = {
 const browserPreview: BrowserPreviewApi = {
   navigate: (input) => ipcRenderer.invoke(browserPreviewChannels.navigate, input),
   setEmulation: (input) => ipcRenderer.invoke(browserPreviewChannels.setEmulation, input),
+  sendCdpCommand: (input) => ipcRenderer.invoke(browserPreviewChannels.sendCdpCommand, input),
+  readCdpEvents: (input) => ipcRenderer.invoke(browserPreviewChannels.readCdpEvents, input),
   onOpenRequested: (listener) => {
     const handler = (
       _event: Electron.IpcRendererEvent,
@@ -240,7 +273,16 @@ const browserPreview: BrowserPreviewApi = {
     ): void => listener(request)
     ipcRenderer.on(browserPreviewChannels.openRequested, handler)
     return () => ipcRenderer.off(browserPreviewChannels.openRequested, handler)
-  }
+  },
+  onPermissionRequested: (listener) => {
+    const handler = (
+      _event: Electron.IpcRendererEvent,
+      request: Parameters<typeof listener>[0]
+    ): void => listener(request)
+    ipcRenderer.on(browserPreviewChannels.permissionRequested, handler)
+    return () => ipcRenderer.off(browserPreviewChannels.permissionRequested, handler)
+  },
+  respondPermission: (input) => ipcRenderer.invoke(browserPreviewChannels.respondPermission, input)
 }
 
 const api = { browserPreview, codingAgent, fileSystem, runtime, updater, windowControl }

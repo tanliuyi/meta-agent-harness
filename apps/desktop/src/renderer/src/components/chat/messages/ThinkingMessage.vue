@@ -209,11 +209,6 @@ onBeforeUnmount(() => {
     color: var(--color-text);
   }
 
-  &:focus-visible {
-    outline: none;
-    box-shadow: inset var(--shadow-focus);
-  }
-
   &[data-state='open'] {
     position: absolute;
     top: 0;

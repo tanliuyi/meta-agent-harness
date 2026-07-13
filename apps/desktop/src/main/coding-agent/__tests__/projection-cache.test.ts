@@ -94,6 +94,27 @@ describe('cacheWorkerProjectionEvent', () => {
       eventType: 'projection',
       threadId: 'thread-a',
       event: {
+        type: 'file.changed',
+        threadId: 'thread-a',
+        change: {
+          threadId: 'thread-a',
+          toolCallId: 'tool-b',
+          path: './README.md',
+          changeType: 'updated',
+          diff: '-2 new\n+2 newer\n+3 extra',
+          patch: '@@ second',
+          additions: 2,
+          deletions: 1,
+          firstChangedLine: 2,
+          createdAt: '2026-07-01T00:00:04.000Z'
+        }
+      }
+    })
+    cacheWorkerProjectionEvent(store, {
+      kind: 'event',
+      eventType: 'projection',
+      threadId: 'thread-a',
+      event: {
         type: 'thread.error',
         threadId: 'thread-a',
         diagnostic: {
@@ -101,23 +122,25 @@ describe('cacheWorkerProjectionEvent', () => {
           source: 'worker',
           severity: 'warning',
           message: 'heads up',
-          createdAt: '2026-07-01T00:00:04.000Z'
+          createdAt: '2026-07-01T00:00:05.000Z'
         }
       }
     })
 
     expect(store.listApprovals({ threadId: 'thread-a' })).toHaveLength(1)
     expect(store.listToolCalls('thread-a')).toEqual([])
-    expect(store.listFileChanges('thread-a')).toMatchObject([
+    expect(store.listFileChanges('thread-a')).toEqual([
       {
+        threadId: 'thread-a',
         toolCallId: 'tool-a',
         path: 'README.md',
         changeType: 'updated',
-        diff: '-1 old\n+1 new',
-        patch: '@@',
-        additions: 1,
-        deletions: 1,
-        firstChangedLine: 1
+        diff: '-1 old\n+1 new\n-2 new\n+2 newer\n+3 extra',
+        patch: '@@\n@@ second',
+        additions: 3,
+        deletions: 2,
+        firstChangedLine: 1,
+        createdAt: '2026-07-01T00:00:03.000Z'
       }
     ])
     expect(store.listDiagnostics({ threadId: 'thread-a', source: 'worker' })).toMatchObject([

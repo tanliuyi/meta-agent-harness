@@ -67,6 +67,13 @@ class ThreadStartReleasedError extends Error {
   }
 }
 
+class ThreadWorkerRegistryClosedError extends Error {
+  constructor() {
+    super('worker registry is closed')
+    this.name = 'ThreadWorkerRegistryClosedError'
+  }
+}
+
 /**
  * 管理 thread 与独立 utility worker 进程的绑定。
  */
@@ -87,6 +94,8 @@ export class ThreadWorkerRegistry {
   private readonly startingThreads = new Map<string, StartingThreadWaiter>()
   /** 正在创建 worker 的 threadId 集合。 */
   private readonly pendingThreads = new Set<string>()
+  /** 正在创建或启动的 worker acquisition；shutdown 必须等待它们全部收束。 */
+  private readonly pendingAcquisitions = new Set<Promise<WorkerLease>>()
   /** 是否已关闭。 */
   private closed = false
   /** 是否启用 idle 超时回收。 */
@@ -169,7 +178,17 @@ export class ThreadWorkerRegistry {
    * @returns worker 租约。
    * @throws 当线程已绑定 worker 或 registry 已关闭时。
    */
-  async acquireThreadWorker(input: StartThreadInput): Promise<WorkerLease> {
+  acquireThreadWorker(input: StartThreadInput): Promise<WorkerLease> {
+    const acquisition = this.acquireThreadWorkerInternal(input)
+    this.pendingAcquisitions.add(acquisition)
+    void acquisition.then(
+      () => this.pendingAcquisitions.delete(acquisition),
+      () => this.pendingAcquisitions.delete(acquisition)
+    )
+    return acquisition
+  }
+
+  private async acquireThreadWorkerInternal(input: StartThreadInput): Promise<WorkerLease> {
     this.assertOpen()
     if (!input.threadId) {
       throw new Error('threadId is required')
@@ -180,6 +199,10 @@ export class ThreadWorkerRegistry {
     this.pendingThreads.add(input.threadId)
     try {
       const worker = await this.createWorker()
+      if (this.closed) {
+        await worker.stop('shutdown')
+        throw new ThreadWorkerRegistryClosedError()
+      }
       worker.onEvent?.((event) => this.onWorkerEvent(input.threadId, event))
       worker.onHang?.((info) => {
         void this.releaseHungWorker(info)
@@ -227,7 +250,10 @@ export class ThreadWorkerRegistry {
         this.workers.delete(lease.workerId)
         await worker?.stop('crash')
       }
-      if (!(error instanceof ThreadStartReleasedError)) {
+      if (
+        !(error instanceof ThreadStartReleasedError) &&
+        !(error instanceof ThreadWorkerRegistryClosedError)
+      ) {
         this.onLifecycle?.({
           type: 'worker.run.failed',
           threadId: input.threadId,
@@ -381,6 +407,7 @@ export class ThreadWorkerRegistry {
   async shutdown(): Promise<void> {
     this.closed = true
     this.stopIdleCheck()
+    const pendingAcquisitions = Array.from(this.pendingAcquisitions)
     const workers = Array.from(this.workers.values())
     const leases = Array.from(this.leases.values())
     this.workers.clear()
@@ -389,6 +416,7 @@ export class ThreadWorkerRegistry {
     leases.forEach((lease) => this.resolveStartingThread(lease.threadId))
     this.startingThreads.clear()
     await Promise.all(workers.map((worker) => worker.stop('shutdown')))
+    await Promise.allSettled(pendingAcquisitions)
     const exitedAt = this.now()
     leases.forEach((lease) => {
       this.onLifecycle?.({
@@ -477,7 +505,7 @@ export class ThreadWorkerRegistry {
    */
   private assertOpen(): void {
     if (this.closed) {
-      throw new Error('worker registry is closed')
+      throw new ThreadWorkerRegistryClosedError()
     }
   }
 

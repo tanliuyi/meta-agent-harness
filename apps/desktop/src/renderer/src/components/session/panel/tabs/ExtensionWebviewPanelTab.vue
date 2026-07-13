@@ -13,11 +13,11 @@ import { useRoute } from 'vue-router'
 import { useTheme } from '@renderer/composables/useTheme'
 import { isWorkspaceRouteName } from '@renderer/router/workspace-route-host'
 import useWorkspaceSessionStore from '@renderer/stores/workspace-session'
+import useAgentSettingsStore from '@renderer/stores/agent-settings'
 import {
   cloneExtensionPanelMessage,
   getNextExtensionPanelViewState,
   handleExtensionPanelHostMessage,
-  isExtensionPanelNavigationBlocked,
   postExtensionPanelMessage,
   postExtensionPanelState,
   postExtensionPanelTheme,
@@ -26,38 +26,68 @@ import {
 import {
   collectExtensionPanelThemePayload,
   getExtensionPanelAllowedNavigationOrigin,
-  getExtensionPanelSandbox,
   getExtensionPanelResolvedUrl,
-  prepareExtensionPanelHtml
+  getExtensionPanelSandboxForAccess,
+  prepareExtensionPanelHtml,
+  prepareExtensionPanelUrlHost
 } from './display/extensionPanelDisplay'
 
 const props = defineProps<{
   panelId?: string
+  threadId?: string
+  visible?: boolean
 }>()
 
 const route = useRoute()
 const workspaceSession = useWorkspaceSessionStore()
+const agentSettings = useAgentSettingsStore()
 const { resolvedTheme } = useTheme()
 const frameRef = ref<HTMLIFrameElement | null>(null)
-const componentActive = ref(true)
-const panelThreadId = ref<string | undefined>(workspaceSession.activeSessionId)
+const componentActive = ref(false)
+const panelThreadId = props.threadId ?? workspaceSession.activeSessionId
 const lastVisibleState = ref<boolean | undefined>(undefined)
-const navigationBlocked = ref(false)
+let messageListenerAttached = false
+const panelRuntime = computed(() =>
+  panelThreadId ? workspaceSession.runtimeByThreadId[panelThreadId] : undefined
+)
 const panel = computed(() =>
-  props.panelId ? workspaceSession.activeExtensionPanels[props.panelId] : undefined
+  props.panelId ? panelRuntime.value?.extensionPanels[props.panelId] : undefined
 )
 const panelMessage = computed(() =>
-  props.panelId ? workspaceSession.activeExtensionPanelMessages[props.panelId] : undefined
+  props.panelId ? panelRuntime.value?.extensionPanelMessages[props.panelId] : undefined
 )
 const panelState = computed(() =>
-  props.panelId ? workspaceSession.activeExtensionPanelStates[props.panelId] : undefined
+  props.panelId ? panelRuntime.value?.extensionPanelStates[props.panelId] : undefined
 )
-const iframeSandbox = computed(() => getExtensionPanelSandbox(panel.value))
-const urlSource = computed(() => getExtensionPanelResolvedUrl(panel.value) ?? '')
+const unrestrictedUrlAccess = computed(
+  () => agentSettings.snapshot?.safety.extensionUrlAccess === 'full'
+)
+const iframeSandbox = computed(() =>
+  getExtensionPanelSandboxForAccess(panel.value, unrestrictedUrlAccess.value)
+)
+const urlHostHtml = computed(() =>
+  unrestrictedUrlAccess.value ? '' : prepareExtensionPanelUrlHost(panel.value)
+)
+const urlHostSource = computed(() =>
+  unrestrictedUrlAccess.value
+    ? (getExtensionPanelResolvedUrl(panel.value) ?? '')
+    : urlHostHtml.value
+      ? `data:text/html;charset=utf-8,${encodeURIComponent(urlHostHtml.value)}`
+      : ''
+)
 const allowedNavigationOrigin = computed(() =>
   getExtensionPanelAllowedNavigationOrigin(panel.value)
 )
-const panelVisible = computed(() => componentActive.value && isWorkspaceRouteName(route.name))
+const navigationBlocked = computed(
+  () => panel.value?.source.type === 'url' && urlHostSource.value.length === 0
+)
+const panelVisible = computed(
+  () =>
+    componentActive.value &&
+    props.visible !== false &&
+    panelThreadId === workspaceSession.activeSessionId &&
+    isWorkspaceRouteName(route.name)
+)
 const panelTheme = computed(() =>
   collectExtensionPanelThemePayload({
     theme: resolvedTheme.value,
@@ -84,11 +114,13 @@ const htmlSource = computed(() => {
 function handleWindowMessage(event: MessageEvent): void {
   const result = handleExtensionPanelHostMessage({
     panelId: props.panelId,
-    threadId: workspaceSession.activeSessionId,
+    threadId: panelThreadId,
     panel: panel.value,
+    hostActive: panelVisible.value,
     navigationBlocked: navigationBlocked.value,
     event,
     frameWindow: frameRef.value?.contentWindow,
+    unrestrictedUrlAccess: unrestrictedUrlAccess.value,
     setPanelState: (threadId, panelId, state) =>
       workspaceSession.setExtensionPanelState(threadId, panelId, state),
     openExternalUrl: (uri) => void window.api.codingAgent.openExternalUrl({ uri }),
@@ -109,7 +141,8 @@ function postCurrentPanelMessage(): void {
     target: frameRef.value?.contentWindow,
     panel: panel.value,
     navigationBlocked: navigationBlocked.value,
-    message: panelMessage.value
+    message: panelMessage.value,
+    unrestrictedUrlAccess: unrestrictedUrlAccess.value
   })
 }
 
@@ -118,7 +151,8 @@ function postPanelState(): void {
     target: frameRef.value?.contentWindow,
     panel: panel.value,
     navigationBlocked: navigationBlocked.value,
-    state: panelState.value
+    state: panelState.value,
+    unrestrictedUrlAccess: unrestrictedUrlAccess.value
   })
 }
 
@@ -127,7 +161,8 @@ function postPanelTheme(): void {
     target: frameRef.value?.contentWindow,
     panel: panel.value,
     navigationBlocked: navigationBlocked.value,
-    theme: panelTheme.value
+    theme: panelTheme.value,
+    unrestrictedUrlAccess: unrestrictedUrlAccess.value
   })
 }
 
@@ -136,12 +171,13 @@ function postPanelVisibility(visible: boolean): void {
     target: frameRef.value?.contentWindow,
     panel: panel.value,
     navigationBlocked: navigationBlocked.value,
-    visible
+    visible,
+    unrestrictedUrlAccess: unrestrictedUrlAccess.value
   })
 }
 
 function sendPanelViewState(visible: boolean): void {
-  const threadId = panelThreadId.value ?? workspaceSession.activeSessionId
+  const threadId = panelThreadId
   const next = getNextExtensionPanelViewState({
     panelId: props.panelId,
     threadId,
@@ -164,30 +200,8 @@ function setPanelVisible(visible: boolean): void {
   sendPanelViewState(visible)
 }
 
-function getReadableFrameLocation(): string | undefined {
-  try {
-    return frameRef.value?.contentWindow?.location.href
-  } catch {
-    return undefined
-  }
-}
-
-function refreshNavigationBlocked(): boolean {
-  const currentPanel = panel.value
-  if (!currentPanel || currentPanel.source.type !== 'url') {
-    navigationBlocked.value = false
-    return false
-  }
-  navigationBlocked.value = isExtensionPanelNavigationBlocked({
-    panel: currentPanel,
-    readableFrameLocation: getReadableFrameLocation(),
-    urlSource: urlSource.value
-  })
-  return navigationBlocked.value
-}
-
 function handleFrameLoad(): void {
-  if (refreshNavigationBlocked()) {
+  if (navigationBlocked.value) {
     return
   }
   postPanelState()
@@ -201,42 +215,42 @@ watch(
   () => postCurrentPanelMessage()
 )
 
-watch(
-  () => [props.panelId, urlSource.value] as const,
-  () => {
-    refreshNavigationBlocked()
-  },
-  { immediate: true }
-)
-
 watch(panelTheme, async () => {
   await nextTick()
   postPanelTheme()
 })
 
-watch(
-  () => route.name,
-  () => setPanelVisible(panelVisible.value),
-  { flush: 'sync' }
-)
+function setMessageListenerEnabled(enabled: boolean): void {
+  if (enabled === messageListenerAttached) return
+  messageListenerAttached = enabled
+  if (enabled) window.addEventListener('message', handleWindowMessage)
+  else window.removeEventListener('message', handleWindowMessage)
+}
 
-window.addEventListener('message', handleWindowMessage)
+function syncPanelActivation(visible: boolean): void {
+  if (visible) setMessageListenerEnabled(true)
+  setPanelVisible(visible)
+  if (!visible) setMessageListenerEnabled(false)
+}
+
+watch(panelVisible, syncPanelActivation, { flush: 'sync' })
+
 onMounted(() => {
-  panelThreadId.value ??= workspaceSession.activeSessionId
-  setPanelVisible(panelVisible.value)
+  if (!agentSettings.snapshot) void agentSettings.load()
+  componentActive.value = true
+  if (!panelVisible.value) {
+    syncPanelActivation(false)
+  }
 })
 onActivated(() => {
   componentActive.value = true
-  setPanelVisible(panelVisible.value)
 })
 onDeactivated(() => {
   componentActive.value = false
-  setPanelVisible(false)
 })
 onBeforeUnmount(() => {
   componentActive.value = false
-  setPanelVisible(false)
-  window.removeEventListener('message', handleWindowMessage)
+  setMessageListenerEnabled(false)
 })
 </script>
 
@@ -260,7 +274,7 @@ onBeforeUnmount(() => {
         ref="frameRef"
         class="extension-webview-panel__frame"
         :sandbox="iframeSandbox"
-        :src="urlSource"
+        :src="urlHostSource"
         :title="panel.title"
         @load="handleFrameLoad"
       />

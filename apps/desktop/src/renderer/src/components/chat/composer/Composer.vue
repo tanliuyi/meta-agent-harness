@@ -228,7 +228,7 @@ const emit = defineEmits<{
   /** 粘贴图片附件。 */
   'paste-images': [files: File[], threadId?: string]
   /** 通过本地路径添加图片附件。 */
-  'add-image-paths': [paths: string[], threadId?: string]
+  'add-image-files': [files: File[], threadId?: string]
   /** 通过本地路径添加文件附件。 */
   'add-files': [files: Array<Omit<ComposerFileAttachment, 'id'>>, threadId?: string]
   /** 删除图片附件。 */
@@ -1110,7 +1110,7 @@ function handleDrop(event: DragEvent): void {
   isDraggingFiles.value = false
 
   const files = Array.from(event.dataTransfer?.files ?? []) as DroppedFile[]
-  const imagePaths: string[] = []
+  const localImageFiles: DroppedFile[] = []
   const inlineImageFiles: DroppedFile[] = []
   const fileAttachments: Array<Omit<ComposerFileAttachment, 'id'>> = []
   const rejections: string[] = []
@@ -1123,7 +1123,7 @@ function handleDrop(event: DragEvent): void {
         continue
       }
       if (localPath) {
-        imagePaths.push(localPath)
+        localImageFiles.push(file)
       } else {
         inlineImageFiles.push(file)
       }
@@ -1141,8 +1141,8 @@ function handleDrop(event: DragEvent): void {
     })
   }
 
-  if (imagePaths.length > 0) {
-    emit('add-image-paths', imagePaths, props.threadId)
+  if (localImageFiles.length > 0) {
+    emit('add-image-files', localImageFiles, props.threadId)
   }
   if (inlineImageFiles.length > 0) {
     emit('paste-images', inlineImageFiles, props.threadId)
@@ -2014,10 +2014,6 @@ function formatModelLabel(model: Pick<SessionModel, 'provider' | 'id'>): string 
   outline: 0;
 }
 
-.composer__command-palette-header input:focus-visible {
-  box-shadow: none;
-}
-
 .composer__command-query {
   min-width: 0;
   overflow: hidden;
@@ -2417,8 +2413,7 @@ function formatModelLabel(model: Pick<SessionModel, 'provider' | 'id'>): string 
   border-radius: var(--radius-xs);
   cursor: pointer;
 
-  &:hover,
-  &:focus-visible {
+  &:hover {
     color: var(--color-danger-ink);
     background: var(--color-danger);
     outline: none;
@@ -2488,8 +2483,7 @@ function formatModelLabel(model: Pick<SessionModel, 'provider' | 'id'>): string 
   border-radius: var(--radius-xs);
   cursor: pointer;
 
-  &:hover,
-  &:focus-visible {
+  &:hover {
     color: var(--color-danger-ink);
     background: var(--color-danger);
     outline: none;
@@ -2525,11 +2519,6 @@ function formatModelLabel(model: Pick<SessionModel, 'provider' | 'id'>): string 
     width: 100%;
     height: 100%;
     object-fit: cover;
-  }
-
-  &:focus-visible {
-    outline: 2px solid var(--color-primary-outline);
-    outline-offset: 2px;
   }
 }
 

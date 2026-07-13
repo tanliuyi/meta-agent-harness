@@ -84,11 +84,13 @@ export function toThreadToolCalls(
  * 将 Pi AgentMessage 列表转换为 desktop file changes。
  * @param messages - Pi live/context messages。
  * @param threadId - 线程 ID。
+ * @param cwd - edit 工具运行目录。
  * @returns desktop file changes。
  */
 export function toThreadFileChanges(
   messages: AgentMessage[],
-  threadId: string
+  threadId: string,
+  cwd?: string
 ): ThreadSnapshot['fileChanges'] {
-  return toDesktopFileChanges(messages, threadId)
+  return toDesktopFileChanges(messages, threadId, cwd)
 }

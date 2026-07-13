@@ -44,12 +44,9 @@ const snapshot = ref<MemorySnapshot>()
 let projectGeneration = 0
 let refreshPending = false
 
-const activeProjectPath = computed(() => {
-  const projectId = projectStore.activeProjectId
-  return projectId ? projectStore.projects[projectId]?.path : undefined
-})
+const activeProjectId = computed(() => projectStore.activeProjectId)
 
-watch(activeProjectPath, () => {
+watch(activeProjectId, () => {
   projectGeneration += 1
   snapshot.value = undefined
   error.value = ''
@@ -111,16 +108,16 @@ async function runMemoryOperation(
     if (operation === 'refresh') refreshPending = true
     return
   }
-  const requestedProjectPath = activeProjectPath.value
+  const requestedProjectId = activeProjectId.value
   const requestedProjectGeneration = projectGeneration
   busy.value = true
   error.value = ''
   try {
     const nextSnapshot =
       operation === 'refresh'
-        ? await window.api.codingAgent.getHermesMemorySnapshot({ cwd: requestedProjectPath })
+        ? await window.api.codingAgent.getHermesMemorySnapshot({ projectId: requestedProjectId })
         : await window.api.codingAgent.mutateHermesMemory({
-            cwd: requestedProjectPath,
+            projectId: requestedProjectId,
             target: input!.target,
             ...(operation === 'add'
               ? { operation, content: input!.content! }

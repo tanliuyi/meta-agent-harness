@@ -82,11 +82,9 @@ describe('workspace route host', () => {
       'utf8'
     )
 
-    expect(extensionPanelSource).toContain(
-      'componentActive.value && isWorkspaceRouteName(route.name)'
-    )
-    expect(extensionPanelSource).toContain('() => route.name')
-    expect(extensionPanelSource).toContain('setPanelVisible(panelVisible.value)')
+    expect(extensionPanelSource).toContain('isWorkspaceRouteName(route.name)')
+    expect(extensionPanelSource).toContain('panelThreadId === workspaceSession.activeSessionId')
+    expect(extensionPanelSource).toContain('watch(panelVisible, syncPanelActivation')
   })
 
   it('keeps workspace-owned teleports inside the persistent host', () => {

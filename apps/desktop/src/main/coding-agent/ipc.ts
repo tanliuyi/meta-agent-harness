@@ -2,13 +2,19 @@
  * 本文件注册 desktop coding agent 后端 IPC handlers。
  */
 
-import { app, dialog, ipcMain, shell, type WebContents } from 'electron'
-import { mkdir, readFile, stat, writeFile } from 'node:fs/promises'
-import { basename, join } from 'node:path'
+import { app, dialog, ipcMain, shell, type IpcMainInvokeEvent, type WebContents } from 'electron'
+import { readFile, realpath, rm, stat } from 'node:fs/promises'
+import { basename, extname, join } from 'node:path'
 import { randomUUID } from 'node:crypto'
 import { tmpdir } from 'node:os'
 import { codingAgentChannels } from '@shared/coding-agent/channels'
 import { fail, ok } from '@shared/coding-agent/ipc-contract'
+import {
+  assertPromptImageBytes,
+  assertPromptImageCount,
+  assertPromptImageTotalBytes,
+  MAX_PROMPT_IMAGE_BYTES
+} from '@shared/coding-agent/prompt-image-limits'
 import { CodingThreadManager, ProjectTrustRefreshError } from './thread-manager'
 import { CodingThreadStore } from './thread-store'
 import { ProjectStore } from './project-store'
@@ -20,6 +26,7 @@ import { ThreadWorkerRegistry } from './thread-worker-registry'
 import { cacheWorkerProjectionEvent } from './projection-cache'
 import { normalizeAllowedExternalUrl } from './external-url'
 import { launchChangedFile } from './changed-file-target'
+import { createWebContentsLifetime } from './web-contents-lifetime'
 import { readDesktopRuntimeConfig, writeDesktopRuntimeConfig } from './desktop-runtime-config'
 import type { WorkerClient, WorkerEnvelope } from './worker-types'
 import type { ThreadWorkerLifecycleEvent } from './thread-worker-registry'
@@ -28,6 +35,7 @@ import type {
   CompactInput,
   CreateThreadInput,
   DiagnosticsInput,
+  DesktopCapabilityAccessMode,
   ExtensionEditorTextInput,
   ExtensionPanelDisposeInput,
   ExtensionPanelLifecycleInput,
@@ -60,6 +68,7 @@ import type {
   RenameProjectInput,
   RenameThreadInput,
   ResourcePackageInput,
+  ResourcePackageListInput,
   ResourceSnapshotInput,
   HermesMemoryMutationInput,
   HermesMemorySnapshotInput,
@@ -87,14 +96,59 @@ import type {
 type FileReferenceModule = typeof import('@coding-agent-src/core/file-reference')
 
 type MimeModule = typeof import('@coding-agent-src/utils/mime')
-type ClipboardImageModule = typeof import('@coding-agent-src/utils/clipboard-image')
 type FileReferenceCompletionModule = {
   completeFileReference: FileReferenceModule['completeFileReference']
   extractFileReferenceQuery: FileReferenceModule['extractFileReferenceQuery']
 }
 type PromptImageProcessingModule = {
+  detectSupportedImageMimeType: MimeModule['detectSupportedImageMimeType']
   detectSupportedImageMimeTypeFromFile: MimeModule['detectSupportedImageMimeTypeFromFile']
-  extensionForImageMimeType: ClipboardImageModule['extensionForImageMimeType']
+}
+
+export {
+  MAX_PROMPT_IMAGE_BYTES,
+  MAX_PROMPT_IMAGE_COUNT,
+  MAX_PROMPT_IMAGE_TOTAL_BYTES
+} from '@shared/coding-agent/prompt-image-limits'
+const promptImageReadConcurrency = 2
+const resourceCapabilityTtlMs = 60 * 60 * 1000
+const maxResourceCapabilities = 128
+
+interface ResourcePathCapability {
+  path: string
+  expiresAt: number
+}
+
+export class ResourcePathCapabilityStore {
+  private readonly capabilities = new Map<string, ResourcePathCapability>()
+
+  issue(path: string): string {
+    this.prune()
+    while (this.capabilities.size >= maxResourceCapabilities) {
+      const oldest = this.capabilities.keys().next().value as string | undefined
+      if (!oldest) break
+      this.capabilities.delete(oldest)
+    }
+    const token = randomUUID()
+    this.capabilities.set(token, { path, expiresAt: Date.now() + resourceCapabilityTtlMs })
+    return token
+  }
+
+  resolve(token: string): string {
+    this.prune()
+    const capability = this.capabilities.get(token)
+    if (!capability) {
+      throw new Error('资源 capability 无效或已过期')
+    }
+    return capability.path
+  }
+
+  private prune(): void {
+    const now = Date.now()
+    for (const [token, capability] of this.capabilities) {
+      if (capability.expiresAt <= now) this.capabilities.delete(token)
+    }
+  }
 }
 
 let fileReferenceCompletionModulePromise: Promise<FileReferenceCompletionModule> | undefined
@@ -120,15 +174,50 @@ export interface CodingAgentIpcOptions {
  * @returns 创建的 CodingThreadManager 实例。
  */
 export function registerCodingAgentIpc(options: CodingAgentIpcOptions = {}): CodingThreadManager {
+  let rollback: (() => void) | undefined
+  try {
+    return registerCodingAgentIpcUnchecked(options, (cleanup) => {
+      rollback = cleanup
+    })
+  } catch (error) {
+    rollback?.()
+    throw error
+  }
+}
+
+function registerCodingAgentIpcUnchecked(
+  options: CodingAgentIpcOptions,
+  setRollback: (cleanup: () => void) => void
+): CodingThreadManager {
   const subscribers = options.subscribers ?? new Set<WebContents>()
   const projectStore = new ProjectStore()
   const projectTrustService = new ProjectTrustService()
+  const resourceCapabilities = new ResourcePathCapabilityStore()
   let modelSettingsService: Promise<ModelSettingsService> | undefined
   let agentSettingsService: Promise<AgentSettingsService> | undefined
   const store = new CodingThreadStore()
+  let createdManager: CodingThreadManager | undefined
+  const ownsManager = !options.manager
+  setRollback(() => {
+    if (ownsManager && createdManager) {
+      void createdManager.shutdown().catch((error) => {
+        console.error('Failed to shut down partially registered coding-agent manager', error)
+      })
+    }
+    try {
+      store.close()
+    } catch {
+      // Preserve the original registration error.
+    }
+    try {
+      projectStore.close()
+    } catch {
+      // Preserve the original registration error.
+    }
+  })
   const manager =
     options.manager ??
-    new CodingThreadManager(
+    (createdManager = new CodingThreadManager(
       new ThreadWorkerRegistry({
         createWorker: options.createWorker ?? createConfiguredWorkerClient,
         onEvent: (event) => {
@@ -163,7 +252,8 @@ export function registerCodingAgentIpc(options: CodingAgentIpcOptions = {}): Cod
       projectTrustService,
       () => (modelSettingsService ??= createModelSettingsService()),
       () => (agentSettingsService ??= createAgentSettingsService())
-    )
+    ))
+  void cleanupLegacyPromptImageTempFiles().catch(() => undefined)
 
   handle(manager, codingAgentChannels.createProject, async () => {
     const result = await dialog.showOpenDialog({
@@ -256,7 +346,7 @@ export function registerCodingAgentIpc(options: CodingAgentIpcOptions = {}): Cod
     processPromptImageFiles(paths)
   )
   handle(manager, codingAgentChannels.stagePromptImages, (images: PromptImageDraft[]) =>
-    stagePromptImages(manager, images)
+    stagePromptImages(images)
   )
   handle(manager, codingAgentChannels.selectResourcePath, (input?: SelectResourcePathInput) =>
     selectResourcePath(input)
@@ -265,7 +355,7 @@ export function registerCodingAgentIpc(options: CodingAgentIpcOptions = {}): Cod
     selectSessionFile(input)
   )
   handle(manager, codingAgentChannels.revealResourcePath, (input: RevealResourcePathInput) =>
-    revealResourcePath(input)
+    revealResourcePath(input, resourceCapabilities, readDesktopRuntimeConfig().filesystemAccess)
   )
   handle(manager, codingAgentChannels.openChangedFile, async (input: OpenChangedFileInput) =>
     launchChangedFile(await manager.getSnapshot(input.threadId), input, shell)
@@ -285,9 +375,22 @@ export function registerCodingAgentIpc(options: CodingAgentIpcOptions = {}): Cod
   handle(manager, codingAgentChannels.importSession, (input: ImportSessionInput) =>
     manager.importSession(input)
   )
-  handle(manager, codingAgentChannels.exportSession, (input: ExportSessionInput) =>
-    manager.exportSession(input)
-  )
+  handle(manager, codingAgentChannels.exportSession, async (input: ExportSessionInput) => {
+    if (
+      !input ||
+      typeof input.threadId !== 'string' ||
+      !input.threadId.trim() ||
+      (input.outputPath !== undefined && typeof input.outputPath !== 'string')
+    ) {
+      throw new Error('Invalid export session request')
+    }
+    const result = await manager.exportSession(input)
+    const capabilityPath = await assertExportedSessionPath(result.path)
+    return {
+      ...result,
+      resourceCapability: resourceCapabilities.issue(capabilityPath)
+    }
+  })
   handle(manager, codingAgentChannels.fork, (input: ForkInput) => manager.fork(input))
   handle(manager, codingAgentChannels.forkThread, async (input: ForkThreadInput) => {
     const result = await manager.forkThread(input)
@@ -414,15 +517,33 @@ export function registerCodingAgentIpc(options: CodingAgentIpcOptions = {}): Cod
   handle(manager, codingAgentChannels.setProviderApiKey, (input: SetProviderApiKeyInput) =>
     manager.setProviderApiKey(input)
   )
-  handle(manager, codingAgentChannels.loginProviderOAuth, (input: LoginProviderOAuthInput) =>
-    manager.loginProviderOAuth(input, (event) => {
-      publishCodingAgentEvent(subscribers, { type: 'modelOAuth', event })
-    })
+  handleWithEvent(
+    manager,
+    codingAgentChannels.loginProviderOAuth,
+    async (ipcEvent, input: LoginProviderOAuthInput) => {
+      const owner = ipcEvent.sender
+      const lifetime = createWebContentsLifetime(owner)
+      try {
+        return await manager.loginProviderOAuth(
+          input,
+          (event) => {
+            if (lifetime.signal.aborted || owner.isDestroyed() || !subscribers.has(owner)) {
+              throw new Error('OAuth renderer 已关闭或取消订阅')
+            }
+            owner.send(codingAgentChannels.event, { type: 'modelOAuth', event })
+          },
+          { ownerId: owner.id, signal: lifetime.signal }
+        )
+      } finally {
+        lifetime.dispose()
+      }
+    }
   )
-  handle(
+  handleWithEvent(
     manager,
     codingAgentChannels.respondModelOAuthPrompt,
-    (input: ModelOAuthPromptResponseInput) => manager.respondModelOAuthPrompt(input)
+    (ipcEvent, input: ModelOAuthPromptResponseInput) =>
+      manager.respondModelOAuthPrompt(input, ipcEvent.sender.id)
   )
   handle(manager, codingAgentChannels.refreshModelRegistry, () => manager.refreshModelRegistry())
   handle(
@@ -461,7 +582,9 @@ export function registerCodingAgentIpc(options: CodingAgentIpcOptions = {}): Cod
     codingAgentChannels.updateProjectExtensionPaths,
     (input: UpdateProjectExtensionPathsInput) => manager.updateProjectExtensionPaths(input)
   )
-  handle(manager, codingAgentChannels.listResourcePackages, () => manager.listResourcePackages())
+  handle(manager, codingAgentChannels.listResourcePackages, (input?: ResourcePackageListInput) =>
+    manager.listResourcePackages(input)
+  )
   handle(manager, codingAgentChannels.addResourcePackage, (input: ResourcePackageInput) =>
     manager.addResourcePackage(input)
   )
@@ -509,12 +632,9 @@ async function createAgentSettingsService(): Promise<AgentSettingsService> {
 }
 
 function loadPromptImageProcessingModule(): Promise<PromptImageProcessingModule> {
-  promptImageProcessingModulePromise ??= Promise.all([
-    import('@coding-agent-src/utils/mime'),
-    import('@coding-agent-src/utils/clipboard-image')
-  ]).then(([mime, clipboardImage]) => ({
-    detectSupportedImageMimeTypeFromFile: mime.detectSupportedImageMimeTypeFromFile,
-    extensionForImageMimeType: clipboardImage.extensionForImageMimeType
+  promptImageProcessingModulePromise ??= import('@coding-agent-src/utils/mime').then((mime) => ({
+    detectSupportedImageMimeType: mime.detectSupportedImageMimeType,
+    detectSupportedImageMimeTypeFromFile: mime.detectSupportedImageMimeTypeFromFile
   }))
   return promptImageProcessingModulePromise
 }
@@ -662,6 +782,21 @@ function handle<TArgs extends unknown[], TResult>(
   ipcMain.handle(channel, async (_event, ...args: TArgs): Promise<IpcResult<Awaited<TResult>>> => {
     try {
       return ok(await callback(...args))
+    } catch (error) {
+      writeDiagnostic(manager, error, channel)
+      return fail(error)
+    }
+  })
+}
+
+function handleWithEvent<TArgs extends unknown[], TResult>(
+  manager: CodingThreadManager,
+  channel: string,
+  callback: (event: IpcMainInvokeEvent, ...args: TArgs) => TResult | Promise<TResult>
+): void {
+  ipcMain.handle(channel, async (event, ...args: TArgs): Promise<IpcResult<Awaited<TResult>>> => {
+    try {
+      return ok(await callback(event, ...args))
     } catch (error) {
       writeDiagnostic(manager, error, channel)
       return fail(error)
@@ -824,8 +959,48 @@ async function selectPromptImages(): Promise<PromptImageAttachment[] | undefined
  * @param filePaths - 本地图片路径。
  * @returns 处理后的图片附件。
  */
-async function processPromptImageFiles(filePaths: string[]): Promise<PromptImageAttachment[]> {
-  return await Promise.all(filePaths.map((filePath) => createPromptImageAttachment(filePath)))
+export async function processPromptImageFiles(
+  filePaths: string[]
+): Promise<PromptImageAttachment[]> {
+  assertPromptImageCount(filePaths.length)
+  let totalBytes = 0
+  for (const filePath of filePaths) {
+    if (typeof filePath !== 'string' || !filePath.trim()) {
+      throw new Error('图片路径无效')
+    }
+    const fileStats = await stat(filePath)
+    if (!fileStats.isFile()) {
+      throw new Error(`${basename(filePath)} 不是普通文件`)
+    }
+    assertPromptImageBytes(fileStats.size, basename(filePath))
+    totalBytes += fileStats.size
+    assertPromptImageTotalBytes(totalBytes)
+  }
+  let processedTotalBytes = 0
+  return await mapWithConcurrency(filePaths, promptImageReadConcurrency, async (filePath) => {
+    const attachment = await createPromptImageAttachment(filePath)
+    processedTotalBytes += attachment.size
+    assertPromptImageTotalBytes(processedTotalBytes)
+    return attachment
+  })
+}
+
+async function mapWithConcurrency<T, TResult>(
+  values: readonly T[],
+  concurrency: number,
+  map: (value: T) => Promise<TResult>
+): Promise<TResult[]> {
+  const results = new Array<TResult>(values.length)
+  let nextIndex = 0
+  const workers = Array.from({ length: Math.min(concurrency, values.length) }, async () => {
+    while (nextIndex < values.length) {
+      const index = nextIndex
+      nextIndex += 1
+      results[index] = await map(values[index]!)
+    }
+  })
+  await Promise.all(workers)
+  return results
 }
 
 /**
@@ -878,13 +1053,29 @@ async function selectSessionFile(input: SelectSessionFileInput = {}): Promise<st
  * 在系统资源管理器中显示指定资源路径。
  * @param input - 路径输入。
  */
-async function revealResourcePath(input: RevealResourcePathInput): Promise<void> {
-  const targetPath = input.path.trim()
+export async function revealResourcePath(
+  input: RevealResourcePathInput,
+  capabilities: ResourcePathCapabilityStore,
+  accessMode: DesktopCapabilityAccessMode = 'safe'
+): Promise<void> {
+  if (!input || typeof input !== 'object') {
+    throw new Error('资源路径参数无效')
+  }
+  const hasCapability = 'capability' in input
+  const targetPath = hasCapability
+    ? capabilities.resolve(input.capability.trim())
+    : input.path.trim()
   if (!targetPath) {
     return
   }
 
   if (input.mode === 'open') {
+    if (!hasCapability && accessMode !== 'full') {
+      throw new Error('打开资源需要 main 签发的 capability')
+    }
+    if (accessMode !== 'full') {
+      await assertOpenableResourcePath(targetPath)
+    }
     const error = await shell.openPath(targetPath)
     if (error) {
       throw new Error(error)
@@ -892,12 +1083,22 @@ async function revealResourcePath(input: RevealResourcePathInput): Promise<void>
     return
   }
 
-  const pathStats = await stat(targetPath).catch(() => undefined)
-  if (pathStats?.isDirectory()) {
-    await shell.openPath(targetPath)
-    return
+  if (accessMode !== 'full' && !hasCapability && isPotentialNetworkOrDevicePath(targetPath)) {
+    throw new Error('不能显示网络或设备路径')
+  }
+  if (accessMode === 'full') {
+    const pathStats = await stat(targetPath).catch(() => undefined)
+    if (pathStats?.isDirectory()) {
+      const error = await shell.openPath(targetPath)
+      if (error) throw new Error(error)
+      return
+    }
   }
   shell.showItemInFolder(targetPath)
+}
+
+function isPotentialNetworkOrDevicePath(path: string): boolean {
+  return path.startsWith('\\\\') || path.startsWith('//')
 }
 
 /**
@@ -905,43 +1106,43 @@ async function revealResourcePath(input: RevealResourcePathInput): Promise<void>
  * @param input - URL 输入。
  */
 export async function openExternalUrl(input: OpenExternalUrlInput): Promise<void> {
-  await shell.openExternal(normalizeAllowedExternalUrl(input.uri))
+  const accessMode = readDesktopRuntimeConfig().externalProtocolAccess
+  await shell.openExternal(normalizeAllowedExternalUrl(input.uri, accessMode))
 }
 
 /**
- * 暂存 renderer 传入的 prompt 图片，再按文件图片链路处理。
- * @param manager - thread manager。
+ * 校验 renderer 传入的 prompt 图片并保留为 inline 附件。
  * @param images - renderer 图片草稿。
  * @returns 处理后的图片附件。
  */
-async function stagePromptImages(
-  _manager: CodingThreadManager,
+export async function stagePromptImages(
   images: PromptImageDraft[]
 ): Promise<PromptImageAttachment[]> {
-  if (images.length === 0) {
-    return []
-  }
-  return await Promise.all(
-    images.map(async (image) => {
-      const filePath = await writePromptImageDraft(image)
-      return await createPromptImageAttachment(filePath, image.name, image.size)
+  assertPromptImageCount(images.length)
+  const { detectSupportedImageMimeType } = await loadPromptImageProcessingModule()
+  const attachments: PromptImageAttachment[] = []
+  let totalBytes = 0
+  for (const image of images) {
+    const bytes = decodePromptImageDraft(image)
+    totalBytes += bytes.length
+    assertPromptImageTotalBytes(totalBytes)
+    const mimeType = detectSupportedImageMimeType(bytes)
+    if (!mimeType) {
+      throw new Error(`${image.name || '粘贴图片'} 不是支持的图片格式`)
+    }
+    if (image.mimeType !== mimeType) {
+      throw new Error(`${image.name || '粘贴图片'} 的图片类型与内容不一致`)
+    }
+    attachments.push({
+      type: 'image',
+      data: bytes.toString('base64'),
+      mimeType,
+      name: basename(image.name || 'pasted-image'),
+      size: bytes.length,
+      hints: []
     })
-  )
-}
-
-/**
- * 将 renderer 图片草稿写入临时文件。
- * @param image - 图片草稿。
- * @returns 临时文件路径。
- */
-async function writePromptImageDraft(image: PromptImageDraft): Promise<string> {
-  const { extensionForImageMimeType } = await loadPromptImageProcessingModule()
-  const ext = extensionForImageMimeType(image.mimeType) ?? 'png'
-  const dir = join(tmpdir(), 'meta-agent-prompt-images')
-  await mkdir(dir, { recursive: true })
-  const filePath = join(dir, `meta-agent-prompt-${randomUUID()}.${ext}`)
-  await writeFile(filePath, Buffer.from(image.data, 'base64'))
-  return filePath
+  }
+  return attachments
 }
 
 /**
@@ -953,23 +1154,76 @@ async function writePromptImageDraft(image: PromptImageDraft): Promise<string> {
  */
 async function createPromptImageAttachment(
   filePath: string,
-  displayName = basename(filePath),
-  displaySize?: number
+  displayName = basename(filePath)
 ): Promise<PromptImageAttachment> {
   const { detectSupportedImageMimeTypeFromFile } = await loadPromptImageProcessingModule()
+  const fileStats = await stat(filePath)
+  if (!fileStats.isFile()) {
+    throw new Error(`${basename(filePath)} 不是普通文件`)
+  }
+  assertPromptImageBytes(fileStats.size, basename(filePath))
   const mimeType = await detectSupportedImageMimeTypeFromFile(filePath)
   if (!mimeType) {
     throw new Error(`${basename(filePath)} 不是支持的图片格式`)
   }
-  const [fileStats, bytes] = await Promise.all([stat(filePath), readFile(filePath)])
+  const bytes = await readFile(filePath)
+  assertPromptImageBytes(bytes.length, basename(filePath))
   return {
     type: 'image',
     path: filePath,
     name: displayName,
-    size: displaySize ?? fileStats.size,
+    size: bytes.length,
     mimeType,
     data: Buffer.from(bytes).toString('base64'),
     hints: []
+  }
+}
+
+function decodePromptImageDraft(image: PromptImageDraft): Buffer {
+  if (
+    !image ||
+    typeof image.data !== 'string' ||
+    typeof image.name !== 'string' ||
+    typeof image.mimeType !== 'string' ||
+    typeof image.size !== 'number'
+  ) {
+    throw new Error('图片草稿格式无效')
+  }
+  const encoded = image.data.trim()
+  const maxEncodedLength = Math.ceil(MAX_PROMPT_IMAGE_BYTES / 3) * 4
+  if (
+    encoded.length === 0 ||
+    encoded.length > maxEncodedLength ||
+    encoded.length % 4 !== 0 ||
+    !/^[A-Za-z0-9+/]*={0,2}$/.test(encoded)
+  ) {
+    throw new Error(`${image.name || '粘贴图片'} 的图片数据无效或过大`)
+  }
+  const bytes = Buffer.from(encoded, 'base64')
+  assertPromptImageBytes(bytes.length, image.name || '粘贴图片')
+  if (image.size !== bytes.length) {
+    throw new Error(`${image.name || '粘贴图片'} 的声明大小与内容不一致`)
+  }
+  return bytes
+}
+
+async function cleanupLegacyPromptImageTempFiles(): Promise<void> {
+  await rm(join(tmpdir(), 'meta-agent-prompt-images'), { recursive: true, force: true })
+}
+
+async function assertExportedSessionPath(path: string): Promise<string> {
+  const canonicalPath = await realpath(path)
+  await assertOpenableResourcePath(canonicalPath)
+  return canonicalPath
+}
+
+async function assertOpenableResourcePath(path: string): Promise<void> {
+  if (extname(path).toLowerCase() !== '.html') {
+    throw new Error('导出资源必须是 HTML 文件')
+  }
+  const fileStats = await stat(path)
+  if (!fileStats.isFile()) {
+    throw new Error('导出资源不是普通文件')
   }
 }
 

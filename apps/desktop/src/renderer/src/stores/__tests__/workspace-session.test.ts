@@ -7,6 +7,7 @@ import { createPinia, setActivePinia } from 'pinia'
 import {
   applyEventToSessions,
   reconcileSessionTreeBranchesResult,
+  type ComposerImageAttachment,
   type WorkspaceSession
 } from '../workspace-session'
 import useWorkspaceProjectStore from '../workspace-project'
@@ -14,6 +15,7 @@ import { sessionPanelFullscreenByKey } from '../session-panel-layout-state'
 import useWorkspaceSessionStore from '../workspace-session'
 import { createComposerContentFromText } from '../workspace-session-composer'
 import { getBrowserSessionScope } from '@renderer/components/session/panel/tabs/state/browserPreviewTabs'
+import { MAX_PROMPT_IMAGE_COUNT } from '@shared/coding-agent/prompt-image-limits'
 import type {
   DesktopExtensionWebviewPanel,
   ExtensionUiRequest,
@@ -666,6 +668,7 @@ describe('applyEventToSessions', () => {
 
   it('将 projection event 应用到 snapshot runtime projections', () => {
     const sessions = createSessions()
+    const initialFileChanges = sessions['thread-a']?.snapshot?.fileChanges
 
     applyEventToSessions(sessions, {
       type: 'projection',
@@ -692,14 +695,36 @@ describe('applyEventToSessions', () => {
         threadId: 'thread-a',
         change: {
           threadId: 'thread-a',
+          toolCallId: 'tool-readme-a',
           path: 'README.md',
           changeType: 'updated',
           diff: '-1 old\n+1 new',
-          patch: '@@',
+          patch: '@@ first',
           additions: 1,
           deletions: 1,
-          firstChangedLine: 1,
+          firstChangedLine: 4,
           createdAt: '2026-07-01T00:00:01.000Z'
+        }
+      }
+    })
+    expect(sessions['thread-a']?.snapshot?.fileChanges).toBe(initialFileChanges)
+    applyEventToSessions(sessions, {
+      type: 'projection',
+      threadId: 'thread-a',
+      event: {
+        type: 'file.changed',
+        threadId: 'thread-a',
+        change: {
+          threadId: 'thread-a',
+          toolCallId: 'tool-readme-b',
+          path: './README.md',
+          changeType: 'updated',
+          diff: '-2 new\n+2 newer\n+3 extra',
+          patch: '@@ second',
+          additions: 2,
+          deletions: 1,
+          firstChangedLine: 2,
+          createdAt: '2026-07-01T00:00:02.000Z'
         }
       }
     })
@@ -724,15 +749,19 @@ describe('applyEventToSessions', () => {
     expect(snapshot?.thinkingLevel).toBe('off')
     expect(snapshot?.approvals).toHaveLength(1)
     expect(snapshot?.toolCalls).toEqual([])
-    expect(snapshot?.fileChanges).toMatchObject([
+    expect(snapshot?.fileChanges).not.toBe(initialFileChanges)
+    expect(snapshot?.fileChanges).toEqual([
       {
+        threadId: 'thread-a',
+        toolCallId: 'tool-readme-a',
         path: 'README.md',
         changeType: 'updated',
-        diff: '-1 old\n+1 new',
-        patch: '@@',
-        additions: 1,
-        deletions: 1,
-        firstChangedLine: 1
+        diff: '-1 old\n+1 new\n-2 new\n+2 newer\n+3 extra',
+        patch: '@@ first\n@@ second',
+        additions: 3,
+        deletions: 2,
+        firstChangedLine: 2,
+        createdAt: '2026-07-01T00:00:01.000Z'
       }
     ])
     expect(snapshot?.diagnostics).toMatchObject([{ source: 'worker', severity: 'warning' }])
@@ -1239,7 +1268,7 @@ describe('workspace-session Project-first actions', () => {
           size: 3,
           type: 'image',
           mimeType: 'image/png',
-          data: 'abc',
+          data: 'YWJj',
           hints: []
         }
       ],
@@ -1249,6 +1278,34 @@ describe('workspace-session Project-first actions', () => {
 
     expect(store.getComposerImages('thread-a')).toHaveLength(1)
     expect(store.getComposerImages('thread-b')).toHaveLength(0)
+  })
+
+  it('Composer 多批添加图片时仍限制累计数量', async () => {
+    installCodingAgentApi({})
+    const store = useWorkspaceSessionStore()
+    store.sessions['thread-a'] = snapshotToWorkspaceSession(createSnapshot())
+    await store.setActiveSessionId('thread-a')
+    const createImage = (index: number): ComposerImageAttachment => ({
+      id: `image-${index}`,
+      path: `/tmp/${index}.png`,
+      name: `${index}.png`,
+      size: 1,
+      type: 'image' as const,
+      mimeType: 'image/png',
+      data: 'YQ==',
+      hints: []
+    })
+
+    store.addComposerImages(
+      Array.from({ length: MAX_PROMPT_IMAGE_COUNT }, (_, index) => createImage(index))
+    )
+    store.addComposerImages([createImage(MAX_PROMPT_IMAGE_COUNT)])
+
+    expect(store.draftImages).toHaveLength(MAX_PROMPT_IMAGE_COUNT)
+    expect(toastMock.error).toHaveBeenCalledWith(
+      '图片附件超过限制',
+      expect.stringContaining('最多添加')
+    )
   })
 
   it('按 thread 隔离并去重 Composer 文本引用', async () => {
@@ -1320,7 +1377,7 @@ describe('workspace-session Project-first actions', () => {
         size: 3,
         type: 'image',
         mimeType: 'image/png',
-        data: 'abc',
+        data: 'YWJj',
         hints: []
       },
       {
@@ -1330,7 +1387,7 @@ describe('workspace-session Project-first actions', () => {
         size: 4,
         type: 'image',
         mimeType: 'image/png',
-        data: 'def',
+        data: 'ZGVm',
         hints: []
       }
     ])
@@ -1411,6 +1468,33 @@ describe('workspace-session Project-first actions', () => {
 
     await store.setActiveSessionId('thread-b')
     expect(store.activeSessionPanel).toEqual({ panelOpen: false, panelWidth: 520 })
+  })
+
+  it('按 active session 保留 Changes 面板的文件折叠状态', async () => {
+    const snapshotA = createSnapshot()
+    const snapshotB = {
+      ...createSnapshot(),
+      threadId: 'thread-b',
+      projectId: 'project-b',
+      cwd: '/tmp/project-b'
+    }
+    installCodingAgentApi({})
+    const store = useWorkspaceSessionStore()
+    store.sessions['thread-a'] = snapshotToWorkspaceSession(snapshotA)
+    store.sessions['thread-b'] = snapshotToWorkspaceSession(snapshotB)
+
+    await store.setActiveSessionId('thread-a')
+    store.setActiveCollapsedFileChangeIds(new Set(['src/a.ts', 'src/b.ts']))
+
+    await store.setActiveSessionId('thread-b')
+    expect([...store.activeCollapsedFileChangeIds]).toEqual([])
+    store.setActiveCollapsedFileChangeIds(new Set(['src/c.ts']))
+
+    await store.setActiveSessionId('thread-a')
+    expect([...store.activeCollapsedFileChangeIds]).toEqual(['src/a.ts', 'src/b.ts'])
+
+    await store.setActiveSessionId('thread-b')
+    expect([...store.activeCollapsedFileChangeIds]).toEqual(['src/c.ts'])
   })
 
   it('会话面板宽度不限制最大值', async () => {
@@ -2276,8 +2360,7 @@ describe('workspace-session Project-first actions', () => {
     expect(createThread).not.toHaveBeenCalled()
     expect(getCommands).not.toHaveBeenCalled()
     expect(getResourceSnapshot).toHaveBeenCalledWith({
-      cwd: '/tmp/project-a',
-      projectTrusted: true
+      projectId: 'project-a'
     })
     expect(store.activeSessionId).toBeUndefined()
     expect(store.activeCommands.map((command) => command.name)).toEqual(
@@ -2411,7 +2494,10 @@ describe('workspace-session Project-first actions', () => {
 
   it('暴露 compact、export、clone 和创建分支 thread 操作', async () => {
     const compact = vi.fn().mockResolvedValue({ cancelled: false })
-    const exportSession = vi.fn().mockResolvedValue({ path: '/tmp/session.html' })
+    const exportSession = vi.fn().mockResolvedValue({
+      path: '/tmp/session.html',
+      resourceCapability: 'export-capability'
+    })
     const revealResourcePath = vi.fn().mockResolvedValue(undefined)
     const clone = vi.fn().mockResolvedValue(createSnapshot())
     const forkSnapshot = {
@@ -2438,18 +2524,21 @@ describe('workspace-session Project-first actions', () => {
     await store.exportActiveSession()
     await store.openActiveExport()
     await store.revealActiveExport()
-    expect(store.activeExportResult).toEqual({ path: '/tmp/session.html' })
+    expect(store.activeExportResult).toEqual({
+      path: '/tmp/session.html',
+      resourceCapability: 'export-capability'
+    })
     await store.cloneActiveSession()
     await store.forkActiveSession('assistant-a')
 
     expect(compact).toHaveBeenCalledWith({ threadId: 'thread-a', customInstructions: undefined })
     expect(exportSession).toHaveBeenCalledWith({ threadId: 'thread-a' })
     expect(revealResourcePath).toHaveBeenNthCalledWith(1, {
-      path: '/tmp/session.html',
+      capability: 'export-capability',
       mode: 'open'
     })
     expect(revealResourcePath).toHaveBeenNthCalledWith(2, {
-      path: '/tmp/session.html',
+      capability: 'export-capability',
       mode: 'reveal'
     })
     expect(clone).toHaveBeenCalledWith('thread-a')
@@ -2541,7 +2630,7 @@ describe('workspace-session Project-first actions', () => {
         id: 'stale-image',
         type: 'image',
         mimeType: 'image/png',
-        data: 'stale',
+        data: 'c3RhbGU=',
         name: 'stale.png',
         size: 5,
         hints: []
@@ -4081,7 +4170,7 @@ describe('workspace-session Project-first actions', () => {
         size: 3,
         type: 'image',
         mimeType: 'image/png',
-        data: 'abc',
+        data: 'YWJj',
         hints: ['[Image resized to 2000x1000.]']
       }
     ])
@@ -4097,7 +4186,7 @@ describe('workspace-session Project-first actions', () => {
           inlineFallback: {
             type: 'image',
             mimeType: 'image/png',
-            data: 'abc'
+            data: 'YWJj'
           }
         }
       ]
@@ -4121,7 +4210,7 @@ describe('workspace-session Project-first actions', () => {
         size: 3,
         type: 'image',
         mimeType: 'image/png',
-        data: 'abc',
+        data: 'YWJj',
         hints: ['[Image resized to 2000x1000.]']
       }
     ])
@@ -4137,7 +4226,7 @@ describe('workspace-session Project-first actions', () => {
           inlineFallback: {
             type: 'image',
             mimeType: 'image/png',
-            data: 'abc'
+            data: 'YWJj'
           }
         }
       ]

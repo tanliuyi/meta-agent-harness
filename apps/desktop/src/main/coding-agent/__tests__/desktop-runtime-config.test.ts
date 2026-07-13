@@ -6,9 +6,20 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { readDesktopRuntimeConfig, writeDesktopRuntimeConfig } from '../desktop-runtime-config'
+import {
+  onDesktopRuntimeConfigChanged,
+  readDesktopRuntimeConfig,
+  writeDesktopRuntimeConfig
+} from '../desktop-runtime-config'
 
 const tempDirs: string[] = []
+const defaultCapabilityConfig = {
+  browserCdpAccess: 'safe' as const,
+  browserWebPermissions: 'prompt' as const,
+  filesystemAccess: 'safe' as const,
+  extensionUrlAccess: 'safe' as const,
+  externalProtocolAccess: 'safe' as const
+}
 
 describe('desktop-runtime-config', () => {
   afterEach(() => {
@@ -22,7 +33,8 @@ describe('desktop-runtime-config', () => {
     const dir = createTempDir()
 
     expect(readDesktopRuntimeConfig(join(dir, 'desktop-runtime.json'))).toEqual({
-      workerMode: 'nodeSidecar'
+      workerMode: 'nodeSidecar',
+      ...defaultCapabilityConfig
     })
   })
 
@@ -31,10 +43,12 @@ describe('desktop-runtime-config', () => {
     const configPath = join(dir, 'desktop-runtime.json')
 
     expect(writeDesktopRuntimeConfig({ workerMode: 'utilityProcess' }, configPath)).toEqual({
-      workerMode: 'utilityProcess'
+      workerMode: 'utilityProcess',
+      ...defaultCapabilityConfig
     })
     expect(readDesktopRuntimeConfig(configPath)).toEqual({
-      workerMode: 'utilityProcess'
+      workerMode: 'utilityProcess',
+      ...defaultCapabilityConfig
     })
   })
 
@@ -44,7 +58,8 @@ describe('desktop-runtime-config', () => {
     writeFileSync(configPath, JSON.stringify({ workerMode: 'electron' }))
 
     expect(readDesktopRuntimeConfig(configPath)).toEqual({
-      workerMode: 'nodeSidecar'
+      workerMode: 'nodeSidecar',
+      ...defaultCapabilityConfig
     })
   })
 
@@ -78,6 +93,7 @@ describe('desktop-runtime-config', () => {
       )
     ).toEqual({
       workerMode: 'nodeSidecar',
+      ...defaultCapabilityConfig,
       uiPreferences: {
         appearance: {
           themeMode: 'light',
@@ -105,6 +121,7 @@ describe('desktop-runtime-config', () => {
       )
     ).toEqual({
       workerMode: 'nodeSidecar',
+      ...defaultCapabilityConfig,
       uiPreferences: {
         appearance: {
           themeMode: 'light',
@@ -181,8 +198,77 @@ describe('desktop-runtime-config', () => {
     vi.stubEnv('CODING_AGENT_WORKER_MODE', 'utilityProcess')
 
     expect(readDesktopRuntimeConfig(join(dir, 'desktop-runtime.json'))).toEqual({
-      workerMode: 'utilityProcess'
+      workerMode: 'utilityProcess',
+      ...defaultCapabilityConfig
     })
+  })
+
+  it('持久化 Desktop 专业能力配置并拒绝非法值', () => {
+    const dir = createTempDir()
+    const configPath = join(dir, 'desktop-runtime.json')
+
+    expect(
+      writeDesktopRuntimeConfig(
+        {
+          browserCdpAccess: 'full',
+          browserWebPermissions: 'full',
+          filesystemAccess: 'full',
+          extensionUrlAccess: 'full',
+          externalProtocolAccess: 'full'
+        },
+        configPath
+      )
+    ).toMatchObject({
+      browserCdpAccess: 'full',
+      browserWebPermissions: 'full',
+      filesystemAccess: 'full',
+      extensionUrlAccess: 'full',
+      externalProtocolAccess: 'full'
+    })
+    writeFileSync(
+      configPath,
+      JSON.stringify({
+        browserCdpAccess: 'unrestricted',
+        browserWebPermissions: 'ask-every-time',
+        filesystemAccess: 'unrestricted',
+        extensionUrlAccess: 'unrestricted',
+        externalProtocolAccess: 'unrestricted'
+      })
+    )
+    expect(readDesktopRuntimeConfig(configPath)).toMatchObject(defaultCapabilityConfig)
+  })
+
+  it('环境变量可显式启用完整 Desktop 专业能力', () => {
+    const dir = createTempDir()
+    vi.stubEnv('CODING_AGENT_BROWSER_CDP_ACCESS', 'full')
+    vi.stubEnv('CODING_AGENT_BROWSER_WEB_PERMISSIONS', 'full')
+    vi.stubEnv('CODING_AGENT_FILESYSTEM_ACCESS', 'full')
+    vi.stubEnv('CODING_AGENT_EXTENSION_URL_ACCESS', 'full')
+    vi.stubEnv('CODING_AGENT_EXTERNAL_PROTOCOL_ACCESS', 'full')
+
+    expect(readDesktopRuntimeConfig(join(dir, 'desktop-runtime.json'))).toMatchObject({
+      browserCdpAccess: 'full',
+      browserWebPermissions: 'full',
+      filesystemAccess: 'full',
+      extensionUrlAccess: 'full',
+      externalProtocolAccess: 'full'
+    })
+  })
+
+  it('在当前进程写入后通知能力控制器立即收紧边界', () => {
+    const dir = createTempDir()
+    const configPath = join(dir, 'desktop-runtime.json')
+    const listener = vi.fn()
+    const unsubscribe = onDesktopRuntimeConfigChanged(listener)
+
+    writeDesktopRuntimeConfig({ browserCdpAccess: 'full' }, configPath)
+    expect(listener).toHaveBeenCalledWith(
+      expect.objectContaining({ browserCdpAccess: 'full' }),
+      configPath
+    )
+    unsubscribe()
+    writeDesktopRuntimeConfig({ browserCdpAccess: 'safe' }, configPath)
+    expect(listener).toHaveBeenCalledTimes(1)
   })
 })
 

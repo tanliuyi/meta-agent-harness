@@ -348,11 +348,6 @@ watch(
     color: inherit;
   }
 
-  &:focus-visible {
-    outline: none;
-    box-shadow: inset var(--shadow-focus);
-  }
-
   &[data-state='open'] {
     border-bottom-right-radius: 0;
     border-bottom-left-radius: 0;

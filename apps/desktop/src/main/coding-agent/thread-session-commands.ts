@@ -24,6 +24,7 @@ import type {
   ThreadSummary
 } from '@shared/coding-agent/types'
 import type { ThreadManagerCore } from './thread-manager-core'
+import { readDesktopRuntimeConfig } from './desktop-runtime-config'
 import { createThread } from './thread-lifecycle'
 import { buildSessionTreeBranches } from './session-tree-branches'
 
@@ -87,9 +88,12 @@ export async function exportSession(
   core: ThreadManagerCore,
   input: ExportSessionInput
 ): Promise<ExportSessionResult> {
+  if (input.outputPath && readDesktopRuntimeConfig().filesystemAccess !== 'full') {
+    throw new Error('指定导出路径需要在 Settings 中开启完整文件系统能力')
+  }
   return await core.sendData<ExportSessionResult>(input.threadId, {
     type: 'export_html',
-    outputPath: input.outputPath
+    ...(input.outputPath ? { outputPath: input.outputPath } : {})
   })
 }
 

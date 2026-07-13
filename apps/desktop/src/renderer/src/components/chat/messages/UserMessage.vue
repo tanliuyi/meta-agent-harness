@@ -860,12 +860,6 @@ function toggleExpand(): void {
   background: transparent;
   border: 0;
   cursor: zoom-in;
-
-  &:focus-visible {
-    outline: 2px solid var(--color-primary-outline);
-    outline-offset: 2px;
-    border-radius: var(--radius-lg);
-  }
 }
 
 .user-message__attachments {

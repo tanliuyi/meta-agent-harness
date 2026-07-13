@@ -2,6 +2,7 @@
 import { BaseBadge, BaseButton, BaseField, BasePanel } from '@renderer/components/base'
 import { SettingsSelectField } from '@renderer/views/settings/components/form'
 import useModelSettingsStore from '@renderer/stores/model-settings'
+import { confirm } from '@renderer/composables/useConfirmDialog'
 import {
   Dialog,
   DialogContent,
@@ -11,7 +12,7 @@ import {
   DialogTitle
 } from '@/components/ui/dialog'
 import type { ProviderCredentialStatus } from '@shared/coding-agent/types'
-import { Check, KeyRound, LogIn, X } from 'lucide-vue-next'
+import { Check, KeyRound, LogIn, Trash2, X } from 'lucide-vue-next'
 import { computed, ref } from 'vue'
 
 const modelSettings = useModelSettingsStore()
@@ -195,6 +196,22 @@ async function loginProviderOAuth(): Promise<void> {
   })
 }
 
+function canClearCredential(credential: ProviderCredentialStatus): boolean {
+  return credential.source === 'credentialStore' || credential.source === 'oauth'
+}
+
+async function clearProviderCredential(provider: string): Promise<void> {
+  const result = await confirm({
+    title: '清除 Provider 凭据',
+    description: `将从 auth.json 删除 ${provider} 的 API key 或 OAuth 凭据。`,
+    confirmText: '清除',
+    cancelText: '取消',
+    tone: 'destructive'
+  })
+  if (!result.confirmed || modelSettings.saving) return
+  await modelSettings.clearProviderCredential(provider)
+}
+
 async function submitOAuthPrompt(): Promise<void> {
   const prompt = selectedOAuthPrompt.value
   const provider = oauthDraft.value.provider.trim()
@@ -268,6 +285,18 @@ async function cancelOAuthPrompt(): Promise<void> {
               <LogIn :size="14" />
             </template>
             OAuth
+          </BaseButton>
+          <BaseButton
+            v-if="canClearCredential(credential)"
+            size="sm"
+            variant="ghost"
+            :disabled="modelSettings.saving"
+            @click="clearProviderCredential(credential.provider)"
+          >
+            <template #icon>
+              <Trash2 :size="14" />
+            </template>
+            清除
           </BaseButton>
         </div>
       </li>

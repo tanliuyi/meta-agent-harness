@@ -25,6 +25,12 @@ describe('coding agent IPC events', () => {
       'not allowed'
     )
     expect(() => normalizeAllowedExternalUrl('javascript:alert(1)')).toThrow('not allowed')
+    expect(normalizeAllowedExternalUrl('vscode://file/project/main.ts', 'full')).toBe(
+      'vscode://file/project/main.ts'
+    )
+    expect(normalizeAllowedExternalUrl('my-oauth://callback?code=1', 'full')).toBe(
+      'my-oauth://callback?code=1'
+    )
   })
 
   it('将 worker agent/projection envelope 转成 renderer IPC event', () => {

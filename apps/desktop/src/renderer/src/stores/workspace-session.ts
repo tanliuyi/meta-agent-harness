@@ -25,6 +25,8 @@ import { transferBrowserSessionScope } from '@renderer/components/session/panel/
 import { transferSessionPanelLayoutState } from './session-panel-layout-state'
 import { getBuiltinCommandInfos } from '@shared/coding-agent/builtin-commands'
 import { formatFileArgForInsertion } from '@shared/coding-agent/file-reference-format'
+import { assertPromptImagePayload } from '@shared/coding-agent/prompt-image-limits'
+import { isSameFileChange, upsertDesktopFileChange } from '@coding-agent-desktop-src/protocol/tool'
 import {
   createExtensionDialogCancellation,
   createExtensionDialogResponse,
@@ -448,6 +450,10 @@ export default defineStore('workspace-session', () => {
 
   /** 每个 thread 的运行态。 */
   const runtimeByThreadId = shallowReactive<Record<string, WorkspaceSessionRuntime>>({})
+
+  /** 每个 thread 在 Changes 面板中折叠的文件 ID。 */
+  const collapsedFileChangeIdsByThreadId = shallowReactive<Record<string, ReadonlySet<string>>>({})
+  const emptyCollapsedFileChangeIds: ReadonlySet<string> = new Set()
 
   /** 每个 thread 的工具调用索引，用于 renderer 按 id 原子订阅。 */
   const toolCallsByThreadId = shallowReactive<Record<string, WorkspaceToolCallsById>>({})
@@ -941,6 +947,11 @@ export default defineStore('workspace-session', () => {
         delete runtimeByThreadId[threadId]
       }
     }
+    for (const threadId of Object.keys(collapsedFileChangeIdsByThreadId)) {
+      if (!existingThreadIds.has(threadId)) {
+        delete collapsedFileChangeIdsByThreadId[threadId]
+      }
+    }
     for (const threadId of Object.keys(toolCallsByThreadId)) {
       if (!existingThreadIds.has(threadId)) {
         delete toolCallsByThreadId[threadId]
@@ -1220,6 +1231,14 @@ export default defineStore('workspace-session', () => {
 
   /** 当前活跃会话的快照。 */
   const activeSnapshot = computed(() => activeSession.value?.snapshot)
+
+  /** 当前活跃会话在 Changes 面板中折叠的文件 ID。 */
+  const activeCollapsedFileChangeIds = computed<ReadonlySet<string>>(() => {
+    const threadId = activeSessionId.value
+    return threadId
+      ? (collapsedFileChangeIdsByThreadId[threadId] ?? emptyCollapsedFileChangeIds)
+      : emptyCollapsedFileChangeIds
+  })
 
   /** 当前活跃会话的工具调用索引。 */
   const activeToolCallsById = computed<WorkspaceToolCallsById>(() =>
@@ -1772,8 +1791,7 @@ export default defineStore('workspace-session', () => {
     globalErrorMessage.value = undefined
     try {
       const snapshot = await window.api.codingAgent.getResourceSnapshot({
-        cwd: project.path,
-        projectTrusted: project.trust?.state === 'trusted' || project.trust?.state === 'notRequired'
+        projectId: project.projectId
       })
       const extensionCommands = snapshot.extensions.flatMap((extension) =>
         extension.commands.map((command) => ({
@@ -2619,22 +2637,22 @@ export default defineStore('workspace-session', () => {
    * 打开最近一次导出的 session 文件。
    */
   const openActiveExport = async (): Promise<void> => {
-    const path = activeRuntime.value?.lastExport?.path
-    if (!path) {
+    const capability = activeRuntime.value?.lastExport?.resourceCapability
+    if (!capability) {
       return
     }
-    await window.api.codingAgent.revealResourcePath({ path, mode: 'open' })
+    await window.api.codingAgent.revealResourcePath({ capability, mode: 'open' })
   }
 
   /**
    * 在系统资源管理器中显示最近一次导出的 session 文件。
    */
   const revealActiveExport = async (): Promise<void> => {
-    const path = activeRuntime.value?.lastExport?.path
-    if (!path) {
+    const capability = activeRuntime.value?.lastExport?.resourceCapability
+    if (!capability) {
       return
     }
-    await window.api.codingAgent.revealResourcePath({ path, mode: 'reveal' })
+    await window.api.codingAgent.revealResourcePath({ capability, mode: 'reveal' })
   }
 
   /**
@@ -3052,6 +3070,7 @@ export default defineStore('workspace-session', () => {
       await window.api.codingAgent.archiveThread(threadId)
       delete sessions[threadId]
       delete runtimeByThreadId[threadId]
+      delete collapsedFileChangeIdsByThreadId[threadId]
       delete toolCallsByThreadId[threadId]
       delete toolCallStructuresByThreadId[threadId]
       delete modelOptionsByThreadId[threadId]
@@ -3066,6 +3085,22 @@ export default defineStore('workspace-session', () => {
     } catch (error) {
       globalErrorMessage.value = error instanceof Error ? error.message : String(error)
     }
+  }
+
+  /**
+   * 保存当前活跃会话在 Changes 面板中折叠的文件 ID。
+   * @param changeIds - 折叠的文件 ID。
+   */
+  const setActiveCollapsedFileChangeIds = (changeIds: ReadonlySet<string>): void => {
+    const threadId = activeSessionId.value
+    if (!threadId) {
+      return
+    }
+    if (changeIds.size === 0) {
+      delete collapsedFileChangeIdsByThreadId[threadId]
+      return
+    }
+    collapsedFileChangeIdsByThreadId[threadId] = new Set(changeIds)
   }
 
   /**
@@ -3156,7 +3191,17 @@ export default defineStore('workspace-session', () => {
     if (images.length === 0) {
       return
     }
-    getComposerImages(threadId, contextId).push(...images)
+    const currentImages = getComposerImages(threadId, contextId)
+    try {
+      assertPromptImagePayload(getPromptImagePayload([...currentImages, ...images]))
+    } catch (cause) {
+      toast.error(
+        '图片附件超过限制',
+        cause instanceof Error ? cause.message : '请减少图片数量或大小'
+      )
+      return
+    }
+    currentImages.push(...images)
   }
 
   /**
@@ -3706,6 +3751,7 @@ export default defineStore('workspace-session', () => {
     activeSessionActionDetails,
     activeSessionNotifications,
     activeSessionId,
+    activeCollapsedFileChangeIds,
     activeSessionPanel,
     activeSessionPanelTabsKey,
     activeSnapshot,
@@ -3799,6 +3845,7 @@ export default defineStore('workspace-session', () => {
     setContextActiveThreadId,
     setActiveProjectId,
     setActiveSessionId,
+    setActiveCollapsedFileChangeIds,
     setActiveSessionPanelOpen,
     setActiveSessionPanelWidth,
     consumeExtensionPanelMessages,
@@ -4890,7 +4937,11 @@ function applyProjectionEvent(snapshot: ThreadSnapshot, event: ProjectionIpcEven
       upsertUnknown(snapshot.approvals, event.approval, 'approvalId')
       return
     case 'file.changed': {
-      snapshot.fileChanges.push(event.change)
+      if (snapshot.fileChanges.some((change) => isSameFileChange(change, event.change))) {
+        snapshot.fileChanges = upsertDesktopFileChange(snapshot.fileChanges, event.change)
+      } else {
+        snapshot.fileChanges.push(event.change)
+      }
       return
     }
     case 'thread.error': {

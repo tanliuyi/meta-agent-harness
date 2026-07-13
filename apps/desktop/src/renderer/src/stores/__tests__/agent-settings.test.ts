@@ -6,7 +6,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
 import { isProxy } from 'vue'
 import useAgentSettingsStore from '../agent-settings'
-import type { AgentSettingsSnapshot } from '@shared/coding-agent/types'
+import type { AgentSettingsSnapshot, ResourceSnapshot } from '@shared/coding-agent/types'
 
 vi.mock('@renderer/composables/useToast', () => ({
   useToast: () => ({
@@ -96,7 +96,7 @@ describe('agent-settings store', () => {
 
     const store = useAgentSettingsStore()
     await store.load()
-    await store.loadResourceSnapshot({ cwd: '/project', projectTrusted: true })
+    await store.loadResourceSnapshot({ projectId: 'project-a' })
     await store.setExtensionPathEnabled('/project/ext.ts', false)
 
     expect(updateAgentSettings).toHaveBeenCalledWith({
@@ -107,7 +107,7 @@ describe('agent-settings store', () => {
         prompts: []
       }
     })
-    expect(getResourceSnapshot).toHaveBeenLastCalledWith({ cwd: '/project', projectTrusted: true })
+    expect(getResourceSnapshot).toHaveBeenLastCalledWith({ projectId: 'project-a' })
   })
 
   it('保存项目级扩展路径时调用 project IPC 并沿用当前视角刷新', async () => {
@@ -139,22 +139,204 @@ describe('agent-settings store', () => {
     })
 
     const store = useAgentSettingsStore()
-    await store.loadResourceSnapshot({ cwd: '/project', projectTrusted: true })
-    await store.saveProjectExtensionPaths('/project', ['-/project/ext.ts'])
+    await store.loadResourceSnapshot({ projectId: 'project-a' })
+    await store.saveProjectExtensionPaths('project-a', ['-/project/ext.ts'])
 
     expect(updateProjectExtensionPaths).toHaveBeenCalledWith({
-      cwd: '/project',
+      projectId: 'project-a',
       extensions: ['-/project/ext.ts']
     })
     expect(store.projectExtensionPaths).toEqual(['-/project/ext.ts'])
-    expect(store.projectExtensionPathsCwd).toBe('/project')
-    expect(getResourceSnapshot).toHaveBeenLastCalledWith({ cwd: '/project', projectTrusted: true })
+    expect(store.projectExtensionPathsProjectId).toBe('project-a')
+    expect(getResourceSnapshot).toHaveBeenLastCalledWith({ projectId: 'project-a' })
     expect(store.resolvedExtensionPaths[0]).toEqual(
       expect.objectContaining({
         path: '/project/ext.ts',
         enabled: false
       })
     )
+  })
+
+  it('忽略晚到的旧 resource snapshot 响应', async () => {
+    const first = createDeferred<ReturnType<typeof createResourceSnapshot>>()
+    const second = createDeferred<ReturnType<typeof createResourceSnapshot>>()
+    const getResourceSnapshot = vi
+      .fn()
+      .mockReturnValueOnce(first.promise)
+      .mockReturnValueOnce(second.promise)
+    installCodingAgentApi({ getResourceSnapshot })
+    const store = useAgentSettingsStore()
+
+    const firstLoad = store.loadResourceSnapshot({ projectId: 'project-a' })
+    const secondLoad = store.loadResourceSnapshot({ projectId: 'project-b' })
+    second.resolve(createResourceSnapshot('project-b'))
+    await secondLoad
+    first.resolve(createResourceSnapshot('project-a'))
+    await firstLoad
+
+    expect(store.resourceSnapshot?.diagnostics).toEqual([
+      expect.objectContaining({ message: 'project-b' })
+    ])
+  })
+
+  it('切换 resource snapshot 上下文时立即清空旧项目资源', async () => {
+    const next = createDeferred<ReturnType<typeof createResourceSnapshot>>()
+    const getResourceSnapshot = vi
+      .fn()
+      .mockResolvedValueOnce(createResourceSnapshot('project-a'))
+      .mockReturnValueOnce(next.promise)
+    installCodingAgentApi({ getResourceSnapshot })
+    const store = useAgentSettingsStore()
+    await store.loadResourceSnapshot({ projectId: 'project-a' })
+
+    const nextLoad = store.loadResourceSnapshot({ projectId: 'project-b' })
+
+    expect(store.resourceSnapshot).toBeNull()
+    next.resolve(createResourceSnapshot('project-b'))
+    await nextLoad
+  })
+
+  it('忽略晚到的旧项目 extension 路径响应', async () => {
+    const first = createDeferred<string[]>()
+    const second = createDeferred<string[]>()
+    const getProjectExtensionPaths = vi
+      .fn()
+      .mockReturnValueOnce(first.promise)
+      .mockReturnValueOnce(second.promise)
+    installCodingAgentApi({ getProjectExtensionPaths })
+    const store = useAgentSettingsStore()
+
+    const firstLoad = store.loadProjectExtensionPaths('project-a')
+    const secondLoad = store.loadProjectExtensionPaths('project-b')
+    second.resolve(['/project-b/ext.ts'])
+    await secondLoad
+    first.resolve(['/project-a/ext.ts'])
+    await firstLoad
+
+    expect(store.projectExtensionPathsProjectId).toBe('project-b')
+    expect(store.projectExtensionPaths).toEqual(['/project-b/ext.ts'])
+  })
+
+  it('切换项目路径上下文时立即清空旧项目路径', async () => {
+    const next = createDeferred<string[]>()
+    const getProjectExtensionPaths = vi
+      .fn()
+      .mockResolvedValueOnce(['/project-a/ext.ts'])
+      .mockReturnValueOnce(next.promise)
+    installCodingAgentApi({ getProjectExtensionPaths })
+    const store = useAgentSettingsStore()
+    await store.loadProjectExtensionPaths('project-a')
+
+    const nextLoad = store.loadProjectExtensionPaths('project-b')
+
+    expect(store.projectExtensionPathsProjectId).toBeNull()
+    expect(store.projectExtensionPaths).toEqual([])
+    next.resolve(['/project-b/ext.ts'])
+    await nextLoad
+  })
+
+  it('切到无项目视角时取消仍在等待的项目路径响应', async () => {
+    const pending = createDeferred<string[]>()
+    installCodingAgentApi({
+      getProjectExtensionPaths: vi.fn().mockReturnValue(pending.promise)
+    })
+    const store = useAgentSettingsStore()
+
+    const load = store.loadProjectExtensionPaths('project-a')
+    await store.loadProjectExtensionPaths()
+    pending.resolve(['/project-a/ext.ts'])
+    await load
+
+    expect(store.projectExtensionPathsProjectId).toBeNull()
+    expect(store.projectExtensionPaths).toEqual([])
+  })
+
+  it('忽略晚到的旧项目 package 列表响应', async () => {
+    const first = createDeferred<Array<{ source: string; scope: 'user'; filtered: boolean }>>()
+    const second = createDeferred<Array<{ source: string; scope: 'user'; filtered: boolean }>>()
+    const listResourcePackages = vi
+      .fn()
+      .mockReturnValueOnce(first.promise)
+      .mockReturnValueOnce(second.promise)
+    installCodingAgentApi({ listResourcePackages })
+    const store = useAgentSettingsStore()
+
+    const firstLoad = store.loadResourcePackages({ projectId: 'project-a' })
+    const secondLoad = store.loadResourcePackages({ projectId: 'project-b' })
+    second.resolve([{ source: 'project-b', scope: 'user', filtered: false }])
+    await secondLoad
+    first.resolve([{ source: 'project-a', scope: 'user', filtered: false }])
+    await firstLoad
+
+    expect(store.resourcePackages).toEqual([
+      { source: 'project-b', scope: 'user', filtered: false }
+    ])
+  })
+
+  it('切换项目后忽略旧 package mutation 的列表与 loading 响应', async () => {
+    const mutation = createDeferred<Array<{ source: string; scope: 'user'; filtered: boolean }>>()
+    const projectBLoad =
+      createDeferred<Array<{ source: string; scope: 'user'; filtered: boolean }>>()
+    const listResourcePackages = vi
+      .fn()
+      .mockResolvedValueOnce([{ source: 'project-a', scope: 'user', filtered: false }])
+      .mockReturnValueOnce(projectBLoad.promise)
+    const getAgentSettings = vi.fn().mockResolvedValue(createAgentSettingsSnapshot())
+    installCodingAgentApi({
+      addResourcePackage: vi.fn().mockReturnValue(mutation.promise),
+      getAgentSettings,
+      listResourcePackages
+    })
+    const store = useAgentSettingsStore()
+    await store.loadResourcePackages({ projectId: 'project-a' })
+
+    const pendingMutation = store.addResourcePackage({ source: 'user-package' })
+    expect(store.resourcePackagesLoading).toBe(true)
+    const projectBLoading = store.loadResourcePackages({ projectId: 'project-b' })
+    expect(store.resourcePackages).toEqual([])
+    projectBLoad.resolve([{ source: 'project-b', scope: 'user', filtered: false }])
+    await projectBLoading
+    expect(store.resourcePackagesLoading).toBe(false)
+
+    mutation.resolve([{ source: 'mutation-response', scope: 'user', filtered: false }])
+    await pendingMutation
+
+    expect(store.resourcePackagesInput).toEqual({ projectId: 'project-b' })
+    expect(store.resourcePackages).toEqual([
+      { source: 'project-b', scope: 'user', filtered: false }
+    ])
+    expect(store.resourcePackagesLoading).toBe(false)
+    expect(getAgentSettings).not.toHaveBeenCalled()
+    expect(listResourcePackages).toHaveBeenCalledTimes(2)
+  })
+
+  it('项目视角的用户级 package mutation 完成后重新加载合并列表', async () => {
+    const listResourcePackages = vi
+      .fn()
+      .mockResolvedValueOnce([{ source: 'before', scope: 'user', filtered: false }])
+      .mockResolvedValueOnce([
+        { source: 'user-package', scope: 'user', filtered: false },
+        { source: 'project-package', scope: 'project', filtered: false }
+      ])
+    installCodingAgentApi({
+      addResourcePackage: vi
+        .fn()
+        .mockResolvedValue([{ source: 'user-package', scope: 'user', filtered: false }]),
+      getAgentSettings: vi.fn().mockResolvedValue(createAgentSettingsSnapshot()),
+      getResourceSnapshot: vi.fn().mockResolvedValue(createResourceSnapshot()),
+      listResourcePackages
+    })
+    const store = useAgentSettingsStore()
+    await store.loadResourcePackages({ projectId: 'project-a' })
+
+    await store.addResourcePackage({ source: 'user-package' })
+
+    expect(listResourcePackages).toHaveBeenLastCalledWith({ projectId: 'project-a' })
+    expect(store.resourcePackages).toEqual([
+      { source: 'user-package', scope: 'user', filtered: false },
+      { source: 'project-package', scope: 'project', filtered: false }
+    ])
+    expect(store.resourcePackagesLoading).toBe(false)
   })
 
   it('保存显示与交互时不提交 TUI-only 字段', async () => {
@@ -181,6 +363,59 @@ describe('agent-settings store', () => {
         autocompleteMaxVisible: 8
       }
     })
+  })
+
+  it('partial save 保留未提交 section 与请求期间的新编辑', async () => {
+    const initial = createAgentSettingsSnapshot()
+    const response = createAgentSettingsSnapshot()
+    response.safety.browserCdpAccess = 'full'
+    const update = createDeferred<AgentSettingsSnapshot>()
+    const updateAgentSettings = vi.fn().mockReturnValue(update.promise)
+    installCodingAgentApi({
+      getAgentSettings: vi.fn().mockResolvedValue(initial),
+      updateAgentSettings
+    })
+    const store = useAgentSettingsStore()
+    await store.load()
+
+    store.draft!.safety.browserCdpAccess = 'full'
+    store.draft!.display.quietStartup = true
+    const saving = store.saveSafety()
+    store.draft!.safety.filesystemAccess = 'full'
+
+    update.resolve(response)
+    await saving
+
+    expect(store.snapshot?.safety).toMatchObject({
+      browserCdpAccess: 'full',
+      filesystemAccess: 'safe'
+    })
+    expect(store.draft?.safety).toMatchObject({
+      browserCdpAccess: 'full',
+      filesystemAccess: 'full'
+    })
+    expect(store.draft?.display.quietStartup).toBe(true)
+  })
+
+  it('已有保存请求完成前不启动第二个 partial save', async () => {
+    const snapshot = createAgentSettingsSnapshot()
+    const update = createDeferred<AgentSettingsSnapshot>()
+    const updateAgentSettings = vi.fn().mockReturnValue(update.promise)
+    installCodingAgentApi({
+      getAgentSettings: vi.fn().mockResolvedValue(snapshot),
+      updateAgentSettings
+    })
+    const store = useAgentSettingsStore()
+    await store.load()
+
+    const safetySave = store.saveSafety()
+    store.draft!.display.quietStartup = true
+    await store.saveDisplay()
+
+    expect(updateAgentSettings).toHaveBeenCalledTimes(1)
+    update.resolve(snapshot)
+    await safetySave
+    expect(store.draft?.display.quietStartup).toBe(true)
   })
 
   it('保存图片设置时不提交终端呈现字段', async () => {
@@ -259,6 +494,25 @@ function installCodingAgentApi(overrides: Record<string, unknown>): void {
   })
 }
 
+function createResourceSnapshot(marker = ''): ResourceSnapshot {
+  return {
+    resources: { extensions: [], skills: [], prompts: [], themes: [] },
+    extensions: [],
+    diagnostics: marker ? [{ type: 'warning' as const, message: marker }] : []
+  }
+}
+
+function createDeferred<T>(): {
+  promise: Promise<T>
+  resolve: (value: T) => void
+} {
+  let resolve!: (value: T) => void
+  const promise = new Promise<T>((nextResolve) => {
+    resolve = nextResolve
+  })
+  return { promise, resolve }
+}
+
 function createAgentSettingsSnapshot(): AgentSettingsSnapshot {
   return {
     delivery: {
@@ -294,7 +548,12 @@ function createAgentSettingsSnapshot(): AgentSettingsSnapshot {
       enableInstallTelemetry: false,
       enableAnalytics: false,
       enableSkillCommands: true,
-      warnAnthropicExtraUsage: true
+      warnAnthropicExtraUsage: true,
+      browserCdpAccess: 'safe',
+      browserWebPermissions: 'prompt',
+      filesystemAccess: 'safe',
+      extensionUrlAccess: 'safe',
+      externalProtocolAccess: 'safe'
     },
     media: {
       imageAutoResize: true,

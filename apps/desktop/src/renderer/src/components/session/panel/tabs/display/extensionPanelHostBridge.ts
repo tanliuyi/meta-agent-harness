@@ -3,7 +3,6 @@ import {
   cloneExtensionPanelStateForHost,
   createExtensionPanelStateRestorePayload,
   getExtensionPanelTargetOrigin,
-  isExtensionPanelNavigationAllowed,
   isExtensionPanelOpenExternalPayload,
   isExtensionPanelStatePayload,
   shouldAcceptExtensionPanelMessage,
@@ -38,13 +37,14 @@ export function postExtensionPanelPayload(input: {
   panel: DesktopExtensionWebviewPanel | undefined
   navigationBlocked: boolean
   payload: unknown
+  unrestrictedUrlAccess?: boolean
 }): boolean {
   if (!input.target || !input.panel || input.navigationBlocked) {
     return false
   }
   input.target.postMessage(
     cloneExtensionPanelMessage(input.payload),
-    getExtensionPanelTargetOrigin(input.panel)
+    getExtensionPanelTargetOrigin(input.panel, input.unrestrictedUrlAccess)
   )
   return true
 }
@@ -54,6 +54,7 @@ export function postExtensionPanelMessage(input: {
   panel: DesktopExtensionWebviewPanel | undefined
   navigationBlocked: boolean
   message: ExtensionPanelMessageProjection | undefined
+  unrestrictedUrlAccess?: boolean
 }): boolean {
   if (input.message === undefined) {
     return false
@@ -62,7 +63,8 @@ export function postExtensionPanelMessage(input: {
     target: input.target,
     panel: input.panel,
     navigationBlocked: input.navigationBlocked,
-    payload: input.message.message
+    payload: input.message.message,
+    unrestrictedUrlAccess: input.unrestrictedUrlAccess
   })
 }
 
@@ -71,6 +73,7 @@ export function postExtensionPanelState(input: {
   panel: DesktopExtensionWebviewPanel | undefined
   navigationBlocked: boolean
   state: unknown
+  unrestrictedUrlAccess?: boolean
 }): boolean {
   if (input.state === undefined) {
     return false
@@ -79,7 +82,8 @@ export function postExtensionPanelState(input: {
     target: input.target,
     panel: input.panel,
     navigationBlocked: input.navigationBlocked,
-    payload: createExtensionPanelStateRestorePayload(input.state)
+    payload: createExtensionPanelStateRestorePayload(input.state),
+    unrestrictedUrlAccess: input.unrestrictedUrlAccess
   })
 }
 
@@ -88,12 +92,14 @@ export function postExtensionPanelTheme(input: {
   panel: DesktopExtensionWebviewPanel | undefined
   navigationBlocked: boolean
   theme: ExtensionPanelThemePayload
+  unrestrictedUrlAccess?: boolean
 }): boolean {
   return postExtensionPanelPayload({
     target: input.target,
     panel: input.panel,
     navigationBlocked: input.navigationBlocked,
-    payload: input.theme
+    payload: input.theme,
+    unrestrictedUrlAccess: input.unrestrictedUrlAccess
   })
 }
 
@@ -102,12 +108,14 @@ export function postExtensionPanelVisibility(input: {
   panel: DesktopExtensionWebviewPanel | undefined
   navigationBlocked: boolean
   visible: boolean
+  unrestrictedUrlAccess?: boolean
 }): boolean {
   return postExtensionPanelPayload({
     target: input.target,
     panel: input.panel,
     navigationBlocked: input.navigationBlocked,
-    payload: { type: 'pi:webview.visibility', visible: input.visible }
+    payload: { type: 'pi:webview.visibility', visible: input.visible },
+    unrestrictedUrlAccess: input.unrestrictedUrlAccess
   })
 }
 
@@ -137,30 +145,20 @@ export function getNextExtensionPanelViewState(input: {
   }
 }
 
-export function isExtensionPanelNavigationBlocked(input: {
-  panel: DesktopExtensionWebviewPanel | undefined
-  readableFrameLocation: string | undefined
-  urlSource: string
-}): boolean {
-  if (!input.panel || input.panel.source.type !== 'url') {
-    return false
-  }
-  const visibleUrl = input.readableFrameLocation ?? input.urlSource
-  return !isExtensionPanelNavigationAllowed(input.panel, visibleUrl)
-}
-
 export function handleExtensionPanelHostMessage(input: {
   panelId: string | undefined
   threadId: string | undefined
   panel: DesktopExtensionWebviewPanel | undefined
+  hostActive: boolean
   navigationBlocked: boolean
   event: Pick<MessageEvent, 'origin' | 'source' | 'data'>
   frameWindow: Window | null | undefined
+  unrestrictedUrlAccess?: boolean
   setPanelState: (threadId: string, panelId: string, state: unknown) => void
   openExternalUrl: (uri: string) => void
   sendPanelMessage: (threadId: string, panelId: string, message: unknown) => void
 }): ExtensionPanelHostMessageResult {
-  if (!input.panelId || !input.threadId || input.navigationBlocked) {
+  if (!input.panelId || !input.threadId || !input.hostActive || input.navigationBlocked) {
     return 'ignored'
   }
   if (
@@ -168,7 +166,8 @@ export function handleExtensionPanelHostMessage(input: {
       panel: input.panel,
       eventOrigin: input.event.origin,
       eventSource: input.event.source,
-      frameWindow: input.frameWindow
+      frameWindow: input.frameWindow,
+      unrestrictedUrlAccess: input.unrestrictedUrlAccess
     })
   ) {
     return 'ignored'

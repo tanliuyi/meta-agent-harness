@@ -6,9 +6,11 @@ import {
   createExtensionPanelStateRestorePayload,
   createExtensionPanelThemePayload,
   getExtensionPanelAllowedNavigationOrigin,
+  getExtensionPanelContentSandbox,
   getExtensionPanelMessageOrigin,
   getExtensionPanelResolvedUrl,
   getExtensionPanelSandbox,
+  getExtensionPanelSandboxForAccess,
   getExtensionPanelTargetOrigin,
   injectExtensionPanelCsp,
   injectExtensionPanelHostStyles,
@@ -18,6 +20,7 @@ import {
   isExtensionPanelOpenExternalPayload,
   isExtensionPanelStatePayload,
   prepareExtensionPanelHtml,
+  prepareExtensionPanelUrlHost,
   serializeExtensionPanelStateForInjection,
   shouldAcceptExtensionPanelMessage,
   shouldRetainExtensionPanelContext
@@ -82,22 +85,33 @@ describe('extensionPanelDisplay', () => {
 
   it('默认 sandbox 不允许脚本，按权限追加能力', () => {
     expect(getExtensionPanelSandbox(htmlPanel)).toBe('')
+    const scriptedUrlPanel: DesktopExtensionWebviewPanel = {
+      ...urlPanel,
+      source: {
+        type: 'url',
+        url: 'https://example.com/panel.html',
+        permissions: {
+          enableScripts: true,
+          forms: true,
+          popups: true,
+          downloads: true,
+          sameOrigin: true
+        }
+      }
+    }
+    expect(getExtensionPanelSandbox(scriptedUrlPanel)).toBe('allow-scripts allow-same-origin')
+    expect(getExtensionPanelContentSandbox(scriptedUrlPanel)).toBe(
+      'allow-scripts allow-forms allow-popups allow-downloads allow-same-origin'
+    )
+    expect(getExtensionPanelSandboxForAccess(scriptedUrlPanel, true)).toBe(
+      'allow-scripts allow-forms allow-popups allow-downloads allow-same-origin'
+    )
     expect(
       getExtensionPanelSandbox({
         ...urlPanel,
-        source: {
-          type: 'url',
-          url: 'https://example.com/panel.html',
-          permissions: {
-            enableScripts: true,
-            forms: true,
-            popups: true,
-            downloads: true,
-            sameOrigin: true
-          }
-        }
+        source: { type: 'url', url: 'https://example.com/panel.html' }
       })
-    ).toBe('allow-scripts allow-forms allow-popups allow-downloads allow-same-origin')
+    ).toBe('allow-scripts allow-same-origin')
     expect(
       getExtensionPanelSandbox({
         ...htmlPanel,
@@ -106,9 +120,9 @@ describe('extensionPanelDisplay', () => {
     ).toBe('')
   })
 
-  it('URL panel 使用 URL origin，HTML panel 使用 opaque target', () => {
+  it('URL 内容使用声明 origin，renderer 只向 opaque host 投递', () => {
     expect(getExtensionPanelMessageOrigin(urlPanel)).toBe('https://example.com')
-    expect(getExtensionPanelTargetOrigin(urlPanel)).toBe('https://example.com')
+    expect(getExtensionPanelTargetOrigin(urlPanel)).toBe('*')
     expect(getExtensionPanelMessageOrigin(htmlPanel)).toBeUndefined()
     expect(getExtensionPanelTargetOrigin(htmlPanel)).toBe('*')
   })
@@ -126,7 +140,7 @@ describe('extensionPanelDisplay', () => {
 
     expect(getExtensionPanelResolvedUrl(mappedPanel)).toBe('http://localhost:62100/index.html?x=1')
     expect(getExtensionPanelMessageOrigin(mappedPanel)).toBe('http://localhost:62100')
-    expect(getExtensionPanelTargetOrigin(mappedPanel)).toBe('http://localhost:62100')
+    expect(getExtensionPanelTargetOrigin(mappedPanel)).toBe('*')
     expect(getExtensionPanelAllowedNavigationOrigin(mappedPanel)).toBe('http://localhost:62100')
     expect(
       getExtensionPanelResolvedUrl({
@@ -166,7 +180,7 @@ describe('extensionPanelDisplay', () => {
     expect(
       shouldAcceptExtensionPanelMessage({
         panel: urlPanel,
-        eventOrigin: 'https://example.com',
+        eventOrigin: 'null',
         eventSource: frameWindow,
         frameWindow
       })
@@ -174,11 +188,20 @@ describe('extensionPanelDisplay', () => {
     expect(
       shouldAcceptExtensionPanelMessage({
         panel: urlPanel,
-        eventOrigin: 'https://evil.example',
+        eventOrigin: 'https://example.com',
         eventSource: frameWindow,
         frameWindow
       })
     ).toBe(false)
+    expect(
+      shouldAcceptExtensionPanelMessage({
+        panel: urlPanel,
+        eventOrigin: 'https://redirected.example',
+        eventSource: frameWindow,
+        frameWindow,
+        unrestrictedUrlAccess: true
+      })
+    ).toBe(true)
     expect(
       shouldAcceptExtensionPanelMessage({
         panel: htmlPanel,
@@ -195,6 +218,47 @@ describe('extensionPanelDisplay', () => {
         frameWindow
       })
     ).toBe(false)
+  })
+
+  it('URL panel 通过精确 origin CSP 的 data host 承载并校验消息来源', () => {
+    const host = prepareExtensionPanelUrlHost({
+      ...urlPanel,
+      title: 'Docs & Deploy',
+      source: {
+        type: 'url',
+        url: 'https://example.com/panel.html?target=prod&mode=full',
+        permissions: { enableScripts: true, sameOrigin: true }
+      }
+    })
+
+    expect(host).toContain('frame-src https://example.com')
+    expect(host).not.toContain('frame-src https: http:')
+    expect(host).toContain(
+      'const childUrl = "https://example.com/panel.html?target=prod&mode=full"'
+    )
+    expect(host).toContain('const childTitle = "Docs & Deploy"')
+    expect(host).toContain('const contentSandbox = "allow-scripts allow-same-origin"')
+    expect(host).toContain("frame.setAttribute('sandbox', contentSandbox)")
+    expect(host).toContain('frame.src = childUrl')
+    expect(host).toContain('event.source !== frame.contentWindow')
+    expect(host).toContain('event.origin !== expectedChildOrigin')
+    expect(host).toContain('const expectedChildOrigin = "https://example.com"')
+    expect(host).toContain('const childTargetOrigin = "https://example.com"')
+  })
+
+  it('opaque URL 内容只由 host 按 WindowProxy 身份中继', () => {
+    const host = prepareExtensionPanelUrlHost({
+      ...urlPanel,
+      source: {
+        type: 'url',
+        url: 'https://example.com/panel.html',
+        permissions: { enableScripts: true }
+      }
+    })
+
+    expect(host).toContain('const expectedChildOrigin = "null"')
+    expect(host).toContain('const childTargetOrigin = "*"')
+    expect(prepareExtensionPanelUrlHost(htmlPanel)).toBe('')
   })
 
   it('默认不保留隐藏 webview context，显式配置后保留', () => {

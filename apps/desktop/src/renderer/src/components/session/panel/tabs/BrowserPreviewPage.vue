@@ -31,6 +31,17 @@ import useWorkspaceSessionStore from '@renderer/stores/workspace-session'
 import { isWorkspaceRouteName } from '@renderer/router/workspace-route-host'
 import { resolveBrowserAddress } from './state/browserAddress'
 import {
+  appendBoundedBrowserLog,
+  clearBoundedBrowserLogs,
+  createBrowserLogBudgetState,
+  type BrowserLogEntry
+} from './state/browserLogBuffer'
+import {
+  compactBrowserSnapshot,
+  resolveBrowserSnapshotOptions,
+  type BrowserSnapshotResult
+} from './state/browserSnapshot'
+import {
   browserPreviewPartition,
   validateBrowserPreviewEmulation,
   type BrowserPreviewDeviceEmulation
@@ -54,7 +65,6 @@ interface BrowserWebviewElement extends HTMLElement {
   isDevToolsOpened(): boolean
 }
 
-type LogEntry = { level: string; message: string; source?: string; line?: number; time: string }
 type BrowserCommand = {
   type: 'browser.command'
   requestId: string
@@ -203,7 +213,8 @@ const capturing = ref(false)
 const toolbarPointerInside = ref(false)
 const error = ref('')
 const failedUrl = ref('')
-const logs = ref<LogEntry[]>([])
+const logs = ref<BrowserLogEntry[]>([])
+const logBudget = createBrowserLogBudgetState()
 const selectedRef = ref('')
 
 function allowedUrl(value: string): string {
@@ -370,18 +381,172 @@ async function executeCommand(message: BrowserCommand): Promise<unknown> {
       await loadGuestUrl(String(payload.url || ''))
       return { url: guest.getURL() }
     case 'snapshot': {
-      const snapshot = await guest.executeJavaScript<Record<string, unknown>>(
-        pageScript(`${resolveElementSource}
-        refs.clear(); let index = 0;
-        const interactive = [...document.querySelectorAll('a,button,input,textarea,select,[role],[tabindex]')].slice(0, 200).map(el => {
-          const id = 'ref-' + (++index); refs.set(id, el); return describe(el, id);
+      const options = resolveBrowserSnapshotOptions(payload)
+      const snapshot = await guest.executeJavaScript<BrowserSnapshotResult>(
+        pageScript(
+          `
+        const refs = globalThis.__metaBrowserRefs ||= new Map();
+        const refIds = globalThis.__metaBrowserRefIds ||= new WeakMap();
+        let nextRefId = Number(globalThis.__metaBrowserRefSequence || 0);
+        for (const [id, el] of refs) {
+          if (!el?.isConnected) refs.delete(id);
+        }
+        const selector = 'a,button,input,textarea,select,[role],[tabindex],[contenteditable]';
+        const scanned = [];
+        const walker = document.createTreeWalker(document.documentElement, NodeFilter.SHOW_ELEMENT, {
+          acceptNode: node => node.matches(selector) ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_SKIP
         });
-        return { url: location.href, title: document.title, viewport: { width: innerWidth, height: innerHeight, dpr: devicePixelRatio },
-          touch: navigator.maxTouchPoints, userAgent: navigator.userAgent,
-          text: document.body?.innerText?.slice(0, 12000) || '', interactive };
-      `)
+        let scanTruncated = false;
+        while (walker.nextNode()) {
+          if (scanned.length >= 1000) {
+            scanTruncated = true;
+            break;
+          }
+          scanned.push(walker.currentNode);
+        }
+        const candidates = [];
+        let hiddenExcluded = 0;
+        const clean = value => String(value || '').replace(/\\s+/g, ' ').trim();
+        const clipped = (value, limit) => clean(value).slice(0, limit);
+        const rounded = value => Math.round(Number(value || 0) * 100) / 100;
+        for (let domIndex = 0; domIndex < scanned.length; domIndex += 1) {
+          const el = scanned[domIndex];
+          const rect = el.getBoundingClientRect();
+          const style = getComputedStyle(el);
+          const hiddenByTree = Boolean(el.closest('[hidden],[inert],[aria-hidden="true"]'));
+          const visible = !hiddenByTree && style.display !== 'none' && style.visibility !== 'hidden' &&
+            style.visibility !== 'collapse' && style.opacity !== '0' && el.getClientRects().length > 0 &&
+            rect.width > 0 && rect.height > 0;
+          if (!visible && !input.includeHidden) {
+            hiddenExcluded += 1;
+            continue;
+          }
+          const inViewport = visible && rect.bottom > 0 && rect.right > 0 &&
+            rect.top < innerHeight && rect.left < innerWidth;
+          const labelledBy = (el.getAttribute('aria-labelledby') || '').split(/\\s+/).filter(Boolean)
+            .map(id => document.getElementById(id)?.textContent || '').join(' ');
+          const labelText = el.labels?.[0]?.textContent || '';
+          const elementText = clipped(visible ? el.innerText || el.textContent : el.textContent, 120);
+          const accessibleName = clipped(el.getAttribute('aria-label') || labelledBy || labelText ||
+            el.getAttribute('placeholder') || el.getAttribute('alt') || el.getAttribute('title') || elementText, 120);
+          const tagName = el.tagName.toLowerCase();
+          const inputType = tagName === 'input' ? (el.getAttribute('type') || 'text').toLowerCase() : '';
+          const implicitRole = tagName === 'a' && el.hasAttribute('href') ? 'link' :
+            tagName === 'button' ? 'button' :
+            tagName === 'textarea' || el.hasAttribute('contenteditable') ? 'textbox' :
+            tagName === 'select' ? (el.multiple ? 'listbox' : 'combobox') :
+            tagName === 'input' && ['button', 'submit', 'reset', 'image'].includes(inputType) ? 'button' :
+            tagName === 'input' && inputType === 'checkbox' ? 'checkbox' :
+            tagName === 'input' && inputType === 'radio' ? 'radio' :
+            tagName === 'input' && inputType === 'range' ? 'slider' :
+            tagName === 'input' && inputType === 'number' ? 'spinbutton' :
+            tagName === 'input' && inputType === 'search' ? 'searchbox' :
+            tagName === 'input' && inputType !== 'hidden' ? 'textbox' : null;
+          const ariaChecked = el.getAttribute('aria-checked');
+          const ariaExpanded = el.getAttribute('aria-expanded');
+          const hasNativeCheckedState = tagName === 'input' && ['checkbox', 'radio'].includes(inputType);
+          const checked = hasNativeCheckedState ? Boolean(el.checked) :
+            ariaChecked === 'true' ? true : ariaChecked === 'false' ? false : null;
+          const expanded = ariaExpanded === 'true' ? true : ariaExpanded === 'false' ? false : null;
+          candidates.push({
+            el,
+            domIndex,
+            inViewport,
+            descriptor: {
+              ref: '',
+              tagName,
+              text: elementText,
+              bounds: { x: rounded(rect.x), y: rounded(rect.y), width: rounded(rect.width), height: rounded(rect.height) },
+              accessibility: { role: el.getAttribute('role') || implicitRole, name: accessibleName },
+              state: {
+                disabled: Boolean(el.disabled) || el.getAttribute('aria-disabled') === 'true',
+                checked,
+                expanded
+              },
+              inViewport
+            }
+          });
+        }
+        candidates.sort((left, right) => Number(right.inViewport) - Number(left.inViewport) || left.domIndex - right.domIndex);
+        const selected = candidates.slice(input.offset, input.offset + input.limit);
+        const interactive = selected.map((entry) => {
+          let id = refIds.get(entry.el);
+          if (!id) {
+            id = 'ref-' + (++nextRefId);
+            refIds.set(entry.el, id);
+          }
+          refs.delete(id);
+          refs.set(id, entry.el);
+          return { ...entry.descriptor, ref: id };
+        });
+        globalThis.__metaBrowserRefSequence = nextRefId;
+        while (refs.size > 1000) {
+          refs.delete(refs.keys().next().value);
+        }
+        let bodyText = '';
+        let bodyTextScanned = 0;
+        let textTruncated = false;
+        if (document.body) {
+          const textWalker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+          while (textWalker.nextNode()) {
+            bodyTextScanned += 1;
+            if (bodyTextScanned > 10000) {
+              textTruncated = true;
+              break;
+            }
+            const node = textWalker.currentNode;
+            const parent = node.parentElement;
+            if (!parent || parent.closest('script,style,noscript,template,[hidden],[inert],[aria-hidden="true"]')) continue;
+            const style = getComputedStyle(parent);
+            if (style.display === 'none' || style.visibility === 'hidden' || style.visibility === 'collapse') continue;
+            const rawText = String(node.nodeValue || '');
+            const text = clean(rawText.slice(0, 16384));
+            if (!text) {
+              if (rawText.length > 16384) textTruncated = true;
+              continue;
+            }
+            const separator = bodyText ? '\\n' : '';
+            const remaining = 12000 - bodyText.length - separator.length;
+            if (remaining <= 0) {
+              textTruncated = true;
+              break;
+            }
+            bodyText += separator + text.slice(0, remaining);
+            if (rawText.length > 16384 || text.length > remaining || bodyText.length >= 12000) {
+              textTruncated = true;
+              break;
+            }
+          }
+        }
+        return {
+          url: location.href.slice(0, 2048),
+          title: document.title.slice(0, 200),
+          viewport: { width: innerWidth, height: innerHeight, dpr: devicePixelRatio },
+          touch: navigator.maxTouchPoints,
+          userAgent: navigator.userAgent.slice(0, 512),
+          text: bodyText,
+          textTruncated,
+          interactive,
+          page: {
+            total: scanned.length + Number(scanTruncated),
+            eligible: candidates.length,
+            scanned: scanned.length,
+            returned: interactive.length,
+            offset: input.offset,
+            truncated: input.offset + interactive.length < candidates.length || scanTruncated,
+            hiddenExcluded,
+            scanTruncated
+          }
+        };
+      `,
+          options
+        )
       )
-      return { ...snapshot, emulation: { ...emulation.value }, preset: devicePreset.value }
+      return compactBrowserSnapshot({
+        ...snapshot,
+        emulation: { ...emulation.value },
+        preset: devicePreset.value
+      })
     }
     case 'set-viewport': {
       const preset = payload.preset
@@ -446,9 +611,27 @@ async function executeCommand(message: BrowserCommand): Promise<unknown> {
       )
     case 'logs': {
       const value = JSON.parse(JSON.stringify(logs.value))
-      if (payload.clear) logs.value = []
+      if (payload.clear) {
+        clearBoundedBrowserLogs(logs.value, logBudget)
+      }
       return value
     }
+    case 'cdp':
+      return window.api.browserPreview.sendCdpCommand({
+        webContentsId: guest.getWebContentsId(),
+        method: String(payload.method || ''),
+        params:
+          payload.params && typeof payload.params === 'object' && !Array.isArray(payload.params)
+            ? (payload.params as Record<string, unknown>)
+            : undefined,
+        sessionId: typeof payload.sessionId === 'string' ? payload.sessionId : undefined
+      })
+    case 'cdp-events':
+      return window.api.browserPreview.readCdpEvents({
+        webContentsId: guest.getWebContentsId(),
+        clear: payload.clear === true,
+        limit: payload.limit === undefined ? undefined : Number(payload.limit)
+      })
     case 'screenshot': {
       const image = await guest.capturePage()
       return { dataUrl: image.toDataURL(), url: guest.getURL(), title: guest.getTitle() }
@@ -588,8 +771,7 @@ function toggleDevTools(): void {
 }
 
 function appendLog(level: string, message: string, source?: string, line?: number): void {
-  logs.value.push({ level, message, source, line, time: new Date().toISOString() })
-  if (logs.value.length > 500) logs.value.splice(0, logs.value.length - 500)
+  appendBoundedBrowserLog(logs.value, logBudget, { level, message, source, line })
 }
 
 let guestInitialization: Promise<void> | undefined
@@ -949,10 +1131,6 @@ onBeforeUnmount(() => {
   outline: 0;
   border: 0;
   background: transparent;
-
-  &:focus-visible {
-    box-shadow: none;
-  }
 }
 .browser-preview__url-input::placeholder {
   color: var(--color-text-muted);

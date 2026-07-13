@@ -327,13 +327,18 @@ export interface SelectSessionFileInput {
   defaultPath?: string
 }
 
-/** 显示资源路径输入。 */
-export interface RevealResourcePathInput {
-  /** 要在资源管理器中显示或打开的路径。 */
-  path: string
-  /** 操作模式：打开文件/目录，或在资源管理器中显示。 */
-  mode?: 'open' | 'reveal'
-}
+/** 显示或打开资源路径；raw open 仅在完整文件系统能力下接受。 */
+export type RevealResourcePathInput =
+  | {
+      /** 要在资源管理器中显示的路径。 */
+      path: string
+      mode?: 'open' | 'reveal'
+    }
+  | {
+      /** main 为可信资源签发的短期 capability。 */
+      capability: string
+      mode: 'open' | 'reveal'
+    }
 
 /** 打开或定位 thread snapshot 中的变更文件。 */
 export interface OpenChangedFileInput extends ThreadIdInput {
@@ -371,7 +376,7 @@ export interface ImportSessionInput extends ThreadIdInput {
 
 /** 导出会话输入。 */
 export interface ExportSessionInput extends ThreadIdInput {
-  /** 目标文件路径；未提供时使用默认路径。 */
+  /** 完整文件系统能力启用时可指定的目标文件路径。 */
   outputPath?: string
 }
 
@@ -379,6 +384,8 @@ export interface ExportSessionInput extends ThreadIdInput {
 export interface ExportSessionResult {
   /** 导出文件路径。 */
   path: string
+  /** 用于打开或显示该导出文件的短期 main capability。 */
+  resourceCapability?: string
 }
 
 /** 分叉线程输入。 */
@@ -694,26 +701,24 @@ export interface CustomProviderSummary {
   name?: string
   /** API 地址。 */
   baseUrl?: string
-  /** API key 配置值；用于二次编辑自定义 provider。 */
-  apiKey?: string
   /** API 类型。 */
   api?: string
-  /** 请求 headers；用于二次编辑自定义 provider。 */
-  headers?: Record<string, string>
   /** provider 兼容配置。 */
   compat?: Record<string, unknown>
   /** 是否自动添加 Authorization bearer header。 */
   authHeader?: boolean
   /** 模型数量。 */
   modelCount: number
-  /** 自定义模型列表。 */
-  models?: CustomModelConfigInput[]
-  /** 内置模型 override。 */
-  modelOverrides?: Record<string, CustomModelOverrideInput>
+  /** 自定义模型列表；不包含请求 header 原文。 */
+  models?: CustomModelConfigSummary[]
+  /** 内置模型 override；不包含请求 header 原文。 */
+  modelOverrides?: Record<string, CustomModelOverrideSummary>
   /** 是否为内置 provider override。 */
   overridesBuiltIn: boolean
   /** 是否配置了 API key 来源。 */
   hasApiKeyConfig: boolean
+  /** 是否配置了 provider 请求 headers。 */
+  hasHeadersConfig: boolean
 }
 
 /** 模型设置快照。 */
@@ -760,8 +765,12 @@ export interface UpdateModelSettingsInput {
   enabledModels?: string[]
 }
 
-/** 自定义模型配置输入。 */
-export interface CustomModelConfigInput {
+/** 敏感配置更新；后端投影永远不返回原值。 */
+export type SensitiveConfigUpdate<T> =
+  { mode: 'preserve' } | { mode: 'replace'; value: T } | { mode: 'clear' }
+
+/** 自定义模型的非敏感配置。 */
+export interface CustomModelConfigFields {
   /** 模型 ID。 */
   id: string
   /** 显示名。 */
@@ -791,16 +800,34 @@ export interface CustomModelConfigInput {
     /** cache write 成本。 */
     cacheWrite: number
   }
-  /** 请求 headers；后端返回时不得包含敏感原文。 */
-  headers?: Record<string, string>
   /** provider/model 兼容配置。 */
   compat?: Record<string, unknown>
 }
 
-/** 自定义模型 override 输入。 */
+/** 自定义模型配置输入。 */
+export interface CustomModelConfigInput extends CustomModelConfigFields {
+  /** 编辑前的模型 ID；仅用于保留敏感配置，后端不得落盘。 */
+  previousId?: string
+  /** 模型请求 headers 的显式更新；省略时等同 preserve。 */
+  headersUpdate?: SensitiveConfigUpdate<Record<string, string>>
+}
+
+/** 自定义模型摘要；仅暴露 header 配置状态。 */
+export interface CustomModelConfigSummary extends CustomModelConfigFields {
+  /** 是否配置了模型请求 headers。 */
+  hasHeadersConfig: boolean
+}
+
+/** 自定义模型 override 输入；header 由 provider 级 modelOverrideHeadersUpdate 管理。 */
 export type CustomModelOverrideInput = Partial<
-  Omit<CustomModelConfigInput, 'id' | 'api' | 'baseUrl'>
+  Omit<CustomModelConfigFields, 'id' | 'api' | 'baseUrl'>
 >
+
+/** 自定义模型 override 摘要；仅暴露 header 配置状态。 */
+export type CustomModelOverrideSummary = CustomModelOverrideInput & {
+  /** 是否配置了 override 请求 headers。 */
+  hasHeadersConfig: boolean
+}
 
 /** 新增或更新自定义 provider 输入。 */
 export interface UpsertCustomProviderInput {
@@ -812,12 +839,12 @@ export interface UpsertCustomProviderInput {
   name?: string
   /** API 地址。 */
   baseUrl?: string
-  /** API key 配置值；只允许 renderer 提交，不允许后端回显。 */
-  apiKey?: string
+  /** API key 的显式更新；省略时等同 preserve。 */
+  apiKeyUpdate?: SensitiveConfigUpdate<string>
   /** API 类型。 */
   api?: string
-  /** 请求 headers；只允许 renderer 提交，不允许后端回显敏感原文。 */
-  headers?: Record<string, string>
+  /** Provider 请求 headers 的显式更新；省略时等同 preserve。 */
+  headersUpdate?: SensitiveConfigUpdate<Record<string, string>>
   /** provider 兼容配置。 */
   compat?: Record<string, unknown>
   /** 是否自动添加 Authorization bearer header。 */
@@ -826,17 +853,30 @@ export interface UpsertCustomProviderInput {
   models?: CustomModelConfigInput[]
   /** 内置模型 override。 */
   modelOverrides?: Record<string, CustomModelOverrideInput>
+  /** 所有内置模型 override headers 的显式更新，以 model ID 为 key。 */
+  modelOverrideHeadersUpdate?: SensitiveConfigUpdate<Record<string, Record<string, string>>>
 }
 
-/** 保存 provider API key 到 Pi-compatible auth.json。 */
-export interface SetProviderApiKeyInput {
-  /** Provider ID。 */
-  provider: string
-  /** API key 或 Pi 支持的 config value（如 $ENV_VAR、${ENV_VAR}、!command）。 */
-  key: string
-  /** provider-scoped env 值。 */
-  env?: Record<string, string>
-}
+/** 更新 Pi-compatible auth.json 中的 provider 凭据。 */
+export type SetProviderApiKeyInput =
+  | {
+      /** Provider ID。 */
+      provider: string
+      /** 省略时保持既有的保存 API key 行为。 */
+      mode?: 'replace'
+      /** API key 或 Pi 支持的 config value（如 $ENV_VAR、${ENV_VAR}、!command）。 */
+      key: string
+      /** provider-scoped env 值。 */
+      env?: Record<string, string>
+    }
+  | {
+      /** Provider ID。 */
+      provider: string
+      /** 删除该 provider 在 auth.json 中保存的 API key 或 OAuth 凭据。 */
+      mode: 'clear'
+      key?: never
+      env?: never
+    }
 
 /** Provider OAuth 登录输入。 */
 export interface LoginProviderOAuthInput {
@@ -943,18 +983,26 @@ export interface ResourcePackageSummary {
   installedPath?: string
 }
 
+/** 资源包列表输入。 */
+export interface ResourcePackageListInput {
+  /** 可选 Project ID；提供时同时解析该项目的本地 package 配置。 */
+  projectId?: string
+}
+
 /** 资源包操作输入。 */
 export interface ResourcePackageInput {
   /** package source。 */
   source: string
-  /** 是否写入 Project 本地 settings。 */
-  local?: boolean
+  /** 可选 Project ID；提供时操作该项目的本地 package 配置。 */
+  projectId?: string
 }
 
 /** 资源包更新输入。 */
 export interface UpdateResourcePackageInput {
   /** 不传表示更新全部配置包。 */
   source?: string
+  /** 可选 Project ID；提供时使用该项目的 package 上下文。 */
+  projectId?: string
 }
 
 /** 资源包进度事件。 */
@@ -978,6 +1026,9 @@ export type AvatarStyle = 'pixel' | 'circle' | 'hidden'
 export type UserMessageAlignment = 'right' | 'left'
 export type ActivityDisplayMode = 'full' | 'compact' | 'hidden'
 export type ActivityIndicatorStyle = 'pixels' | 'pulse' | 'hidden'
+export type BrowserCdpAccessMode = 'disabled' | 'safe' | 'full'
+export type BrowserWebPermissionMode = 'disabled' | 'prompt' | 'full'
+export type DesktopCapabilityAccessMode = 'safe' | 'full'
 
 /** Desktop renderer UI 偏好。 */
 export interface DesktopUiPreferences {
@@ -1115,6 +1166,16 @@ export interface AgentSettingsSnapshot {
     warnAnthropicExtraUsage: boolean
     /** HTTP/HTTPS proxy。 */
     httpProxy?: string
+    /** Browser Preview 的 Chrome DevTools Protocol 权限级别；Desktop-local。 */
+    browserCdpAccess: BrowserCdpAccessMode
+    /** Browser Preview 网页权限策略；Desktop-local。 */
+    browserWebPermissions: BrowserWebPermissionMode
+    /** renderer 发起的任意文件打开、显示与导出权限；Desktop-local。 */
+    filesystemAccess: DesktopCapabilityAccessMode
+    /** URL extension panel 跨源导航和消息权限；Desktop-local。 */
+    extensionUrlAccess: DesktopCapabilityAccessMode
+    /** 交给操作系统的自定义 URI scheme 权限；Desktop-local。 */
+    externalProtocolAccess: DesktopCapabilityAccessMode
   }
   /** 图片和终端呈现设置。 */
   media: {
@@ -1214,14 +1275,16 @@ export interface HermesMemorySnapshot {
   limits: { memory: number; user: number; project: number }
 }
 
-/** Hermes Memory 快照查询。cwd 用于解析项目记忆。 */
+/** Hermes Memory 快照查询。Project cwd 只能由 main 根据 ID 解析。 */
 export interface HermesMemorySnapshotInput {
-  cwd?: string
+  /** 可选 Project ID；不提供时只返回全局记忆上下文。 */
+  projectId?: string
 }
 
 /** Hermes Memory 设置页写操作。 */
 export type HermesMemoryMutationInput = {
-  cwd?: string
+  /** 可选 Project ID；写入 project target 时必填且 Project 必须受信任。 */
+  projectId?: string
   target: HermesMemoryTarget
 } & (
   | { operation: 'add'; content: string }
@@ -1233,16 +1296,14 @@ export type HermesMemoryMutationInput = {
 export interface ResourceSnapshotInput {
   /** 可选 thread ID；提供时 main 会使用该 thread 的 runtime cwd 与 Project trust 状态。 */
   threadId?: string
-  /** 可选项目 cwd；没有 thread 时用于按指定 Project 视角发现资源。 */
-  cwd?: string
-  /** 指定 cwd 是否按 trusted project 处理；未提供时默认不加载 project-local 资源。 */
-  projectTrusted?: boolean
+  /** 可选 Project ID；没有 thread 时由 main 解析项目 cwd 与 trust。 */
+  projectId?: string
 }
 
 /** 获取项目级 extension 路径配置的输入。 */
 export interface ProjectExtensionPathsInput {
-  /** 项目 cwd。 */
-  cwd: string
+  /** Project ID；main 会解析真实 cwd 并校验 trust。 */
+  projectId: string
 }
 
 /** 更新项目级 extension 路径配置的输入。 */
@@ -1518,7 +1579,7 @@ export interface CodingAgentApi {
   /** 选择并处理 prompt 图片附件；用户取消时返回 undefined。 */
   selectPromptImages(): Promise<PromptImageAttachment[] | undefined>
   /** 直接处理本地 prompt 图片文件。 */
-  processPromptImageFiles(paths: string[]): Promise<PromptImageAttachment[]>
+  processPromptImageFiles(files: File[]): Promise<PromptImageAttachment[]>
   /** 暂存并处理 prompt 图片附件。 */
   stagePromptImages(images: PromptImageDraft[]): Promise<PromptImageAttachment[]>
   /** 选择资源路径；用户取消时返回 undefined。 */
@@ -1654,7 +1715,7 @@ export interface CodingAgentApi {
   /** 更新项目级 extension 路径配置。 */
   updateProjectExtensionPaths(input: UpdateProjectExtensionPathsInput): Promise<string[]>
   /** 列出 Pi package manager 配置包。 */
-  listResourcePackages(): Promise<ResourcePackageSummary[]>
+  listResourcePackages(input?: ResourcePackageListInput): Promise<ResourcePackageSummary[]>
   /** 新增并持久化 package source。 */
   addResourcePackage(input: ResourcePackageInput): Promise<ResourcePackageSummary[]>
   /** 安装并持久化 package source。 */
