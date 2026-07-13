@@ -40,6 +40,11 @@ export default defineStore(
     /** 边栏当前宽度（像素）。 */
     const sidebarWidth = ref(defaultSidebarWidth)
 
+    /** 切换边栏展开状态。 */
+    const toggleSidebar = (): void => {
+      sidebarOpen.value = !sidebarOpen.value
+    }
+
     /** Project 展开状态，缺失时默认展开。 */
     const projectOpenState = ref<Record<string, boolean>>({})
 
@@ -128,7 +133,8 @@ export default defineStore(
       setProjectOpen,
       setSidebarWidth,
       sidebarOpen,
-      sidebarWidth
+      sidebarWidth,
+      toggleSidebar
     }
   },
   {

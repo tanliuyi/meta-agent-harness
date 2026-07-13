@@ -104,13 +104,12 @@ const workspaceGridAreas = computed(() => {
   >
     <WindowDragStrip v-if="app.isMac" class="workspace__drag-strip" />
     <BaseIconButton
-      v-if="workspaceUi.sidebarOpen || !app.isMac"
-      class="workspace__sidebar-toggle"
-      :class="{ 'workspace__sidebar-toggle--darwin': app.isMac }"
+      v-if="app.isMac && workspaceUi.sidebarOpen"
+      class="workspace__sidebar-toggle workspace__sidebar-toggle--darwin"
       :active="workspaceUi.sidebarOpen"
       :label="workspaceUi.sidebarOpen ? '收起侧栏' : '展开侧栏'"
       size="small"
-      @click="workspaceUi.sidebarOpen = !workspaceUi.sidebarOpen"
+      @click="workspaceUi.toggleSidebar"
     >
       <svg
         viewBox="0 0 24 24"

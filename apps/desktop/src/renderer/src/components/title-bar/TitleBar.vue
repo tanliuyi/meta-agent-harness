@@ -9,12 +9,17 @@
  * 标题栏整体可拖拽，按钮区域不可拖拽。
  */
 
-import { Minus, Minimize2, X, Maximize2 } from 'lucide-vue-next'
-import { onMounted, onUnmounted, ref } from 'vue'
+import { Maximize2, Minus, Minimize2, PanelLeft, X } from 'lucide-vue-next'
+import { computed, onMounted, onUnmounted, ref } from 'vue'
+import { useRoute } from 'vue-router'
 import { useAppStore } from '@renderer/stores/app'
+import useWorkspaceUiStore from '@renderer/stores/workspace-ui'
 
 const app = useAppStore()
+const route = useRoute()
+const workspaceUi = useWorkspaceUiStore()
 const isMaximized = ref(false)
+const isWorkspaceRoute = computed(() => route.name === 'Workspace')
 
 async function refreshMaximizedState(): Promise<void> {
   isMaximized.value = await window.api.windowControl.isMaximized()
@@ -56,6 +61,18 @@ async function handleDoubleClick(): Promise<void> {
 <template>
   <header v-if="!app.isMac" class="title-bar" data-slot="title-bar" @dblclick="handleDoubleClick">
     <div class="title-bar__title">Meta Agent</div>
+    <button
+      v-if="isWorkspaceRoute"
+      type="button"
+      class="title-bar__workspace-button"
+      :aria-pressed="workspaceUi.sidebarOpen"
+      :aria-label="workspaceUi.sidebarOpen ? '收起侧栏' : '展开侧栏'"
+      title="工作空间"
+      @click.stop="workspaceUi.toggleSidebar"
+      @dblclick.stop
+    >
+      <PanelLeft class="title-bar__workspace-icon" />
+    </button>
 
     <div class="title-bar__controls" data-slot="title-bar-controls">
       <button type="button" class="title-bar__button" aria-label="最小化" @click="handleMinimize">
@@ -102,6 +119,41 @@ async function handleDoubleClick(): Promise<void> {
   text-align: left;
   -webkit-app-region: no-drag;
   app-region: no-drag;
+}
+
+.title-bar__workspace-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  margin-left: var(--space-2);
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--color-text-muted);
+  font: inherit;
+  font-size: var(--font-size-ui-sm);
+  font-weight: 600;
+  cursor: pointer;
+  -webkit-app-region: no-drag;
+  app-region: no-drag;
+
+  &:hover {
+    background: var(--color-surface-hover);
+    color: var(--color-text);
+  }
+
+  &:focus-visible {
+    outline: none;
+    box-shadow: var(--shadow-focus);
+  }
+}
+
+.title-bar__workspace-icon {
+  width: 16px;
+  height: 16px;
 }
 
 .title-bar__controls {

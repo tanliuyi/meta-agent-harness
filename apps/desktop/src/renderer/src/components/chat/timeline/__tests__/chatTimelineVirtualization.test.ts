@@ -102,18 +102,21 @@ describe('chat timeline virtualization', () => {
     })
   })
 
-  it('clears the previous session scroll offset before resetting measurements', () => {
+  it('clears native and virtualizer offsets before resetting session measurements', () => {
     const viewport = { scrollTop: 2400 }
-    let scrollTopWhenMeasured = -1
+    const calls: string[] = []
 
     resetTimelineVirtualizerForSession(viewport, {
+      scrollToOffset: (offset, options) => {
+        calls.push(`scroll:${offset}:${options.behavior}`)
+      },
       measure: () => {
-        scrollTopWhenMeasured = viewport.scrollTop
+        calls.push(`measure:${viewport.scrollTop}`)
       }
     })
 
     expect(viewport.scrollTop).toBe(0)
-    expect(scrollTopWhenMeasured).toBe(0)
+    expect(calls).toEqual(['scroll:0:auto', 'measure:0'])
   })
 
   it('uses compact estimates for short rows and larger estimates for assistant content', () => {

@@ -418,7 +418,7 @@ watch(timelineItems, (items) => {
 /** 消息滚动容器。 */
 const timelineRef = ref<ScrollAreaInstance | null>(null)
 const timelineInnerRef = ref<HTMLElement | null>(null)
-const isTimelineVirtualizerEnabled = ref(false)
+const timelineWindowRef = ref<HTMLElement | null>(null)
 const isNearBottom = ref(true)
 const shouldFollowBottom = ref(true)
 
@@ -446,14 +446,11 @@ function shouldAdjustTimelineScrollPosition(
 const timelineVirtualizer = useVirtualizer(
   computed(() => ({
     count: displayTimelineViewItems.value.length,
-    enabled: isTimelineVirtualizerEnabled.value,
     getScrollElement: getTimelineScrollElement,
     getItemKey: getTimelineVirtualItemKey,
     estimateSize: estimateTimelineVirtualItemSize,
     gap: CHAT_TIMELINE_GAP,
     overscan: CHAT_TIMELINE_OVERSCAN,
-    anchorTo: shouldFollowBottom.value ? ('end' as const) : ('start' as const),
-    followOnAppend: 'auto' as const,
     scrollEndThreshold: NEAR_BOTTOM_DISTANCE
   }))
 )
@@ -475,6 +472,16 @@ function measureTimelineItem(refValue: Element | ComponentPublicInstance | null)
   const element = refValue instanceof Element ? refValue : refValue?.$el
   if (element instanceof Element) {
     timelineVirtualizer.value.measureElement(element)
+  }
+}
+
+function measureRenderedTimelineRows(): void {
+  const rows = timelineInnerRef.value?.querySelectorAll<HTMLElement>('[data-index]') ?? []
+  for (const row of rows) {
+    const index = Number(row.dataset.index)
+    if (Number.isInteger(index)) {
+      timelineVirtualizer.value.resizeItem(index, Math.round(row.getBoundingClientRect().height))
+    }
   }
 }
 
@@ -1364,6 +1371,13 @@ function settleTimelineRowAnchor(anchor: TimelineRowAnchor | undefined): void {
       const viewport = timelineRef.value?.getViewport()
       const row = findTimelineRow(anchor.key)
       if (viewport && row) {
+        const index = Number(row.dataset.index)
+        if (Number.isInteger(index)) {
+          timelineVirtualizer.value.resizeItem(
+            index,
+            Math.round(row.getBoundingClientRect().height)
+          )
+        }
         const currentOffset = row.getBoundingClientRect().top - viewport.getBoundingClientRect().top
         const adjustment = currentOffset - anchor.viewportOffset
         if (Math.abs(adjustment) >= 0.5) {
@@ -1632,6 +1646,24 @@ function isFunctionShortcutKey(key: string): boolean {
   return /^f\d{1,2}$/.test(key)
 }
 
+function startTimelineMeasurementSettle(generation: number): void {
+  let remainingFrames = 12
+  const measure = (): void => {
+    if (generation !== timelineSessionGeneration) {
+      return
+    }
+    measureRenderedTimelineRows()
+    if (shouldFollowBottom.value) {
+      keepBottomInCurrentFrame()
+    }
+    remainingFrames -= 1
+    if (remainingFrames > 0) {
+      requestAnimationFrame(measure)
+    }
+  }
+  requestAnimationFrame(measure)
+}
+
 watch(
   () => workspaceSession.activeSessionId,
   async (threadId, previousThreadId) => {
@@ -1661,7 +1693,6 @@ watch(
     })
     shouldFollowBottom.value = true
     isNearBottom.value = true
-    isTimelineVirtualizerEnabled.value = false
 
     await nextTick()
     if (generation !== timelineSessionGeneration) {
@@ -1671,13 +1702,12 @@ watch(
       timelineRef.value?.getViewport() ?? null,
       timelineVirtualizer.value
     )
-    isTimelineVirtualizerEnabled.value = true
     await nextTick()
     if (generation !== timelineSessionGeneration) {
       return
     }
     scrollToLatest('auto')
-    startFollowBottomLoop(2)
+    startTimelineMeasurementSettle(generation)
   },
   { immediate: true }
 )
@@ -1793,7 +1823,8 @@ watch(
   { immediate: true }
 )
 
-useResizeObserver(timelineInnerRef, () => {
+useResizeObserver(timelineWindowRef, () => {
+  measureRenderedTimelineRows()
   if (!shouldFollowBottom.value) {
     return
   }
@@ -1879,7 +1910,11 @@ function getTimelineItemRevision(item: TimelineItem | undefined): unknown[] {
           class="chat-view__timeline-list"
           :style="timelineListStyle"
         >
-          <div class="chat-view__timeline-window" :style="timelineWindowStyle">
+          <div
+            ref="timelineWindowRef"
+            class="chat-view__timeline-window"
+            :style="timelineWindowStyle"
+          >
             <div
               v-for="{ item: viewItem, virtualItem } in virtualTimelineRows"
               :key="`${workspaceSession.activeSessionId ?? 'draft'}:${viewItem.key}`"

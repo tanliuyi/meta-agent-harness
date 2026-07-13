@@ -89,8 +89,15 @@ export function resolveTimelineFollowState(input: TimelineFollowStateInput): Tim
 
 export function resetTimelineVirtualizerForSession(
   viewport: Pick<HTMLElement, 'scrollTop'> | null,
-  virtualizer: Pick<{ measure(): void }, 'measure'>
+  virtualizer: Pick<
+    {
+      measure(): void
+      scrollToOffset(offset: number, options: { behavior: 'auto' }): void
+    },
+    'measure' | 'scrollToOffset'
+  >
 ): void {
+  virtualizer.scrollToOffset(0, { behavior: 'auto' })
   if (viewport) {
     viewport.scrollTop = 0
   }
