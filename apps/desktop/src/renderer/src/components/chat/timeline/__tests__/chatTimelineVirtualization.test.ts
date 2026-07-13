@@ -5,10 +5,25 @@ import type { TimelineItem } from '../chatTimelineDisplay'
 import {
   createVirtualTimelineRows,
   estimateTimelineItemSize,
+  findDirectTimelineRow,
   resetTimelineVirtualizerForSession,
   resolveTimelineFollowState,
   shouldAdjustTimelineScrollForItemResize
 } from '../chatTimelineVirtualization'
+
+interface TestElement {
+  children: TestElement[]
+  getAttribute(name: string): string | null
+  name: string
+}
+
+function createTestElement(name: string, index: number, children: TestElement[] = []): TestElement {
+  return {
+    children,
+    getAttribute: (attributeName) => (attributeName === 'data-index' ? String(index) : null),
+    name
+  }
+}
 
 function createVirtualItem(index: number): VirtualItem {
   return { index, key: index, start: index * 100, size: 100, end: (index + 1) * 100, lane: 0 }
@@ -102,21 +117,33 @@ describe('chat timeline virtualization', () => {
     })
   })
 
-  it('clears native and virtualizer offsets before resetting session measurements', () => {
-    const viewport = { scrollTop: 2400 }
+  it('uses virtualizer APIs to reset session measurements and offset', () => {
     const calls: string[] = []
 
-    resetTimelineVirtualizerForSession(viewport, {
+    resetTimelineVirtualizerForSession({
       scrollToOffset: (offset, options) => {
         calls.push(`scroll:${offset}:${options.behavior}`)
       },
       measure: () => {
-        calls.push(`measure:${viewport.scrollTop}`)
+        calls.push('measure')
       }
     })
 
-    expect(viewport.scrollTop).toBe(0)
-    expect(calls).toEqual(['scroll:0:auto', 'measure:0'])
+    expect(calls).toEqual(['scroll:0:auto', 'measure'])
+  })
+
+  it('selects only a direct timeline row when nested virtual content reuses the index', () => {
+    const nestedRowWithTargetIndex = createTestElement('nested-markdown-row', 4)
+    const earlierTimelineRow = createTestElement('earlier-timeline-row', 1, [
+      nestedRowWithTargetIndex
+    ])
+    const targetTimelineRow = createTestElement('target-timeline-row', 4)
+    const timelineWindow = {
+      children: [earlierTimelineRow, targetTimelineRow]
+    } as unknown as Pick<HTMLElement, 'children'>
+
+    expect(findDirectTimelineRow(timelineWindow, 4)).toBe(targetTimelineRow)
+    expect(findDirectTimelineRow(timelineWindow, 9)).toBeUndefined()
   })
 
   it('uses compact estimates for short rows and larger estimates for assistant content', () => {

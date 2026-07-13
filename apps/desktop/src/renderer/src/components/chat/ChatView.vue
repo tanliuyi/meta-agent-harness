@@ -5,6 +5,7 @@
 
 import type { ComponentPublicInstance, CSSProperties } from 'vue'
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { useRoute } from 'vue-router'
 import type { JSONContent } from '@tiptap/vue-3'
 import { useElementSize, useResizeObserver } from '@vueuse/core'
 import { useVirtualizer, type VirtualItem, type Virtualizer } from '@tanstack/vue-virtual'
@@ -75,12 +76,15 @@ import {
   CHAT_TIMELINE_OVERSCAN,
   createVirtualTimelineRows,
   estimateTimelineItemSize,
+  findDirectTimelineRow,
   resetTimelineVirtualizerForSession,
   resolveTimelineFollowState,
   shouldAdjustTimelineScrollForItemResize
 } from './timeline/chatTimelineVirtualization'
+import { isWorkspaceRouteName } from '@renderer/router/workspace-route-host'
 
 const workspaceSession = useWorkspaceSessionStore()
+const route = useRoute()
 const appearanceSettings = useAppearanceSettings()
 const { openPanelTab } = useSessionContext()
 const workspaceProject = useWorkspaceProjectStore()
@@ -417,7 +421,6 @@ watch(timelineItems, (items) => {
 
 /** 消息滚动容器。 */
 const timelineRef = ref<ScrollAreaInstance | null>(null)
-const timelineInnerRef = ref<HTMLElement | null>(null)
 const timelineWindowRef = ref<HTMLElement | null>(null)
 const isNearBottom = ref(true)
 const shouldFollowBottom = ref(true)
@@ -475,22 +478,12 @@ function measureTimelineItem(refValue: Element | ComponentPublicInstance | null)
   }
 }
 
-function measureRenderedTimelineRows(): void {
-  const rows = timelineInnerRef.value?.querySelectorAll<HTMLElement>('[data-index]') ?? []
-  for (const row of rows) {
-    const index = Number(row.dataset.index)
-    if (Number.isInteger(index)) {
-      timelineVirtualizer.value.resizeItem(index, Math.round(row.getBoundingClientRect().height))
-    }
-  }
-}
-
 function handleTimelineItemHeightChange(index: number): void {
-  const row = timelineInnerRef.value?.querySelector<HTMLElement>(`[data-index="${index}"]`)
+  const row = findDirectTimelineRow(timelineWindowRef.value, index)
   if (!row) {
     return
   }
-  timelineVirtualizer.value.resizeItem(index, Math.round(row.getBoundingClientRect().height))
+  timelineVirtualizer.value.measureElement(row)
   if (!shouldFollowBottom.value) {
     return
   }
@@ -1162,9 +1155,7 @@ function toggleCollapsedHistory(item: Extract<TimelineItem, { type: 'collapsed-h
     return
   }
   holdUserScroll()
-  const anchor = captureTimelineRowAnchor(item.key)
   collapsedHistoryOpenByKey.value[item.key] = !collapsedHistoryOpenByKey.value[item.key]
-  settleTimelineRowAnchor(anchor)
 }
 
 /**
@@ -1193,9 +1184,7 @@ function setThinkingOpen(viewItem: TimelineViewItem, open: boolean): void {
     return
   }
   holdUserScroll()
-  const anchor = captureTimelineRowAnchor(viewItem.key)
   thinkingOpenByKey.value[viewItem.item.key] = open
-  settleTimelineRowAnchor(anchor)
 }
 
 function setToolGroupOpen(viewItem: TimelineViewItem, open: boolean): void {
@@ -1203,20 +1192,20 @@ function setToolGroupOpen(viewItem: TimelineViewItem, open: boolean): void {
     return
   }
   holdUserScroll()
-  const anchor = captureTimelineRowAnchor(viewItem.key)
   toolGroupOpenByKey.value[viewItem.item.key] = open
-  settleTimelineRowAnchor(anchor)
 }
 
 function setToolOpen(toolCallId: string, open: boolean): void {
   toolOpenByKey.value[toolCallId] = open
 }
 
-function setToolGroupItemOpen(viewItem: TimelineViewItem, toolCallId: string, open: boolean): void {
+function setToolGroupItemOpen(
+  _viewItem: TimelineViewItem,
+  toolCallId: string,
+  open: boolean
+): void {
   holdUserScroll()
-  const anchor = captureTimelineRowAnchor(viewItem.key)
   setToolOpen(toolCallId, open)
-  settleTimelineRowAnchor(anchor)
 }
 
 function setTimelineItemToolOpen(viewItem: TimelineViewItem, open: boolean): void {
@@ -1225,9 +1214,7 @@ function setTimelineItemToolOpen(viewItem: TimelineViewItem, open: boolean): voi
     return
   }
   holdUserScroll()
-  const anchor = captureTimelineRowAnchor(viewItem.key)
   setToolOpen(toolCallId, open)
-  settleTimelineRowAnchor(anchor)
 }
 
 async function forkFromMessage(entryId: string): Promise<void> {
@@ -1311,92 +1298,15 @@ function scrollToLatest(behavior: TimelineScrollBehavior = 'smooth'): void {
   timelineRef.value?.scrollBottom(behavior)
 }
 
-type TimelineRowAnchor = {
-  key: string
-  viewportOffset: number
-}
-
 /** 滚动更新 rAF 句柄。 */
 let scrollRafId: number | null = null
 let pendingScrollBehavior: TimelineScrollBehavior = 'smooth'
 let followBottomRafId: number | null = null
 let followBottomSettleFrames = 0
-let timelineAnchorRafId: number | null = null
-let timelineAnchorGeneration = 0
 let timelineSessionGeneration = 0
 let isUserScrollLocked = false
 let allowBottomUnlockOnNextScroll = false
 let isTimelineScrollbarDragging = false
-
-function findTimelineRow(key: string): HTMLElement | undefined {
-  return [
-    ...(timelineInnerRef.value?.querySelectorAll<HTMLElement>('[data-timeline-key]') ?? [])
-  ].find((element) => element.dataset.timelineKey === key)
-}
-
-function captureTimelineRowAnchor(key: string): TimelineRowAnchor | undefined {
-  const viewport = timelineRef.value?.getViewport()
-  const row = findTimelineRow(key)
-  if (!viewport || !row) {
-    return undefined
-  }
-  return {
-    key,
-    viewportOffset: row.getBoundingClientRect().top - viewport.getBoundingClientRect().top
-  }
-}
-
-function cancelTimelineRowAnchor(): void {
-  timelineAnchorGeneration += 1
-  if (timelineAnchorRafId !== null) {
-    cancelAnimationFrame(timelineAnchorRafId)
-    timelineAnchorRafId = null
-  }
-}
-
-function settleTimelineRowAnchor(anchor: TimelineRowAnchor | undefined): void {
-  if (!anchor) {
-    return
-  }
-  cancelTimelineRowAnchor()
-  const generation = timelineAnchorGeneration
-  let remainingFrames = 10
-
-  void nextTick(() => {
-    const correctAnchor = (): void => {
-      if (generation !== timelineAnchorGeneration) {
-        return
-      }
-      timelineAnchorRafId = null
-      const viewport = timelineRef.value?.getViewport()
-      const row = findTimelineRow(anchor.key)
-      if (viewport && row) {
-        const index = Number(row.dataset.index)
-        if (Number.isInteger(index)) {
-          timelineVirtualizer.value.resizeItem(
-            index,
-            Math.round(row.getBoundingClientRect().height)
-          )
-        }
-        const currentOffset = row.getBoundingClientRect().top - viewport.getBoundingClientRect().top
-        const adjustment = currentOffset - anchor.viewportOffset
-        if (Math.abs(adjustment) >= 0.5) {
-          viewport.scrollTop += adjustment
-        }
-      }
-      remainingFrames -= 1
-      if (remainingFrames > 0) {
-        timelineAnchorRafId = requestAnimationFrame(correctAnchor)
-      }
-    }
-    const row = findTimelineRow(anchor.key)
-    const index = Number(row?.dataset.index)
-    if (row && Number.isInteger(index)) {
-      timelineVirtualizer.value.resizeItem(index, Math.round(row.getBoundingClientRect().height))
-    }
-    void nextTick(correctAnchor)
-  })
-}
 
 /**
  * 获取当前距离底部的距离。
@@ -1417,7 +1327,6 @@ function holdUserScroll(): void {
   isUserScrollLocked = true
   allowBottomUnlockOnNextScroll = false
   shouldFollowBottom.value = false
-  cancelTimelineRowAnchor()
   if (scrollRafId !== null) {
     cancelAnimationFrame(scrollRafId)
     scrollRafId = null
@@ -1580,7 +1489,7 @@ async function handleSelectThinkingLevel(level: ThinkingLevel): Promise<void> {
  * @param event - 键盘事件。
  */
 function handleExtensionShortcutKeyDown(event: KeyboardEvent): void {
-  if (event.defaultPrevented || event.isComposing) {
+  if (!isWorkspaceRouteName(route.name) || event.defaultPrevented || event.isComposing) {
     return
   }
   const shortcut = toPiShortcutId(event)
@@ -1646,24 +1555,6 @@ function isFunctionShortcutKey(key: string): boolean {
   return /^f\d{1,2}$/.test(key)
 }
 
-function startTimelineMeasurementSettle(generation: number): void {
-  let remainingFrames = 12
-  const measure = (): void => {
-    if (generation !== timelineSessionGeneration) {
-      return
-    }
-    measureRenderedTimelineRows()
-    if (shouldFollowBottom.value) {
-      keepBottomInCurrentFrame()
-    }
-    remainingFrames -= 1
-    if (remainingFrames > 0) {
-      requestAnimationFrame(measure)
-    }
-  }
-  requestAnimationFrame(measure)
-}
-
 watch(
   () => workspaceSession.activeSessionId,
   async (threadId, previousThreadId) => {
@@ -1675,7 +1566,6 @@ watch(
     }
 
     const generation = ++timelineSessionGeneration
-    cancelTimelineRowAnchor()
     if (scrollRafId !== null) {
       cancelAnimationFrame(scrollRafId)
       scrollRafId = null
@@ -1698,16 +1588,13 @@ watch(
     if (generation !== timelineSessionGeneration) {
       return
     }
-    resetTimelineVirtualizerForSession(
-      timelineRef.value?.getViewport() ?? null,
-      timelineVirtualizer.value
-    )
+    resetTimelineVirtualizerForSession(timelineVirtualizer.value)
     await nextTick()
     if (generation !== timelineSessionGeneration) {
       return
     }
     scrollToLatest('auto')
-    startTimelineMeasurementSettle(generation)
+    startFollowBottomLoop(2)
   },
   { immediate: true }
 )
@@ -1824,7 +1711,6 @@ watch(
 )
 
 useResizeObserver(timelineWindowRef, () => {
-  measureRenderedTimelineRows()
   if (!shouldFollowBottom.value) {
     return
   }
@@ -1852,7 +1738,6 @@ onBeforeUnmount(() => {
   if (followBottomRafId !== null) {
     cancelAnimationFrame(followBottomRafId)
   }
-  cancelTimelineRowAnchor()
   if (processingTimerId !== null) {
     window.clearInterval(processingTimerId)
   }
@@ -1904,7 +1789,7 @@ function getTimelineItemRevision(item: TimelineItem | undefined): unknown[] {
       @scrollbar-pointer-down="handleTimelineScrollbarPointerDown"
       @wheel.passive="handleTimelineWheel"
     >
-      <div ref="timelineInnerRef" class="chat-view__timeline-inner" :style="timelineStyle">
+      <div class="chat-view__timeline-inner" :style="timelineStyle">
         <div
           :key="workspaceSession.activeSessionId ?? 'draft'"
           class="chat-view__timeline-list"

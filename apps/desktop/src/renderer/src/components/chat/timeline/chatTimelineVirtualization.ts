@@ -9,6 +9,18 @@ export interface VirtualTimelineRow<Item> {
   virtualItem: VirtualItem
 }
 
+export function findDirectTimelineRow(
+  timelineWindow: Pick<HTMLElement, 'children'> | null,
+  index: number
+): HTMLElement | undefined {
+  if (!timelineWindow) {
+    return undefined
+  }
+  return Array.from(timelineWindow.children).find(
+    (element) => element.getAttribute('data-index') === String(index)
+  ) as HTMLElement | undefined
+}
+
 export function createVirtualTimelineRows<Item>(
   virtualItems: VirtualItem[],
   items: Item[]
@@ -88,7 +100,6 @@ export function resolveTimelineFollowState(input: TimelineFollowStateInput): Tim
 }
 
 export function resetTimelineVirtualizerForSession(
-  viewport: Pick<HTMLElement, 'scrollTop'> | null,
   virtualizer: Pick<
     {
       measure(): void
@@ -98,9 +109,6 @@ export function resetTimelineVirtualizerForSession(
   >
 ): void {
   virtualizer.scrollToOffset(0, { behavior: 'auto' })
-  if (viewport) {
-    viewport.scrollTop = 0
-  }
   virtualizer.measure()
 }
 
