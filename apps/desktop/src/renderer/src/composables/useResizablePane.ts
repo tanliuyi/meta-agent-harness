@@ -10,6 +10,13 @@ import type { MaybeRefOrGetter, Ref } from 'vue'
 /** 可调整的方向。 */
 type ResizeAxis = 'x' | 'y'
 
+/** 支持 Pointer Capture 的事件目标。 */
+type PointerCaptureTarget = EventTarget & {
+  hasPointerCapture?: (pointerId: number) => boolean
+  releasePointerCapture: (pointerId: number) => void
+  setPointerCapture: (pointerId: number) => void
+}
+
 /** useResizablePane 配置项。 */
 type UseResizablePaneOptions = {
   /** 调整方向。 */
@@ -61,8 +68,23 @@ export const useResizablePane = ({
   setValue
 }: UseResizablePaneOptions): UseResizablePaneState => {
   const isResizing = ref(false)
+  let activePointerId: number | null = null
+  let activePointerTarget: PointerCaptureTarget | null = null
   let resizeFrame = 0
   let pendingValue = toValue(getValue)
+
+  /**
+   * 判断事件目标是否支持 Pointer Capture。
+   * @param target - 待判断的事件目标。
+   * @returns 是否支持 Pointer Capture。
+   */
+  const isPointerCaptureTarget = (target: EventTarget | null): target is PointerCaptureTarget => {
+    const candidate = target as Partial<PointerCaptureTarget> | null
+    return (
+      typeof candidate?.setPointerCapture === 'function' &&
+      typeof candidate.releasePointerCapture === 'function'
+    )
+  }
 
   /**
    * 从 pointer 事件读取当前值。
@@ -110,13 +132,38 @@ export const useResizablePane = ({
    * @param event - PointerEvent。
    */
   const handlePointerMove = (event: PointerEvent): void => {
+    if (event.pointerId !== activePointerId) {
+      return
+    }
+
     queueValueUpdate(readPointerValue(event))
+  }
+
+  /**
+   * 移除一次拖拽注册的全部事件监听。
+   * @param pointerTarget - 本次拖拽的 Pointer Capture 目标。
+   */
+  const removeResizeListeners = (pointerTarget: PointerCaptureTarget | null): void => {
+    pointerTarget?.removeEventListener('lostpointercapture', handleLostPointerCapture)
+    window.removeEventListener('pointermove', handlePointerMove)
+    window.removeEventListener('pointerup', handlePointerEnd)
+    window.removeEventListener('pointercancel', handlePointerEnd)
+    window.removeEventListener('blur', handleWindowBlur)
   }
 
   /**
    * 停止拖拽调整。
    */
   const stopResize = (): void => {
+    if (activePointerId === null) {
+      return
+    }
+
+    const pointerId = activePointerId
+    const pointerTarget = activePointerTarget
+    activePointerId = null
+    activePointerTarget = null
+
     if (resizeFrame !== 0) {
       window.cancelAnimationFrame(resizeFrame)
       resizeFrame = 0
@@ -125,8 +172,46 @@ export const useResizablePane = ({
 
     isResizing.value = false
     resetDocumentResizeState()
-    window.removeEventListener('pointermove', handlePointerMove)
-    window.removeEventListener('pointerup', stopResize)
+    removeResizeListeners(pointerTarget)
+
+    try {
+      if (pointerTarget && (pointerTarget.hasPointerCapture?.(pointerId) ?? true)) {
+        pointerTarget.releasePointerCapture(pointerId)
+      }
+    } catch {
+      // 浏览器可能已在 pointercancel 或失焦时隐式释放 capture。
+    }
+  }
+
+  /**
+   * 主动 pointer 正常结束或被浏览器取消时停止拖拽。
+   * @param event - Pointer 结束事件。
+   */
+  function handlePointerEnd(event: PointerEvent): void {
+    if (event.pointerId !== activePointerId) {
+      return
+    }
+
+    stopResize()
+  }
+
+  /**
+   * Pointer Capture 意外丢失时停止拖拽。
+   * @param event - Pointer Capture 丢失事件。
+   */
+  function handleLostPointerCapture(event: Event): void {
+    if ((event as PointerEvent).pointerId !== activePointerId) {
+      return
+    }
+
+    stopResize()
+  }
+
+  /**
+   * 窗口失焦时停止拖拽，避免窗口外释放后保留拖拽状态。
+   */
+  function handleWindowBlur(): void {
+    stopResize()
   }
 
   /**
@@ -134,14 +219,31 @@ export const useResizablePane = ({
    * @param event - PointerEvent。
    */
   const startResize = (event: PointerEvent): void => {
+    if (activePointerId !== null) {
+      return
+    }
+
     event.preventDefault()
+    activePointerId = event.pointerId
+    activePointerTarget = isPointerCaptureTarget(event.currentTarget) ? event.currentTarget : null
     isResizing.value = true
     document.body.style.cursor = cursor
     document.body.style.userSelect = 'none'
     pendingValue = readPointerValue(event)
     setValue(pendingValue)
     window.addEventListener('pointermove', handlePointerMove)
-    window.addEventListener('pointerup', stopResize)
+    window.addEventListener('pointerup', handlePointerEnd)
+    window.addEventListener('pointercancel', handlePointerEnd)
+    window.addEventListener('blur', handleWindowBlur)
+
+    if (activePointerTarget) {
+      activePointerTarget.addEventListener('lostpointercapture', handleLostPointerCapture)
+      try {
+        activePointerTarget.setPointerCapture(event.pointerId)
+      } catch {
+        // 不支持当前 pointer 的环境仍可依赖 window 事件与拖拽遮罩。
+      }
+    }
   }
 
   /**

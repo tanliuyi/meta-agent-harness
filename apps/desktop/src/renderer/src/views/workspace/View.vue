@@ -8,6 +8,7 @@
 import { BaseIconButton } from '@renderer/components/base'
 import WindowDragStrip from '@renderer/components/window-drag-strip/WindowDragStrip.vue'
 import ResizablePaneSeparator from '@renderer/components/ui/resizable-pane-separator/ResizablePaneSeparator.vue'
+import ResizeDragShield from '@renderer/components/ui/resize-drag-shield/ResizeDragShield.vue'
 import { useAppStore } from '@renderer/stores/app'
 import { useAppearanceSettings } from '@renderer/composables/useAppearanceSettings'
 import useWorkspaceSessionStore from '@renderer/stores/workspace-session'
@@ -23,6 +24,7 @@ const appearanceSettings = useAppearanceSettings()
 const workspaceSession = useWorkspaceSessionStore()
 const workspaceUi = useWorkspaceUiStore()
 const workspaceRef = ref<HTMLElement | null>(null)
+const isSidebarResizing = ref(false)
 const { width: workspaceWidth } = useElementSize(workspaceRef)
 const sidebarAutoNarrow = computed(() => workspaceWidth.value > 0 && workspaceWidth.value < 960)
 
@@ -96,6 +98,7 @@ const workspaceGridAreas = computed(() => {
   <main
     ref="workspaceRef"
     class="workspace"
+    :class="{ 'workspace--resizing-sidebar': isSidebarResizing }"
     :style="{
       gridTemplateColumns: workspaceGridColumns,
       gridTemplateRows: workspaceGridRows,
@@ -141,8 +144,11 @@ const workspaceGridAreas = computed(() => {
       :model-value="workspaceSidebarLayoutWidth"
       :min="workspaceUi.minSidebarWidth"
       :max="workspaceSidebarMaxWidth"
+      @resize-state-change="isSidebarResizing = $event"
       @update:model-value="workspaceUi.setSidebarWidth"
     />
+
+    <ResizeDragShield v-if="isSidebarResizing" />
 
     <WorkspaceContent
       class="workspace__content"
@@ -200,6 +206,11 @@ const workspaceGridAreas = computed(() => {
   position: relative;
   z-index: 5;
   grid-area: resizer;
+}
+
+.workspace--resizing-sidebar :deep(webview),
+.workspace--resizing-sidebar :deep(iframe) {
+  pointer-events: none;
 }
 
 .workspace__content {

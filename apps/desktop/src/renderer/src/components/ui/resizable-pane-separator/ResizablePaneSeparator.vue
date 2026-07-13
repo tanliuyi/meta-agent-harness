@@ -4,7 +4,7 @@
  */
 
 import { useResizablePane } from '@renderer/composables/useResizablePane'
-import { computed } from 'vue'
+import { computed, watch } from 'vue'
 
 const props = withDefaults(
   defineProps<{
@@ -23,6 +23,7 @@ const props = withDefaults(
 )
 
 const emit = defineEmits<{
+  resizeStateChange: [resizing: boolean]
   'update:modelValue': [value: number]
 }>()
 
@@ -36,6 +37,14 @@ const { handleResizerKeydown, isResizing, startResize } = useResizablePane({
   getValue: currentValue,
   setValue: (value) => emit('update:modelValue', clampValue(value))
 })
+
+watch(
+  isResizing,
+  (resizing) => {
+    emit('resizeStateChange', resizing)
+  },
+  { flush: 'sync' }
+)
 </script>
 
 <template>
