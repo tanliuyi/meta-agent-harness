@@ -9,7 +9,9 @@ import {
   ref,
   watch
 } from 'vue'
+import { useRoute } from 'vue-router'
 import { useTheme } from '@renderer/composables/useTheme'
+import { isWorkspaceRouteName } from '@renderer/router/workspace-route-host'
 import useWorkspaceSessionStore from '@renderer/stores/workspace-session'
 import {
   cloneExtensionPanelMessage,
@@ -33,9 +35,11 @@ const props = defineProps<{
   panelId?: string
 }>()
 
+const route = useRoute()
 const workspaceSession = useWorkspaceSessionStore()
 const { resolvedTheme } = useTheme()
 const frameRef = ref<HTMLIFrameElement | null>(null)
+const componentActive = ref(true)
 const panelThreadId = ref<string | undefined>(workspaceSession.activeSessionId)
 const lastVisibleState = ref<boolean | undefined>(undefined)
 const navigationBlocked = ref(false)
@@ -53,6 +57,7 @@ const urlSource = computed(() => getExtensionPanelResolvedUrl(panel.value) ?? ''
 const allowedNavigationOrigin = computed(() =>
   getExtensionPanelAllowedNavigationOrigin(panel.value)
 )
+const panelVisible = computed(() => componentActive.value && isWorkspaceRouteName(route.name))
 const panelTheme = computed(() =>
   collectExtensionPanelThemePayload({
     theme: resolvedTheme.value,
@@ -188,7 +193,7 @@ function handleFrameLoad(): void {
   postPanelState()
   postPanelTheme()
   postCurrentPanelMessage()
-  setPanelVisible(true)
+  setPanelVisible(panelVisible.value)
 }
 
 watch(
@@ -209,14 +214,27 @@ watch(panelTheme, async () => {
   postPanelTheme()
 })
 
+watch(
+  () => route.name,
+  () => setPanelVisible(panelVisible.value),
+  { flush: 'sync' }
+)
+
 window.addEventListener('message', handleWindowMessage)
 onMounted(() => {
   panelThreadId.value ??= workspaceSession.activeSessionId
-  setPanelVisible(true)
+  setPanelVisible(panelVisible.value)
 })
-onActivated(() => setPanelVisible(true))
-onDeactivated(() => setPanelVisible(false))
+onActivated(() => {
+  componentActive.value = true
+  setPanelVisible(panelVisible.value)
+})
+onDeactivated(() => {
+  componentActive.value = false
+  setPanelVisible(false)
+})
 onBeforeUnmount(() => {
+  componentActive.value = false
   setPanelVisible(false)
   window.removeEventListener('message', handleWindowMessage)
 })

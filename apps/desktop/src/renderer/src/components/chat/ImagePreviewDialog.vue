@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { WORKSPACE_PORTAL_TARGET } from '@renderer/router/workspace-route-host'
 
 export interface ImagePreviewItem {
   src: string
@@ -178,7 +179,7 @@ function handleKeydown(event: KeyboardEvent): void {
 </script>
 
 <template>
-  <Teleport to="body">
+  <Teleport :to="WORKSPACE_PORTAL_TARGET">
     <div
       v-if="open && activeImage"
       class="image-preview"

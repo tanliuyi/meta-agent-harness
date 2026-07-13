@@ -12,6 +12,13 @@
   width: auto;
 }
 
+.session-panel__actions {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 2px;
+}
+
 .session-panel__header {
   display: flex;
   flex-direction: row;
@@ -40,6 +47,10 @@
   padding: 0 var(--space-2);
   background: transparent;
   border-bottom: 0;
+}
+
+.session-panel--fullscreen .session-panel__header--darwin {
+  padding-left: 82px;
 }
 
 .session-panel__tabs {

@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { useRoute } from 'vue-router'
 import {
   ArrowLeft,
   ArrowRight,
@@ -27,6 +28,7 @@ import {
   SelectValue
 } from '@renderer/components/ui/select'
 import useWorkspaceSessionStore from '@renderer/stores/workspace-session'
+import { isWorkspaceRouteName } from '@renderer/router/workspace-route-host'
 import { resolveBrowserAddress } from './state/browserAddress'
 import {
   browserPreviewPartition,
@@ -170,6 +172,7 @@ const props = defineProps<{
 }>()
 const emit = defineEmits<{ state: [state: BrowserPageState] }>()
 const store = useWorkspaceSessionStore()
+const route = useRoute()
 const webview = ref<BrowserWebviewElement>()
 const storageScope = `${props.sessionScope}:${props.browserId}`
 const urlStorageKey = `meta-agent.browser-preview.url:${storageScope}`
@@ -315,7 +318,13 @@ function handleAddressBlur(): void {
 }
 
 function handleWindowKeydown(event: KeyboardEvent): void {
-  if (!props.active || !addressInput.value?.offsetParent || event.defaultPrevented || event.altKey)
+  if (
+    !isWorkspaceRouteName(route.name) ||
+    !props.active ||
+    !addressInput.value?.offsetParent ||
+    event.defaultPrevented ||
+    event.altKey
+  )
     return
   if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'l') {
     event.preventDefault()

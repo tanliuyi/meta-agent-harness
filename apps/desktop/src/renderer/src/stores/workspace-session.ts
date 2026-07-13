@@ -22,6 +22,7 @@ import {
 import { useToast } from '@renderer/composables/useToast'
 import { transferStoredSessionPanelTabsState } from '@renderer/components/session/panel/state/useSessionPanelTabsState'
 import { transferBrowserSessionScope } from '@renderer/components/session/panel/tabs/state/browserPreviewTabs'
+import { transferSessionPanelLayoutState } from './session-panel-layout-state'
 import { getBuiltinCommandInfos } from '@shared/coding-agent/builtin-commands'
 import { formatFileArgForInsertion } from '@shared/coding-agent/file-reference-format'
 import {
@@ -1959,6 +1960,7 @@ export default defineStore('workspace-session', () => {
       writeStoredSessionPanelState(contextId, orphanPanel, threadId)
       transferStoredSessionPanelTabsState(orphanPanelTabsKey, threadId)
       transferBrowserSessionScope(orphanPanelTabsKey, threadId)
+      transferSessionPanelLayoutState(orphanPanelTabsKey, threadId)
       setContextActiveThreadId(threadId, contextId)
 
       context.orphanDraftMessage = createEmptyComposerContent()

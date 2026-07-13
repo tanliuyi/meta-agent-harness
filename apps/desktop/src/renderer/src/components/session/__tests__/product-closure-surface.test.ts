@@ -29,6 +29,12 @@ describe('renderer product closure surface', () => {
       'WorkspaceContent.vue'
     )
     const workspaceView = source('..', '..', 'views', 'workspace', 'View.vue')
+    const resizablePaneSeparator = source(
+      '..',
+      'ui',
+      'resizable-pane-separator',
+      'ResizablePaneSeparator.vue'
+    )
     const overview = source('panel', 'tabs', 'SessionOverviewTab.vue')
     const sessionPanel = source('SessionPanel.vue')
     const panelTabs = source('panel', 'SessionPanelTabs.vue')
@@ -46,10 +52,33 @@ describe('renderer product closure surface', () => {
       'Boolean(activeSession.value) || workspaceSession.isNewSessionActive'
     )
     expect(workspaceContent).toContain('v-if="shouldRenderSessionPanel"')
-    expect(workspaceContent).toContain(':collapsed="!isSessionPanelOpen"')
+    expect(workspaceContent).toContain(
+      ':collapsed="!isSessionPanelOpen && !isSessionPanelFullscreen"'
+    )
     expect(workspaceContent).toContain(':disabled="!hasSessionPanelContext"')
+    expect(workspaceContent).toContain('@toggle-fullscreen="toggleSessionPanelFullscreen"')
+    expect(workspaceContent).toContain("'workspace-content--session-panel-fullscreen'")
+    expect(workspaceContent).toContain('isFloatingChatOpen = !isFloatingChatOpen')
+    expect(workspaceContent).toContain('v-show="!isSessionPanelFullscreen"')
+    expect(workspaceContent).toContain('@pointerdown="startFloatingChatDrag"')
+    expect(workspaceContent).toContain('@pointerdown.stop="startFloatingChatResize"')
+    expect(workspaceContent).toContain('clampFloatingChatPosition')
+    expect(workspaceContent).toContain('sessionPanelFullscreenByKey')
+    expect(workspaceContent).toContain('workspaceSession.activeSessionPanelTabsKey')
     expect(sessionPanel).toContain(':disabled="disabled"')
+    expect(sessionPanel).toContain("'session-panel--fullscreen': fullscreen")
+    expect(sessionPanel).toContain("fullscreen ? '退出全屏' : '全屏显示会话面板'")
+    expect(sessionPanel).toContain('class="session-panel__fullscreen-icon"')
+    expect(sessionPanel).toContain("import { Maximize2, Minimize2 } from 'lucide-vue-next'")
+    expect(sessionPanel).toContain('<Minimize2')
+    expect(sessionPanel).toContain('<Maximize2')
+    expect(sessionPanel).toContain(':stroke-width="1.8"')
     expect(workspaceView).toContain('workspaceSession.isNewSessionActive')
+    expect(workspaceView).toContain("'workspace--resizing-sidebar': isSidebarResizing")
+    expect(workspaceView).toContain('@resize-state-change="isSidebarResizing = $event"')
+    expect(workspaceView).toContain('<ResizeDragShield v-if="isSidebarResizing"')
+    expect(workspaceContent).toContain('<ResizeDragShield v-if="isSessionPanelResizing"')
+    expect(resizablePaneSeparator).toContain("emit('resizeStateChange', resizing)")
     expect(overview).toContain(
       'workspaceSession.activeSession?.projectId ?? workspaceSession.activeProjectId'
     )

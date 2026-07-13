@@ -49,6 +49,7 @@ import {
   getCommandQueryName
 } from '@renderer/components/session/panel/tabs/display/commandDisplay'
 import { useToast } from '@renderer/composables/useToast'
+import { WORKSPACE_PORTAL_TARGET } from '@renderer/router/workspace-route-host'
 import type {
   CommandInfo,
   ProjectSummary,
@@ -1299,7 +1300,7 @@ function formatModelLabel(model: Pick<SessionModel, 'provider' | 'id'>): string 
     @dragleave="handleDragLeave"
     @drop="handleDrop"
   >
-    <Teleport to="body">
+    <Teleport :to="WORKSPACE_PORTAL_TARGET">
       <div
         v-if="hasOpenComposerPopup"
         ref="composerPopupRef"

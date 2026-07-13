@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { WORKSPACE_PORTAL_TARGET } from '@renderer/router/workspace-route-host'
 import type { PromptQuoteContext, ThreadMessage } from '@shared/coding-agent/types'
 import { formatMessageTime, getMessageText } from './support/message-format'
 import { getSelectionToolbarPosition } from './support/assistant-selection'
@@ -203,7 +204,7 @@ watch(() => [props.revision, props.isStreaming], scheduleSelectionCapture)
         @height-change="emit('contentHeightChange')"
       />
     </div>
-    <Teleport to="body">
+    <Teleport :to="WORKSPACE_PORTAL_TARGET">
       <div
         v-if="selectionToolbar"
         class="assistant-selection-toolbar"
