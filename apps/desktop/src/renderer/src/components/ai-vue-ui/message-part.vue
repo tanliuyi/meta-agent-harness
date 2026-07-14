@@ -1,28 +1,34 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import ThinkingPart from './thinking-part.vue'
-import type { ToolCallRenderProps } from './types'
+import type {
+  ChatMessagePart,
+  ChatSlotContent,
+  ToolCallRenderProps,
+} from './types'
 
 interface MessagePartProps {
-  part: any
+  part: ChatMessagePart
   isThinkingComplete?: boolean
 }
 
 const props = defineProps<MessagePartProps>()
 
 type MessagePartSlots = {
-  text?: (props: { content: string }) => any
+  text?: (props: { content: string }) => ChatSlotContent
   thinking?: (props: {
     content: string
     isComplete?: boolean | undefined
-  }) => any
-  'tool-default'?: (props: ToolCallRenderProps) => any
+  }) => ChatSlotContent
+  'tool-default'?: (props: ToolCallRenderProps) => ChatSlotContent
   'tool-result'?: (props: {
     toolCallId: string
-    content: string
+    content: unknown
     state: string
-  }) => any
-} & Partial<Record<`tool-${string}`, (props: ToolCallRenderProps) => any>>
+  }) => ChatSlotContent
+} & Partial<
+  Record<`tool-${string}`, (props: ToolCallRenderProps) => ChatSlotContent>
+>
 
 defineSlots<MessagePartSlots>()
 

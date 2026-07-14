@@ -2,6 +2,7 @@
 import { provide } from 'vue'
 import { useChat } from '@tanstack/ai-vue'
 import { CHAT_KEY } from './use-chat-context'
+import type { StreamChunk } from '@tanstack/ai'
 import type { UIMessage } from '@tanstack/ai-vue'
 import type { ChatProps } from './types'
 
@@ -9,7 +10,7 @@ const props = defineProps<ChatProps>()
 
 const emit = defineEmits<{
   response: [response?: Response]
-  chunk: [chunk: unknown]
+  chunk: [chunk: StreamChunk]
   finish: [message: UIMessage]
   error: [error: Error]
 }>()
@@ -28,7 +29,7 @@ const chat = useChat({
   ...(props.live !== undefined && { live: props.live }),
   body: props.body,
   onResponse: (response?: Response) => emit('response', response),
-  onChunk: (chunk: any) => emit('chunk', chunk),
+  onChunk: (chunk: StreamChunk) => emit('chunk', chunk),
   onFinish: (message: UIMessage) => emit('finish', message),
   onError: (error: Error) => emit('error', error),
   ...(props.tools !== undefined && { tools: props.tools }),
@@ -38,7 +39,7 @@ provide(CHAT_KEY, chat)
 </script>
 
 <template>
-  <div :class data-chat-root>
+  <div :class="props.class" data-chat-root>
     <slot />
   </div>
 </template>

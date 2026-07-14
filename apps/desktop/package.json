@@ -27,12 +27,15 @@
   "dependencies": {
     "@ag-ui/client": "^0.0.57",
     "@ag-ui/core": "0.0.57",
+    "@crazydos/vue-markdown": "^1.1.4",
     "@mariozechner/clipboard": "0.3.9",
     "@meta-agent/hermes-memory": "workspace:*",
     "@tanstack/ai": "0.40.0",
-    "@tanstack/ai-vue": "0.14.3",
-    "@tanstack/ai-vue-ui": "workspace:*",
+    "@tanstack/ai-vue": "workspace:*",
     "electron-updater": "^6.3.9",
+    "rehype-highlight": "^7.0.2",
+    "rehype-raw": "^7.0.0",
+    "remark-gfm": "^4.0.1",
     "rxjs": "7.8.1"
   },
   "devDependencies": {

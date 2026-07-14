@@ -1,23 +1,29 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import MessagePart from './message-part.vue'
-import type { ChatMessageProps } from './types'
+import type {
+  ChatMessageProps,
+  ChatSlotContent,
+  ToolCallRenderProps,
+} from './types'
 
 const props = defineProps<ChatMessageProps>()
 
 type ChatMessageSlots = {
-  text?: (props: { content: string }) => any
+  text?: (props: { content: string }) => ChatSlotContent
   thinking?: (props: {
     content: string
     isComplete?: boolean | undefined
-  }) => any
-  'tool-default'?: (props: any) => any
+  }) => ChatSlotContent
+  'tool-default'?: (props: ToolCallRenderProps) => ChatSlotContent
   'tool-result'?: (props: {
     toolCallId: string
-    content: string
+    content: unknown
     state: string
-  }) => any
-} & Partial<Record<`tool-${string}`, (props: any) => any>>
+  }) => ChatSlotContent
+} & Partial<
+  Record<`tool-${string}`, (props: ToolCallRenderProps) => ChatSlotContent>
+>
 
 const slots = defineSlots<ChatMessageSlots>()
 
@@ -39,7 +45,7 @@ const isThinkingComplete = (partIndex: string | number) => {
   if (!part || part.type !== 'thinking') return false
   return props.message.parts
     .slice(index + 1)
-    .some((p: any) => p.type === 'text')
+    .some((part) => part.type === 'text')
 }
 </script>
 

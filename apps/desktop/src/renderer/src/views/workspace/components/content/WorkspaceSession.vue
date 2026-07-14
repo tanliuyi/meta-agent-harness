@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import ScrollArea from '@/components/ui/scroll-area/ScrollArea.vue'
 import { createElectronSubscribeConnectionAdapter } from '@/lib/electron-agent-connection'
-import { Chat, ChatInput, ChatMessage, ChatMessages, TextPart } from '@tanstack/ai-vue-ui'
+import { Chat, ChatInput, ChatMessage, ChatMessages, TextPart } from '@/components/ai-vue-ui'
 
 const props = defineProps<{
   sessionId: string

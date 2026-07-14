@@ -1,11 +1,11 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { useChatContext } from './use-chat-context'
-import type { ChatInputProps, ChatInputRenderProps } from './types'
+import type { ChatInputProps, ChatInputRenderProps, ChatSlotContent } from './types'
 
 const props = withDefaults(defineProps<ChatInputProps>(), {
   placeholder: 'Type a message...',
-  submitOnEnter: true,
+  submitOnEnter: true
 })
 
 const emit = defineEmits<{
@@ -14,7 +14,7 @@ const emit = defineEmits<{
 }>()
 
 defineSlots<{
-  default?: (props: ChatInputRenderProps) => any
+  default?: (props: ChatInputRenderProps) => ChatSlotContent
 }>()
 
 // v-model support - defaults to empty string if not provided
@@ -42,7 +42,7 @@ const slotProps = computed<ChatInputRenderProps>(() => ({
   value: modelValue.value,
   onSubmit: handleSubmit,
   isLoading: isLoading.value,
-  disabled: disabled.value,
+  disabled: disabled.value
 }))
 
 const buttonBackgroundColor = computed(() => {
@@ -69,15 +69,13 @@ const handleInputBlur = (e: FocusEvent) => {
 
 const handleButtonMouseEnter = (e: MouseEvent) => {
   if (!disabled.value && modelValue.value.trim()) {
-    ;(e.currentTarget as HTMLButtonElement).style.backgroundColor =
-      'rgb(234, 88, 12)'
+    ;(e.currentTarget as HTMLButtonElement).style.backgroundColor = 'rgb(234, 88, 12)'
   }
 }
 
 const handleButtonMouseLeave = (e: MouseEvent) => {
   if (!disabled.value && modelValue.value.trim()) {
-    ;(e.currentTarget as HTMLButtonElement).style.backgroundColor =
-      'rgb(249, 115, 22)'
+    ;(e.currentTarget as HTMLButtonElement).style.backgroundColor = 'rgb(249, 115, 22)'
   }
 }
 </script>
@@ -89,21 +87,20 @@ const handleButtonMouseLeave = (e: MouseEvent) => {
   <!-- Default implementation -->
   <div
     v-else
-    :class
+    :class="props.class"
     data-chat-input
     :style="{
       display: 'flex',
       gap: '0.75rem',
       alignItems: 'center',
-      width: '100%',
+      width: '100%'
     }"
   >
     <input
-      type="text"
       v-model="modelValue"
-      @keydown="handleKeyDown"
-      :placeholder
-      :disabled
+      type="text"
+      :placeholder="placeholder"
+      :disabled="disabled"
       data-chat-textarea
       :style="{
         flex: 1,
@@ -114,13 +111,13 @@ const handleButtonMouseLeave = (e: MouseEvent) => {
         backgroundColor: 'rgba(31, 41, 55, 0.5)',
         color: 'white',
         outline: 'none',
-        transition: 'all 0.2s',
+        transition: 'all 0.2s'
       }"
+      @keydown="handleKeyDown"
       @focus="handleInputFocus"
       @blur="handleInputBlur"
     />
     <button
-      @click="handleSubmit"
       :disabled="disabled || !modelValue.trim()"
       data-chat-submit
       :style="{
@@ -133,8 +130,9 @@ const handleButtonMouseLeave = (e: MouseEvent) => {
         borderRadius: '0.75rem',
         cursor: buttonCursor,
         transition: 'all 0.2s',
-        whiteSpace: 'nowrap',
+        whiteSpace: 'nowrap'
       }"
+      @click="handleSubmit"
       @mouseenter="handleButtonMouseEnter"
       @mouseleave="handleButtonMouseLeave"
     >

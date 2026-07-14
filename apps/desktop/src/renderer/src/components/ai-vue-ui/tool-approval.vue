@@ -1,7 +1,11 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { useChatContext } from './use-chat-context'
-import type { ToolApprovalProps, ToolApprovalRenderProps } from './types'
+import type {
+  ChatSlotContent,
+  ToolApprovalProps,
+  ToolApprovalRenderProps,
+} from './types'
 
 const props = defineProps<ToolApprovalProps>()
 
@@ -11,7 +15,7 @@ const emit = defineEmits<{
 }>()
 
 defineSlots<{
-  default?: (props: ToolApprovalRenderProps) => any
+  default?: (props: ToolApprovalRenderProps) => ChatSlotContent
 }>()
 
 const { addToolApprovalResponse } = useChatContext()
@@ -51,7 +55,7 @@ const slotProps = computed<ToolApprovalRenderProps>(() => ({
   <!-- Already responded - show decision -->
   <div
     v-else-if="hasResponded"
-    :class
+    :class="props.class"
     data-tool-approval
     :data-approval-status="approval.approved ? 'approved' : 'denied'"
   >
@@ -59,7 +63,12 @@ const slotProps = computed<ToolApprovalRenderProps>(() => ({
   </div>
 
   <!-- Default approval UI -->
-  <div v-else :class data-tool-approval data-approval-status="pending">
+  <div
+    v-else
+    :class="props.class"
+    data-tool-approval
+    data-approval-status="pending"
+  >
     <div data-approval-header>
       <strong>{{ toolName }}</strong> requires approval
     </div>

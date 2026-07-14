@@ -1,5 +1,11 @@
-import type { ConnectionAdapter, UIMessage } from '@tanstack/ai-vue'
 import type { PluggableList } from '@crazydos/vue-markdown'
+import type { AnyClientTool } from '@tanstack/ai'
+import type { ConnectionAdapter, UIMessage } from '@tanstack/ai-vue'
+import type { DeepReadonly, VNodeChild } from 'vue'
+
+export type ChatUIMessage = DeepReadonly<UIMessage<ReadonlyArray<AnyClientTool>>>
+export type ChatMessagePart = ChatUIMessage['parts'][number]
+export type ChatSlotContent = VNodeChild
 
 export interface ChatProps {
   /** CSS class name for the root element */
@@ -15,14 +21,9 @@ export interface ChatProps {
   /** Keep a persistent subscription open for server-pushed events */
   live?: boolean
   /** Additional body data to send with requests */
-  body?: any
+  body?: Record<string, unknown>
   /** Client-side tools with execute functions */
-  tools?: Array<any>
-  /** Custom tool components registry for rendering */
-  // toolComponents?: Record<
-  //   string,
-  //   (props: { input: any; output?: any }) => JSX.Element
-  // >
+  tools?: ReadonlyArray<AnyClientTool>
 }
 
 export interface ChatInputProps {
@@ -61,13 +62,17 @@ export interface ToolCallRenderProps {
   name: string
   arguments: string
   state: string
-  approval?: any
-  output?: any
+  approval?: {
+    id: string
+    needsApproval: boolean
+    approved?: boolean
+  }
+  output?: unknown
 }
 
 export interface ChatMessageProps {
   /** The message to render (accepts readonly from useChat) */
-  message: any // Using any to accept DeepReadonly<UIMessage> from useChat
+  message: ChatUIMessage
   /** Base CSS class name */
   class?: string
   /** Additional class for user messages */
@@ -111,7 +116,7 @@ export interface ToolApprovalProps {
   /** Tool name */
   toolName: string
   /** Parsed tool arguments/input */
-  input: any
+  input: unknown
   /** Approval metadata */
   approval: {
     id: string
@@ -126,7 +131,7 @@ export interface ToolApprovalRenderProps {
   /** Tool name */
   toolName: string
   /** Parsed input */
-  input: any
+  input: unknown
   /** Approve the tool call */
   onApprove: () => void
   /** Deny the tool call */
