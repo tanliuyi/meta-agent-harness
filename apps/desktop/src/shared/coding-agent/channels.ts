@@ -29,13 +29,21 @@ export const codingAgentChannels = {
   getThread: 'coding-agent:get-thread',
   /** 获取线程快照。 */
   getSnapshot: 'coding-agent:get-snapshot',
-  /** 打开/切换当前页面 session message feed，并原子完成订阅与 snapshot。 */
+  /** 连接当前 WebContents 的 AG-UI thread stream。 */
+  connectAgent: 'coding-agent:connect-agent',
+  /** 按 thread 所有权断开当前 WebContents 的 AG-UI stream。 */
+  disconnectAgent: 'coding-agent:disconnect-agent',
+  /** 按当前 WebContents/thread 定向发送的标准 AG-UI event。 */
+  agentEvent: 'coding-agent:session-agent-event',
+  /** @deprecated 使用 connectAgent。 */
   openSessionMessageFeed: 'coding-agent:open-session-message-feed',
-  /** 关闭当前页面 session message feed。 */
+  /** @deprecated 使用 disconnectAgent。 */
   closeSessionMessageFeed: 'coding-agent:close-session-message-feed',
-  /** 按当前 WebContents/session 定向发送的标准 AG-UI event。 */
+  /** @deprecated 使用 agentEvent；保留相同 wire channel 供迁移期兼容。 */
   sessionAgentEvent: 'coding-agent:session-agent-event',
-  /** 向线程发送用户提示。 */
+  /** 使用标准 AG-UI RunAgentInput 发起一次 agent run。 */
+  runAgent: 'coding-agent:run-agent',
+  /** @deprecated 使用 runAgent。 */
   prompt: 'coding-agent:prompt',
   /** 向线程发送引导/转向输入。 */
   steer: 'coding-agent:steer',

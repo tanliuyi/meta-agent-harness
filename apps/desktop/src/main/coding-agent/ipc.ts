@@ -3,7 +3,7 @@
  */
 
 import { app, dialog, ipcMain, shell, type IpcMainInvokeEvent, type WebContents } from 'electron'
-import type { AGUIEvent } from '@ag-ui/core'
+import type { AGUIEvent, RunAgentInput } from '@ag-ui/core'
 import { readFile, realpath, rm, stat } from 'node:fs/promises'
 import { basename, extname, join } from 'node:path'
 import { randomUUID } from 'node:crypto'
@@ -13,6 +13,7 @@ import { fail, ok } from '@shared/coding-agent/ipc-contract'
 import {
   assertPromptImageBytes,
   assertPromptImageCount,
+  assertPromptImagePayload,
   assertPromptImageTotalBytes,
   MAX_PROMPT_IMAGE_BYTES
 } from '@shared/coding-agent/prompt-image-limits'
@@ -36,8 +37,10 @@ import type {
   AgentSessionIpcEvent,
   CodingAgentIpcEvent,
   CompactInput,
+  ConnectAgentInput,
   CreateThreadInput,
   DiagnosticsInput,
+  DisconnectAgentInput,
   DesktopCapabilityAccessMode,
   ExtensionEditorTextInput,
   ExtensionPanelDisposeInput,
@@ -66,6 +69,7 @@ import type {
   OpenChangedFileInput,
   PromptImageDraft,
   PromptImageAttachment,
+  PromptImage,
   PromptInput,
   ApprovalResponseInput,
   ProjectExtensionPathsInput,
@@ -242,14 +246,14 @@ function registerCodingAgentIpcUnchecked(
             const repository = sessionMessages.repository
             if (!repository) return
             for (const event of repository.record(ipcEvent)) {
-              publishSessionAgentEvent(sessionFeeds.subscriptions, ipcEvent.threadId, event)
+              publishAgentEvent(sessionFeeds.subscriptions, ipcEvent.threadId, event)
             }
             if (ipcEvent.type === 'compaction_end' || ipcEvent.type === 'message_end') {
               repository.invalidate(ipcEvent.threadId)
               void repository
                 .get(ipcEvent.threadId)
                 .then((snapshot) =>
-                  publishSessionAgentEvent(sessionFeeds.subscriptions, ipcEvent.threadId, snapshot)
+                  publishAgentEvent(sessionFeeds.subscriptions, ipcEvent.threadId, snapshot)
                 )
                 .catch(() => undefined)
             }
@@ -369,6 +373,43 @@ function registerCodingAgentIpcUnchecked(
   handle(manager, codingAgentChannels.getSnapshot, async (threadId: string) =>
     toNonChatSnapshot(await manager.getSnapshot(threadId))
   )
+  handleWithEvent(
+    manager,
+    codingAgentChannels.connectAgent,
+    async (event, input: ConnectAgentInput) => {
+      assertRendererSessionId(input?.threadId)
+      await sessionFeeds.connect(event.sender, input.threadId, () =>
+        sessionMessages.repository!.get(input.threadId)
+      )
+    }
+  )
+  handleWithEvent(
+    manager,
+    codingAgentChannels.disconnectAgent,
+    (event, input: DisconnectAgentInput) => {
+      assertRendererSessionId(input?.threadId)
+      sessionFeeds.close(event.sender, input.threadId)
+    }
+  )
+  handleWithEvent(manager, codingAgentChannels.runAgent, async (event, input: RunAgentInput) => {
+    const promptInput = toPromptInput(input)
+    const repository = sessionMessages.repository!
+    repository.prepareRun(input.threadId, input.runId)
+    try {
+      const connected = await sessionFeeds.connectRun(
+        event.sender,
+        input.threadId,
+        () => repository.mergeMessages(input.threadId, input.messages),
+        () => repository.startPreparedRun(input.threadId, input.runId)
+      )
+      if (!connected) throw new Error('Agent connection was superseded before the run started')
+      await manager.prompt(promptInput)
+    } catch (error) {
+      repository.cancelPreparedRun(input.threadId, input.runId)
+      throw error
+    }
+  })
+  // Deprecated compatibility handlers. New consumers receive the snapshot on the AG-UI stream.
   handleWithEvent(
     manager,
     codingAgentChannels.openSessionMessageFeed,
@@ -860,53 +901,104 @@ function handleWithEvent<TArgs extends unknown[], TResult>(
 }
 
 /** Serializes open/close requests independently for each renderer WebContents. */
+interface SessionAgentConnectionRequest {
+  sessionId: string
+  token: object
+}
+
 export class SessionAgentSubscriptionManager {
   readonly subscriptions = new Map<WebContents, string>()
-  private readonly requests = new WeakMap<WebContents, object>()
+  private readonly requests = new WeakMap<WebContents, SessionAgentConnectionRequest>()
   private readonly observedWebContents = new WeakSet<WebContents>()
 
+  /** Connects one WebContents to a thread and emits its snapshot as the first AG-UI event. */
+  async connect(
+    webContents: WebContents,
+    sessionId: string,
+    loadSnapshot: () => Promise<AGUIEvent>
+  ): Promise<boolean> {
+    const request = this.begin(webContents, sessionId)
+    const snapshot = await loadSnapshot()
+    if (!this.isCurrent(webContents, request)) return false
+    this.subscriptions.set(webContents, sessionId)
+    webContents.send(codingAgentChannels.agentEvent, snapshot)
+    return true
+  }
+
+  /** Connects a standard run stream with RUN_STARTED before its initial snapshot. */
+  async connectRun(
+    webContents: WebContents,
+    sessionId: string,
+    loadSnapshot: () => Promise<AGUIEvent>,
+    startRun: () => AGUIEvent
+  ): Promise<boolean> {
+    const request = this.begin(webContents, sessionId)
+    const snapshot = await loadSnapshot()
+    if (!this.isCurrent(webContents, request)) return false
+    const started = startRun()
+    this.subscriptions.set(webContents, sessionId)
+    webContents.send(codingAgentChannels.agentEvent, started)
+    webContents.send(codingAgentChannels.agentEvent, snapshot)
+    return true
+  }
+
+  /** @deprecated Returns the snapshot outside the AG-UI stream for legacy renderers. */
   async open<T>(
     webContents: WebContents,
     sessionId: string,
     loadSnapshot: () => Promise<T>
   ): Promise<T> {
-    const token = this.begin(webContents)
+    const request = this.begin(webContents, sessionId)
     const snapshot = await loadSnapshot()
-    if (this.requests.get(webContents) === token && !webContents.isDestroyed()) {
+    if (this.isCurrent(webContents, request)) {
       this.subscriptions.set(webContents, sessionId)
     }
     return snapshot
   }
 
-  close(webContents: WebContents): void {
+  close(webContents: WebContents, expectedSessionId?: string): void {
+    if (expectedSessionId) {
+      const request = this.requests.get(webContents)
+      const subscribedSessionId = this.subscriptions.get(webContents)
+      if (request?.sessionId !== expectedSessionId && subscribedSessionId !== expectedSessionId) {
+        return
+      }
+    }
     this.requests.delete(webContents)
     this.subscriptions.delete(webContents)
   }
 
-  private begin(webContents: WebContents): object {
+  private begin(webContents: WebContents, sessionId: string): SessionAgentConnectionRequest {
     this.close(webContents)
-    const token = {}
-    this.requests.set(webContents, token)
+    const request = { sessionId, token: {} }
+    this.requests.set(webContents, request)
     if (!this.observedWebContents.has(webContents)) {
       this.observedWebContents.add(webContents)
       webContents.once('destroyed', () => this.close(webContents))
     }
-    return token
+    return request
+  }
+
+  private isCurrent(webContents: WebContents, request: SessionAgentConnectionRequest): boolean {
+    return this.requests.get(webContents)?.token === request.token && !webContents.isDestroyed()
   }
 }
 
-/** 只向当前打开对应 session feed 的窗口发送标准 AG-UI event。 */
-export function publishSessionAgentEvent(
+/** Only publishes a standard AG-UI event to windows connected to the matching thread. */
+export function publishAgentEvent(
   subscribers: Map<WebContents, string>,
-  sessionId: string,
+  threadId: string,
   event: AGUIEvent
 ): void {
-  for (const [webContents, subscribedSessionId] of subscribers) {
-    if (!webContents.isDestroyed() && subscribedSessionId === sessionId) {
-      webContents.send(codingAgentChannels.sessionAgentEvent, event)
+  for (const [webContents, subscribedThreadId] of subscribers) {
+    if (!webContents.isDestroyed() && subscribedThreadId === threadId) {
+      webContents.send(codingAgentChannels.agentEvent, event)
     }
   }
 }
+
+/** @deprecated Use publishAgentEvent. */
+export const publishSessionAgentEvent = publishAgentEvent
 
 function toNonChatSnapshot(snapshot: ThreadSnapshot): ThreadSnapshot {
   return { ...snapshot, messages: [] }
@@ -924,6 +1016,55 @@ function assertRendererSessionId(sessionId: string | undefined): asserts session
   if (typeof sessionId !== 'string' || !sessionId.trim()) {
     throw new Error('sessionId is required')
   }
+}
+
+/** Converts the AG-UI run request into the stateful Pi runtime's next user prompt. */
+export function toPromptInput(input: RunAgentInput): PromptInput {
+  if (!input || typeof input !== 'object') throw new Error('RunAgentInput is required')
+  assertRendererSessionId(input.threadId)
+  if (typeof input.runId !== 'string' || !input.runId.trim()) {
+    throw new Error('runId is required')
+  }
+  if (!Array.isArray(input.messages)) throw new Error('messages must be an array')
+  if (!Array.isArray(input.tools)) throw new Error('tools must be an array')
+  if (input.tools.length > 0) {
+    throw new Error('Client-provided AG-UI tools are not supported by the desktop Pi runtime')
+  }
+
+  const userMessage = input.messages.findLast((message) => message.role === 'user')
+  if (!userMessage || userMessage.role !== 'user') {
+    throw new Error('RunAgentInput must contain a user message')
+  }
+  if (typeof userMessage.content === 'string') {
+    if (!userMessage.content.trim()) throw new Error('User message must not be empty')
+    return { threadId: input.threadId, message: userMessage.content }
+  }
+  if (!Array.isArray(userMessage.content)) throw new Error('User message content is invalid')
+
+  const text: string[] = []
+  const images: PromptImage[] = []
+  for (const part of userMessage.content) {
+    if (part.type === 'text') {
+      if (typeof part.text !== 'string') throw new Error('Text input content is invalid')
+      text.push(part.text)
+      continue
+    }
+    if (part.type !== 'image') {
+      throw new Error(`AG-UI ${part.type} input is not supported by the desktop Pi runtime`)
+    }
+    if (part.source.type !== 'data') {
+      throw new Error('AG-UI image URL inputs are not supported by the desktop Pi runtime')
+    }
+    if (!part.source.mimeType.startsWith('image/')) {
+      throw new Error('AG-UI image input must use an image MIME type')
+    }
+    images.push({ type: 'image', mimeType: part.source.mimeType, data: part.source.value })
+  }
+
+  const message = text.join('')
+  if (!message.trim() && images.length === 0) throw new Error('User message must not be empty')
+  assertPromptImagePayload({ images })
+  return { threadId: input.threadId, message, ...(images.length ? { images } : {}) }
 }
 
 function isAgentSessionIpcEvent(event: CodingAgentIpcEvent): event is AgentSessionIpcEvent {

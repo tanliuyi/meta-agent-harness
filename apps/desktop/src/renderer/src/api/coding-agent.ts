@@ -4,15 +4,17 @@
  * 统一封装 window.api.codingAgent 的所有调用，提供类型安全的 API 接口。
  */
 
-import type { AGUIEvent } from '@ag-ui/core'
+import type { AGUIEvent, RunAgentInput } from '@ag-ui/core'
 import type {
   AgentSettingsSnapshot,
   ApprovalResponseInput,
   CodingAgentIpcEvent,
   CompactInput,
+  ConnectAgentInput,
   CreateThreadInput,
   CustomProviderSummary,
   DiagnosticsInput,
+  DisconnectAgentInput,
   ExportSessionInput,
   ExportSessionResult,
   ExtensionPanelDisposeInput,
@@ -159,14 +161,29 @@ export const codingAgentApi = {
     return window.api.codingAgent.getSnapshot(threadId)
   },
 
-  /** 切换当前 WebContents 的页面 feed */
+  /** 连接 thread 的 AG-UI event stream。 */
+  connectAgent(input: ConnectAgentInput): Promise<void> {
+    return window.api.codingAgent.connectAgent(input)
+  },
+
+  /** 按 thread 所有权断开 AG-UI event stream。 */
+  disconnectAgent(input: DisconnectAgentInput): Promise<void> {
+    return window.api.codingAgent.disconnectAgent(input)
+  },
+
+  /** @deprecated 使用 connectAgent，并从 onAgentEvent 接收 MESSAGES_SNAPSHOT。 */
   openSessionMessageFeed(input: OpenSessionMessageFeedInput) {
     return window.api.codingAgent.openSessionMessageFeed(input)
   },
 
-  /** 关闭当前 WebContents 的页面 message feed */
+  /** @deprecated 使用 disconnectAgent。 */
   closeSessionMessageFeed(): Promise<void> {
     return window.api.codingAgent.closeSessionMessageFeed()
+  },
+
+  /** 使用标准 AG-UI input 发起一次 agent run。 */
+  runAgent(input: RunAgentInput): Promise<void> {
+    return window.api.codingAgent.runAgent(input)
   },
 
   /** 设置线程标题 */
@@ -191,7 +208,7 @@ export const codingAgentApi = {
 
   // ==================== 消息与交互 ====================
 
-  /** 向线程发送提示 */
+  /** @deprecated 使用 runAgent。 */
   prompt(input: PromptInput): Promise<void> {
     return window.api.codingAgent.prompt(input)
   },
@@ -587,7 +604,12 @@ export const codingAgentApi = {
     return window.api.codingAgent.onEvent(listener)
   },
 
-  /** 监听 main 按当前页面 session 定向发送的标准 AG-UI event */
+  /** 监听当前已连接 thread 的标准 AG-UI event。 */
+  onAgentEvent(listener: (event: AGUIEvent) => void): () => void {
+    return window.api.codingAgent.onAgentEvent(listener)
+  },
+
+  /** @deprecated 使用 onAgentEvent。 */
   onSessionAgentEvent(listener: (event: AGUIEvent) => void): () => void {
     return window.api.codingAgent.onSessionAgentEvent(listener)
   }

@@ -22,6 +22,7 @@ import { MIN_WORKSPACE_MAIN_SESSION_WIDTH, WORKSPACE_RESIZER_WIDTH } from './wor
 const app = useAppStore()
 const appearanceSettings = useAppearanceSettings()
 const workspaceSession = useWorkspaceSessionStore()
+
 const workspaceUi = useWorkspaceUiStore()
 const workspaceRef = ref<HTMLElement | null>(null)
 const isSidebarResizing = ref(false)
@@ -129,13 +130,6 @@ const workspaceGridAreas = computed(() => {
         <line x1="9" y1="3" x2="9" y2="21" />
       </svg>
     </BaseIconButton>
-    <button
-      v-if="workspaceUi.sidebarOpen"
-      type="button"
-      class="workspace__sidebar-backdrop"
-      aria-label="关闭工作区导航"
-      @click="workspaceUi.sidebarOpen = false"
-    />
     <Sidebar v-show="workspaceUi.sidebarOpen" class="workspace__sidebar" />
 
     <ResizablePaneSeparator
@@ -150,15 +144,18 @@ const workspaceGridAreas = computed(() => {
 
     <ResizeDragShield v-if="isSidebarResizing" />
 
-    <RouterView v-slot="{ Component }">
-      <component
-        :is="Component"
-        class="workspace__content"
-        :style="{
-          '--session-header-padding-left':
-            !workspaceUi.sidebarOpen && app.isMac ? '124px' : undefined
-        }"
-      />
+    <RouterView v-slot="{ Component, route }">
+      <KeepAlive>
+        <component
+          :is="Component"
+          :key="route.params.sessionId"
+          class="workspace__content"
+          :style="{
+            '--session-header-padding-left':
+              !workspaceUi.sidebarOpen && app.isMac ? '124px' : undefined
+          }"
+        />
+      </KeepAlive>
     </RouterView>
   </main>
 </template>
@@ -200,10 +197,6 @@ const workspaceGridAreas = computed(() => {
 
 .workspace__sidebar {
   grid-area: sidebar;
-}
-
-.workspace__sidebar-backdrop {
-  display: none;
 }
 
 .workspace__resizer {

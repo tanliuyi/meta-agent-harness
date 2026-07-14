@@ -41,10 +41,16 @@ type CodingAgentApi = {
   getThread(threadId: string): Promise<ThreadSnapshot>
   getSnapshot(threadId: string): Promise<ThreadSnapshot>
 
-  // 页面 sessionId 当前等同 desktop threadId；底层 Pi session ID 不替换 thread identity。
-  openSessionMessageFeed(input: { sessionId: string }): Promise<MessagesSnapshotEvent>
-  closeSessionMessageFeed(): Promise<void>
+  // AG-UI threadId 当前等同 desktop threadId；底层 Pi session ID 不替换 thread identity。
+  connectAgent(input: { threadId: string }): Promise<void>
+  disconnectAgent(input: { threadId: string }): Promise<void>
+  runAgent(input: RunAgentInput): Promise<void>
 
+  /** @deprecated 使用 connectAgent；MESSAGES_SNAPSHOT 从 event stream 接收。 */
+  openSessionMessageFeed(input: { sessionId: string }): Promise<MessagesSnapshotEvent>
+  /** @deprecated 使用 disconnectAgent。 */
+  closeSessionMessageFeed(): Promise<void>
+  /** @deprecated 使用 runAgent。 */
   prompt(input: PromptInput): Promise<void>
   steer(input: TextInput): Promise<void>
   followUp(input: TextInput): Promise<void>
@@ -76,6 +82,8 @@ type CodingAgentApi = {
   respondApproval(input: ApprovalResponseInput): Promise<void>
 
   onEvent(listener: (event: CodingAgentIpcEvent) => void): () => void
+  onAgentEvent(listener: (event: AGUIEvent) => void): () => void
+  /** @deprecated 使用 onAgentEvent。 */
   onSessionAgentEvent(listener: (event: AGUIEvent) => void): () => void
 }
 ```
@@ -96,9 +104,11 @@ type CodingAgentIpcEvent =
 
 - 返回 unsubscribe。
 - main 应按 window 订阅状态转发，避免无关窗口收到全部事件。
-- `openSessionMessageFeed` 必须先等待 main repository 初始化并取得 `MESSAGES_SNAPSHOT`，再同步切换调用方 WebContents 的 session 订阅并返回；`closeSessionMessageFeed` 在页面无 active session 时清除订阅。
-- canonical Pi events 只进入 main adapter；session 定向通道在线路上只发送 `@ag-ui/core` 的 `AGUIEvent`，不得附加 `sessionId`、revision 或自定义 envelope。普通 `onEvent` 保留 project、projection、worker、approval、tree/changes 等非 chat 功能。
-- renderer 先安装 `onSessionAgentEvent` listener 再调用 open，并缓存 open 返回前到达的标准事件；repository 初始化前的 Pi events 归入返回 snapshot，注册后的 AG-UI events 进入 renderer buffer，不维护 revision 或 journal。
+- renderer 先安装 `onAgentEvent` listener，再调用 `connectAgent({ threadId })`；main repository 初始化期间的 Pi events 必须归入 snapshot，并将 `MESSAGES_SNAPSHOT` 作为连接成功后的第一条 AG-UI event 发送。
+- `disconnectAgent({ threadId })` 只在当前 WebContents 的连接仍属于该 thread 时断开，迟到的旧组件清理不得影响新连接。
+- `runAgent(input: RunAgentInput)` 使用标准 `threadId`、`runId` 和 message 输入；run stream 必须以请求对应的 `RUN_STARTED` 开始，随后才可发送 `MESSAGES_SNAPSHOT` 和增量事件，并以 `RUN_FINISHED` 或 `RUN_ERROR` 结束。Electron attach 是 transport 细节，不改变 `AbstractAgent.run()` 的官方生命周期。
+- canonical Pi events 只进入 main adapter；thread 定向通道在线路上只发送 `@ag-ui/core` 的 `AGUIEvent`，不得附加 `sessionId`、revision 或自定义 envelope。普通 `onEvent` 保留 project、projection、worker、approval、tree/changes 等非 chat 功能。
+- `openSessionMessageFeed`、`closeSessionMessageFeed` 与 `onSessionAgentEvent` 仅为迁移期兼容接口；新链路不通过 invoke 返回 snapshot，也不维护 revision 或 journal。
 - compaction 完成后 main 失效 repository，从 canonical source 重载，并向仍订阅该 session 的窗口发送新的标准 `MESSAGES_SNAPSHOT`。
 - 事件 payload 不包含 secret。
 - 错误事件结构化。

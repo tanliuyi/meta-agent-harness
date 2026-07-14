@@ -12,6 +12,7 @@ type PiMessageEvent = Extract<
 interface ThreadAdapterState {
   sequence: number
   runId?: string
+  requestedRunId?: string
   runErrorMessage?: string
   messageId?: string
   lastAssistantMessageId?: string
@@ -23,16 +24,51 @@ interface ThreadAdapterState {
 export class PiAgUiAdapter {
   private readonly states = new Map<string, ThreadAdapterState>()
 
+  prepareRun(threadId: string, runId: string): void {
+    const state = this.state(threadId)
+    if (state.requestedRunId || state.runId) {
+      throw new Error(`Agent run already active for thread ${threadId}`)
+    }
+    state.requestedRunId = runId
+  }
+
+  startPreparedRun(threadId: string, runId: string): AGUIEvent {
+    const state = this.state(threadId)
+    if (state.requestedRunId !== runId) {
+      throw new Error(`Agent run ${runId} is not prepared for thread ${threadId}`)
+    }
+    state.requestedRunId = undefined
+    state.runId = runId
+    state.runErrorMessage = undefined
+    return { type: EventType.RUN_STARTED, threadId, runId }
+  }
+
+  cancelPreparedRun(threadId: string, runId: string): void {
+    const state = this.state(threadId)
+    if (state.requestedRunId === runId) state.requestedRunId = undefined
+    if (state.runId === runId) {
+      state.runId = undefined
+      state.runErrorMessage = undefined
+    }
+  }
+
   adapt(event: AgentSessionIpcEvent): AGUIEvent[] {
     const state = this.state(event.threadId)
     switch (event.type) {
       case 'agent_start': {
-        const runId = `${event.threadId}-run-${++state.sequence}`
+        if (state.runId) {
+          // The transport may have opened the run already, and Pi retries use the same AG-UI run.
+          state.runErrorMessage = undefined
+          return []
+        }
+        const runId = state.requestedRunId ?? `${event.threadId}-run-${++state.sequence}`
+        state.requestedRunId = undefined
         state.runId = runId
         state.runErrorMessage = undefined
         return [{ type: EventType.RUN_STARTED, threadId: event.threadId, runId }]
       }
       case 'agent_end': {
+        if (event.willRetry) return []
         const runId = state.runId ?? `${event.threadId}-run-${++state.sequence}`
         const errorMessage = state.runErrorMessage ?? getRunErrorMessage(event.messages)
         state.runId = undefined

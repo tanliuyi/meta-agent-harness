@@ -71,6 +71,109 @@ describe('SessionMessageRepository', () => {
     expect(EventSchemas.safeParse(snapshot).success).toBe(true)
   })
 
+  it('merges client input into the main-owned snapshot for later reconnects', async () => {
+    const repository = new SessionMessageRepository(async () => [])
+    await repository.mergeMessages('thread-a', [
+      { id: 'persisted-user', role: 'user', content: 'Existing' }
+    ])
+
+    const runSnapshot = await repository.mergeMessages('thread-a', [
+      { id: 'persisted-user', role: 'user', content: 'Stale client copy' },
+      { id: 'current-user', role: 'user', content: 'Current prompt' }
+    ])
+    const reconnectSnapshot = await repository.get('thread-a')
+
+    expect(runSnapshot.messages).toEqual([
+      { id: 'persisted-user', role: 'user', content: 'Existing' },
+      { id: 'current-user', role: 'user', content: 'Current prompt' }
+    ])
+    expect(reconnectSnapshot).toEqual(runSnapshot)
+  })
+
+  it('uses the AG-UI request runId for the next canonical agent run', () => {
+    const repository = new SessionMessageRepository(async () => [])
+    repository.prepareRun('thread-a', 'run-from-client')
+
+    const started = repository.startPreparedRun('thread-a', 'run-from-client')
+    const duplicateStart = repository.record({ type: 'agent_start', threadId: 'thread-a' })
+    const finished = repository.record({
+      type: 'agent_end',
+      threadId: 'thread-a',
+      messages: [],
+      willRetry: false
+    })
+
+    expect(started).toEqual({
+      type: EventType.RUN_STARTED,
+      threadId: 'thread-a',
+      runId: 'run-from-client'
+    })
+    expect(duplicateStart).toEqual([])
+    expect(finished).toEqual([
+      { type: EventType.RUN_FINISHED, threadId: 'thread-a', runId: 'run-from-client' }
+    ])
+  })
+
+  it('rejects a second requested or active run for the same thread', () => {
+    const repository = new SessionMessageRepository(async () => [])
+    repository.prepareRun('thread-a', 'run-a')
+    expect(() => repository.prepareRun('thread-a', 'run-b')).toThrow('already active')
+
+    repository.startPreparedRun('thread-a', 'run-a')
+    expect(() => repository.prepareRun('thread-a', 'run-c')).toThrow('already active')
+  })
+
+  it('keeps one AG-UI runId across Pi automatic retries', () => {
+    const repository = new SessionMessageRepository(async () => [])
+    repository.prepareRun('thread-a', 'run-a')
+
+    const firstStart = repository.startPreparedRun('thread-a', 'run-a')
+    const retryBoundary = repository.record({
+      type: 'agent_end',
+      threadId: 'thread-a',
+      messages: [],
+      willRetry: true
+    })
+    const retryStart = repository.record({ type: 'agent_start', threadId: 'thread-a' })
+    const finalEnd = repository.record({
+      type: 'agent_end',
+      threadId: 'thread-a',
+      messages: [],
+      willRetry: false
+    })
+
+    expect(firstStart).toEqual({
+      type: EventType.RUN_STARTED,
+      threadId: 'thread-a',
+      runId: 'run-a'
+    })
+    expect(retryBoundary).toEqual([])
+    expect(retryStart).toEqual([])
+    expect(finalEnd).toEqual([
+      { type: EventType.RUN_FINISHED, threadId: 'thread-a', runId: 'run-a' }
+    ])
+  })
+
+  it('cancels a prepared runId when dispatch fails', () => {
+    const repository = new SessionMessageRepository(async () => [])
+    repository.prepareRun('thread-a', 'cancelled-run')
+    repository.cancelPreparedRun('thread-a', 'cancelled-run')
+
+    const [started] = repository.record({ type: 'agent_start', threadId: 'thread-a' })
+
+    expect(started).toMatchObject({ type: EventType.RUN_STARTED, threadId: 'thread-a' })
+    expect(started).not.toHaveProperty('runId', 'cancelled-run')
+  })
+
+  it('cancels a run opened before prompt dispatch so the thread can run again', () => {
+    const repository = new SessionMessageRepository(async () => [])
+    repository.prepareRun('thread-a', 'failed-run')
+    repository.startPreparedRun('thread-a', 'failed-run')
+    repository.cancelPreparedRun('thread-a', 'failed-run')
+
+    expect(() => repository.prepareRun('thread-a', 'retry-run')).not.toThrow()
+  })
+
   it('emits schema-valid RUN, TEXT, TOOL and RAW events without desktop envelope fields', () => {
     const repository = new SessionMessageRepository(async () => [])
     const toolStartEvents = repository.record({

@@ -34,7 +34,7 @@ import type { RpcResponse } from '@coding-agent-src/modes/rpc/rpc-types'
 import type { SourceInfo } from '@coding-agent-src/core/source-info'
 import type { ImageContent } from '@earendil-works/pi-ai'
 import type { ResourcesSnapshot as PackageResourcesSnapshot } from '@coding-agent-src/core/resource-snapshot'
-import type { AGUIEvent, MessagesSnapshotEvent } from '@ag-ui/core'
+import type { AGUIEvent, MessagesSnapshotEvent, RunAgentInput } from '@ag-ui/core'
 
 /** 线程状态。 */
 export type ThreadStatus = ThreadRuntimeState
@@ -1476,7 +1476,22 @@ export type AgentSessionIpcEvent = PackageAgentSessionEvent & {
  */
 export type RendererSessionId = string
 
-/** 打开/切换 renderer-facing session message feed 的输入。 */
+/** 连接一个由 AG-UI 标准事件驱动的 thread stream。 */
+export interface ConnectAgentInput {
+  /** AG-UI conversation thread ID，当前等同 desktop thread ID。 */
+  threadId: RendererSessionId
+}
+
+/** 断开当前 WebContents 持有的 thread stream。 */
+export interface DisconnectAgentInput {
+  /** 仅当当前连接仍属于该 thread 时才断开，防止迟到清理影响新连接。 */
+  threadId: RendererSessionId
+}
+
+/**
+ * 打开/切换 renderer-facing session message feed 的输入。
+ * @deprecated 使用 ConnectAgentInput 和 connectAgent()。
+ */
 export interface OpenSessionMessageFeedInput {
   /** 当前等同 threadId，见 RendererSessionId。 */
   sessionId: RendererSessionId
@@ -1584,11 +1599,26 @@ export interface CodingAgentApi {
   getThread(threadId: string): Promise<ThreadSnapshot>
   /** 获取线程快照。 */
   getSnapshot(threadId: string): Promise<ThreadSnapshot>
-  /** 切换当前 WebContents 的页面 feed，并返回 main-owned message projection。 */
+  /** 连接 thread 的 AG-UI event stream；首个事件为 MESSAGES_SNAPSHOT。 */
+  connectAgent(input: ConnectAgentInput): Promise<void>
+  /** 仅在当前连接仍属于指定 thread 时断开 AG-UI event stream。 */
+  disconnectAgent(input: DisconnectAgentInput): Promise<void>
+  /**
+   * 切换当前 WebContents 的页面 feed，并返回 main-owned message projection。
+   * @deprecated 使用 connectAgent()，并从 onAgentEvent() 接收 MESSAGES_SNAPSHOT。
+   */
   openSessionMessageFeed(input: OpenSessionMessageFeedInput): Promise<MessagesSnapshotEvent>
-  /** 关闭当前 WebContents 的页面 message feed。 */
+  /**
+   * 关闭当前 WebContents 的页面 message feed。
+   * @deprecated 使用 disconnectAgent()。
+   */
   closeSessionMessageFeed(): Promise<void>
-  /** 向线程发送提示。 */
+  /** 使用标准 AG-UI input 发起一次 agent run，并通过 onAgentEvent() 接收事件流。 */
+  runAgent(input: RunAgentInput): Promise<void>
+  /**
+   * 向线程发送提示。
+   * @deprecated 使用 runAgent()。
+   */
   prompt(input: PromptInput): Promise<void>
   /** 向线程发送引导输入。 */
   steer(input: TextInput): Promise<void>
@@ -1744,6 +1774,11 @@ export interface CodingAgentApi {
   updateResourcePackage(input?: UpdateResourcePackageInput): Promise<ResourcePackageSummary[]>
   /** 注册事件监听器，返回取消订阅函数。 */
   onEvent(listener: (event: CodingAgentIpcEvent) => void): () => void
-  /** 监听 main 按当前页面 session 定向发送的标准 AG-UI event。 */
+  /** 监听当前已连接 thread 的标准 AG-UI event。 */
+  onAgentEvent(listener: (event: AGUIEvent) => void): () => void
+  /**
+   * 监听 main 按当前页面 session 定向发送的标准 AG-UI event。
+   * @deprecated 使用 onAgentEvent()。
+   */
   onSessionAgentEvent(listener: (event: AGUIEvent) => void): () => void
 }

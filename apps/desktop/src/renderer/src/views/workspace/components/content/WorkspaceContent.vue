@@ -14,7 +14,6 @@ import {
   type SessionPanelState
 } from '@renderer/composables/useSessionContext'
 import { useResizablePane } from '@renderer/composables/useResizablePane'
-import useWorkspaceProjectStore from '@renderer/stores/workspace-project'
 import useWorkspaceSessionStore from '@renderer/stores/workspace-session'
 import {
   isWorkspaceRouteName,
@@ -28,16 +27,16 @@ import {
   createStableSessionInfo,
   createStableSessionPanelState
 } from './state/workspace-content-state'
-import { loadWorkspaceStartupData } from './state/workspace-startup'
 
 const workspaceSession = useWorkspaceSessionStore()
-const workspaceProject = useWorkspaceProjectStore()
 const route = useRoute()
 const router = useRouter()
 const startupReady = ref(false)
 const SessionPanel = defineAsyncComponent(
   () => import('@renderer/components/session/SessionPanel.vue')
 )
+
+// workspaceSession.loadThreads(undefined, { deferActiveSnapshot: true, restoreActiveThread: false })
 
 /** 内容区容器元素引用。 */
 const workspaceContentRef = ref<HTMLElement | null>(null)
@@ -165,12 +164,7 @@ onMounted(async () => {
     shouldRenderSessionPanel.value = true
   })
 
-  await loadWorkspaceStartupData({
-    loadProjects: workspaceProject.loadProjects,
-    loadThreads: workspaceSession.loadThreads
-  })
-  startupReady.value = true
-  await activateRouteSession(routeSessionId.value)
+  activateRouteSession(routeSessionId.value)
 })
 
 onBeforeUnmount(() => {

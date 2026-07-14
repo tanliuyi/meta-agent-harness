@@ -23,12 +23,18 @@ const router = createRouter({
       path: '/',
       name: WORKSPACE_ROUTE_NAME,
       component: WorkspaceRouteView,
-      redirect: { name: WORKSPACE_SESSION_ROUTE_NAME, params: { sessionId: 'new' } },
+      redirect: { name: 'WorkspaceNew' },
       children: [
+        {
+          path: 'new',
+          name: 'WorkspaceNew',
+          component: () => import('@/views/workspace/components/content/WorkspaceNew.vue')
+        },
         {
           path: ':sessionId',
           name: WORKSPACE_SESSION_ROUTE_NAME,
-          component: () => import('@/views/workspace/components/content/WorkspaceContent.vue')
+          component: () => import('@/views/workspace/components/content/WorkspaceSession.vue'),
+          props: true
         }
       ]
     },

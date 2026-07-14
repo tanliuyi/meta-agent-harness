@@ -2,7 +2,7 @@
  * 本文件测试 main IPC event 转换与窗口路由。
  */
 
-import { EventSchemas, EventType } from '@ag-ui/core'
+import { EventSchemas, EventType, type AGUIEvent } from '@ag-ui/core'
 import { describe, expect, it, vi } from 'vitest'
 import { codingAgentChannels } from '@shared/coding-agent/channels'
 import {
@@ -11,7 +11,8 @@ import {
   SessionAgentSubscriptionManager,
   syncThreadStatusFromWorkerEvent,
   syncThreadStatusFromWorkerLifecycle,
-  toCodingAgentIpcEvent
+  toCodingAgentIpcEvent,
+  toPromptInput
 } from '../ipc'
 import { normalizeAllowedExternalUrl } from '../external-url'
 import type { CodingAgentIpcEvent } from '@shared/coding-agent/types'
@@ -34,6 +35,72 @@ describe('coding agent IPC events', () => {
     expect(normalizeAllowedExternalUrl('my-oauth://callback?code=1', 'full')).toBe(
       'my-oauth://callback?code=1'
     )
+  })
+
+  it('将标准 AG-UI RunAgentInput 映射为 Pi prompt', () => {
+    expect(
+      toPromptInput({
+        threadId: 'thread-a',
+        runId: 'run-a',
+        messages: [
+          {
+            id: 'user-a',
+            role: 'user',
+            content: [
+              { type: 'text', text: 'describe' },
+              {
+                type: 'image',
+                source: { type: 'data', value: 'YQ==', mimeType: 'image/png' }
+              }
+            ]
+          }
+        ],
+        tools: [],
+        state: {},
+        context: [],
+        forwardedProps: {}
+      })
+    ).toEqual({
+      threadId: 'thread-a',
+      message: 'describe',
+      images: [{ type: 'image', data: 'YQ==', mimeType: 'image/png' }]
+    })
+  })
+
+  it('显式拒绝 desktop Pi runtime 尚不支持的 AG-UI 输入能力', () => {
+    const base = {
+      threadId: 'thread-a',
+      runId: 'run-a',
+      messages: [{ id: 'user-a', role: 'user' as const, content: 'hello' }],
+      state: {},
+      context: [],
+      forwardedProps: {}
+    }
+
+    expect(() =>
+      toPromptInput({
+        ...base,
+        tools: [{ name: 'clientTool', description: 'client tool', parameters: {} }]
+      })
+    ).toThrow('Client-provided AG-UI tools are not supported')
+    expect(() =>
+      toPromptInput({
+        ...base,
+        tools: [],
+        messages: [
+          {
+            id: 'user-a',
+            role: 'user',
+            content: [
+              {
+                type: 'image',
+                source: { type: 'url', value: 'https://example.com/image.png' }
+              }
+            ]
+          }
+        ]
+      })
+    ).toThrow('image URL inputs are not supported')
   })
 
   it('将 worker agent/projection envelope 转成 renderer IPC event', () => {
@@ -208,6 +275,119 @@ describe('coding agent IPC events', () => {
     expect(EventSchemas.safeParse(event).success).toBe(true)
     expect(event).not.toHaveProperty('sessionId')
     expect(event).not.toHaveProperty('revision')
+  })
+
+  it('connect 将 MESSAGES_SNAPSHOT 作为已连接 thread 的首个 AG-UI event', async () => {
+    const manager = new SessionAgentSubscriptionManager()
+    const webContents = {
+      once: vi.fn(),
+      isDestroyed: () => false,
+      send: vi.fn()
+    }
+    const snapshot: AGUIEvent = {
+      type: EventType.MESSAGES_SNAPSHOT,
+      messages: [{ id: 'message-a', role: 'assistant', content: 'hello' }]
+    }
+
+    const connected = await manager.connect(webContents as never, 'thread-a', async () => snapshot)
+
+    expect(connected).toBe(true)
+    expect(manager.subscriptions.get(webContents as never)).toBe('thread-a')
+    expect(webContents.send).toHaveBeenCalledOnce()
+    expect(webContents.send).toHaveBeenCalledWith(codingAgentChannels.agentEvent, snapshot)
+    expect(EventSchemas.safeParse(snapshot).success).toBe(true)
+  })
+
+  it('connectRun 按官方顺序先发送 RUN_STARTED，再发送 MESSAGES_SNAPSHOT', async () => {
+    const manager = new SessionAgentSubscriptionManager()
+    const webContents = {
+      once: vi.fn(),
+      isDestroyed: () => false,
+      send: vi.fn()
+    }
+    const started: AGUIEvent = {
+      type: EventType.RUN_STARTED,
+      threadId: 'thread-a',
+      runId: 'run-a'
+    }
+    const snapshot: AGUIEvent = { type: EventType.MESSAGES_SNAPSHOT, messages: [] }
+
+    const connected = await manager.connectRun(
+      webContents as never,
+      'thread-a',
+      async () => snapshot,
+      () => started
+    )
+
+    expect(connected).toBe(true)
+    expect(webContents.send).toHaveBeenNthCalledWith(1, codingAgentChannels.agentEvent, started)
+    expect(webContents.send).toHaveBeenNthCalledWith(2, codingAgentChannels.agentEvent, snapshot)
+  })
+
+  it('迟到 connect 和旧 thread disconnect 不影响当前连接', async () => {
+    const manager = new SessionAgentSubscriptionManager()
+    const webContents = {
+      once: vi.fn(),
+      isDestroyed: () => false,
+      send: vi.fn()
+    }
+    let releaseA!: () => void
+    const connectA = manager.connect(
+      webContents as never,
+      'thread-a',
+      () =>
+        new Promise<AGUIEvent>((resolve) => {
+          releaseA = () => resolve({ type: EventType.MESSAGES_SNAPSHOT, messages: [] })
+        })
+    )
+
+    const snapshotB: AGUIEvent = { type: EventType.MESSAGES_SNAPSHOT, messages: [] }
+    const connectedB = await manager.connect(
+      webContents as never,
+      'thread-b',
+      async () => snapshotB
+    )
+    manager.close(webContents as never, 'thread-a')
+    expect(manager.subscriptions.get(webContents as never)).toBe('thread-b')
+
+    releaseA()
+    expect(await connectA).toBe(false)
+    expect(connectedB).toBe(true)
+    expect(manager.subscriptions.get(webContents as never)).toBe('thread-b')
+    expect(webContents.send).toHaveBeenCalledOnce()
+    expect(webContents.send).toHaveBeenCalledWith(codingAgentChannels.agentEvent, snapshotB)
+  })
+
+  it('旧 thread disconnect 不会取消新 thread 的 pending connect', async () => {
+    const manager = new SessionAgentSubscriptionManager()
+    const webContents = {
+      once: vi.fn(),
+      isDestroyed: () => false,
+      send: vi.fn()
+    }
+    await manager.connect(webContents as never, 'thread-a', async () => ({
+      type: EventType.MESSAGES_SNAPSHOT,
+      messages: []
+    }))
+    let releaseB!: () => void
+    const connectB = manager.connect(
+      webContents as never,
+      'thread-b',
+      () =>
+        new Promise<AGUIEvent>((resolve) => {
+          releaseB = () => resolve({ type: EventType.MESSAGES_SNAPSHOT, messages: [] })
+        })
+    )
+
+    manager.close(webContents as never, 'thread-a')
+    releaseB()
+    await connectB
+
+    expect(manager.subscriptions.get(webContents as never)).toBe('thread-b')
+    expect(webContents.send).toHaveBeenLastCalledWith(codingAgentChannels.agentEvent, {
+      type: EventType.MESSAGES_SNAPSHOT,
+      messages: []
+    })
   })
 
   it('A(slow)-B(fast)-A 只允许最新 open 登记订阅', async () => {

@@ -56,6 +56,7 @@ interface ProjectListItem {
 }
 
 const workspaceProject = useWorkspaceProjectStore()
+
 const workspaceSession = useWorkspaceSessionStore()
 const workspaceUi = useWorkspaceUiStore()
 const { threadSortMode } = useWorkspaceViewSettings()
@@ -70,6 +71,9 @@ const defaultProjectExpansion: Readonly<ProjectExpansion> = Object.freeze({
   displayCount: 5,
   hasExpanded: false
 })
+
+workspaceProject.loadProjects()
+workspaceSession.loadThreads()
 
 function readProjectExpansion(projectId: string): Readonly<ProjectExpansion> {
   return expandedProjects.value[projectId] ?? defaultProjectExpansion
@@ -482,13 +486,16 @@ function getProjectTrustIcon(project: ProjectSummary): Component | undefined {
                 <SidebarThreadItem
                   v-for="threadItem in projectItem.visibleThreads"
                   :key="threadItem.thread.threadId"
-                  :active="threadItem.thread.threadId === workspaceSession.activeSessionId"
+                  :active="$route.params.sessionId === threadItem.thread.threadId"
                   :current-time="currentTime"
                   :depth="threadItem.depth"
                   :thread="threadItem.thread"
                   @menu-action="runThreadMenuAction"
                   @navigate-leaf="navigateThreadLeaf"
-                  @select-thread="workspaceSession.setActiveSessionId"
+                  @select-thread="
+                    (sessionId) =>
+                      $router.push({ name: `WorkspaceSession`, params: { sessionId: sessionId } })
+                  "
                 />
 
                 <li

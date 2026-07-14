@@ -105,9 +105,15 @@ const codingAgent: CodingAgentApi = {
   listThreads: (input) => invokeCodingAgent(codingAgentChannels.listThreads, input),
   getThread: (threadId) => invokeCodingAgent(codingAgentChannels.getThread, threadId),
   getSnapshot: (threadId) => invokeCodingAgent(codingAgentChannels.getSnapshot, threadId),
+  connectAgent: (input) => invokeCodingAgent(codingAgentChannels.connectAgent, input),
+  disconnectAgent: (input) => invokeCodingAgent(codingAgentChannels.disconnectAgent, input),
+  /** @deprecated 使用 connectAgent。 */
   openSessionMessageFeed: (input) =>
     invokeCodingAgent(codingAgentChannels.openSessionMessageFeed, input),
+  /** @deprecated 使用 disconnectAgent。 */
   closeSessionMessageFeed: () => invokeCodingAgent(codingAgentChannels.closeSessionMessageFeed),
+  runAgent: (input) => invokeCodingAgent(codingAgentChannels.runAgent, input),
+  /** @deprecated 使用 runAgent。 */
   prompt: (input) => invokePromptInput(codingAgentChannels.prompt, input),
   steer: (input) => invokePromptInput(codingAgentChannels.steer, input),
   followUp: (input) => invokePromptInput(codingAgentChannels.followUp, input),
@@ -225,6 +231,13 @@ const codingAgent: CodingAgentApi = {
       ipcRenderer.send(codingAgentChannels.event, 'unsubscribe')
     }
   },
+  onAgentEvent: (listener) => {
+    const handler = (_event: Electron.IpcRendererEvent, payload: AGUIEvent): void =>
+      listener(payload)
+    ipcRenderer.on(codingAgentChannels.agentEvent, handler)
+    return () => ipcRenderer.off(codingAgentChannels.agentEvent, handler)
+  },
+  /** @deprecated 使用 onAgentEvent。 */
   onSessionAgentEvent: (listener) => {
     const handler = (_event: Electron.IpcRendererEvent, payload: AGUIEvent): void =>
       listener(payload)

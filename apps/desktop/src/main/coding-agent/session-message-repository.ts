@@ -23,6 +23,18 @@ export class SessionMessageRepository {
 
   constructor(private readonly loadMessages: (sessionId: string) => Promise<ThreadMessage[]>) {}
 
+  prepareRun(sessionId: string, runId: string): void {
+    this.adapter.prepareRun(sessionId, runId)
+  }
+
+  startPreparedRun(sessionId: string, runId: string): AGUIEvent {
+    return this.adapter.startPreparedRun(sessionId, runId)
+  }
+
+  cancelPreparedRun(sessionId: string, runId: string): void {
+    this.adapter.cancelPreparedRun(sessionId, runId)
+  }
+
   record(event: AgentSessionIpcEvent): AGUIEvent[] {
     const state = this.ensureState(event.threadId)
     const events = this.adapter.adapt(event)
@@ -51,6 +63,19 @@ export class SessionMessageRepository {
       await state.loading
     }
     return createMessagesSnapshot(state.messages)
+  }
+
+  async mergeMessages(sessionId: string, messages: Message[]): Promise<MessagesSnapshotEvent> {
+    await this.get(sessionId)
+    const state = this.ensureState(sessionId)
+    const messageIds = new Set(state.messages!.map((message) => message.id))
+    for (const message of messages) {
+      if (!messageIds.has(message.id)) {
+        state.messages!.push(message)
+        messageIds.add(message.id)
+      }
+    }
+    return createMessagesSnapshot(state.messages!)
   }
 
   replace(sessionId: string, messages: ThreadMessage[]): void {
