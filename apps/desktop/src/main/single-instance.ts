@@ -2,6 +2,14 @@
  * 管理第二实例触发的主窗口聚焦，并覆盖 app ready 前窗口尚未创建的时序。
  */
 
+export interface SingleInstanceApp {
+  requestSingleInstanceLock(): boolean
+}
+
+export function acquireSingleInstanceLock(app: SingleInstanceApp, isDevelopment: boolean): boolean {
+  return isDevelopment || app.requestSingleInstanceLock()
+}
+
 export interface SingleInstanceWindow {
   isDestroyed(): boolean
   isMinimized(): boolean

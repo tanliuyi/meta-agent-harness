@@ -2,8 +2,10 @@
  * workspace-session.ts - 管理 renderer 中 coding thread 的状态与 IPC 调用。
  */
 
+import { EventType } from '@ag-ui/core'
+import type { AGUIEvent, Message } from '@ag-ui/core'
 import { defineStore } from 'pinia'
-import { computed, reactive, ref, shallowReactive } from 'vue'
+import { computed, reactive, ref, shallowReactive, shallowRef } from 'vue'
 import router from '@renderer/router'
 import useWorkspaceProjectStore from './workspace-project'
 import {
@@ -33,6 +35,7 @@ import {
   getExtensionDialogInitialDraft,
   removeExtensionDialog
 } from './workspace-session-extension'
+import { reduceAgUiMessages } from '@shared/coding-agent/ag-ui-messages'
 import { toDesktopMessageContent } from '@shared/coding-agent/types'
 import type { JSONContent } from '@tiptap/vue-3'
 import type {
@@ -58,6 +61,7 @@ import type {
   ThreadMessage,
   ThreadSummary
 } from '@shared/coding-agent/types'
+import { codingAgentApi, windowControlApi } from '@renderer/api'
 
 const PROMPT_TITLE_MAX_CHARS = 30
 const EXTENSION_INLINE_NOTIFY_MAX_CHARS = 180
@@ -516,6 +520,14 @@ export default defineStore('workspace-session', () => {
   let toolUpdateEventFlushId: number | null = null
   let deferredSnapshotRefreshTimer: ReturnType<typeof setTimeout> | undefined
 
+  /** 当前页面唯一持有的 session messages；sessionId 当前明确等同 threadId。 */
+  const activeSessionMessages = shallowRef<Message[]>([])
+  let activeMessageSessionId: string | undefined
+  let activeMessageRequestGeneration = 0
+  let activeMessageFeedLoading = false
+  let pendingSessionAgentEvents: AGUIEvent[] = []
+  let unsubscribeSessionAgentEvent: (() => void) | undefined
+
   /**
    * 确保指定上下文存在。
    * @param contextId - 上下文 ID。
@@ -886,7 +898,11 @@ export default defineStore('workspace-session', () => {
     contextId = defaultSessionContextId
   ): void {
     const context = ensureSessionContext(contextId)
+    const previousThreadId = context.activeThreadId
     context.activeThreadId = threadId
+    if (contextId === defaultSessionContextId && previousThreadId !== threadId) {
+      void activateSessionMessageFeed(threadId)
+    }
     writeSessionActiveThreadId(threadId, contextId)
     if (threadId) {
       context.sessionPanels[threadId] ??=
@@ -906,7 +922,11 @@ export default defineStore('workspace-session', () => {
    */
   function startNewSession(projectId: string, contextId = defaultSessionContextId): void {
     const context = ensureSessionContext(contextId)
+    const previousThreadId = context.activeThreadId
     context.activeThreadId = undefined
+    if (contextId === defaultSessionContextId && previousThreadId) {
+      void activateSessionMessageFeed(undefined)
+    }
     writeSessionActiveThreadId(undefined, contextId)
     context.orphanCommands = []
     context.orphanCommandsLoaded = false
@@ -1184,23 +1204,20 @@ export default defineStore('workspace-session', () => {
     )
   }
 
-  /**
-   * 从完整快照同步消息渲染状态。
-   * @param snapshot - 线程快照。
-   * @param streamingMessageIds - snapshot 刷新期间从 renderer live 投影保留的消息 ID。
-   */
-  function syncRenderStateFromSnapshot(
-    snapshot: ThreadSnapshot,
+  /** 从指定 message projection 初始化渲染状态，不要求 messages 存在于 ThreadSnapshot。 */
+  function syncRenderStateFromMessages(
+    threadId: string,
+    messages: readonly { id: string }[],
     streamingMessageIds: ReadonlySet<string> = new Set()
   ): void {
-    const runtime = ensureRuntime(snapshot.threadId)
-    const messageIds = new Set(snapshot.messages.map((message) => message.id))
+    const runtime = ensureRuntime(threadId)
+    const messageIds = new Set(messages.map((message) => message.id))
     for (const messageId of Object.keys(runtime.renderState)) {
       if (!messageIds.has(messageId)) {
         delete runtime.renderState[messageId]
       }
     }
-    for (const message of snapshot.messages) {
+    for (const message of messages) {
       runtime.renderState[message.id] = {
         revision: runtime.renderState[message.id]?.revision ?? 1,
         renderState: streamingMessageIds.has(message.id) ? 'streaming' : 'complete'
@@ -1595,6 +1612,203 @@ export default defineStore('workspace-session', () => {
     () => loadingThreads.value || Boolean(activeRuntime.value?.loadingSnapshot)
   )
 
+  function hasSessionMessageFeedApi(): boolean {
+    const preloadApi = window.api?.codingAgent
+    return (
+      typeof preloadApi?.onSessionAgentEvent === 'function' &&
+      typeof preloadApi.openSessionMessageFeed === 'function' &&
+      typeof preloadApi.closeSessionMessageFeed === 'function'
+    )
+  }
+
+  /** 清理离开页面的 message 与按 message 建立的 render state。 */
+  function clearSessionMessageState(threadId: string | undefined): void {
+    if (!threadId) return
+    const session = sessions[threadId]
+    if (session?.snapshot?.messages.length) {
+      sessions[threadId] = {
+        ...session,
+        snapshot: { ...session.snapshot, messages: [] }
+      }
+    }
+    const runtime = getRuntime(threadId)
+    if (runtime) runtime.renderState = {}
+    discardPendingProjectionEvents(threadId)
+  }
+
+  /** 订阅先于 snapshot；generation 防止快速 A -> B -> A 的迟到响应覆盖当前页面。 */
+  async function activateSessionMessageFeed(sessionId: string | undefined): Promise<void> {
+    if (!hasSessionMessageFeedApi()) return
+    const previousSessionId = activeMessageSessionId
+    const generation = ++activeMessageRequestGeneration
+    unsubscribeSessionAgentEvent?.()
+    unsubscribeSessionAgentEvent = undefined
+    pendingSessionAgentEvents = []
+    activeMessageFeedLoading = false
+    activeMessageSessionId = sessionId
+    activeSessionMessages.value = []
+    clearSessionMessageState(previousSessionId)
+    if (sessionId !== previousSessionId) clearSessionMessageState(sessionId)
+
+    if (!sessionId) {
+      try {
+        await codingAgentApi.closeSessionMessageFeed()
+      } catch (error) {
+        globalErrorMessage.value = error instanceof Error ? error.message : String(error)
+      }
+      return
+    }
+
+    unsubscribeSessionAgentEvent = codingAgentApi.onSessionAgentEvent((event) => {
+      if (generation !== activeMessageRequestGeneration) return
+      if (activeMessageFeedLoading) {
+        pendingSessionAgentEvents.push(event)
+        return
+      }
+      applySessionAgentEvent(event, generation)
+    })
+
+    try {
+      // Listener first; main initializes its snapshot with Pi-event buffering, then synchronously
+      // switches this WebContents subscription before returning the standard snapshot.
+      await reloadActiveSessionMessages(generation)
+    } catch (error) {
+      if (generation === activeMessageRequestGeneration) {
+        ensureRuntime(sessionId).errorMessage =
+          error instanceof Error ? error.message : String(error)
+      }
+    }
+  }
+
+  async function reloadActiveSessionMessages(
+    generation = activeMessageRequestGeneration
+  ): Promise<void> {
+    if (!hasSessionMessageFeedApi()) return
+    const sessionId = activeMessageSessionId
+    if (!sessionId || generation !== activeMessageRequestGeneration) return
+    activeMessageFeedLoading = true
+    try {
+      const snapshot = await codingAgentApi.openSessionMessageFeed({ sessionId })
+      if (generation !== activeMessageRequestGeneration || activeMessageSessionId !== sessionId) {
+        return
+      }
+      activeSessionMessages.value = snapshot.messages
+      syncRenderStateFromMessages(sessionId, activeSessionMessages.value)
+
+      const queued = pendingSessionAgentEvents
+      pendingSessionAgentEvents = []
+      for (const event of queued) applySessionAgentEvent(event, generation)
+    } finally {
+      if (generation === activeMessageRequestGeneration) activeMessageFeedLoading = false
+    }
+  }
+
+  function applySessionAgentEvent(event: AGUIEvent, generation: number): void {
+    if (generation !== activeMessageRequestGeneration) return
+    activeSessionMessages.value = reduceAgUiMessages(activeSessionMessages.value, event)
+    const threadId = activeMessageSessionId
+    if (!threadId) return
+
+    if (event.type === EventType.MESSAGES_SNAPSHOT) {
+      syncRenderStateFromMessages(threadId, activeSessionMessages.value)
+      return
+    }
+    if (event.type === EventType.RUN_STARTED) {
+      if (sessions[threadId]) sessions[threadId] = applySessionStatus(sessions[threadId], 'running')
+      ensureRuntime(threadId).errorMessage = undefined
+      return
+    }
+    if (event.type === EventType.STEP_STARTED) {
+      if (sessions[threadId]) sessions[threadId] = applySessionStatus(sessions[threadId], 'running')
+      return
+    }
+    if (event.type === EventType.RUN_FINISHED || event.type === EventType.RUN_ERROR) {
+      if (sessions[threadId]) sessions[threadId] = applySessionStatus(sessions[threadId], 'idle')
+      if (event.type === EventType.RUN_ERROR) ensureRuntime(threadId).errorMessage = event.message
+      return
+    }
+    if (
+      event.type === EventType.TOOL_CALL_START ||
+      event.type === EventType.TOOL_CALL_ARGS ||
+      event.type === EventType.TOOL_CALL_RESULT
+    ) {
+      applyAgUiToolRuntimeEvent(threadId, event)
+      return
+    }
+    if (
+      event.type === EventType.TEXT_MESSAGE_START ||
+      event.type === EventType.TEXT_MESSAGE_CONTENT ||
+      event.type === EventType.REASONING_MESSAGE_START ||
+      event.type === EventType.REASONING_MESSAGE_CONTENT
+    ) {
+      bumpMessageRevision(threadId, event.messageId, 'streaming')
+      return
+    }
+    if (
+      event.type === EventType.TEXT_MESSAGE_END ||
+      event.type === EventType.REASONING_MESSAGE_END
+    ) {
+      bumpMessageRevision(threadId, event.messageId, 'complete')
+      invalidateSessionTreeBranches(threadId)
+      return
+    }
+    if (event.type === EventType.RAW && event.source === 'pi-coding-agent') {
+      handleEvent(event.event as AgentSessionIpcEvent, { skipMessageProjection: true })
+    }
+  }
+
+  function applyAgUiToolRuntimeEvent(
+    threadId: string,
+    event: Extract<
+      AGUIEvent,
+      {
+        type: EventType.TOOL_CALL_START | EventType.TOOL_CALL_ARGS | EventType.TOOL_CALL_RESULT
+      }
+    >
+  ): void {
+    if (event.type === EventType.TOOL_CALL_START) {
+      handleEvent(
+        {
+          type: 'tool_execution_start',
+          threadId,
+          toolCallId: event.toolCallId,
+          toolName: event.toolCallName,
+          args: {}
+        },
+        { skipMessageProjection: true }
+      )
+      return
+    }
+    const existing = sessions[threadId]?.snapshot?.toolCalls.find(
+      (toolCall) => toolCall.toolCallId === event.toolCallId
+    )
+    if (event.type === EventType.TOOL_CALL_ARGS) {
+      handleEvent(
+        {
+          type: 'tool_execution_update',
+          threadId,
+          toolCallId: event.toolCallId,
+          toolName: existing?.toolName ?? 'tool',
+          args: parseAgUiToolArgs(event.delta),
+          partialResult: undefined
+        },
+        { skipMessageProjection: true }
+      )
+      return
+    }
+    handleEvent(
+      {
+        type: 'tool_execution_end',
+        threadId,
+        toolCallId: event.toolCallId,
+        toolName: existing?.toolName ?? 'tool',
+        result: event.content,
+        isError: getAgUiToolResultIsError(event)
+      },
+      { skipMessageProjection: true }
+    )
+  }
+
   /**
    * 加载所有 thread 列表。
    * 仅刷新仍然有效的活跃 thread；没有活跃 thread 时默认保持新会话空态。
@@ -1610,7 +1824,7 @@ export default defineStore('workspace-session', () => {
     loadingThreads.value = true
     globalErrorMessage.value = undefined
     try {
-      const loadedThreads = await window.api.codingAgent.listThreads()
+      const loadedThreads = await codingAgentApi.listThreads()
       const threads = loadedThreads.filter((thread) => !thread.archivedAt)
       for (const thread of threads) {
         mergeSession(sessions, thread)
@@ -1679,11 +1893,11 @@ export default defineStore('workspace-session', () => {
     loadingThreads.value = true
     globalErrorMessage.value = undefined
     try {
-      const snapshot = await window.api.codingAgent.createThread({ projectId, ...options })
+      const snapshot = await codingAgentApi.createThread({ projectId, ...options })
       mergeSnapshot(sessions, snapshot)
       syncToolCallsByIdFromSnapshot(snapshot)
       ensureRuntime(snapshot.threadId)
-      syncRenderStateFromSnapshot(snapshot)
+      syncRenderStateFromMessages(snapshot.threadId, snapshot.messages)
       setContextActiveThreadId(snapshot.threadId, contextId)
       workspaceProject.setActiveProjectId(snapshot.projectId)
       return snapshot
@@ -1707,7 +1921,7 @@ export default defineStore('workspace-session', () => {
     runtime.loadingSnapshot = true
     runtime.errorMessage = undefined
     try {
-      const incomingSnapshot = await window.api.codingAgent.getSnapshot(threadId)
+      const incomingSnapshot = await codingAgentApi.getSnapshot(threadId)
       const existing = sessions[threadId]
       const streamingMessageIds = getStreamingMessageIds(runtime)
       const snapshot = preserveStreamingMessages(
@@ -1725,7 +1939,7 @@ export default defineStore('workspace-session', () => {
       })
       syncToolCallsByIdFromSnapshot(snapshot)
       syncPendingInteractionsFromSnapshot(snapshot)
-      syncRenderStateFromSnapshot(snapshot, streamingMessageIds)
+      syncRenderStateFromMessages(snapshot.threadId, snapshot.messages, streamingMessageIds)
     } catch (error) {
       runtime.errorMessage = error instanceof Error ? error.message : String(error)
     } finally {
@@ -1763,7 +1977,7 @@ export default defineStore('workspace-session', () => {
     modelOptionsLoadingByThreadId[threadId] = true
     ensureRuntime(threadId).errorMessage = undefined
     try {
-      modelOptionsByThreadId[threadId] = await window.api.codingAgent.listModels(threadId)
+      modelOptionsByThreadId[threadId] = await codingAgentApi.listModels(threadId)
     } catch (error) {
       ensureRuntime(threadId).errorMessage = error instanceof Error ? error.message : String(error)
     } finally {
@@ -1789,7 +2003,7 @@ export default defineStore('workspace-session', () => {
     context.orphanCommandsLoading = true
     globalErrorMessage.value = undefined
     try {
-      const snapshot = await window.api.codingAgent.getResourceSnapshot({
+      const snapshot = await codingAgentApi.getResourceSnapshot({
         projectId: project.projectId
       })
       const extensionCommands = snapshot.extensions.flatMap((extension) =>
@@ -1853,7 +2067,7 @@ export default defineStore('workspace-session', () => {
     }
     ensureRuntime(threadId).errorMessage = undefined
     try {
-      await window.api.codingAgent.setModel({ threadId, provider, modelId })
+      await codingAgentApi.setModel({ threadId, provider, modelId })
       await refreshSnapshot(threadId)
     } catch (error) {
       ensureRuntime(threadId).errorMessage = error instanceof Error ? error.message : String(error)
@@ -1870,7 +2084,7 @@ export default defineStore('workspace-session', () => {
     const runtime = ensureRuntime(threadId)
     runtime.errorMessage = undefined
     try {
-      const result = await window.api.codingAgent.cycleModel(threadId)
+      const result = await codingAgentApi.cycleModel(threadId)
       if (result) {
         pushSessionNotification(threadId, `已切换模型到 ${getModelLabel(result.model)}`)
       } else {
@@ -1898,7 +2112,7 @@ export default defineStore('workspace-session', () => {
     const runtime = ensureRuntime(threadId)
     runtime.errorMessage = undefined
     try {
-      await window.api.codingAgent.setThinkingLevel({ threadId, level })
+      await codingAgentApi.setThinkingLevel({ threadId, level })
       await refreshSnapshot(threadId)
     } catch (error) {
       runtime.errorMessage = error instanceof Error ? error.message : String(error)
@@ -1915,7 +2129,7 @@ export default defineStore('workspace-session', () => {
     const runtime = ensureRuntime(threadId)
     runtime.errorMessage = undefined
     try {
-      const result = await window.api.codingAgent.cycleThinkingLevel(threadId)
+      const result = await codingAgentApi.cycleThinkingLevel(threadId)
       pushSessionNotification(
         threadId,
         result ? `Thinking 已切换到 ${result.level}` : '当前模型不支持切换 thinking'
@@ -1956,7 +2170,7 @@ export default defineStore('workspace-session', () => {
     const pendingThreadId = crypto.randomUUID()
     pendingDraftThreadIds.add(pendingThreadId)
     try {
-      const snapshot = await window.api.codingAgent.createThread({
+      const snapshot = await codingAgentApi.createThread({
         threadId: pendingThreadId,
         projectId: context.selectedProjectId,
         ...(orphanModel
@@ -1966,7 +2180,7 @@ export default defineStore('workspace-session', () => {
       })
       mergeSnapshot(sessions, snapshot)
       syncToolCallsByIdFromSnapshot(snapshot)
-      syncRenderStateFromSnapshot(snapshot)
+      syncRenderStateFromMessages(snapshot.threadId, snapshot.messages)
       const threadId = snapshot.threadId
       context.sessionPanels[threadId] = orphanPanel
       context.composerDrafts[threadId] = orphanDraft
@@ -2054,7 +2268,7 @@ export default defineStore('workspace-session', () => {
         ? undefined
         : getInitialPromptTitle(session, message)
       if (initialTitle) {
-        const updatedThread = await window.api.codingAgent.setThreadTitle({
+        const updatedThread = await codingAgentApi.setThreadTitle({
           threadId: targetThreadId,
           title: initialTitle
         })
@@ -2082,12 +2296,12 @@ export default defineStore('workspace-session', () => {
       }
       if (isQueuedWhileRunning) {
         if (runningDelivery === 'followUp') {
-          await window.api.codingAgent.followUp(input)
+          await codingAgentApi.followUp(input)
         } else {
-          await window.api.codingAgent.steer(input)
+          await codingAgentApi.steer(input)
         }
       } else {
-        await window.api.codingAgent.prompt(input)
+        await codingAgentApi.prompt(input)
       }
       clearComposerDraft(targetThreadId, contextId)
       clearComposerImages(targetThreadId, contextId)
@@ -2118,7 +2332,7 @@ export default defineStore('workspace-session', () => {
     if (!threadId) {
       return
     }
-    await window.api.codingAgent.abort(threadId)
+    await codingAgentApi.abort(threadId)
     await refreshSnapshot(threadId)
   }
 
@@ -2133,7 +2347,7 @@ export default defineStore('workspace-session', () => {
       scope?: ApprovalResponse['scope']
     }
   ): Promise<void> => {
-    await window.api.codingAgent.respondApproval({
+    await codingAgentApi.respondApproval({
       threadId: approval.threadId,
       response: {
         approvalId: approval.approvalId,
@@ -2158,7 +2372,7 @@ export default defineStore('workspace-session', () => {
     runtime.extensionDialogResponding[response.id] = true
     delete runtime.extensionDialogErrors[response.id]
     try {
-      await window.api.codingAgent.respondUi({ threadId, response })
+      await codingAgentApi.respondUi({ threadId, response })
       runtime.extensionDialogQueue = removeExtensionDialog(
         runtime.extensionDialogQueue,
         response.id
@@ -2238,7 +2452,7 @@ export default defineStore('workspace-session', () => {
     try {
       commandsByThreadId[threadId] = mergeCommandInfos(
         builtinCommands,
-        await window.api.codingAgent.getCommands(threadId)
+        await codingAgentApi.getCommands(threadId)
       )
       commandsLoadedByThreadId[threadId] = true
     } catch (error) {
@@ -2290,7 +2504,7 @@ export default defineStore('workspace-session', () => {
     state.errorMessage = undefined
     state.requestKey = requestKey
     try {
-      const result = await window.api.codingAgent.loadSessionTreeBranches({
+      const result = await codingAgentApi.loadSessionTreeBranches({
         threadId,
         query: options.query,
         filter: options.filter
@@ -2348,7 +2562,7 @@ export default defineStore('workspace-session', () => {
       if (!targetThreadId) {
         return
       }
-      const result = await window.api.codingAgent.runCommand({
+      const result = await codingAgentApi.runCommand({
         threadId: targetThreadId,
         command,
         ...(args ? { args } : {})
@@ -2439,7 +2653,7 @@ export default defineStore('workspace-session', () => {
         await router.push('/settings/archive')
         return { handled: true, message: '已打开会话归档' }
       case 'quit':
-        await window.api.windowControl.close()
+        await windowControlApi.close()
         return { handled: true }
       default:
         return { handled: false }
@@ -2459,7 +2673,7 @@ export default defineStore('workspace-session', () => {
       return
     }
     try {
-      await window.api.codingAgent.syncExtensionEditorText({ threadId, text })
+      await codingAgentApi.syncExtensionEditorText({ threadId, text })
     } catch {
       // 编辑器同步是扩展运行时的辅助缓存，不应打断用户输入。
     }
@@ -2479,7 +2693,7 @@ export default defineStore('workspace-session', () => {
       return false
     }
     try {
-      return await window.api.codingAgent.dispatchExtensionShortcut({ threadId, shortcut })
+      return await codingAgentApi.dispatchExtensionShortcut({ threadId, shortcut })
     } catch (error) {
       ensureRuntime(threadId).errorMessage = error instanceof Error ? error.message : String(error)
       return false
@@ -2495,7 +2709,7 @@ export default defineStore('workspace-session', () => {
       return
     }
     try {
-      await window.api.codingAgent.runCommand({ threadId, command: 'reload' })
+      await codingAgentApi.runCommand({ threadId, command: 'reload' })
       commandsLoadedByThreadId[threadId] = false
       commandsByThreadId[threadId] = []
       await loadCommands(threadId)
@@ -2527,7 +2741,7 @@ export default defineStore('workspace-session', () => {
       sessions[threadId] = applySessionStatus(sessions[threadId], 'running')
     }
     try {
-      const result = await window.api.codingAgent.compact({ threadId, customInstructions })
+      const result = await codingAgentApi.compact({ threadId, customInstructions })
       runtime.compaction = {
         ...runtime.compaction,
         reason: runtime.compaction?.reason ?? 'manual',
@@ -2570,7 +2784,7 @@ export default defineStore('workspace-session', () => {
       return
     }
     try {
-      await window.api.codingAgent.setAutoCompaction({ threadId, enabled })
+      await codingAgentApi.setAutoCompaction({ threadId, enabled })
       pushSessionNotification(threadId, enabled ? '自动压缩已启用' : '自动压缩已关闭')
       await refreshSnapshot(threadId)
     } catch (error) {
@@ -2589,7 +2803,7 @@ export default defineStore('workspace-session', () => {
       return
     }
     try {
-      await window.api.codingAgent.setAutoRetry({ threadId, enabled })
+      await codingAgentApi.setAutoRetry({ threadId, enabled })
       pushSessionNotification(threadId, enabled ? '自动重试已启用' : '自动重试已关闭')
       await refreshSnapshot(threadId)
     } catch (error) {
@@ -2605,7 +2819,7 @@ export default defineStore('workspace-session', () => {
       return
     }
     try {
-      await window.api.codingAgent.abortRetry(threadId)
+      await codingAgentApi.abortRetry(threadId)
       ensureRuntime(threadId).retry = undefined
       pushSessionNotification(threadId, '已中止自动重试')
       await refreshSnapshot(threadId)
@@ -2623,7 +2837,7 @@ export default defineStore('workspace-session', () => {
       return
     }
     try {
-      const result = await window.api.codingAgent.exportSession({ threadId })
+      const result = await codingAgentApi.exportSession({ threadId })
       ensureRuntime(threadId).lastExport = result
       pushSessionNotification(threadId, 'Session 已导出')
     } catch (error) {
@@ -2639,7 +2853,7 @@ export default defineStore('workspace-session', () => {
     if (!capability) {
       return
     }
-    await window.api.codingAgent.revealResourcePath({ capability, mode: 'open' })
+    await codingAgentApi.revealResourcePath({ capability, mode: 'open' })
   }
 
   /**
@@ -2650,7 +2864,7 @@ export default defineStore('workspace-session', () => {
     if (!capability) {
       return
     }
-    await window.api.codingAgent.revealResourcePath({ capability, mode: 'reveal' })
+    await codingAgentApi.revealResourcePath({ capability, mode: 'reveal' })
   }
 
   /**
@@ -2663,11 +2877,12 @@ export default defineStore('workspace-session', () => {
     }
     const previousPath = activeSnapshot.value?.sessionFile
     try {
-      const snapshot = await window.api.codingAgent.newSession({ threadId, parentSession })
+      const snapshot = await codingAgentApi.newSession({ threadId, parentSession })
       mergeSnapshot(sessions, snapshot)
       syncToolCallsByIdFromSnapshot(snapshot)
-      syncRenderStateFromSnapshot(snapshot)
+      syncRenderStateFromMessages(snapshot.threadId, snapshot.messages)
       setContextActiveThreadId(snapshot.threadId)
+      await reloadActiveSessionMessages()
       if (previousPath && previousPath !== snapshot.sessionFile) {
         ensureRuntime(threadId).previousSessionFile = previousPath
       }
@@ -2686,17 +2901,18 @@ export default defineStore('workspace-session', () => {
       return
     }
     try {
-      const inputPath = await window.api.codingAgent.selectSessionFile({
+      const inputPath = await codingAgentApi.selectSessionFile({
         title: '导入 Pi Session'
       })
       if (!inputPath) {
         return
       }
-      const snapshot = await window.api.codingAgent.importSession({ threadId, inputPath })
+      const snapshot = await codingAgentApi.importSession({ threadId, inputPath })
       mergeSnapshot(sessions, snapshot)
       syncToolCallsByIdFromSnapshot(snapshot)
-      syncRenderStateFromSnapshot(snapshot)
+      syncRenderStateFromMessages(snapshot.threadId, snapshot.messages)
       setContextActiveThreadId(snapshot.threadId)
+      await reloadActiveSessionMessages()
       pushSessionNotification(threadId, `已导入 ${inputPath}`)
     } catch (error) {
       ensureRuntime(threadId).errorMessage = error instanceof Error ? error.message : String(error)
@@ -2715,14 +2931,15 @@ export default defineStore('workspace-session', () => {
     }
     const previousPath = activeSnapshot.value?.sessionFile
     try {
-      const snapshot = await window.api.codingAgent.switchSession({
+      const snapshot = await codingAgentApi.switchSession({
         threadId,
         sessionPath: nextPath
       })
       mergeSnapshot(sessions, snapshot)
       syncToolCallsByIdFromSnapshot(snapshot)
-      syncRenderStateFromSnapshot(snapshot)
+      syncRenderStateFromMessages(snapshot.threadId, snapshot.messages)
       setContextActiveThreadId(snapshot.threadId)
+      await reloadActiveSessionMessages()
       if (previousPath && previousPath !== snapshot.sessionFile) {
         ensureRuntime(threadId).previousSessionFile = previousPath
       }
@@ -2766,7 +2983,7 @@ export default defineStore('workspace-session', () => {
       return
     }
     if (lineage.parentThreadId && lineage.parentThreadArchivedAt) {
-      await window.api.codingAgent.restoreThread(lineage.parentThreadId)
+      await codingAgentApi.restoreThread(lineage.parentThreadId)
       await loadThreads(contextId)
       setContextActiveThreadId(lineage.parentThreadId, contextId)
       pushSessionNotification(lineage.parentThreadId, '已恢复并打开来源对话')
@@ -2807,10 +3024,11 @@ export default defineStore('workspace-session', () => {
       return
     }
     try {
-      const snapshot = await window.api.codingAgent.clone(threadId)
+      const snapshot = await codingAgentApi.clone(threadId)
       mergeSnapshot(sessions, snapshot)
       syncToolCallsByIdFromSnapshot(snapshot)
-      syncRenderStateFromSnapshot(snapshot)
+      syncRenderStateFromMessages(snapshot.threadId, snapshot.messages)
+      await reloadActiveSessionMessages()
       pushSessionNotification(threadId, '当前 session 已克隆')
     } catch (error) {
       ensureRuntime(threadId).errorMessage = error instanceof Error ? error.message : String(error)
@@ -2827,7 +3045,7 @@ export default defineStore('workspace-session', () => {
       return
     }
     try {
-      const result = await window.api.codingAgent.forkThread({ threadId, entryId, position: 'at' })
+      const result = await codingAgentApi.forkThread({ threadId, entryId, position: 'at' })
       if (result.cancelled || !result.snapshot) {
         pushSessionNotification(threadId, '分支会话创建已取消')
         return
@@ -2835,7 +3053,7 @@ export default defineStore('workspace-session', () => {
       const snapshot = result.snapshot
       mergeSnapshot(sessions, snapshot)
       syncToolCallsByIdFromSnapshot(snapshot)
-      syncRenderStateFromSnapshot(snapshot)
+      syncRenderStateFromMessages(snapshot.threadId, snapshot.messages)
       ensureRuntime(snapshot.threadId)
       setContextActiveThreadId(snapshot.threadId)
       workspaceProject.setActiveProjectId(snapshot.projectId)
@@ -2880,7 +3098,7 @@ export default defineStore('workspace-session', () => {
     navigatingTreeEntryByThreadId[threadId] = entryId
     sessionActionMessageByThreadId[threadId] = '正在从这里继续'
     try {
-      const result = await window.api.codingAgent.navigateTree({
+      const result = await codingAgentApi.navigateTree({
         threadId,
         entryId,
         summarize: false
@@ -2894,13 +3112,14 @@ export default defineStore('workspace-session', () => {
       discardPendingProjectionEvents(threadId)
       mergeSnapshot(sessions, result.snapshot)
       syncToolCallsByIdFromSnapshot(result.snapshot)
-      syncRenderStateFromSnapshot(result.snapshot)
+      syncRenderStateFromMessages(result.snapshot.threadId, result.snapshot.messages)
       const runtime = ensureRuntime(threadId)
       if (previousLeafEntryId && previousLeafEntryId !== result.snapshot.currentEntryId) {
         runtime.previousLeafEntryId = previousLeafEntryId
         runtime.nextLeafEntryId = undefined
       }
       applyTreeNavigationEditorText(threadId, result.editorText)
+      await reloadActiveSessionMessages()
       sessionActionMessageByThreadId[threadId] = result.editorText
         ? '已回到选中消息，可编辑后重新发送'
         : '已移动到选中节点'
@@ -2923,7 +3142,7 @@ export default defineStore('workspace-session', () => {
     }
     const currentLeafEntryId = activeSnapshot.value?.currentEntryId
     try {
-      const result = await window.api.codingAgent.navigateTree({
+      const result = await codingAgentApi.navigateTree({
         threadId,
         entryId: previousLeafEntryId,
         summarize: false
@@ -2937,11 +3156,12 @@ export default defineStore('workspace-session', () => {
       discardPendingProjectionEvents(threadId)
       mergeSnapshot(sessions, result.snapshot)
       syncToolCallsByIdFromSnapshot(result.snapshot)
-      syncRenderStateFromSnapshot(result.snapshot)
+      syncRenderStateFromMessages(result.snapshot.threadId, result.snapshot.messages)
       const runtime = ensureRuntime(threadId)
       runtime.previousLeafEntryId = undefined
       runtime.nextLeafEntryId = currentLeafEntryId ?? undefined
       applyTreeNavigationEditorText(threadId, result.editorText)
+      await reloadActiveSessionMessages()
       sessionActionMessageByThreadId[threadId] = '已返回之前位置'
     } catch (error) {
       ensureRuntime(threadId).errorMessage = error instanceof Error ? error.message : String(error)
@@ -2960,7 +3180,7 @@ export default defineStore('workspace-session', () => {
     }
     loadingTreeChildrenByEntryId[parentId] = true
     try {
-      const children = await window.api.codingAgent.loadSessionTreeChildren({
+      const children = await codingAgentApi.loadSessionTreeChildren({
         threadId,
         parentId,
         maxDepth
@@ -2984,7 +3204,7 @@ export default defineStore('workspace-session', () => {
       return []
     }
     try {
-      return await window.api.codingAgent.loadSessionTreePath({ threadId, entryId })
+      return await codingAgentApi.loadSessionTreePath({ threadId, entryId })
     } catch (error) {
       ensureRuntime(threadId).errorMessage = error instanceof Error ? error.message : String(error)
       return []
@@ -3002,14 +3222,14 @@ export default defineStore('workspace-session', () => {
       return
     }
     try {
-      const snapshot = await window.api.codingAgent.setSessionEntryLabel({
+      const snapshot = await codingAgentApi.setSessionEntryLabel({
         threadId,
         entryId,
         label: label.trim() || undefined
       })
       mergeSnapshot(sessions, snapshot)
       syncToolCallsByIdFromSnapshot(snapshot)
-      syncRenderStateFromSnapshot(snapshot)
+      syncRenderStateFromMessages(snapshot.threadId, snapshot.messages)
       pushSessionNotification(threadId, label.trim() ? 'Label 已保存' : 'Label 已清除')
     } catch (error) {
       ensureRuntime(threadId).errorMessage = error instanceof Error ? error.message : String(error)
@@ -3065,7 +3285,7 @@ export default defineStore('workspace-session', () => {
   ): Promise<void> => {
     globalErrorMessage.value = undefined
     try {
-      await window.api.codingAgent.archiveThread(threadId)
+      await codingAgentApi.archiveThread(threadId)
       delete sessions[threadId]
       delete runtimeByThreadId[threadId]
       delete collapsedFileChangeIdsByThreadId[threadId]
@@ -3500,7 +3720,7 @@ export default defineStore('workspace-session', () => {
       return
     }
     runtime.extensionPanelStates[panelId] = state
-    void window.api.codingAgent.saveExtensionPanelState({ threadId, panelId, state })
+    void codingAgentApi.saveExtensionPanelState({ threadId, panelId, state })
   }
 
   /**
@@ -3516,7 +3736,7 @@ export default defineStore('workspace-session', () => {
     delete runtime.extensionPanelMessages[panelId]
     delete runtime.extensionPanelStates[panelId]
     delete runtime.extensionPanels[panelId]
-    void window.api.codingAgent.disposeExtensionPanel({
+    void codingAgentApi.disposeExtensionPanel({
       threadId,
       panelId,
       reason: 'userClosed'
@@ -3528,7 +3748,10 @@ export default defineStore('workspace-session', () => {
    * 更新会话快照、状态以及待处理审批请求。
    * @param event - IPC 事件。
    */
-  const handleEvent = (event: CodingAgentIpcEvent): void => {
+  const handleEvent = (
+    event: CodingAgentIpcEvent,
+    options: { skipMessageProjection?: boolean } = {}
+  ): void => {
     const threadId = getEventThreadId(event)
     if (threadId) {
       const runtime = ensureRuntime(threadId)
@@ -3594,11 +3817,16 @@ export default defineStore('workspace-session', () => {
     }
     switch (event.type) {
       case 'threadSnapshot': {
-        mergeSnapshot(sessions, event.snapshot)
-        syncToolCallsByIdFromSnapshot(event.snapshot)
+        const snapshot = hasSessionMessageFeedApi()
+          ? { ...event.snapshot, messages: [] }
+          : event.snapshot
+        mergeSnapshot(sessions, snapshot)
+        syncToolCallsByIdFromSnapshot(snapshot)
         ensureRuntime(event.threadId)
-        syncPendingInteractionsFromSnapshot(event.snapshot)
-        syncRenderStateFromSnapshot(event.snapshot)
+        syncPendingInteractionsFromSnapshot(snapshot)
+        if (!hasSessionMessageFeedApi()) {
+          syncRenderStateFromMessages(snapshot.threadId, snapshot.messages)
+        }
         if (
           (!activeSessionId.value || !sessions[activeSessionId.value]) &&
           !pendingDraftThreadIds.has(event.threadId)
@@ -3610,7 +3838,7 @@ export default defineStore('workspace-session', () => {
       case 'message_start':
       case 'message_update':
       case 'message_end':
-        scheduleMessageEvent(event)
+        if (!options.skipMessageProjection) scheduleMessageEvent(event)
         return
       case 'tool_execution_update':
         scheduleToolUpdateEvent(event)
@@ -3704,7 +3932,7 @@ export default defineStore('workspace-session', () => {
   }
 
   /** 订阅 IPC 事件并保存取消订阅函数。 */
-  const unsubscribe = window.api.codingAgent.onEvent(handleEvent)
+  const unsubscribe = codingAgentApi.onEvent(handleEvent)
 
   return {
     abortActive,
@@ -3745,6 +3973,7 @@ export default defineStore('workspace-session', () => {
     activeRuntime,
     activeRuntimeTimelineEvents,
     activeSession,
+    activeSessionMessages,
     activeSessionActionMessage,
     activeSessionActionDetails,
     activeSessionNotifications,
@@ -4736,9 +4965,7 @@ function upsertMessageEvent(
   event: AgentMessageIpcEvent
 ): string | undefined {
   const content = toDesktopMessageContent(event.message)
-  if (!content) {
-    return undefined
-  }
+  if (!content) return undefined
   const id = getPiMessageId(snapshot.messages, content)
   upsertById(snapshot.messages, {
     id,
@@ -5106,68 +5333,38 @@ function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 }
 
-/**
- * 获取 Pi message event 的 UI 稳定 id。
- * @param items - 现有消息。
- * @param message - Pi message。
- * @param role - 消息角色。
- * @param text - 消息文本。
- * @returns 消息 id。
- */
 function getPiMessageId(items: ThreadMessage[], message: Omit<ThreadMessage, 'id'>): string {
-  if (message.createdAt) {
-    return `${message.role}-${message.createdAt}`
-  }
-  return getStreamingMessageId(items, message.role, message.text)
-}
-
-/**
- * 通过 id upsert 消息。
- * @param items - 消息数组。
- * @param item - 消息。
- */
-function upsertById(items: ThreadMessage[], item: ThreadMessage): void {
-  const index = items.findIndex((existing) => existing.id === item.id)
-  if (index >= 0) {
-    items[index] = { ...items[index], ...item }
-    return
-  }
-  items.push(item)
-}
-
-/**
- * 获取缺少稳定 id 的流式消息 id。
- * @param items - 现有消息。
- * @param role - 消息角色。
- * @param text - 新文本。
- * @returns 可复用或新建的消息 id。
- */
-function getStreamingMessageId(
-  items: ThreadMessage[],
-  role: ThreadMessage['role'],
-  text: string | undefined
-): string {
+  if (message.createdAt) return `${message.role}-${message.createdAt}`
   const last = items[items.length - 1]
-  if (last?.role === role && isStreamingTextUpdate(last.text, text)) {
-    return last.id
-  }
+  if (last?.role === message.role && isStreamingTextUpdate(last.text, message.text)) return last.id
   return `message-${items.length}`
 }
 
-/**
- * 判断新文本是否像同一条消息的流式更新。
- * @param existing - 已有文本。
- * @param incoming - 新文本。
- * @returns 是否应复用同一条消息。
- */
+function upsertById(items: ThreadMessage[], item: ThreadMessage): void {
+  const index = items.findIndex((existing) => existing.id === item.id)
+  if (index >= 0) items[index] = { ...items[index], ...item }
+  else items.push(item)
+}
+
 function isStreamingTextUpdate(
   existing: string | undefined,
   incoming: string | undefined
 ): boolean {
-  if (!existing || !incoming) {
-    return true
-  }
+  if (!existing || !incoming) return true
   return incoming.startsWith(existing) || existing.startsWith(incoming)
+}
+
+function parseAgUiToolArgs(value: string): unknown {
+  try {
+    return JSON.parse(value)
+  } catch {
+    return value
+  }
+}
+
+function getAgUiToolResultIsError(event: { rawEvent?: unknown }): boolean {
+  if (!event.rawEvent || typeof event.rawEvent !== 'object') return false
+  return (event.rawEvent as { isError?: unknown }).isError === true
 }
 
 /**

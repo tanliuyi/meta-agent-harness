@@ -29,6 +29,12 @@ export const codingAgentChannels = {
   getThread: 'coding-agent:get-thread',
   /** 获取线程快照。 */
   getSnapshot: 'coding-agent:get-snapshot',
+  /** 打开/切换当前页面 session message feed，并原子完成订阅与 snapshot。 */
+  openSessionMessageFeed: 'coding-agent:open-session-message-feed',
+  /** 关闭当前页面 session message feed。 */
+  closeSessionMessageFeed: 'coding-agent:close-session-message-feed',
+  /** 按当前 WebContents/session 定向发送的标准 AG-UI event。 */
+  sessionAgentEvent: 'coding-agent:session-agent-event',
   /** 向线程发送用户提示。 */
   prompt: 'coding-agent:prompt',
   /** 向线程发送引导/转向输入。 */

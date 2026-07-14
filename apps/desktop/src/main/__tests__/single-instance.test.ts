@@ -6,20 +6,35 @@ import { readFileSync } from 'node:fs'
 import path from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
 import {
+  acquireSingleInstanceLock,
   SingleInstanceFocusController,
   focusSingleInstanceWindow,
+  type SingleInstanceApp,
   type SingleInstanceWindow
 } from '../single-instance'
 
 describe('single instance window focus', () => {
-  it('在 app ready 前申请锁并只让主实例注册生命周期', () => {
+  it('仅在生产模式申请单实例锁', () => {
+    const developmentApp = createApp(false)
+    const productionApp = createApp(true)
+    const lockedProductionApp = createApp(false)
+
+    expect(acquireSingleInstanceLock(developmentApp, true)).toBe(true)
+    expect(developmentApp.requestSingleInstanceLock).not.toHaveBeenCalled()
+    expect(acquireSingleInstanceLock(productionApp, false)).toBe(true)
+    expect(productionApp.requestSingleInstanceLock).toHaveBeenCalledOnce()
+    expect(acquireSingleInstanceLock(lockedProductionApp, false)).toBe(false)
+  })
+
+  it('在 app ready 前确定实例策略并只让生产主实例注册第二实例监听', () => {
     const source = readFileSync(path.join(__dirname, '..', 'index.ts'), 'utf8')
-    const lockIndex = source.indexOf('app.requestSingleInstanceLock()')
+    const lockIndex = source.indexOf('acquireSingleInstanceLock(app, isDevelopment)')
     const readyIndex = source.indexOf('app.whenReady()')
 
     expect(lockIndex).toBeGreaterThan(-1)
     expect(lockIndex).toBeLessThan(readyIndex)
     expect(source).toContain('if (!singleInstanceLockAcquired)')
+    expect(source).toContain('if (!isDevelopment)')
     expect(source).toContain("app.on('second-instance'")
     expect(source).toContain('else if (mainWindowLifecycleReady)')
     expect(source).toContain("app.on('window-all-closed'")
@@ -58,6 +73,12 @@ describe('single instance window focus', () => {
     expect(replacementWindow.show).toHaveBeenCalledOnce()
   })
 })
+
+function createApp(lockAcquired: boolean): SingleInstanceApp {
+  return {
+    requestSingleInstanceLock: vi.fn(() => lockAcquired)
+  }
+}
 
 function createWindow(
   options: { destroyed?: boolean; minimized?: boolean } = {}

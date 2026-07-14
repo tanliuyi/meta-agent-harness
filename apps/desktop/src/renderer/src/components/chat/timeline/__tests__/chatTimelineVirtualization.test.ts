@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { VirtualItem } from '@tanstack/vue-virtual'
-import type { ThreadMessage } from '@shared/coding-agent/types'
+import type { Message } from '@ag-ui/core'
 import type { TimelineItem } from '../chatTimelineDisplay'
 import {
   createVirtualTimelineRows,
@@ -30,11 +30,15 @@ function createVirtualItem(index: number): VirtualItem {
   return { index, key: index, start: index * 100, size: 100, end: (index + 1) * 100, lane: 0 }
 }
 
-function createMessageItem(role: ThreadMessage['role']): TimelineItem {
+function createMessageItem(role: 'user' | 'assistant'): TimelineItem {
+  const message: Message =
+    role === 'user'
+      ? { id: `${role}-message`, role, content: '' }
+      : { id: `${role}-message`, role, content: '' }
   return {
     type: 'message',
     key: `${role}-message`,
-    message: { id: `${role}-message`, role, content: [] } as unknown as ThreadMessage,
+    message,
     text: '',
     renderState: 'complete',
     revision: 1

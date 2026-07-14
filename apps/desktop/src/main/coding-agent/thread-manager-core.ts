@@ -53,33 +53,48 @@ function loadSessionSnapshotModule(): Promise<SessionSnapshotModule> {
 export class ThreadManagerCore {
   /** 内存中的线程摘要映射。 */
   protected readonly threads = new Map<string, ThreadSummary>()
+
   /** Renderer reload 后可重放的 desktop extension panel snapshot。 */
   private readonly extensionPanelSnapshots = new Map<
     string,
     Map<string, DesktopExtensionWebviewPanel>
   >()
+
   /** Renderer reload 后可重放的 desktop extension panel state。 */
   private readonly extensionPanelStateSnapshots = new Map<string, Map<string, unknown>>()
+
   /** Webview resource token registry. Tokens are opaque to renderer. */
   private readonly extensionWebviewResources = new Map<string, DesktopExtensionWebviewResource>()
+
   /** Thread worker registry 实例。 */
   protected readonly workers: ThreadWorkerRegistry
+
   /** 可选的持久化线程 store。 */
   private readonly store: CodingThreadStore | undefined
+
   /** Project registry。 */
   private readonly projectStore: ProjectStore | undefined
+
   /** Project trust 服务。 */
   private readonly projectTrustService: ProjectTrustService | undefined
+
   private readonly projectWorkerLifecycleTasks = new Map<string, Promise<void>>()
+
   private readonly threadWorkerLifecycleTasks = new Map<string, Promise<void>>()
+
   /** 全局模型设置服务。 */
   private modelSettingsService: ModelSettingsService | undefined
+
   private modelSettingsServicePromise: Promise<ModelSettingsService> | undefined
+
   private readonly createModelSettingsService:
     (() => MaybePromise<ModelSettingsService>) | undefined
+
   /** 全局 Pi agent 设置服务。 */
   private agentSettingsService: AgentSettingsService | undefined
+
   private agentSettingsServicePromise: Promise<AgentSettingsService> | undefined
+
   private readonly createAgentSettingsService:
     (() => MaybePromise<AgentSettingsService>) | undefined
 
@@ -423,6 +438,14 @@ export class ThreadManagerCore {
    */
   async getThread(threadId: string): Promise<ThreadSnapshot> {
     return await this.getSnapshot(threadId)
+  }
+
+  /**
+   * 获取 renderer-facing messages。页面 sessionId 当前定义为 threadId；底层 Pi session
+   * identity 仍由 JSONL 管理，不在此处迁移。
+   */
+  async getSessionMessages(threadId: string): Promise<ThreadSnapshot['messages']> {
+    return (await this.getSnapshot(threadId)).messages
   }
 
   /**
@@ -1016,7 +1039,8 @@ function normalizeInactiveThread(thread: ThreadSummary): ThreadSummary {
 }
 
 function stripDerivedThreadFields(thread: ThreadSummary): ThreadSummary {
-  const { lineage: _lineage, ...persistedThread } = thread
+  const persistedThread = { ...thread }
+  delete persistedThread.lineage
   return persistedThread
 }
 

@@ -6,6 +6,7 @@
 import type { ComponentPublicInstance, CSSProperties } from 'vue'
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
+import type { Message } from '@ag-ui/core'
 import type { JSONContent } from '@tiptap/vue-3'
 import { useElementSize, useResizeObserver } from '@vueuse/core'
 import { useVirtualizer, type VirtualItem } from '@tanstack/vue-virtual'
@@ -63,7 +64,6 @@ import type {
   PromptImageAttachment,
   PromptImageDraft,
   PromptQuoteContext,
-  ThreadMessage,
   ThinkingLevel
 } from '@shared/coding-agent/types'
 import type { TokenUsage } from './composer/Usage.vue'
@@ -126,7 +126,7 @@ type TimelineViewItem = {
   isCollapsedHistory: boolean
   collapsedItem?: CollapsedHistoryTimelineItem
   component?: TimelineItemComponent
-  message?: ThreadMessage
+  message?: Message
   messageId: string
   text?: string
   revision: number
@@ -165,8 +165,8 @@ const toolGroupOpenByKey = computed(() => activeTimelineOpenState.value.toolGrou
 /** 单个工具展开状态，按稳定 toolCallId 保存。 */
 const toolOpenByKey = computed(() => activeTimelineOpenState.value.tool)
 
-/** 当前会话的渲染消息列表。 */
-const messages = computed<ThreadMessage[]>(() => workspaceSession.activeSnapshot?.messages ?? [])
+/** 当前页面直接消费 main-owned AG-UI session message feed。 */
+const messages = computed<Message[]>(() => workspaceSession.activeSessionMessages)
 
 /** 当前会话的工具调用结构列表。 */
 const toolCallStructures = computed(() => workspaceSession.activeToolCallStructures)
@@ -670,7 +670,7 @@ function exitExtensionComposer(): void {
  * @returns Vue component。
  */
 function getMessageComponent(
-  role: ThreadMessage['role']
+  role: Message['role']
 ): typeof UserMessage | typeof AssistantMessage | typeof SystemMessage | typeof ToolMessage {
   switch (role) {
     case 'user':
@@ -679,7 +679,7 @@ function getMessageComponent(
       return AssistantMessage
     case 'tool':
       return ToolMessage
-    case 'system':
+    default:
       return SystemMessage
   }
 }
@@ -912,7 +912,7 @@ function getTimelineItemClassSuffix(item: TimelineItem): string {
  * @param item - timeline 项。
  * @returns 消息。
  */
-function getTimelineItemMessage(item: TimelineItem): ThreadMessage | undefined {
+function getTimelineItemMessage(item: TimelineItem): Message | undefined {
   return item.type === 'message' ||
     item.type === 'thinking' ||
     item.type === 'compaction-divider' ||
@@ -926,7 +926,7 @@ function getTimelineItemMessage(item: TimelineItem): ThreadMessage | undefined {
  * @param message - 原始消息。
  * @returns 渲染状态。
  */
-function getMessageRenderState(message: ThreadMessage): MessageRenderState {
+function getMessageRenderState(message: Message): MessageRenderState {
   return (
     activeMessageRenderStates.value?.[message.id] ?? {
       revision: 1,
@@ -1261,7 +1261,7 @@ function resolveTimelineToolCall(toolCallId: string): DesktopToolCall | undefine
  * @param message - Thread message。
  * @returns 工具调用投影。
  */
-function resolveToolResultMessageToolCall(message: ThreadMessage): DesktopToolCall | undefined {
+function resolveToolResultMessageToolCall(message: Message): DesktopToolCall | undefined {
   return getToolResultMessageToolCall(message, toolCallsById.value)
 }
 
@@ -1880,6 +1880,7 @@ function getTimelineItemRevision(item: TimelineItem | undefined): unknown[] {
                   :is="viewItem.component"
                   v-else
                   :message="viewItem.message"
+                  :event="viewItem.item.type === 'runtime-event' ? viewItem.item.event : undefined"
                   :message-id="viewItem.messageId"
                   :text="viewItem.text"
                   :revision="viewItem.revision"
@@ -1887,8 +1888,7 @@ function getTimelineItemRevision(item: TimelineItem | undefined): unknown[] {
                   :is-final-reply="finalReplyKeys.has(viewItem.key)"
                   :is-done="viewItem.isDone"
                   :is-navigating-tree="
-                    viewItem.message?.sessionEntryId ===
-                    workspaceSession.activeNavigatingTreeEntryId
+                    viewItem.message?.id === workspaceSession.activeNavigatingTreeEntryId
                   "
                   :collapse-when-response-appears="viewItem.collapseWhenResponseAppears"
                   :hidden-label="workspaceSession.activeExtensionHiddenThinkingLabel"

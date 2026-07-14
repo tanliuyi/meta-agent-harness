@@ -50,8 +50,10 @@ Renderer
 要求：
 
 - 实时事件和命令必须走 transport。
-- Electron main 可以维护当前窗口需要的内存 projection。
-- Renderer 通过 snapshot + streaming events 更新 UI。
+- Electron main 是 renderer-facing session messages 的唯一业务状态源；内存投影丢失时从 worker state 或 Pi JSONL 重建。
+- Renderer 只保存当前页面 session 的一份可丢弃 messages 投影，通过 main message snapshot + streaming events 更新 UI；不得将其挂回 `ThreadSnapshot.messages`。
+- Thread/session 列表只保存摘要；非 active thread 不缓存 message snapshot 或 message render state。
+- `ThreadSnapshot` IPC 继续承载 tree、changes、approval、queue 等非 chat 状态，其 renderer-facing `messages` 始终为空。自动或 overflow compaction 完成后，main 失效 message 投影并从 worker/JSONL 重建。
 - 任何实时 UI 状态丢失后，都应能从 worker snapshot 或 JSONL session 重建。
 
 ## 持久化路径
@@ -85,7 +87,7 @@ Pi-compatible JSONL session
    `cwdOverride` 优先，其次 session header cwd，最后才是宿主 fallback。
 5. 从 live runtime state 或离线 JSONL 重建结果派生 desktop snapshot。
 
-不得从独立数据库、event log 或 message index 恢复 conversation。
+不得从独立数据库、event log 或 message index 恢复 conversation。Main message repository 只保留当前进程的标准 AG-UI `Message[]` 投影和首次读取期间的短暂事件缓冲，不保存 revision 或事件 journal。
 
 ## Storage Paths
 

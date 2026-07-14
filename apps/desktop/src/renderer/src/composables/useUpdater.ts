@@ -1,5 +1,6 @@
 import { computed, readonly, ref } from 'vue'
 import type { UpdaterState } from '@shared/updater'
+import { updaterApi } from '@renderer/api'
 
 const state = ref<UpdaterState>({
   status: 'idle',
@@ -11,10 +12,10 @@ function initialize(): void {
   if (initialized) return
   initialized = true
 
-  window.api.updater.onStateChanged((nextState) => {
+  updaterApi.onStateChanged((nextState) => {
     state.value = nextState
   })
-  void window.api.updater.getState().then((initialState) => {
+  void updaterApi.getState().then((initialState) => {
     state.value = initialState
   })
 }
@@ -29,8 +30,8 @@ export function useUpdater() {
   return {
     state: readonly(state),
     isBusy,
-    check: () => window.api.updater.check(),
-    download: () => window.api.updater.download(),
-    install: () => window.api.updater.install()
+    check: () => updaterApi.check(),
+    download: () => updaterApi.download(),
+    install: () => updaterApi.install()
   }
 }

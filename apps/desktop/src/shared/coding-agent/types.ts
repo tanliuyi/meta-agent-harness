@@ -34,6 +34,7 @@ import type { RpcResponse } from '@coding-agent-src/modes/rpc/rpc-types'
 import type { SourceInfo } from '@coding-agent-src/core/source-info'
 import type { ImageContent } from '@earendil-works/pi-ai'
 import type { ResourcesSnapshot as PackageResourcesSnapshot } from '@coding-agent-src/core/resource-snapshot'
+import type { AGUIEvent, MessagesSnapshotEvent } from '@ag-ui/core'
 
 /** 线程状态。 */
 export type ThreadStatus = ThreadRuntimeState
@@ -252,7 +253,8 @@ export interface FileReferenceCompletionResult {
 export const toDesktopMessageContent = toPackageDesktopMessageContent
 
 /** Pi AgentMessage。 */
-export type { AgentMessage }
+/** Pi AgentMessage。 */
+export type { AgentMessage, AGUIEvent }
 
 /** 包含线程 ID 的基础输入。 */
 export interface ThreadIdInput {
@@ -1468,6 +1470,18 @@ export type AgentSessionIpcEvent = PackageAgentSessionEvent & {
   sessionEntryId?: string
 }
 
+/**
+ * Renderer 页面使用的 session ID。当前路由身份实际是 desktop thread ID；底层 Pi
+ * session ID 仍由 JSONL session header 管理，本次数据链路不替换 thread identity。
+ */
+export type RendererSessionId = string
+
+/** 打开/切换 renderer-facing session message feed 的输入。 */
+export interface OpenSessionMessageFeedInput {
+  /** 当前等同 threadId，见 RendererSessionId。 */
+  sessionId: RendererSessionId
+}
+
 /** Desktop UI projection IPC 事件。 */
 export type ProjectionIpcEvent = {
   /** Desktop UI projection 事件。 */
@@ -1570,6 +1584,10 @@ export interface CodingAgentApi {
   getThread(threadId: string): Promise<ThreadSnapshot>
   /** 获取线程快照。 */
   getSnapshot(threadId: string): Promise<ThreadSnapshot>
+  /** 切换当前 WebContents 的页面 feed，并返回 main-owned message projection。 */
+  openSessionMessageFeed(input: OpenSessionMessageFeedInput): Promise<MessagesSnapshotEvent>
+  /** 关闭当前 WebContents 的页面 message feed。 */
+  closeSessionMessageFeed(): Promise<void>
   /** 向线程发送提示。 */
   prompt(input: PromptInput): Promise<void>
   /** 向线程发送引导输入。 */
@@ -1726,4 +1744,6 @@ export interface CodingAgentApi {
   updateResourcePackage(input?: UpdateResourcePackageInput): Promise<ResourcePackageSummary[]>
   /** 注册事件监听器，返回取消订阅函数。 */
   onEvent(listener: (event: CodingAgentIpcEvent) => void): () => void
+  /** 监听 main 按当前页面 session 定向发送的标准 AG-UI event。 */
+  onSessionAgentEvent(listener: (event: AGUIEvent) => void): () => void
 }

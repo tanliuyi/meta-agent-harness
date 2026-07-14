@@ -19,6 +19,7 @@ import type {
 import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
 import { useToast } from '@renderer/composables/useToast'
+import { codingAgentApi } from '@renderer/api'
 
 type AgentSettingsDraft = Omit<AgentSettingsSnapshot, 'storage' | 'diagnostics'>
 
@@ -67,7 +68,7 @@ const useAgentSettingsStore = defineStore('agent-settings', () => {
     loading.value = true
     error.value = null
     try {
-      applySnapshot(await window.api.codingAgent.getAgentSettings())
+      applySnapshot(await codingAgentApi.getAgentSettings())
     } catch (cause) {
       error.value = cause instanceof Error ? cause.message : 'Agent 设置加载失败'
     } finally {
@@ -83,7 +84,7 @@ const useAgentSettingsStore = defineStore('agent-settings', () => {
     error.value = null
     try {
       applySavedSnapshot(
-        await window.api.codingAgent.updateAgentSettings(input),
+        await codingAgentApi.updateAgentSettings(input),
         submittedDraft,
         input
       )
@@ -170,7 +171,7 @@ const useAgentSettingsStore = defineStore('agent-settings', () => {
     }
     resourceSnapshotInput.value = normalizedInput
     try {
-      const nextSnapshot = await window.api.codingAgent.getResourceSnapshot(normalizedInput)
+      const nextSnapshot = await codingAgentApi.getResourceSnapshot(normalizedInput)
       if (generation === resourceSnapshotGeneration) {
         resourceSnapshot.value = nextSnapshot
       }
@@ -206,7 +207,7 @@ const useAgentSettingsStore = defineStore('agent-settings', () => {
       projectExtensionPathsProjectId.value = null
     }
     try {
-      const paths = await window.api.codingAgent.getProjectExtensionPaths({ projectId })
+      const paths = await codingAgentApi.getProjectExtensionPaths({ projectId })
       if (generation === projectExtensionPathsGeneration) {
         projectExtensionPaths.value = paths
         projectExtensionPathsProjectId.value = projectId
@@ -223,7 +224,7 @@ const useAgentSettingsStore = defineStore('agent-settings', () => {
     beginSaving()
     error.value = null
     try {
-      const paths = await window.api.codingAgent.updateProjectExtensionPaths({
+      const paths = await codingAgentApi.updateProjectExtensionPaths({
         projectId,
         extensions: cleanStringList(extensions)
       })
@@ -253,7 +254,7 @@ const useAgentSettingsStore = defineStore('agent-settings', () => {
     resourcePackagesInput.value = normalizedInput
     const request = beginResourcePackagesRequest(normalizedInput)
     try {
-      const packages = await window.api.codingAgent.listResourcePackages(request.input)
+      const packages = await codingAgentApi.listResourcePackages(request.input)
       if (isCurrentResourcePackagesRequest(request)) {
         resourcePackages.value = packages
       }
@@ -270,7 +271,7 @@ const useAgentSettingsStore = defineStore('agent-settings', () => {
     if (!canRunResourcePackageMutation(input.projectId)) return
     const request = beginResourcePackagesRequest(resourcePackagesInput.value)
     try {
-      await window.api.codingAgent.addResourcePackage(input)
+      await codingAgentApi.addResourcePackage(input)
       if (await refreshAfterResourcePackageMutation(request, !input.projectId)) {
         toast.success('Package source 已添加')
       }
@@ -294,7 +295,7 @@ const useAgentSettingsStore = defineStore('agent-settings', () => {
       message: `Installing ${input.source}...`
     })
     try {
-      await window.api.codingAgent.installResourcePackage(input)
+      await codingAgentApi.installResourcePackage(input)
       if (await refreshAfterResourcePackageMutation(request, !input.projectId)) {
         toast.success('Package 已安装')
       }
@@ -318,7 +319,7 @@ const useAgentSettingsStore = defineStore('agent-settings', () => {
     if (!canRunResourcePackageMutation(input.projectId)) return
     const request = beginResourcePackagesRequest(resourcePackagesInput.value)
     try {
-      await window.api.codingAgent.removeResourcePackage(input)
+      await codingAgentApi.removeResourcePackage(input)
       if (await refreshAfterResourcePackageMutation(request, !input.projectId)) {
         toast.success('Package source 已移除')
       }
@@ -344,7 +345,7 @@ const useAgentSettingsStore = defineStore('agent-settings', () => {
       })
     }
     try {
-      await window.api.codingAgent.updateResourcePackage(input)
+      await codingAgentApi.updateResourcePackage(input)
       if (await refreshAfterResourcePackageMutation(request, false)) {
         toast.success(input.source ? 'Package 已更新' : 'Packages 已更新')
       }
@@ -400,11 +401,11 @@ const useAgentSettingsStore = defineStore('agent-settings', () => {
   ): Promise<boolean> {
     if (!isCurrentResourcePackagesRequest(request)) return false
     if (refreshAgentSettings) {
-      const nextSnapshot = await window.api.codingAgent.getAgentSettings()
+      const nextSnapshot = await codingAgentApi.getAgentSettings()
       if (!isCurrentResourcePackagesRequest(request)) return false
       applySnapshot(nextSnapshot)
     }
-    const packages = await window.api.codingAgent.listResourcePackages(request.input)
+    const packages = await codingAgentApi.listResourcePackages(request.input)
     if (!isCurrentResourcePackagesRequest(request)) return false
     resourcePackages.value = packages
     await loadResourceSnapshot(resourceSnapshotInput.value)
@@ -430,7 +431,7 @@ const useAgentSettingsStore = defineStore('agent-settings', () => {
     }
   }
 
-  window.api.codingAgent.onEvent((event) => {
+  codingAgentApi.onEvent((event) => {
     if (event.type === 'resourcePackage') {
       applyResourcePackageProgress(event.event)
     }
@@ -473,7 +474,7 @@ const useAgentSettingsStore = defineStore('agent-settings', () => {
     error.value = null
     try {
       applySavedSnapshot(
-        await window.api.codingAgent.updateAgentSettings(input),
+        await codingAgentApi.updateAgentSettings(input),
         submittedDraft,
         input
       )

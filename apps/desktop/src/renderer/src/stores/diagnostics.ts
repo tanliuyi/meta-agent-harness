@@ -13,6 +13,7 @@ import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
 import useAgentSettingsStore from './agent-settings'
 import useModelSettingsStore from './model-settings'
+import { codingAgentApi } from '@renderer/api'
 
 export type DiagnosticsDomain = 'thread' | 'model' | 'agent'
 export type DiagnosticsSeverity = ModelSettingsDiagnosticSeverity
@@ -79,7 +80,7 @@ const useDiagnosticsStore = defineStore('diagnostics', () => {
 
     try {
       const [threadRecords] = await Promise.all([
-        window.api.codingAgent.listDiagnostics(),
+        codingAgentApi.listDiagnostics(),
         modelSettings.snapshot ? undefined : modelSettings.load(),
         agentSettings.snapshot ? undefined : agentSettings.load()
       ])

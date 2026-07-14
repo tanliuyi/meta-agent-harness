@@ -6,6 +6,7 @@ import { app, shell, BrowserWindow, ipcMain, session, webContents } from 'electr
 import { join } from 'path'
 import { randomUUID } from 'node:crypto'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
+import { installExtension, VUEJS_DEVTOOLS } from 'electron-devtools-installer'
 import windowStateKeeper from 'electron-window-state'
 import icon from '../../resources/icon.png?asset'
 import { installCodingAgentPackageDirEnv } from './coding-agent/coding-agent-package-dir'
@@ -24,7 +25,7 @@ import {
   isMainWindowNavigationAllowed
 } from './window-security'
 import { setupAutoUpdater } from './updater'
-import { SingleInstanceFocusController } from './single-instance'
+import { acquireSingleInstanceLock, SingleInstanceFocusController } from './single-instance'
 import {
   configureBrowserPreviewPermissions,
   reloadBrowserPreviewPermissionGuests
@@ -57,7 +58,8 @@ const minimumWindowBounds = {
   height: 640
 }
 const initialRendererHash = '/new'
-const singleInstanceLockAcquired = app.requestSingleInstanceLock()
+const isDevelopment = is.dev
+const singleInstanceLockAcquired = acquireSingleInstanceLock(app, isDevelopment)
 const singleInstanceFocus = new SingleInstanceFocusController()
 let currentMainWindow: BrowserWindow | null = null
 let mainWindowLifecycleReady = false
@@ -481,21 +483,34 @@ function registerWindowControlIpc(): void {
 if (!singleInstanceLockAcquired) {
   app.quit()
 } else {
-  app.on('second-instance', () => {
-    if (currentMainWindow) {
-      singleInstanceFocus.requestFocus(currentMainWindow)
-    } else if (mainWindowLifecycleReady) {
-      createWindow()
-    } else {
-      singleInstanceFocus.requestFocus(null)
-    }
-  })
+  if (!isDevelopment) {
+    app.on('second-instance', () => {
+      if (currentMainWindow) {
+        singleInstanceFocus.requestFocus(currentMainWindow)
+      } else if (mainWindowLifecycleReady) {
+        createWindow()
+      } else {
+        singleInstanceFocus.requestFocus(null)
+      }
+    })
+  }
 
   app.whenReady().then(async () => {
     // await installIpcLogger({
     //   disable: !is.dev,
     //   logSize: 1000
     // })
+
+    if (isDevelopment) {
+      try {
+        const extension = await installExtension(VUEJS_DEVTOOLS, {
+          loadExtensionOptions: { allowFileAccess: true }
+        })
+        console.log(`Installed DevTools extension: ${extension.name}`)
+      } catch (error) {
+        console.warn('Failed to install Vue DevTools:', error)
+      }
+    }
 
     installCodingAgentPackageDirEnv()
 

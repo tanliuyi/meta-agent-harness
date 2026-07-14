@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, type Component } from 'vue'
-import type { ThreadMessage, ThreadSnapshot } from '@shared/coding-agent/types'
-import { getMessageRawRecord } from './support/message-format'
+import type { Message } from '@ag-ui/core'
+import type { ThreadSnapshot } from '@shared/coding-agent/types'
 import BashTool from './tools/BashTool.vue'
 import DefaultTool from './tools/DefaultTool.vue'
 import EditTool from './tools/EditTool.vue'
@@ -15,7 +15,7 @@ import SkillManageTool from './tools/SkillManageTool.vue'
 import WriteTool from './tools/WriteTool.vue'
 
 const props = defineProps<{
-  message?: ThreadMessage
+  message?: Message
   toolCall?: ThreadSnapshot['toolCalls'][number]
   defaultOpen?: boolean
   open?: boolean
@@ -25,14 +25,7 @@ const emit = defineEmits<{
   'update:open': [open: boolean]
 }>()
 
-const toolName = computed(() => {
-  const rawToolName = props.message ? getMessageRawRecord(props.message).toolName : undefined
-  return (
-    props.toolCall?.toolName ??
-    (typeof rawToolName === 'string' ? rawToolName : undefined) ??
-    'tool'
-  )
-})
+const toolName = computed(() => props.toolCall?.toolName ?? 'tool')
 const toolComponent = computed(() => getToolComponent(toolName.value))
 
 /**

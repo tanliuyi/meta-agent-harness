@@ -10,9 +10,8 @@ import {
   ref,
   watch
 } from 'vue'
-import type { ThreadMessage } from '@shared/coding-agent/types'
+import type { Message } from '@ag-ui/core'
 import {
-  formatMessageTime,
   getMessageFileAttachments,
   getMessageImageSrc,
   getMessageText,
@@ -45,7 +44,7 @@ const ImagePreviewDialog = defineAsyncComponent({
 })
 
 const props = defineProps<{
-  message: ThreadMessage
+  message: Message
   /** 是否正在导航到这条消息。 */
   isNavigatingTree?: boolean
 }>()
@@ -96,7 +95,6 @@ const shouldMeasureBubble = computed(
     displayText.value.length <= TIGHT_WIDTH_MAX_TEXT_LENGTH &&
     displaySegments.value.length <= TIGHT_WIDTH_MAX_SEGMENT_COUNT
 )
-const formattedTime = computed(() => formatMessageTime(props.message.createdAt))
 const imagePreviewItems = computed<ImagePreviewItem[]>(() => [
   ...fileAttachments.value.flatMap((attachment): ImagePreviewItem[] =>
     attachment.imageSrc
@@ -138,18 +136,15 @@ async function copyMessageText(): Promise<void> {
 }
 
 function forkFromMessage(): void {
-  if (!props.message.sessionEntryId) return
-  emit('forkFromMessage', props.message.sessionEntryId)
+  emit('forkFromMessage', props.message.id)
 }
 
 function locateInTree(): void {
-  if (!props.message.sessionEntryId) return
-  emit('locateInTree', props.message.sessionEntryId)
+  emit('locateInTree', props.message.id)
 }
 
 function navigateTree(): void {
-  if (!props.message.sessionEntryId) return
-  emit('navigateTree', props.message.sessionEntryId)
+  emit('navigateTree', props.message.id)
 }
 
 function openImagePreview(index: number): void {
@@ -610,9 +605,7 @@ function toggleExpand(): void {
       </div>
     </div>
     <div class="message__actions">
-      <span class="message__time">{{ formattedTime }}</span>
       <BaseIconButton
-        v-if="message.sessionEntryId"
         :label="isNavigatingTree ? '正在从这里编辑' : '从这里编辑'"
         class="message__action-btn"
         :disabled="isNavigatingTree"
@@ -620,20 +613,10 @@ function toggleExpand(): void {
       >
         <TextCursorInput :size="13" />
       </BaseIconButton>
-      <BaseIconButton
-        v-if="message.sessionEntryId"
-        label="在 Tree 中定位"
-        class="message__action-btn"
-        @click="locateInTree"
-      >
+      <BaseIconButton label="在 Tree 中定位" class="message__action-btn" @click="locateInTree">
         <MapPin :size="13" />
       </BaseIconButton>
-      <BaseIconButton
-        v-if="message.sessionEntryId"
-        label="创建分支会话"
-        class="message__action-btn"
-        @click="forkFromMessage"
-      >
+      <BaseIconButton label="创建分支会话" class="message__action-btn" @click="forkFromMessage">
         <GitFork :size="13" />
       </BaseIconButton>
       <BaseIconButton

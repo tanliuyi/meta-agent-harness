@@ -5,6 +5,7 @@
 import { defineStore } from 'pinia'
 import { computed, reactive, ref } from 'vue'
 import type { ProjectSummary, ProjectTrustDecision } from '@shared/coding-agent/types'
+import { codingAgentApi } from '@renderer/api'
 
 /**
  * Workspace Project Store。
@@ -47,7 +48,7 @@ export default defineStore(
       loading.value = true
       errorMessage.value = undefined
       try {
-        const loaded = await window.api.codingAgent.listProjects()
+        const loaded = await codingAgentApi.listProjects()
         for (const project of loaded) {
           projects[project.projectId] = project
         }
@@ -68,7 +69,7 @@ export default defineStore(
       loading.value = true
       errorMessage.value = undefined
       try {
-        const project = await window.api.codingAgent.createProject()
+        const project = await codingAgentApi.createProject()
         if (!project) {
           return undefined
         }
@@ -91,7 +92,7 @@ export default defineStore(
       loading.value = true
       errorMessage.value = undefined
       try {
-        const project = await window.api.codingAgent.openProject(projectId)
+        const project = await codingAgentApi.openProject(projectId)
         projects[project.projectId] = project
         activeProjectId.value = project.projectId
       } catch (error) {
@@ -110,8 +111,8 @@ export default defineStore(
       loading.value = true
       errorMessage.value = undefined
       try {
-        await window.api.codingAgent.renameProject({ projectId, name })
-        const project = await window.api.codingAgent.getProject(projectId)
+        await codingAgentApi.renameProject({ projectId, name })
+        const project = await codingAgentApi.getProject(projectId)
         projects[project.projectId] = project
       } catch (error) {
         errorMessage.value = error instanceof Error ? error.message : String(error)
@@ -128,7 +129,7 @@ export default defineStore(
       loading.value = true
       errorMessage.value = undefined
       try {
-        await window.api.codingAgent.deleteProject(projectId)
+        await codingAgentApi.deleteProject(projectId)
         delete projects[projectId]
         if (activeProjectId.value === projectId) {
           activeProjectId.value = undefined
@@ -154,7 +155,7 @@ export default defineStore(
       loading.value = true
       errorMessage.value = undefined
       try {
-        const project = await window.api.codingAgent.setProjectTrust({ projectId, decision })
+        const project = await codingAgentApi.setProjectTrust({ projectId, decision })
         projects[project.projectId] = project
       } catch (error) {
         errorMessage.value = error instanceof Error ? error.message : String(error)

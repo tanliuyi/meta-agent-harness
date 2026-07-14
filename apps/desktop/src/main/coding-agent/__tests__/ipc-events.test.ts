@@ -2,10 +2,13 @@
  * 本文件测试 main IPC event 转换与窗口路由。
  */
 
+import { EventSchemas, EventType } from '@ag-ui/core'
 import { describe, expect, it, vi } from 'vitest'
 import { codingAgentChannels } from '@shared/coding-agent/channels'
 import {
   publishCodingAgentEvent,
+  publishSessionAgentEvent,
+  SessionAgentSubscriptionManager,
   syncThreadStatusFromWorkerEvent,
   syncThreadStatusFromWorkerLifecycle,
   toCodingAgentIpcEvent
@@ -181,6 +184,88 @@ describe('coding agent IPC events', () => {
     publishCodingAgentEvent(subscribers, event)
 
     expect(sent).toEqual([{ channel: codingAgentChannels.event, event }])
+  })
+
+  it('只向订阅了对应 session 的 WebContents 发布标准 AG-UI event', () => {
+    const sentA = vi.fn()
+    const sentB = vi.fn()
+    const webContentsA = { isDestroyed: () => false, send: sentA }
+    const webContentsB = { isDestroyed: () => false, send: sentB }
+    const subscribers = new Map([
+      [webContentsA, 'thread-a'],
+      [webContentsB, 'thread-b']
+    ])
+    const event = {
+      type: EventType.TEXT_MESSAGE_CONTENT,
+      messageId: 'assistant-a',
+      delta: 'hello'
+    } as const
+
+    publishSessionAgentEvent(subscribers as never, 'thread-a', event)
+
+    expect(sentA).toHaveBeenCalledWith(codingAgentChannels.sessionAgentEvent, event)
+    expect(sentB).not.toHaveBeenCalled()
+    expect(EventSchemas.safeParse(event).success).toBe(true)
+    expect(event).not.toHaveProperty('sessionId')
+    expect(event).not.toHaveProperty('revision')
+  })
+
+  it('A(slow)-B(fast)-A 只允许最新 open 登记订阅', async () => {
+    const manager = new SessionAgentSubscriptionManager()
+    const webContents = {
+      once: vi.fn(),
+      isDestroyed: () => false,
+      send: vi.fn()
+    }
+    const releases: Array<() => void> = []
+    const open = (sessionId: string): Promise<void> =>
+      manager.open(
+        webContents as never,
+        sessionId,
+        () => new Promise<void>((resolve) => releases.push(resolve))
+      )
+
+    const slowA = open('thread-a')
+    const fastB = open('thread-b')
+    releases[1]?.()
+    await fastB
+    expect(manager.subscriptions.get(webContents as never)).toBe('thread-b')
+
+    const latestA = open('thread-a')
+    expect(manager.subscriptions.has(webContents as never)).toBe(false)
+    releases[2]?.()
+    await latestA
+    expect(manager.subscriptions.get(webContents as never)).toBe('thread-a')
+
+    releases[0]?.()
+    await slowA
+    expect(manager.subscriptions.get(webContents as never)).toBe('thread-a')
+    expect(webContents.once).toHaveBeenCalledOnce()
+  })
+
+  it('close 会立即清订阅并使 pending open 的迟到完成失效', async () => {
+    const destroyedListeners: Array<() => void> = []
+    const manager = new SessionAgentSubscriptionManager()
+    const webContents = {
+      once: vi.fn((_event: string, listener: () => void) => destroyedListeners.push(listener)),
+      isDestroyed: () => false,
+      send: vi.fn()
+    }
+    let release!: () => void
+    const pending = manager.open(
+      webContents as never,
+      'thread-a',
+      () => new Promise<void>((resolve) => (release = resolve))
+    )
+
+    manager.close(webContents as never)
+    release()
+    await pending
+    expect(manager.subscriptions.has(webContents as never)).toBe(false)
+
+    await manager.open(webContents as never, 'thread-b', async () => undefined)
+    destroyedListeners[0]?.()
+    expect(manager.subscriptions.has(webContents as never)).toBe(false)
   })
 
   it('从 worker lifecycle 事件同步 thread metadata 状态', () => {

@@ -7,6 +7,7 @@ import { computed, reactive, ref } from 'vue'
 import useWorkspaceProjectStore from './workspace-project'
 import useWorkspaceSessionStore from './workspace-session'
 import type { ThreadSummary } from '@shared/coding-agent/types'
+import { codingAgentApi } from '@renderer/api'
 
 /**
  * Workspace Archive Store。
@@ -66,7 +67,7 @@ export default defineStore('workspace-archive', () => {
       if (workspaceProject.projectList.length === 0) {
         await workspaceProject.loadProjects()
       }
-      const threads = await window.api.codingAgent.listThreads({ archived: true })
+      const threads = await codingAgentApi.listThreads({ archived: true })
       const existingThreadIds = new Set(threads.map((thread) => thread.threadId))
       for (const threadId of Object.keys(archivedThreads)) {
         if (!existingThreadIds.has(threadId)) {
@@ -91,7 +92,7 @@ export default defineStore('workspace-archive', () => {
     restoringThreadId.value = threadId
     errorMessage.value = undefined
     try {
-      await window.api.codingAgent.restoreThread(threadId)
+      await codingAgentApi.restoreThread(threadId)
       delete archivedThreads[threadId]
       await workspaceSession.loadThreads()
     } catch (error) {

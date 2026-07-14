@@ -3,6 +3,7 @@
  */
 
 import { contextBridge, ipcRenderer, webUtils } from 'electron'
+import type { AGUIEvent } from '@ag-ui/core'
 import type { CodingAgentApi, CodingAgentIpcEvent } from '@shared/coding-agent/types'
 import { codingAgentChannels } from '@shared/coding-agent/channels'
 import { unwrapIpcResult } from '@shared/coding-agent/ipc-contract'
@@ -104,6 +105,9 @@ const codingAgent: CodingAgentApi = {
   listThreads: (input) => invokeCodingAgent(codingAgentChannels.listThreads, input),
   getThread: (threadId) => invokeCodingAgent(codingAgentChannels.getThread, threadId),
   getSnapshot: (threadId) => invokeCodingAgent(codingAgentChannels.getSnapshot, threadId),
+  openSessionMessageFeed: (input) =>
+    invokeCodingAgent(codingAgentChannels.openSessionMessageFeed, input),
+  closeSessionMessageFeed: () => invokeCodingAgent(codingAgentChannels.closeSessionMessageFeed),
   prompt: (input) => invokePromptInput(codingAgentChannels.prompt, input),
   steer: (input) => invokePromptInput(codingAgentChannels.steer, input),
   followUp: (input) => invokePromptInput(codingAgentChannels.followUp, input),
@@ -220,6 +224,12 @@ const codingAgent: CodingAgentApi = {
       ipcRenderer.off(codingAgentChannels.event, handler)
       ipcRenderer.send(codingAgentChannels.event, 'unsubscribe')
     }
+  },
+  onSessionAgentEvent: (listener) => {
+    const handler = (_event: Electron.IpcRendererEvent, payload: AGUIEvent): void =>
+      listener(payload)
+    ipcRenderer.on(codingAgentChannels.sessionAgentEvent, handler)
+    return () => ipcRenderer.off(codingAgentChannels.sessionAgentEvent, handler)
   }
 }
 

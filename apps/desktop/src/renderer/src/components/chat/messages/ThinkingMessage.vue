@@ -1,14 +1,14 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import { useResizeObserver } from '@vueuse/core'
-import type { ThreadMessage } from '@shared/coding-agent/types'
+import type { Message } from '@ag-ui/core'
 import { getMessageThinkingText } from './support/message-format'
 import ScrollArea from '@/components/ui/scroll-area/ScrollArea.vue'
 import StreamingMarkdown from '../../markdown/StreamingMarkdown.vue'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 
 const props = defineProps<{
-  message?: ThreadMessage
+  message?: Message
   messageId?: string
   text?: string
   revision?: number

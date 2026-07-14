@@ -3,7 +3,7 @@ import {
   stripPromptContextBlocks,
   type PromptSkillContextBlock
 } from '@shared/coding-agent/prompt-context'
-import type { ThreadMessage } from '@shared/coding-agent/types'
+import type { Message } from '@ag-ui/core'
 
 /**
  * 格式化消息时间。
@@ -29,22 +29,13 @@ export function formatMessageTime(value: string | undefined): string {
  * @param message - Thread message。
  * @returns 文本。
  */
-export function getMessageText(message: ThreadMessage): string | undefined {
-  if (message.text) {
-    return message.text
-  }
-  const raw = getMessageRawRecord(message)
-  const content = raw.content
-  if (typeof content === 'string') {
-    return content
-  }
-  if (!Array.isArray(content)) {
-    return undefined
-  }
-  const text = content
+export function getMessageText(message: Message): string | undefined {
+  if (typeof message.content === 'string') return message.content || undefined
+  if (message.role !== 'user' || !Array.isArray(message.content)) return undefined
+  const text = message.content
     .filter(
-      (part): part is { type: 'text'; text: string } =>
-        isRecord(part) && part.type === 'text' && typeof part.text === 'string'
+      (part): part is Extract<(typeof message.content)[number], { type: 'text' }> =>
+        part.type === 'text'
     )
     .map((part) => part.text)
     .join('')
@@ -56,7 +47,7 @@ export function getMessageText(message: ThreadMessage): string | undefined {
  * @param message - Thread message。
  * @returns 用户可见文本。
  */
-export function getUserMessageDisplayText(message: ThreadMessage): string | undefined {
+export function getUserMessageDisplayText(message: Message): string | undefined {
   const text = getMessageText(message)
   if (!text) {
     return undefined
@@ -127,7 +118,7 @@ export type UserMessageDisplaySegment =
  * @param message - Thread message。
  * @returns 用户可见展示片段。
  */
-export function getUserMessageDisplaySegments(message: ThreadMessage): UserMessageDisplaySegment[] {
+export function getUserMessageDisplaySegments(message: Message): UserMessageDisplaySegment[] {
   const text = getMessageText(message)
   return text ? getUserMessageDisplaySegmentsFromText(text) : []
 }
@@ -295,7 +286,7 @@ export interface MessageFileAttachment {
  * @param message - Thread message。
  * @returns 附件列表。
  */
-export function getMessageFileAttachments(message: ThreadMessage): MessageFileAttachment[] {
+export function getMessageFileAttachments(message: Message): MessageFileAttachment[] {
   const text = getMessageText(message)
   if (!text) {
     return []
@@ -462,20 +453,8 @@ function encodePathSegments(path: string): string {
  * @param message - Thread message。
  * @returns thinking 文本。
  */
-export function getMessageThinkingText(message: ThreadMessage): string | undefined {
-  const raw = getMessageRawRecord(message)
-  const content = raw.content
-  if (!Array.isArray(content)) {
-    return undefined
-  }
-  const thinking = content
-    .filter(
-      (part): part is { type: 'thinking'; thinking: string } =>
-        isRecord(part) && part.type === 'thinking' && typeof part.thinking === 'string'
-    )
-    .map((part) => part.thinking)
-    .join('')
-  return thinking || undefined
+export function getMessageThinkingText(message: Message): string | undefined {
+  return message.role === 'reasoning' ? message.content || undefined : undefined
 }
 
 /** 消息中的图片内容。 */
@@ -491,23 +470,13 @@ export interface MessageImage {
  * @param message - Thread message。
  * @returns 图片列表。
  */
-export function getMessageImages(message: ThreadMessage): MessageImage[] {
-  const content = getMessageRawRecord(message).content
-  if (!Array.isArray(content)) {
-    return []
-  }
-  return content.flatMap((part): MessageImage[] => {
-    if (!isRecord(part) || part.type !== 'image' || typeof part.data !== 'string') {
-      return []
-    }
-    const mimeType = readImageMimeType(part)
-    return mimeType ? [{ mimeType, data: part.data }] : []
-  })
-}
-
-function readImageMimeType(part: Record<string, unknown>): string | undefined {
-  const mimeType = part.mimeType ?? part.mediaType ?? part.mime_type
-  return typeof mimeType === 'string' ? mimeType : undefined
+export function getMessageImages(message: Message): MessageImage[] {
+  if (message.role !== 'user' || !Array.isArray(message.content)) return []
+  return message.content.flatMap((part): MessageImage[] =>
+    part.type === 'image' && part.source.type === 'data'
+      ? [{ mimeType: part.source.mimeType, data: part.source.value }]
+      : []
+  )
 }
 
 /**
@@ -515,7 +484,7 @@ function readImageMimeType(part: Record<string, unknown>): string | undefined {
  * @param message - Thread message。
  * @returns 独立图片列表。
  */
-export function getStandaloneMessageImages(message: ThreadMessage): MessageImage[] {
+export function getStandaloneMessageImages(message: Message): MessageImage[] {
   const images = getMessageImages(message)
   if (images.length === 0) {
     return []
@@ -536,15 +505,6 @@ function getImageFileContextCount(text: string | undefined): number {
  */
 export function getMessageImageSrc(image: MessageImage): string {
   return `data:${image.mimeType};base64,${image.data}`
-}
-
-/**
- * 获取消息 raw 的对象视图。
- * @param message - Thread message。
- * @returns raw 对象。
- */
-export function getMessageRawRecord(message: ThreadMessage): Record<string, unknown> {
-  return isRecord(message.raw) ? message.raw : {}
 }
 
 /**

@@ -1,15 +1,16 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { WORKSPACE_PORTAL_TARGET } from '@renderer/router/workspace-route-host'
-import type { PromptQuoteContext, ThreadMessage } from '@shared/coding-agent/types'
-import { formatMessageTime, getMessageText } from './support/message-format'
+import type { Message } from '@ag-ui/core'
+import type { PromptQuoteContext } from '@shared/coding-agent/types'
+import { getMessageText } from './support/message-format'
 import { getSelectionToolbarPosition } from './support/assistant-selection'
 import StreamingMarkdown from '../../markdown/StreamingMarkdown.vue'
 import BaseIconButton from '@/components/base/BaseIconButton.vue'
 import { Check, Copy, CornerDownRight, GitFork, MapPin, Quote } from 'lucide-vue-next'
 
 const props = defineProps<{
-  message: ThreadMessage
+  message: Message
   text?: string
   revision?: number
   isStreaming?: boolean
@@ -30,7 +31,6 @@ const emit = defineEmits<{
 }>()
 
 const source = computed(() => props.text ?? getMessageText(props.message) ?? '')
-const formattedTime = computed(() => formatMessageTime(props.message.createdAt))
 
 const isCopied = ref(false)
 const messageRootRef = ref<HTMLElement>()
@@ -60,18 +60,15 @@ async function copyMessageText(): Promise<void> {
 }
 
 function forkFromMessage(): void {
-  if (!props.message.sessionEntryId) return
-  emit('forkFromMessage', props.message.sessionEntryId)
+  emit('forkFromMessage', props.message.id)
 }
 
 function locateInTree(): void {
-  if (!props.message.sessionEntryId) return
-  emit('locateInTree', props.message.sessionEntryId)
+  emit('locateInTree', props.message.id)
 }
 
 function navigateTree(): void {
-  if (!props.message.sessionEntryId) return
-  emit('navigateTree', props.message.sessionEntryId)
+  emit('navigateTree', props.message.id)
 }
 
 function captureSelection(): void {
@@ -165,7 +162,7 @@ function quoteSelectedText(): void {
   if (!selection) return
   emit('quoteSelection', {
     messageId: props.message.id,
-    ...(props.message.sessionEntryId ? { sessionEntryId: props.message.sessionEntryId } : {}),
+    sessionEntryId: props.message.id,
     text: selection.text
   })
   window.getSelection()?.removeAllRanges()
@@ -221,7 +218,6 @@ watch(() => [props.revision, props.isStreaming], scheduleSelectionCapture)
     </Teleport>
     <div v-if="isFinalReply && isDone" class="message__actions">
       <BaseIconButton
-        v-if="message.sessionEntryId"
         :label="isNavigatingTree ? '正在从这里继续' : '从这里继续'"
         class="message__action-btn"
         :disabled="isNavigatingTree"
@@ -229,20 +225,10 @@ watch(() => [props.revision, props.isStreaming], scheduleSelectionCapture)
       >
         <CornerDownRight :size="13" />
       </BaseIconButton>
-      <BaseIconButton
-        v-if="message.sessionEntryId"
-        label="在 Tree 中定位"
-        class="message__action-btn"
-        @click="locateInTree"
-      >
+      <BaseIconButton label="在 Tree 中定位" class="message__action-btn" @click="locateInTree">
         <MapPin :size="13" />
       </BaseIconButton>
-      <BaseIconButton
-        v-if="message.sessionEntryId"
-        label="创建分支会话"
-        class="message__action-btn"
-        @click="forkFromMessage"
-      >
+      <BaseIconButton label="创建分支会话" class="message__action-btn" @click="forkFromMessage">
         <GitFork :size="13" />
       </BaseIconButton>
       <BaseIconButton
@@ -253,7 +239,6 @@ watch(() => [props.revision, props.isStreaming], scheduleSelectionCapture)
         <Check v-if="isCopied" :size="13" />
         <Copy v-else :size="13" />
       </BaseIconButton>
-      <span class="message__time">{{ formattedTime }}</span>
     </div>
   </div>
 </template>

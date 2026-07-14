@@ -3,12 +3,13 @@
  */
 
 import { defineStore } from 'pinia'
+import { runtimeApi, windowControlApi } from '@renderer/api'
 
 /**
  * 读取 preload 注入的同步运行时信息；测试或降级环境没有注入时返回 null。
  */
 function getInitialPlatform(): string | null {
-  return window.api?.runtime?.platform ?? null
+  return runtimeApi?.platform ?? null
 }
 
 function applyPlatformAttribute(platform: string | null): void {
@@ -42,7 +43,7 @@ export const useAppStore = defineStore('app', {
         return
       }
 
-      this.platform = await window.api.windowControl.platform()
+      this.platform = await windowControlApi.platform()
       applyPlatformAttribute(this.platform)
     }
   }

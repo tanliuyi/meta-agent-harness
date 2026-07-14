@@ -23,6 +23,7 @@ import type {
 import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
 import { useToast } from '@renderer/composables/useToast'
+import { codingAgentApi } from '@renderer/api'
 
 export type ModelStatus = ModelSettingsModelStatus
 export type DiagnosticSeverity = ModelSettingsDiagnosticSeverity
@@ -128,7 +129,7 @@ const useModelSettingsStore = defineStore('model-settings', () => {
     error.value = null
 
     try {
-      applySnapshot(await window.api.codingAgent.getModelSettings())
+      applySnapshot(await codingAgentApi.getModelSettings())
     } catch (cause) {
       error.value = cause instanceof Error ? cause.message : '模型配置加载失败'
     } finally {
@@ -140,7 +141,7 @@ const useModelSettingsStore = defineStore('model-settings', () => {
     loading.value = true
     error.value = null
     try {
-      applySnapshot(await window.api.codingAgent.refreshModelRegistry())
+      applySnapshot(await codingAgentApi.refreshModelRegistry())
     } catch (cause) {
       error.value = cause instanceof Error ? cause.message : '模型 registry 刷新失败'
     } finally {
@@ -177,7 +178,7 @@ const useModelSettingsStore = defineStore('model-settings', () => {
     try {
       const { provider, modelId } = draft.value.defaultModel
       applySnapshot(
-        await window.api.codingAgent.updateModelSettings({
+        await codingAgentApi.updateModelSettings({
           defaultProvider: provider || undefined,
           defaultModel: modelId || undefined,
           defaultThinkingLevel: draft.value.thinkingLevel,
@@ -198,7 +199,7 @@ const useModelSettingsStore = defineStore('model-settings', () => {
     error.value = null
 
     try {
-      const input: Parameters<typeof window.api.codingAgent.updateModelSettings>[0] = {
+      const input: Parameters<typeof codingAgentApi.updateModelSettings>[0] = {
         defaultThinkingLevel: draft.value.thinkingLevel
       }
       const { provider, modelId } = draft.value.defaultModel
@@ -209,7 +210,7 @@ const useModelSettingsStore = defineStore('model-settings', () => {
         input.defaultProvider = provider
         input.defaultModel = modelId
       }
-      applySnapshot(await window.api.codingAgent.updateModelSettings(input))
+      applySnapshot(await codingAgentApi.updateModelSettings(input))
       toast.success('默认模型与思考已保存')
     } catch (cause) {
       error.value = cause instanceof Error ? cause.message : '默认模型与思考保存失败'
@@ -225,7 +226,7 @@ const useModelSettingsStore = defineStore('model-settings', () => {
 
     try {
       applySnapshot(
-        await window.api.codingAgent.updateModelSettings({
+        await codingAgentApi.updateModelSettings({
           enabledModels: cleanStringList(draft.value.enabledModels)
         })
       )
@@ -242,7 +243,7 @@ const useModelSettingsStore = defineStore('model-settings', () => {
     saving.value = true
     error.value = null
     try {
-      applySnapshot(await window.api.codingAgent.upsertCustomProvider(input))
+      applySnapshot(await codingAgentApi.upsertCustomProvider(input))
       toast.success('自定义 provider 已保存')
     } catch (cause) {
       error.value = cause instanceof Error ? cause.message : '自定义 provider 保存失败'
@@ -256,7 +257,7 @@ const useModelSettingsStore = defineStore('model-settings', () => {
     saving.value = true
     error.value = null
     try {
-      applySnapshot(await window.api.codingAgent.deleteCustomProvider(provider))
+      applySnapshot(await codingAgentApi.deleteCustomProvider(provider))
       toast.success('自定义 provider 已删除')
     } catch (cause) {
       error.value = cause instanceof Error ? cause.message : '自定义 provider 删除失败'
@@ -270,7 +271,7 @@ const useModelSettingsStore = defineStore('model-settings', () => {
     saving.value = true
     error.value = null
     try {
-      applySnapshot(await window.api.codingAgent.setProviderApiKey(input))
+      applySnapshot(await codingAgentApi.setProviderApiKey(input))
       toast.success('API key 已保存')
     } catch (cause) {
       error.value = cause instanceof Error ? cause.message : 'API key 保存失败'
@@ -284,7 +285,7 @@ const useModelSettingsStore = defineStore('model-settings', () => {
     saving.value = true
     error.value = null
     try {
-      applySnapshot(await window.api.codingAgent.setProviderApiKey({ provider, mode: 'clear' }))
+      applySnapshot(await codingAgentApi.setProviderApiKey({ provider, mode: 'clear' }))
       toast.success('Provider 凭据已清除')
     } catch (cause) {
       error.value = cause instanceof Error ? cause.message : 'Provider 凭据清除失败'
@@ -306,7 +307,7 @@ const useModelSettingsStore = defineStore('model-settings', () => {
       }
     }
     try {
-      applySnapshot(await window.api.codingAgent.loginProviderOAuth(input))
+      applySnapshot(await codingAgentApi.loginProviderOAuth(input))
       toast.success('OAuth 登录已完成')
     } catch (cause) {
       error.value = cause instanceof Error ? cause.message : 'OAuth 登录失败'
@@ -391,7 +392,7 @@ const useModelSettingsStore = defineStore('model-settings', () => {
       return
     }
     try {
-      await window.api.codingAgent.respondModelOAuthPrompt({
+      await codingAgentApi.respondModelOAuthPrompt({
         provider,
         requestId: pendingPrompt.requestId,
         value,
@@ -408,7 +409,7 @@ const useModelSettingsStore = defineStore('model-settings', () => {
     }
   }
 
-  window.api.codingAgent.onEvent((event) => {
+  codingAgentApi.onEvent((event) => {
     if (event.type === 'modelOAuth') {
       applyOAuthEvent(event.event)
     }

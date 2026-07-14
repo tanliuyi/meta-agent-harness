@@ -7,24 +7,18 @@ import {
   getUserMessageDisplayText,
   parseUserMessageDisplaySegments
 } from '../support/message-format'
-import type { ThreadMessage } from '@shared/coding-agent/types'
+import type { Message } from '@ag-ui/core'
 
 describe('message-format', () => {
   it('hides Pi file context blocks from user message display text', () => {
     const message = {
       id: 'message-a',
       role: 'user',
-      text:
+      content:
         '<file name="/tmp/a.png">[Image omitted: could not be resized below the inline image size limit.]</file>\n' +
         '<file name="/tmp/b.png"></file>\n' +
-        '请看这些图片',
-      raw: {
-        role: 'user',
-        content: '请看这些图片',
-        timestamp: 1783036800000
-      },
-      createdAt: '2026-07-03T00:00:00.000Z'
-    } satisfies ThreadMessage
+        '请看这些图片'
+    } satisfies Message
 
     expect(getUserMessageDisplayText(message)).toBe('请看这些图片')
     expect(getMessageFileAttachments(message)).toEqual([
@@ -84,14 +78,8 @@ describe('message-format', () => {
     const message = {
       id: 'message-b',
       role: 'user',
-      text: '<file name="E:\\Temp\\image with space.png"></file>',
-      raw: {
-        role: 'user',
-        content: 'image',
-        timestamp: 1783036800000
-      },
-      createdAt: '2026-07-03T00:00:00.000Z'
-    } satisfies ThreadMessage
+      content: '<file name="E:\\Temp\\image with space.png"></file>'
+    } satisfies Message
 
     expect(getMessageFileAttachments(message)[0]?.imageSrc).toBe(
       'file:///E:/Temp/image%20with%20space.png'
@@ -102,17 +90,14 @@ describe('message-format', () => {
     const message = {
       id: 'message-c',
       role: 'user',
-      text: '<file name="E:\\Temp\\pasted.png"></file>\n看这张',
-      raw: {
-        role: 'user',
-        content: [
-          { type: 'text', text: '<file name="E:\\Temp\\pasted.png"></file>\n看这张' },
-          { type: 'image', mimeType: 'image/png', data: 'abc' }
-        ],
-        timestamp: 1783036800000
-      },
-      createdAt: '2026-07-03T00:00:00.000Z'
-    } satisfies ThreadMessage
+      content: [
+        { type: 'text', text: '<file name="E:\\Temp\\pasted.png"></file>\n看这张' },
+        {
+          type: 'image',
+          source: { type: 'data', value: 'abc', mimeType: 'image/png' }
+        }
+      ]
+    } satisfies Message
 
     expect(getMessageFileAttachments(message)[0]).toMatchObject({
       name: 'E:\\Temp\\pasted.png',
@@ -126,17 +111,14 @@ describe('message-format', () => {
     const message = {
       id: 'message-relative-image',
       role: 'user',
-      text: '<file name="hero.jpg"></file>\n使用 @hero.jpg 作为背景',
-      raw: {
-        role: 'user',
-        content: [
-          { type: 'text', text: '<file name="hero.jpg"></file>\n使用 @hero.jpg 作为背景' },
-          { type: 'image', mimeType: 'image/jpeg', data: 'abc' }
-        ],
-        timestamp: 1783036800000
-      },
-      createdAt: '2026-07-03T00:00:00.000Z'
-    } satisfies ThreadMessage
+      content: [
+        { type: 'text', text: '<file name="hero.jpg"></file>\n使用 @hero.jpg 作为背景' },
+        {
+          type: 'image',
+          source: { type: 'data', value: 'abc', mimeType: 'image/jpeg' }
+        }
+      ]
+    } satisfies Message
 
     expect(getMessageFileAttachments(message)).toEqual([])
     expect(getStandaloneMessageImages(message)).toEqual([])
@@ -146,14 +128,8 @@ describe('message-format', () => {
     const message = {
       id: 'message-relative-image-missing-content',
       role: 'user',
-      text: '<file name="hero.jpg"></file>\n使用 @hero.jpg 作为背景',
-      raw: {
-        role: 'user',
-        content: '<file name="hero.jpg"></file>\n使用 @hero.jpg 作为背景',
-        timestamp: 1783036800000
-      },
-      createdAt: '2026-07-03T00:00:00.000Z'
-    } satisfies ThreadMessage
+      content: '<file name="hero.jpg"></file>\n使用 @hero.jpg 作为背景'
+    } satisfies Message
 
     expect(getMessageFileAttachments(message)).toEqual([])
   })
@@ -162,20 +138,11 @@ describe('message-format', () => {
     const message = {
       id: 'message-absolute-image-reference',
       role: 'user',
-      text:
+      content:
         '<file name="/Users/tanliuyi/projects/meta-agent-harness/apps/desktop/resources/icon.png">' +
         '[Image omitted: could not be resized below the inline image size limit.]</file>\n' +
-        '@apps/desktop/resources/icon.png 这是测试',
-      raw: {
-        role: 'user',
-        content:
-          '<file name="/Users/tanliuyi/projects/meta-agent-harness/apps/desktop/resources/icon.png">' +
-          '[Image omitted: could not be resized below the inline image size limit.]</file>\n' +
-          '@apps/desktop/resources/icon.png 这是测试',
-        timestamp: 1783036800000
-      },
-      createdAt: '2026-07-03T00:00:00.000Z'
-    } satisfies ThreadMessage
+        '@apps/desktop/resources/icon.png 这是测试'
+    } satisfies Message
 
     expect(getMessageFileAttachments(message)).toEqual([])
     expect(getUserMessageDisplaySegments(message)).toEqual([
@@ -192,14 +159,8 @@ describe('message-format', () => {
     const message = {
       id: 'message-d',
       role: 'user',
-      text: '<file name="README.md">\nHello\n</file>\n请看 @README.md',
-      raw: {
-        role: 'user',
-        content: '<file name="README.md">\nHello\n</file>\n请看 @README.md',
-        timestamp: 1783036800000
-      },
-      createdAt: '2026-07-03T00:00:00.000Z'
-    } satisfies ThreadMessage
+      content: '<file name="README.md">\nHello\n</file>\n请看 @README.md'
+    } satisfies Message
 
     expect(getMessageFileAttachments(message)).toEqual([])
     expect(getUserMessageDisplayText(message)).toBe('请看 @README.md')
@@ -209,18 +170,10 @@ describe('message-format', () => {
     const message = {
       id: 'message-docx',
       role: 'user',
-      text:
+      content:
         '<file name="E:\\Temp\\只看气温系统需求变更文档_v1.3.docx">[Skipped: 不是支持的文本或图片文件.]</file>\n' +
-        '请处理这些文件',
-      raw: {
-        role: 'user',
-        content:
-          '<file name="E:\\Temp\\只看气温系统需求变更文档_v1.3.docx">[Skipped: 不是支持的文本或图片文件.]</file>\n' +
-          '请处理这些文件',
-        timestamp: 1783036800000
-      },
-      createdAt: '2026-07-03T00:00:00.000Z'
-    } satisfies ThreadMessage
+        '请处理这些文件'
+    } satisfies Message
 
     expect(getMessageFileAttachments(message)).toEqual([
       {
@@ -235,7 +188,7 @@ describe('message-format', () => {
     const message = {
       id: 'message-quote',
       role: 'user',
-      text:
+      content:
         '<quoted_context>\n' +
         '<quote message_id="message-186" session_entry_id="entry-a">\n' +
         '第一段 &lt;引用&gt; &amp; 正文\n' +
@@ -244,14 +197,8 @@ describe('message-format', () => {
         '另一段引用正文\n' +
         '</quote>\n' +
         '</quoted_context>\n\n' +
-        '请基于引用内容回答',
-      raw: {
-        role: 'user',
-        content: '请基于引用内容回答',
-        timestamp: 1783036800000
-      },
-      createdAt: '2026-07-03T00:00:00.000Z'
-    } satisfies ThreadMessage
+        '请基于引用内容回答'
+    } satisfies Message
 
     expect(getUserMessageDisplayText(message)).toBe(
       '第一段 <引用> & 正文\n另一段引用正文\n\n请基于引用内容回答'
@@ -279,16 +226,14 @@ describe('message-format', () => {
     const message = {
       id: 'message-browser-element',
       role: 'user',
-      text:
+      content:
         '<quoted_context data-meta-agent-context="true">\n' +
         '<quote message_id="browser-element:ref-picked-1">\n' +
         '[Browser tab tab-a, element ref-picked-1: &lt;button&gt; Save changes]\n' +
         '</quote>\n' +
         '</quoted_context>\n\n' +
-        '请基于引用内容回答',
-      raw: { role: 'user', content: '请基于引用内容回答', timestamp: 1783036800000 },
-      createdAt: '2026-07-03T00:00:00.000Z'
-    } satisfies ThreadMessage
+        '请基于引用内容回答'
+    } satisfies Message
 
     expect(getUserMessageDisplaySegments(message)).toEqual([
       {
@@ -326,14 +271,8 @@ describe('message-format', () => {
     const message = {
       id: 'message-text-at',
       role: 'user',
-      text: 'Select 选项使用 @tanstack 的虚拟库',
-      raw: {
-        role: 'user',
-        content: 'Select 选项使用 @tanstack 的虚拟库',
-        timestamp: 1783036800000
-      },
-      createdAt: '2026-07-03T00:00:00.000Z'
-    } satisfies ThreadMessage
+      content: 'Select 选项使用 @tanstack 的虚拟库'
+    } satisfies Message
 
     expect(getUserMessageDisplaySegments(message)).toEqual([
       { type: 'text', text: 'Select 选项使用 @tanstack 的虚拟库' }
@@ -356,14 +295,8 @@ describe('message-format', () => {
     const message = {
       id: 'message-e',
       role: 'user',
-      text: '<file name="/Users/me/project/src/App.vue">Hello</file>\n修复 @src/App.vue',
-      raw: {
-        role: 'user',
-        content: '<file name="/Users/me/project/src/App.vue">Hello</file>\n修复 @src/App.vue',
-        timestamp: 1783036800000
-      },
-      createdAt: '2026-07-03T00:00:00.000Z'
-    } satisfies ThreadMessage
+      content: '<file name="/Users/me/project/src/App.vue">Hello</file>\n修复 @src/App.vue'
+    } satisfies Message
 
     expect(getUserMessageDisplaySegments(message)).toEqual([
       { type: 'text', text: '修复 ' },
@@ -375,22 +308,12 @@ describe('message-format', () => {
     const message = {
       id: 'message-f',
       role: 'user',
-      text:
+      content:
         '<skill name="pdf" location="/Users/me/.agents/skills/pdf/SKILL.md">\n' +
         'References are relative to /Users/me/.agents/skills/pdf.\n\n' +
         '# PDF\n\nUse the skill body.\n' +
-        '</skill>',
-      raw: {
-        role: 'user',
-        content:
-          '<skill name="pdf" location="/Users/me/.agents/skills/pdf/SKILL.md">\n' +
-          'References are relative to /Users/me/.agents/skills/pdf.\n\n' +
-          '# PDF\n\nUse the skill body.\n' +
-          '</skill>',
-        timestamp: 1783036800000
-      },
-      createdAt: '2026-07-03T00:00:00.000Z'
-    } satisfies ThreadMessage
+        '</skill>'
+    } satisfies Message
 
     expect(getUserMessageDisplayText(message)).toBe('skill:pdf')
     expect(getUserMessageDisplaySegments(message)).toEqual([
@@ -407,24 +330,13 @@ describe('message-format', () => {
     const message = {
       id: 'message-g',
       role: 'user',
-      text:
+      content:
         '<file name="/Users/me/project/src/App.vue">Hello</file>\n' +
         '<skill name="review" location="/Users/me/.agents/skills/review/SKILL.md">\n' +
         '# Review\n\nUse the skill body.\n' +
         '</skill>\n\n' +
-        '检查 @src/App.vue',
-      raw: {
-        role: 'user',
-        content:
-          '<file name="/Users/me/project/src/App.vue">Hello</file>\n' +
-          '<skill name="review" location="/Users/me/.agents/skills/review/SKILL.md">\n' +
-          '# Review\n\nUse the skill body.\n' +
-          '</skill>\n\n' +
-          '检查 @src/App.vue',
-        timestamp: 1783036800000
-      },
-      createdAt: '2026-07-03T00:00:00.000Z'
-    } satisfies ThreadMessage
+        '检查 @src/App.vue'
+    } satisfies Message
 
     expect(getUserMessageDisplayText(message)).toBe('skill:review\n\n检查 @src/App.vue')
     expect(getUserMessageDisplaySegments(message)).toEqual([

@@ -1,7 +1,10 @@
+import type { Message, ToolCall } from '@ag-ui/core'
 import { describe, expect, it } from 'vitest'
 import type { DesktopToolCall } from '@coding-agent-desktop-src/protocol/tool'
-import type { MessageRenderState } from '@renderer/stores/workspace-session'
-import type { ThreadMessage } from '@shared/coding-agent/types'
+import type {
+  MessageRenderState,
+  WorkspaceRuntimeTimelineEvent
+} from '@renderer/stores/workspace-session'
 import {
   createDisplayTimelineItems,
   createProcessingCollapseResult,
@@ -15,25 +18,21 @@ import {
 
 describe('chatTimelineDisplay', () => {
   it('thinking 隐藏时，将连续纯工具 assistant 消息聚合为一个稳定工具组', () => {
-    const toolCalls = [
-      toolCall('tool-read', 'read', { path: 'src/a.ts' }),
-      toolCall('tool-edit', 'edit', { path: 'src/a.ts' }),
-      toolCall('tool-bash', 'bash', { command: 'pnpm test' })
+    const tools = [
+      toolCall('tool-read', 'read'),
+      toolCall('tool-edit', 'edit'),
+      toolCall('tool-bash', 'bash')
     ]
-    const items = createTimelineItems({
-      messages: [
-        assistantToolMessage('message-a', ['tool-read'], 'thinking before read'),
-        assistantToolMessage('message-b', ['tool-edit'], 'thinking before edit'),
+    const items = timeline(
+      [
+        assistantToolMessage('message-a', ['tool-read']),
+        reasoningMessage('reasoning-a', 'thinking before edit'),
+        assistantToolMessage('message-b', ['tool-edit']),
         assistantToolMessage('message-c', ['tool-bash'])
       ],
-      toolCallStructures: [],
-      getMessageRenderState,
-      resolveTimelineToolCall: (toolCallId) =>
-        toolCalls.find((toolCall) => toolCall.toolCallId === toolCallId),
-      getToolResultMessageToolCall: () => undefined,
-      hideThinkingBlock: true
-    })
-
+      tools,
+      true
+    )
     expect(items).toMatchObject([
       {
         type: 'tool-group',
@@ -45,23 +44,16 @@ describe('chatTimelineDisplay', () => {
   })
 
   it('thinking 展示时会打断纯工具 assistant 聚合', () => {
-    const toolCalls = [
-      toolCall('tool-read', 'read', { path: 'src/a.ts' }),
-      toolCall('tool-edit', 'edit', { path: 'src/a.ts' })
-    ]
-    const items = createTimelineItems({
-      messages: [
-        assistantToolMessage('message-a', ['tool-read'], 'thinking before read'),
-        assistantToolMessage('message-b', ['tool-edit'], 'thinking before edit')
+    const tools = [toolCall('tool-read', 'read'), toolCall('tool-edit', 'edit')]
+    const items = timeline(
+      [
+        reasoningMessage('reasoning-a', 'thinking before read'),
+        assistantToolMessage('message-a', ['tool-read']),
+        reasoningMessage('reasoning-b', 'thinking before edit'),
+        assistantToolMessage('message-b', ['tool-edit'])
       ],
-      toolCallStructures: [],
-      getMessageRenderState,
-      resolveTimelineToolCall: (toolCallId) =>
-        toolCalls.find((toolCall) => toolCall.toolCallId === toolCallId),
-      getToolResultMessageToolCall: () => undefined,
-      hideThinkingBlock: false
-    })
-
+      tools
+    )
     expect(items.map((item) => item.type)).toEqual([
       'thinking',
       'tool-group',
@@ -73,27 +65,22 @@ describe('chatTimelineDisplay', () => {
   })
 
   it('有文本且带工具的 assistant 会聚合后续无可见输出的工具轮次', () => {
-    const toolCalls = [
-      toolCall('tool-bash-a', 'bash', { command: 'pnpm test' }),
-      toolCall('tool-bash-b', 'bash', { command: 'pnpm run typecheck:web' }),
-      toolCall('tool-memory', 'memory', {})
+    const tools = [
+      toolCall('tool-bash-a', 'bash'),
+      toolCall('tool-bash-b', 'bash'),
+      toolCall('tool-memory', 'memory')
     ]
-    const items = createTimelineItems({
-      messages: [
+    const items = timeline(
+      [
         assistantTextToolMessage('message-a', '格式化完成，继续复跑测试和 web typecheck。', [
           'tool-bash-a',
           'tool-bash-b'
         ]),
         assistantToolMessage('message-b', ['tool-memory'])
       ],
-      toolCallStructures: [],
-      getMessageRenderState,
-      resolveTimelineToolCall: (toolCallId) =>
-        toolCalls.find((toolCall) => toolCall.toolCallId === toolCallId),
-      getToolResultMessageToolCall: () => undefined,
-      hideThinkingBlock: true
-    })
-
+      tools,
+      true
+    )
     expect(items).toMatchObject([
       { type: 'message', key: 'message-a:text:0' },
       {
@@ -106,55 +93,39 @@ describe('chatTimelineDisplay', () => {
   })
 
   it('工具完成时只替换变化的 timeline 投影', () => {
-    const message = userMessage('user-a', 'hello')
-    const runningTool = toolCall('tool-read', 'read', { path: 'src/a.ts' })
-    runningTool.status = 'running'
-    const completedTool = { ...runningTool, status: 'succeeded' as const, result: 'done' }
-
-    const createItems = (tool: DesktopToolCall): ReturnType<typeof createTimelineItems> =>
-      createTimelineItems({
-        messages: [message, assistantToolMessage('assistant-a', [tool.toolCallId])],
-        toolCallStructures: [tool],
-        getMessageRenderState,
-        resolveTimelineToolCall: () => ({ ...tool }),
-        getToolResultMessageToolCall: () => undefined,
-        hideThinkingBlock: true
-      })
-
-    const initial = stabilizeTimelineItems(createItems(runningTool), undefined)
-    const completed = stabilizeTimelineItems(createItems(completedTool), initial)
-    const unchanged = stabilizeTimelineItems(createItems(completedTool), completed)
-
-    expect(completed).not.toBe(initial)
-    expect(completed[0]).toBe(initial[0])
-    expect(completed[1]).not.toBe(initial[1])
-    expect(completed[1]?.type).toBe('tool-group')
-    expect(unchanged).toBe(completed)
+    const running = { ...toolCall('tool-read', 'read'), status: 'running' as const }
+    const completed = { ...running, status: 'succeeded' as const, result: 'done' }
+    const user = userMessage('user-a', 'hello')
+    const assistant = assistantToolMessage('assistant-a', ['tool-read'])
+    const create = (tool: DesktopToolCall): TimelineItem[] =>
+      timeline([user, assistant], [tool], true)
+    const initial = stabilizeTimelineItems(create(running), undefined)
+    const updated = stabilizeTimelineItems(create(completed), initial)
+    const unchanged = stabilizeTimelineItems(create(completed), updated)
+    expect(updated[0]).toBe(initial[0])
+    expect(updated[1]).not.toBe(initial[1])
+    expect(unchanged).toBe(updated)
   })
 
   it('记录稳定 timeline 首个变化索引供下游复用前缀', () => {
-    const first = userMessage('user-a', 'first')
-    const second = userMessage('user-b', 'second')
-    const third = userMessage('user-c', 'third')
-    const project = (messages: ThreadMessage[]): TimelineItem[] =>
+    const project = (messages: Message[]): TimelineItem[] =>
       messages.map((message) => ({
-        type: 'message' as const,
+        type: 'message',
         key: message.id,
         message,
         revision: 1,
-        renderState: 'complete' as const
+        renderState: 'complete'
       }))
-
+    const first = userMessage('user-a', 'first')
+    const second = userMessage('user-b', 'second')
+    const third = userMessage('user-c', 'third')
     const initial = stabilizeTimelineItems(project([first, second]), undefined)
     const appended = stabilizeTimelineItems(project([first, second, third]), initial)
     const changed = stabilizeTimelineItems(
-      project([first, { ...second, text: 'updated' }, third]),
+      project([first, userMessage('user-b', 'updated'), third]),
       appended
     )
-
     expect(getTimelineChangedStartIndex(appended)).toBe(2)
-    expect(appended[0]).toBe(initial[0])
-    expect(appended[1]).toBe(initial[1])
     expect(getTimelineChangedStartIndex(changed)).toBe(1)
     expect(changed[0]).toBe(appended[0])
   })
@@ -162,28 +133,16 @@ describe('chatTimelineDisplay', () => {
   it('相同投影重新排序时保留新顺序', () => {
     const first = userMessage('user-a', 'first')
     const second = userMessage('user-b', 'second')
-    const initial = stabilizeTimelineItems(
-      [first, second].map((message) => ({
-        type: 'message' as const,
-        key: message.id,
-        message,
-        revision: 1,
-        renderState: 'complete' as const
-      })),
-      undefined
-    )
-    const reordered = stabilizeTimelineItems(
-      [second, first].map((message) => ({
-        type: 'message' as const,
-        key: message.id,
-        message,
-        revision: 1,
-        renderState: 'complete' as const
-      })),
-      initial
-    )
-
-    expect(reordered.map((item) => item.key)).toEqual(['user-b', 'user-a'])
+    const item = (message: Message): TimelineItem => ({
+      type: 'message',
+      key: message.id,
+      message,
+      revision: 1,
+      renderState: 'complete'
+    })
+    const initial = stabilizeTimelineItems([item(first), item(second)], undefined)
+    const reordered = stabilizeTimelineItems([item(second), item(first)], initial)
+    expect(reordered.map((entry) => entry.key)).toEqual(['user-b', 'user-a'])
     expect(reordered[0]).toBe(initial[1])
     expect(reordered[1]).toBe(initial[0])
   })
@@ -192,24 +151,17 @@ describe('chatTimelineDisplay', () => {
     const first = userMessage('user-a', 'first')
     const reply = assistantTextMessage('assistant-a', 'reply')
     const revisions: Record<string, number> = { 'user-a': 1, 'assistant-a': 1 }
-    const createItems = (messages: ThreadMessage[]): TimelineItem[] =>
-      createTimelineItems({
-        messages,
-        toolCallStructures: [],
-        getMessageRenderState: (message) => ({
+    const create = (messages: Message[]): TimelineItem[] =>
+      createTimelineItems(
+        input(messages, [], false, (message) => ({
           revision: revisions[message.id] ?? 1,
           renderState: 'complete'
-        }),
-        resolveTimelineToolCall: () => undefined,
-        getToolResultMessageToolCall: () => undefined,
-        hideThinkingBlock: false
-      })
-
-    const initial = createItems([first, reply])
-    const appended = createItems([first, reply, userMessage('user-b', 'second')])
+        }))
+      )
+    const initial = create([first, reply])
+    const appended = create([first, reply, userMessage('user-b', 'second')])
     revisions['assistant-a'] = 2
-    const revised = createItems([first, reply])
-
+    const revised = create([first, reply])
     expect(appended[0]).toBe(initial[0])
     expect(appended[1]).toBe(initial[1])
     expect(revised[0]).toBe(initial[0])
@@ -221,25 +173,12 @@ describe('chatTimelineDisplay', () => {
     const cache = createTimelineProjectionCache()
     const first = userMessage('user-a', 'first')
     const second = assistantTextMessage('assistant-a', 'second')
-    const third = userMessage('user-b', 'third')
-    const project = (messages: ThreadMessage[], previous?: TimelineItem[]): TimelineItem[] =>
-      projectTimelineItems(
-        {
-          messages,
-          toolCallStructures: [],
-          getMessageRenderState,
-          resolveTimelineToolCall: () => undefined,
-          getToolResultMessageToolCall: () => undefined,
-          hideThinkingBlock: false
-        },
-        previous,
-        cache
-      )
-
-    const initial = project([first, second])
-    const appended = project([first, second, third], initial)
-
-    expect(appended.slice(0, initial.length)).toEqual(initial)
+    const initial = projectTimelineItems(input([first, second]), undefined, cache)
+    const appended = projectTimelineItems(
+      input([first, second, userMessage('user-b', 'third')]),
+      initial,
+      cache
+    )
     expect(appended[0]).toBe(initial[0])
     expect(appended[1]).toBe(initial[1])
     expect(appended.at(-1)).toMatchObject({ key: 'user-b' })
@@ -249,194 +188,140 @@ describe('chatTimelineDisplay', () => {
   it('历史 revision 或工具依赖变化时回退完整投影', () => {
     const cache = createTimelineProjectionCache()
     const first = userMessage('user-a', 'first')
-    const revisions: Record<string, number> = { 'user-a': 1 }
-    const project = (
-      messages: ThreadMessage[],
-      previous: TimelineItem[] | undefined,
-      toolCalls: DesktopToolCall[] = []
-    ): TimelineItem[] =>
-      projectTimelineItems(
-        {
-          messages,
-          toolCallStructures: toolCalls,
-          getMessageRenderState: (message) => ({
-            revision: revisions[message.id] ?? 1,
-            renderState: 'complete'
-          }),
-          resolveTimelineToolCall: (toolCallId) =>
-            toolCalls.find((toolCall) => toolCall.toolCallId === toolCallId),
-          getToolResultMessageToolCall: () => undefined,
-          hideThinkingBlock: true
-        },
-        previous,
-        cache
-      )
-
-    const initial = project([first], undefined)
-    revisions['user-a'] = 2
-    const revised = project([first, userMessage('user-b', 'second')], initial)
-    const read = toolCall('tool-read', 'read', {})
-    const withTool = project(
-      [first, userMessage('user-b', 'second'), assistantToolMessage('assistant-a', ['tool-read'])],
-      revised,
-      [read]
+    let revision = 1
+    const state = (): MessageRenderState => ({ revision, renderState: 'complete' })
+    const initial = projectTimelineItems(input([first], [], true, state), undefined, cache)
+    revision = 2
+    const revised = projectTimelineItems(
+      input([first, userMessage('user-b', 'second')], [], true, state),
+      initial,
+      cache
     )
-
+    const read = toolCall('tool-read', 'read')
+    const withTool = projectTimelineItems(
+      input(
+        [
+          first,
+          userMessage('user-b', 'second'),
+          assistantToolMessage('assistant-a', ['tool-read'])
+        ],
+        [read],
+        true,
+        state
+      ),
+      revised,
+      cache
+    )
     expect(revised[0]).not.toBe(initial[0])
     expect(revised[0]).toMatchObject({ revision: 2 })
-    expect(withTool.at(-1)).toMatchObject({
-      type: 'tool-group',
-      toolCallIds: ['tool-read']
-    })
+    expect(withTool.at(-1)).toMatchObject({ type: 'tool-group', toolCallIds: ['tool-read'] })
   })
 
   it('同一 timeline 的计时更新只替换活动处理段', () => {
-    const prompt = userMessage('user-a', 'hello')
-    prompt.createdAt = '2026-07-09T00:00:00.000Z'
-    const timelineItems = createTimelineItems({
-      messages: [prompt, assistantToolMessage('assistant-a', ['tool-read'])],
-      toolCallStructures: [],
-      getMessageRenderState,
-      resolveTimelineToolCall: (toolCallId) =>
-        toolCallId === 'tool-read' ? toolCall('tool-read', 'read', {}) : undefined,
-      getToolResultMessageToolCall: () => undefined,
-      hideThinkingBlock: true
-    })
+    const read = {
+      ...toolCall('tool-read', 'read'),
+      status: 'running' as const,
+      startedAt: '2026-07-09T00:00:00.000Z'
+    }
+    const items = timeline(
+      [userMessage('user-a', 'hello'), assistantToolMessage('assistant-a', ['tool-read'])],
+      [read],
+      true
+    )
     const initial = createProcessingCollapseResult({
-      items: timelineItems,
+      items,
       isRunning: true,
       activeSessionId: 'thread-a',
-      now: new Date('2026-07-09T00:00:05.000Z').getTime()
+      now: Date.parse('2026-07-09T00:00:05.000Z')
     })
     const updated = createProcessingCollapseResult(
       {
-        items: timelineItems,
+        items,
         isRunning: true,
         activeSessionId: 'thread-a',
-        now: new Date('2026-07-09T00:00:06.000Z').getTime()
+        now: Date.parse('2026-07-09T00:00:06.000Z')
       },
       initial
     )
-
-    expect(updated).not.toBe(initial)
-    expect(updated.contexts).toHaveLength(1)
     expect(updated.contexts[0]?.durationLabel).toBe('6s')
     expect(updated.finalReplyKeys).toBe(initial.finalReplyKeys)
   })
 
   it('无活动处理段时复用计时结果', () => {
-    const timelineItems = createTimelineItems({
-      messages: [userMessage('user-a', 'hello')],
-      toolCallStructures: [],
-      getMessageRenderState,
-      resolveTimelineToolCall: () => undefined,
-      getToolResultMessageToolCall: () => undefined,
-      hideThinkingBlock: true
-    })
+    const items = timeline([userMessage('user-a', 'hello')])
     const initial = createProcessingCollapseResult({
-      items: timelineItems,
+      items,
       isRunning: false,
       activeSessionId: 'thread-a',
       now: 1
     })
-    const unchanged = createProcessingCollapseResult(
-      {
-        items: timelineItems,
-        isRunning: false,
-        activeSessionId: 'thread-a',
-        now: 2
-      },
-      initial
-    )
-
-    expect(unchanged).toBe(initial)
+    expect(
+      createProcessingCollapseResult(
+        { items, isRunning: false, activeSessionId: 'thread-a', now: 2 },
+        initial
+      )
+    ).toBe(initial)
   })
 
   it('处理段 key 不随 user 后面的 timeline item 数量变化', () => {
-    const baseItems = createTimelineItems({
-      messages: [
-        userMessage('user-a', 'hello'),
-        assistantToolMessage('assistant-a', ['tool-read'])
-      ],
-      toolCallStructures: [toolCall('tool-read', 'read', { path: 'src/a.ts' })],
-      getMessageRenderState,
-      resolveTimelineToolCall: (toolCallId) =>
-        toolCallId === 'tool-read'
-          ? toolCall('tool-read', 'read', { path: 'src/a.ts' })
-          : undefined,
-      getToolResultMessageToolCall: () => undefined,
-      hideThinkingBlock: true
-    })
-    const appendedItems = createTimelineItems({
-      messages: [
+    const read = toolCall('tool-read', 'read')
+    const edit = toolCall('tool-edit', 'edit')
+    const base = timeline(
+      [userMessage('user-a', 'hello'), assistantToolMessage('assistant-a', ['tool-read'])],
+      [read],
+      true
+    )
+    const appended = timeline(
+      [
         userMessage('user-a', 'hello'),
         assistantToolMessage('assistant-a', ['tool-read']),
         assistantToolMessage('assistant-b', ['tool-edit'])
       ],
-      toolCallStructures: [
-        toolCall('tool-read', 'read', { path: 'src/a.ts' }),
-        toolCall('tool-edit', 'edit', { path: 'src/a.ts' })
-      ],
-      getMessageRenderState,
-      resolveTimelineToolCall: (toolCallId) =>
-        toolCallId === 'tool-read'
-          ? toolCall('tool-read', 'read', { path: 'src/a.ts' })
-          : toolCallId === 'tool-edit'
-            ? toolCall('tool-edit', 'edit', { path: 'src/a.ts' })
-            : undefined,
-      getToolResultMessageToolCall: () => undefined,
-      hideThinkingBlock: true
-    })
-
-    const baseResult = createProcessingCollapseResult({
-      items: baseItems,
-      isRunning: true,
-      activeSessionId: 'thread-a',
-      now: Date.now()
-    })
-    const appendedResult = createProcessingCollapseResult({
-      items: appendedItems,
-      isRunning: true,
-      activeSessionId: 'thread-a',
-      now: Date.now()
-    })
-
-    expect(baseResult.contexts[0]?.key).toBe('thread-a:user-a')
-    expect(appendedResult.contexts[0]?.key).toBe('thread-a:user-a')
+      [read, edit],
+      true
+    )
+    expect(
+      createProcessingCollapseResult({
+        items: base,
+        isRunning: true,
+        activeSessionId: 'thread-a',
+        now: 1
+      }).contexts[0]?.key
+    ).toBe('thread-a:user-a')
+    expect(
+      createProcessingCollapseResult({
+        items: appended,
+        isRunning: true,
+        activeSessionId: 'thread-a',
+        now: 1
+      }).contexts[0]?.key
+    ).toBe('thread-a:user-a')
   })
 
   it('压缩分割线不会让之前消息折叠为处理段', () => {
-    const timelineItems = createTimelineItems({
-      messages: [
+    const items = timeline(
+      [
         userMessage('user-a', 'hello'),
         compactionMessage('compaction-a'),
         assistantTextMessage('assistant-a', '继续')
       ],
-      toolCallStructures: [],
-      getMessageRenderState,
-      resolveTimelineToolCall: () => undefined,
-      getToolResultMessageToolCall: () => undefined,
-      hideThinkingBlock: true
-    })
-    const collapseResult = createProcessingCollapseResult({
-      items: timelineItems,
+      [],
+      true
+    )
+    const collapsed = createProcessingCollapseResult({
+      items,
       isRunning: false,
       activeSessionId: 'thread-a',
-      now: Date.now()
+      now: 1
     })
-
-    const displayItems = createDisplayTimelineItems({
-      timelineItems,
-      contexts: collapseResult.contexts,
-      isCollapsedHistoryOpen: () => false
-    })
-
-    expect(collapseResult.contexts).toHaveLength(0)
-    expect(displayItems.map((item) => item.type)).toEqual([
-      'message',
-      'compaction-divider',
-      'message'
-    ])
+    expect(collapsed.contexts).toHaveLength(0)
+    expect(
+      createDisplayTimelineItems({
+        timelineItems: items,
+        contexts: collapsed.contexts,
+        isCollapsedHistoryOpen: () => false
+      }).map((item) => item.type)
+    ).toEqual(['message', 'compaction-divider', 'message'])
   })
 
   it.each([
@@ -448,65 +333,36 @@ describe('chatTimelineDisplay', () => {
         message: compactionMessage('compaction-a')
       } satisfies TimelineItem
     },
-    {
-      label: '运行时系统消息',
-      item: {
-        type: 'runtime-event',
-        key: 'runtime-event:worker-crash:worker-a:1000',
-        event: {
-          id: 'worker-crash:worker-a:1000',
-          type: 'worker-error',
-          title: 'Worker 已崩溃',
-          message: 'worker exited unexpectedly',
-          createdAt: '2026-07-09T00:00:02.000Z',
-          meta: ['worker', 'crash']
-        },
-        message: agentEventMessage('runtime-event:worker-crash:worker-a:1000')
-      } satisfies TimelineItem
-    }
+    { label: '运行时系统消息', item: runtimeItem() }
   ])('$label 不打断同一个折叠处理段', ({ item: systemItem }) => {
-    const toolCalls = [
-      toolCall('tool-read', 'read', { path: 'src/a.ts' }),
-      toolCall('tool-edit', 'edit', { path: 'src/a.ts' })
-    ]
-    const timelineItems = createTimelineItems({
-      messages: [
+    const tools = [toolCall('tool-read', 'read'), toolCall('tool-edit', 'edit')]
+    const items = timeline(
+      [
         userMessage('user-a', 'hello'),
         assistantTextToolMessage('assistant-read', '先读取文件', ['tool-read']),
         assistantTextToolMessage('assistant-edit', '继续修改', ['tool-edit']),
         assistantTextMessage('assistant-final', '完成')
       ],
-      toolCallStructures: [],
-      getMessageRenderState,
-      resolveTimelineToolCall: (toolCallId) =>
-        toolCalls.find((toolCall) => toolCall.toolCallId === toolCallId),
-      getToolResultMessageToolCall: () => undefined,
-      hideThinkingBlock: true
-    })
-    timelineItems.splice(3, 0, systemItem)
-
-    const collapseResult = createProcessingCollapseResult({
-      items: timelineItems,
+      tools,
+      true
+    )
+    items.splice(3, 0, systemItem)
+    const collapsed = createProcessingCollapseResult({
+      items,
       isRunning: false,
       activeSessionId: 'thread-a',
-      now: Date.now()
+      now: 1
     })
-    const displayItems = createDisplayTimelineItems({
-      timelineItems,
-      contexts: collapseResult.contexts,
+    const display = createDisplayTimelineItems({
+      timelineItems: items,
+      contexts: collapsed.contexts,
       isCollapsedHistoryOpen: () => false
     })
-
-    expect(collapseResult.contexts).toMatchObject([
-      {
-        boundaryIndex: 1,
-        processEndIndex: 6,
-        hiddenCount: 4,
-        collapsible: true
-      }
+    expect(collapsed.contexts).toMatchObject([
+      { boundaryIndex: 1, processEndIndex: 6, hiddenCount: 4, collapsible: true }
     ])
-    expect(collapseResult.finalReplyKeys.has('assistant-final:text:0')).toBe(true)
-    expect(displayItems.map((item) => item.key)).toEqual([
+    expect(collapsed.finalReplyKeys.has('assistant-final:text:0')).toBe(true)
+    expect(display.map((item) => item.key)).toEqual([
       'user-a',
       'collapsed-history:thread-a:user-a',
       systemItem.key,
@@ -515,44 +371,33 @@ describe('chatTimelineDisplay', () => {
   })
 
   it('将压缩系统消息转换为分割线 timeline item', () => {
-    const items = createTimelineItems({
-      messages: [
-        userMessage('user-a', 'hello'),
-        compactionMessage('compaction-a'),
-        assistantTextMessage('assistant-a', '继续')
-      ],
-      toolCallStructures: [],
-      getMessageRenderState,
-      resolveTimelineToolCall: () => undefined,
-      getToolResultMessageToolCall: () => undefined,
-      hideThinkingBlock: true
-    })
-
-    expect(items).toMatchObject([
+    expect(
+      timeline(
+        [
+          userMessage('user-a', 'hello'),
+          compactionMessage('compaction-a'),
+          assistantTextMessage('assistant-a', '继续')
+        ],
+        [],
+        true
+      )
+    ).toMatchObject([
       { type: 'message', key: 'user-a' },
       { type: 'compaction-divider', key: 'compaction-a:compaction' },
       { type: 'message', key: 'assistant-a:text:0' }
     ])
   })
 
-  it('raw content 缺少 toolCall block 时仍按 message.toolCallIds 消费工具', () => {
-    const toolCalls = [
-      toolCall('tool-read', 'read', { path: 'src/a.ts' }),
-      toolCall('tool-edit', 'edit', { path: 'src/a.ts' })
-    ]
-    const items = createTimelineItems({
-      messages: [
-        assistantTextWithExternalToolIds('message-a', '读取', ['tool-read']),
-        assistantTextWithExternalToolIds('message-b', '编辑', ['tool-edit'])
+  it('标准 assistant toolCalls 会被直接消费', () => {
+    const tools = [toolCall('tool-read', 'read'), toolCall('tool-edit', 'edit')]
+    const items = timeline(
+      [
+        assistantTextToolMessage('message-a', '读取', ['tool-read']),
+        assistantTextToolMessage('message-b', '编辑', ['tool-edit'])
       ],
-      toolCallStructures: toolCalls,
-      getMessageRenderState,
-      resolveTimelineToolCall: (toolCallId) =>
-        toolCalls.find((toolCall) => toolCall.toolCallId === toolCallId),
-      getToolResultMessageToolCall: () => undefined,
-      hideThinkingBlock: true
-    })
-
+      tools,
+      true
+    )
     expect(items.map((item) => item.type)).toEqual([
       'message',
       'tool-group',
@@ -563,23 +408,12 @@ describe('chatTimelineDisplay', () => {
     expect(items[3]).toMatchObject({ key: 'tool-group:tool-edit', toolCallIds: ['tool-edit'] })
   })
 
-  it('同一 assistant 的可见文本先渲染，toolCallIds 随后补为单个工具组', () => {
-    const toolCalls = [
-      toolCall('tool-read', 'read', { path: 'src/a.ts' }),
-      toolCall('tool-edit', 'edit', { path: 'src/a.ts' })
-    ]
-    const items = createTimelineItems({
-      messages: [
-        assistantTextWithExternalToolIds('message-a', '准备修改', ['tool-read', 'tool-edit'])
-      ],
-      toolCallStructures: [],
-      getMessageRenderState,
-      resolveTimelineToolCall: (toolCallId) =>
-        toolCalls.find((toolCall) => toolCall.toolCallId === toolCallId),
-      getToolResultMessageToolCall: () => undefined,
-      hideThinkingBlock: false
-    })
-
+  it('同一 assistant 的可见文本先渲染，toolCalls 随后补为单个工具组', () => {
+    const tools = [toolCall('tool-read', 'read'), toolCall('tool-edit', 'edit')]
+    const items = timeline(
+      [assistantTextToolMessage('message-a', '准备修改', ['tool-read', 'tool-edit'])],
+      tools
+    )
     expect(items.map((item) => item.type)).toEqual(['message', 'tool-group'])
     expect(items[0]).toMatchObject({ key: 'message-a:text:0', text: '准备修改' })
     expect(items[1]).toMatchObject({
@@ -589,209 +423,184 @@ describe('chatTimelineDisplay', () => {
   })
 
   it('有文本的 assistant 会打断纯工具聚合', () => {
-    const toolCalls = [
-      toolCall('tool-read', 'read', { path: 'src/a.ts' }),
-      toolCall('tool-edit', 'edit', { path: 'src/a.ts' })
-    ]
-    const items = createTimelineItems({
-      messages: [
+    const tools = [toolCall('tool-read', 'read'), toolCall('tool-edit', 'edit')]
+    const items = timeline(
+      [
         assistantToolMessage('message-a', ['tool-read']),
         assistantTextMessage('message-b', '准备修改'),
         assistantToolMessage('message-c', ['tool-edit'])
       ],
-      toolCallStructures: [],
-      getMessageRenderState,
-      resolveTimelineToolCall: (toolCallId) =>
-        toolCalls.find((toolCall) => toolCall.toolCallId === toolCallId),
-      getToolResultMessageToolCall: () => undefined,
-      hideThinkingBlock: false
-    })
-
+      tools
+    )
     expect(items.map((item) => item.type)).toEqual(['tool-group', 'message', 'tool-group'])
-    expect(items[0]).toMatchObject({ key: 'tool-group:tool-read', toolCallIds: ['tool-read'] })
-    expect(items[2]).toMatchObject({ key: 'tool-group:tool-edit', toolCallIds: ['tool-edit'] })
+    expect(items[0]).toMatchObject({ key: 'tool-group:tool-read' })
+    expect(items[2]).toMatchObject({ key: 'tool-group:tool-edit' })
   })
 
-  it('将 worker 异常作为 runtime system item 追加到 timeline', () => {
+  it('将 worker 异常作为标准 runtime system item 追加到 timeline', () => {
     const items = createTimelineItems({
-      messages: [userMessage('user-a', 'hello')],
-      toolCallStructures: [],
-      runtimeEvents: [
-        {
-          id: 'worker-crash:worker-a:1000',
-          type: 'worker-error',
-          title: 'Worker 已崩溃',
-          message: 'worker exited unexpectedly',
-          createdAt: '2026-07-09T00:00:01.000Z',
-          meta: ['worker', 'crash']
-        }
-      ],
-      getMessageRenderState,
-      resolveTimelineToolCall: () => undefined,
-      getToolResultMessageToolCall: () => undefined,
-      hideThinkingBlock: false
+      ...input([userMessage('user-a', 'hello')]),
+      runtimeEvents: [runtimeEvent()]
     })
-
     expect(items).toMatchObject([
       { type: 'message', key: 'user-a' },
       {
         type: 'runtime-event',
         key: 'runtime-event:worker-crash:worker-a:1000',
+        event: { title: 'Worker 已崩溃' },
         message: {
+          id: 'runtime-event:worker-crash:worker-a:1000',
           role: 'system',
-          text: 'worker exited unexpectedly',
-          systemEvent: {
-            kind: 'agentEvent',
-            title: 'Worker 已崩溃',
-            description: 'worker exited unexpectedly',
-            meta: ['worker', 'crash']
-          }
+          content: 'worker exited unexpectedly',
+          name: 'agentEvent'
         }
       }
     ])
+    const runtimeItem = items[1]
+    expect(runtimeItem?.type).toBe('runtime-event')
+    if (runtimeItem?.type !== 'runtime-event') throw new Error('expected runtime event')
+    expect(runtimeItem.message).not.toHaveProperty('createdAt')
+    expect(runtimeItem.message).not.toHaveProperty('systemEvent')
   })
 
-  it('worker 异常按发生时间停留在恢复后的新消息之前', () => {
-    const beforeCrash = userMessage('user-before-crash', 'start')
-    beforeCrash.createdAt = '2026-07-09T00:00:00.000Z'
-    const resumed = userMessage('user-after-resume', 'continue')
-    resumed.createdAt = '2026-07-09T00:00:02.000Z'
-    const reply = assistantTextMessage('assistant-after-resume', 'done')
-    reply.createdAt = '2026-07-09T00:00:03.000Z'
-
+  it('无标准消息时间戳时 worker 异常保持 runtime event 输入顺序追加', () => {
     const items = createTimelineItems({
-      messages: [beforeCrash, resumed, reply],
-      toolCallStructures: [],
-      runtimeEvents: [
-        {
-          id: 'worker-crash:worker-a:1000',
-          type: 'worker-error',
-          title: 'Worker 已崩溃',
-          message: 'worker exited unexpectedly',
-          createdAt: '2026-07-09T00:00:01.000Z',
-          meta: ['worker', 'crash']
-        }
-      ],
-      getMessageRenderState,
-      resolveTimelineToolCall: () => undefined,
-      getToolResultMessageToolCall: () => undefined,
-      hideThinkingBlock: false
+      ...input([
+        userMessage('user-before-crash', 'start'),
+        userMessage('user-after-resume', 'continue'),
+        assistantTextMessage('assistant-after-resume', 'done')
+      ]),
+      runtimeEvents: [runtimeEvent()]
     })
-
     expect(items.map((item) => item.key)).toEqual([
       'user-before-crash',
-      'runtime-event:worker-crash:worker-a:1000',
       'user-after-resume',
-      'assistant-after-resume:text:0'
+      'assistant-after-resume:text:0',
+      'runtime-event:worker-crash:worker-a:1000'
     ])
+  })
+
+  it('直接投影 user、独立 reasoning、assistant toolCalls 与 tool content，并保持标准 id', () => {
+    const read = toolCall('call-read', 'read')
+    const messages: Message[] = [
+      userMessage('entry-user', 'hello'),
+      reasoningMessage('entry-assistant-reasoning', 'inspect files'),
+      assistantTextToolMessage('entry-assistant', 'working', ['call-read']),
+      { id: 'entry-tool', role: 'tool', toolCallId: 'call-read', content: 'file text' },
+      assistantTextMessage('entry-final', 'done')
+    ]
+    const items = timeline(messages, [read])
+    expect(items.map((item) => item.key)).toEqual([
+      'entry-user',
+      'entry-assistant-reasoning',
+      'entry-assistant:text:0',
+      'tool-group:call-read',
+      'entry-tool',
+      'entry-final:text:0'
+    ])
+    expect(items[1]).toMatchObject({ type: 'thinking', text: 'inspect files' })
+    expect(items[4]).toMatchObject({ type: 'message', toolCall: read })
+  })
+
+  it('隐藏独立 reasoning 时不转换 Message 数组', () => {
+    const messages: Message[] = [
+      reasoningMessage('reasoning-1', 'private'),
+      assistantTextMessage('assistant-1', 'public')
+    ]
+    expect(timeline(messages, [], true).map((item) => item.key)).toEqual(['assistant-1:text:0'])
+  })
+
+  it('AG-UI append 时保留未变化 timeline item identity', () => {
+    const cache = createTimelineProjectionCache()
+    const first = userMessage('entry-user', 'hello')
+    const initial = projectTimelineItems(input([first]), undefined, cache)
+    const appended = projectTimelineItems(
+      input([first, assistantTextMessage('entry-assistant', 'done')]),
+      initial,
+      cache
+    )
+    expect(appended[0]).toBe(initial[0])
+    expect(appended.map((item) => item.key)).toEqual(['entry-user', 'entry-assistant:text:0'])
   })
 })
 
-function userMessage(id: string, text: string): ThreadMessage {
+function input(
+  messages: Message[],
+  tools: DesktopToolCall[] = [],
+  hideThinkingBlock = false,
+  state: (message: Message) => MessageRenderState = getMessageRenderState
+): Parameters<typeof createTimelineItems>[0] {
   return {
-    id,
-    role: 'user',
-    text,
-    raw: {
-      role: 'user',
-      content: [{ type: 'text', text }]
-    } as ThreadMessage['raw']
+    messages,
+    toolCallStructures: tools,
+    getMessageRenderState: state,
+    resolveTimelineToolCall: (id: string) => tools.find((tool) => tool.toolCallId === id),
+    getToolResultMessageToolCall: (message: Message) =>
+      message.role === 'tool'
+        ? tools.find((tool) => tool.toolCallId === message.toolCallId)
+        : undefined,
+    hideThinkingBlock
   }
 }
 
-function compactionMessage(id: string): ThreadMessage {
-  return {
-    id,
-    role: 'system',
-    text: 'summary',
-    systemEvent: {
-      kind: 'compaction',
-      title: '上下文已压缩'
-    },
-    raw: {
-      role: 'compactionSummary',
-      summary: 'summary',
-      tokensBefore: 120000,
-      timestamp: Date.now()
-    } as ThreadMessage['raw']
-  }
+function timeline(
+  messages: Message[],
+  tools: DesktopToolCall[] = [],
+  hideThinkingBlock = false
+): TimelineItem[] {
+  return createTimelineItems(input(messages, tools, hideThinkingBlock))
 }
 
-function agentEventMessage(id: string): ThreadMessage {
-  return {
-    id,
-    role: 'system',
-    text: 'worker exited unexpectedly',
-    systemEvent: {
-      kind: 'agentEvent',
-      title: 'Worker 已崩溃',
-      description: 'worker exited unexpectedly',
-      meta: ['worker', 'crash']
-    },
-    raw: {
-      role: 'system',
-      content: 'worker exited unexpectedly'
-    } as unknown as ThreadMessage['raw'],
-    createdAt: '2026-07-09T00:00:02.000Z'
-  }
+function userMessage(id: string, content: string): Message {
+  return { id, role: 'user', content }
 }
-
-function assistantToolMessage(id: string, toolCallIds: string[], thinking?: string): ThreadMessage {
-  return {
-    id,
-    role: 'assistant',
-    raw: {
-      role: 'assistant',
-      content: thinking ? [{ type: 'thinking', thinking }] : []
-    } as ThreadMessage['raw'],
-    toolCallIds
-  }
+function reasoningMessage(id: string, content: string): Message {
+  return { id, role: 'reasoning', content }
 }
-
-function assistantTextWithExternalToolIds(
-  id: string,
-  text: string,
-  toolCallIds: string[]
-): ThreadMessage {
-  return {
-    id,
-    role: 'assistant',
-    text,
-    raw: {
-      role: 'assistant',
-      content: [{ type: 'text', text }]
-    } as ThreadMessage['raw'],
-    toolCallIds
-  }
+function compactionMessage(id: string): Message {
+  return { id, role: 'system', content: 'summary', name: 'compaction' }
 }
-
-function assistantTextMessage(id: string, text: string): ThreadMessage {
-  return assistantTextToolMessage(id, text, [])
+function assistantTextMessage(id: string, content: string): Message {
+  return { id, role: 'assistant', content }
 }
-
-function assistantTextToolMessage(id: string, text: string, toolCallIds: string[]): ThreadMessage {
-  return {
-    id,
-    role: 'assistant',
-    text,
-    raw: {
-      role: 'assistant',
-      content: [{ type: 'text', text }]
-    } as ThreadMessage['raw'],
-    ...(toolCallIds.length > 0 ? { toolCallIds } : {})
-  }
+function assistantToolMessage(id: string, ids: string[]): Message {
+  return assistantTextToolMessage(id, '', ids)
 }
-
-function toolCall(toolCallId: string, toolName: string, args: unknown): DesktopToolCall {
-  return {
-    threadId: 'thread-a',
-    toolCallId,
-    toolName,
-    status: 'succeeded',
-    args
-  }
+function assistantTextToolMessage(id: string, content: string, ids: string[]): Message {
+  const toolCalls: ToolCall[] = ids.map((toolCallId) => ({
+    id: toolCallId,
+    type: 'function',
+    function: { name: 'tool', arguments: '{}' }
+  }))
+  return { id, role: 'assistant', ...(content ? { content } : {}), toolCalls }
 }
-
+function toolCall(toolCallId: string, toolName: string): DesktopToolCall {
+  return { threadId: 'thread-a', toolCallId, toolName, status: 'succeeded', args: {} }
+}
 function getMessageRenderState(): MessageRenderState {
   return { revision: 1, renderState: 'complete' }
+}
+function runtimeEvent(): WorkspaceRuntimeTimelineEvent {
+  return {
+    id: 'worker-crash:worker-a:1000',
+    type: 'worker-error' as const,
+    title: 'Worker 已崩溃',
+    message: 'worker exited unexpectedly',
+    createdAt: '2026-07-09T00:00:01.000Z',
+    meta: ['worker', 'crash']
+  }
+}
+function runtimeItem(): TimelineItem {
+  const event = runtimeEvent()
+  return {
+    type: 'runtime-event',
+    key: `runtime-event:${event.id}`,
+    event,
+    message: {
+      id: `runtime-event:${event.id}`,
+      role: 'system',
+      content: event.message,
+      name: 'agentEvent'
+    }
+  }
 }

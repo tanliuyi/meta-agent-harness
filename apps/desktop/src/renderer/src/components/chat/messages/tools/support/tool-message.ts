@@ -1,10 +1,6 @@
-import type { ThreadMessage, ThreadSnapshot } from '@shared/coding-agent/types'
-import {
-  formatUnknown,
-  getMessageRawRecord,
-  getMessageText,
-  isRecord
-} from '../../support/message-format'
+import type { Message } from '@ag-ui/core'
+import type { ThreadSnapshot } from '@shared/coding-agent/types'
+import { formatUnknown, getMessageText, isRecord } from '../../support/message-format'
 
 export type ToolCall = ThreadSnapshot['toolCalls'][number]
 export type ToolStatus = ToolCall['status']
@@ -18,7 +14,7 @@ export interface ToolStatusLabels {
 }
 
 export interface ToolComponentProps {
-  message?: ThreadMessage
+  message?: Message
   toolCall?: ToolCall
   defaultOpen?: boolean
   open?: boolean
@@ -50,14 +46,13 @@ export function getToolDetails(toolCall: ToolCall | undefined): Record<string, u
  * @returns 展示文本。
  */
 export function getToolResultText(
-  message: ThreadMessage | undefined,
+  message: Message | undefined,
   toolCall: ToolCall | undefined
 ): string | undefined {
   return (
     extractContentText(toolCall?.result) ??
     extractContentText(toolCall?.partialResult) ??
     (message ? getMessageText(message) : undefined) ??
-    (message ? extractContentText(getMessageRawRecord(message).content) : undefined) ??
     formatUnknown(toolCall?.result)
   )
 }
@@ -68,14 +63,8 @@ export function getToolResultText(
  * @param toolCall - 工具调用。
  * @returns 是否错误。
  */
-export function isToolError(
-  message: ThreadMessage | undefined,
-  toolCall: ToolCall | undefined
-): boolean {
-  return (
-    (message ? getMessageRawRecord(message).isError === true : false) ||
-    toolCall?.status === 'failed'
-  )
+export function isToolError(message: Message | undefined, toolCall: ToolCall | undefined): boolean {
+  return (message?.role === 'tool' && Boolean(message.error)) || toolCall?.status === 'failed'
 }
 
 /**

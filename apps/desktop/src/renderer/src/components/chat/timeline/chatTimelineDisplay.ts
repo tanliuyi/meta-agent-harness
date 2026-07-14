@@ -1,10 +1,10 @@
+import type { Message, ToolCall } from '@ag-ui/core'
 import type { DesktopToolCall } from '@coding-agent-desktop-src/protocol/tool'
 import type {
   MessageRenderState,
   WorkspaceRuntimeTimelineEvent,
   WorkspaceToolCallStructure
 } from '@renderer/stores/workspace-session'
-import type { ThreadMessage } from '@shared/coding-agent/types'
 import {
   createToolGroupTimelineItem,
   getToolGroupStatus,
@@ -12,7 +12,7 @@ import {
   type ToolGroupStatus,
   type ToolGroupTimelineItem
 } from '../messages/tools/support/tool-group'
-import { getMessageRawRecord, getMessageText, isRecord } from '../messages/support/message-format'
+import { getMessageText } from '../messages/support/message-format'
 
 export type TimelineItem =
   | {
@@ -26,7 +26,7 @@ export type TimelineItem =
   | {
       type: 'message'
       key: string
-      message: ThreadMessage
+      message: Message
       text?: string
       toolCall?: DesktopToolCall
       revision: number
@@ -35,7 +35,7 @@ export type TimelineItem =
   | {
       type: 'thinking'
       key: string
-      message: ThreadMessage
+      message: Message
       text: string
       collapseWhenResponseAppears: boolean
       revision: number
@@ -49,13 +49,13 @@ export type TimelineItem =
   | {
       type: 'compaction-divider'
       key: string
-      message: ThreadMessage
+      message: Message
     }
   | {
       type: 'runtime-event'
       key: string
       event: WorkspaceRuntimeTimelineEvent
-      message: ThreadMessage
+      message: Message
     }
   | ToolGroupTimelineItem
 
@@ -100,30 +100,28 @@ interface CachedAssistantTimelineSegments {
   revision: number
   renderState: MessageRenderState['renderState']
   hideThinkingBlock: boolean
-  raw: ThreadMessage['raw']
-  text: ThreadMessage['text']
-  toolCallIds: ThreadMessage['toolCallIds']
+  content: Message['content']
+  toolCalls: ToolCall[] | undefined
   segments: AssistantTimelineSegment[]
 }
 
 export interface CreateTimelineItemsInput {
-  messages: ThreadMessage[]
+  messages: Message[]
   toolCallStructures: WorkspaceToolCallStructure[]
   runtimeEvents?: WorkspaceRuntimeTimelineEvent[]
-  getMessageRenderState: (message: ThreadMessage) => MessageRenderState
+  getMessageRenderState: (message: Message) => MessageRenderState
   resolveTimelineToolCall: (toolCallId: string) => DesktopToolCall | undefined
-  getToolResultMessageToolCall: (message: ThreadMessage) => DesktopToolCall | undefined
+  getToolResultMessageToolCall: (message: Message) => DesktopToolCall | undefined
   hideThinkingBlock: boolean
 }
 
 export interface TimelineProjectionCache {
   items: TimelineItem[] | undefined
-  messageRefs: ThreadMessage[]
+  messageRefs: Message[]
   revisions: number[]
   renderStates: MessageRenderState['renderState'][]
-  rawRefs: ThreadMessage['raw'][]
-  textValues: ThreadMessage['text'][]
-  toolCallIdRefs: Array<ThreadMessage['toolCallIds']>
+  contentRefs: Message['content'][]
+  toolCallRefs: Array<ToolCall[] | undefined>
   hideThinkingBlock: boolean
   independentMessages: boolean
 }
@@ -133,8 +131,8 @@ const processingCollapseResultMetadata = new WeakMap<
   ProcessingCollapseResult,
   ProcessingCollapseResultMetadata
 >()
-const messageTimelineItemCache = new WeakMap<ThreadMessage, CachedMessageTimelineItem>()
-const assistantTimelineSegmentsCache = new WeakMap<ThreadMessage, CachedAssistantTimelineSegments>()
+const messageTimelineItemCache = new WeakMap<Message, CachedMessageTimelineItem>()
+const assistantTimelineSegmentsCache = new WeakMap<Message, CachedAssistantTimelineSegments>()
 
 export function getTimelineChangedStartIndex(items: TimelineItem[]): number {
   return timelineChangedStartIndexes.get(items) ?? 0
@@ -196,9 +194,8 @@ export function createTimelineProjectionCache(): TimelineProjectionCache {
     messageRefs: [],
     revisions: [],
     renderStates: [],
-    rawRefs: [],
-    textValues: [],
-    toolCallIdRefs: [],
+    contentRefs: [],
+    toolCallRefs: [],
     hideThinkingBlock: true,
     independentMessages: false
   }
@@ -270,12 +267,25 @@ export function createTimelineItems(input: CreateTimelineItemsInput): TimelineIt
           continue
         }
         const toolCall = input.resolveTimelineToolCall(segment.toolCallId)
-        if (!toolCall) {
-          continue
-        }
+        if (!toolCall) continue
         consumedToolCallIds.add(toolCall.toolCallId)
         pendingToolGroupKey ??= getStableToolGroupKey([toolCall.toolCallId])
         pendingToolCalls.push(toolCall)
+      }
+      continue
+    }
+    if (message.role === 'reasoning') {
+      if (!input.hideThinkingBlock && message.content) {
+        flushPendingToolGroup()
+        items.push({
+          type: 'thinking',
+          key: message.id,
+          message,
+          text: message.content,
+          collapseWhenResponseAppears: hasFollowingResponseMessage(input.messages, message),
+          revision: renderState.revision,
+          renderState: renderState.renderState
+        })
       }
       continue
     }
@@ -343,9 +353,8 @@ function canAppendIndependentTimelineItems(
     const message = input.messages[index]
     if (
       message !== cache.messageRefs[index] ||
-      message.raw !== cache.rawRefs[index] ||
-      message.text !== cache.textValues[index] ||
-      message.toolCallIds !== cache.toolCallIdRefs[index]
+      message.content !== cache.contentRefs[index] ||
+      getMessageToolCalls(message) !== cache.toolCallRefs[index]
     ) {
       return false
     }
@@ -376,9 +385,8 @@ function replaceTimelineProjectionCache(
   cache.messageRefs = input.messages.slice()
   cache.revisions = []
   cache.renderStates = []
-  cache.rawRefs = []
-  cache.textValues = []
-  cache.toolCallIdRefs = []
+  cache.contentRefs = []
+  cache.toolCallRefs = []
   cache.hideThinkingBlock = input.hideThinkingBlock
   cache.independentMessages =
     input.toolCallStructures.length === 0 &&
@@ -401,20 +409,13 @@ function appendTimelineProjectionCache(
     cache.messageRefs[index] = message
     cache.revisions[index] = renderState.revision
     cache.renderStates[index] = renderState.renderState
-    cache.rawRefs[index] = message.raw
-    cache.textValues[index] = message.text
-    cache.toolCallIdRefs[index] = message.toolCallIds
+    cache.contentRefs[index] = message.content
+    cache.toolCallRefs[index] = getMessageToolCalls(message)
   }
 }
 
-function hasPotentialToolTimelineDependency(message: ThreadMessage): boolean {
-  if (message.role === 'tool' || (message.toolCallIds?.length ?? 0) > 0) {
-    return true
-  }
-  const content = getMessageRawRecord(message).content
-  return (
-    Array.isArray(content) && content.some((part) => isRecord(part) && part.type === 'toolCall')
-  )
+function hasPotentialToolTimelineDependency(message: Message): boolean {
+  return message.role === 'tool' || Boolean(getMessageToolCalls(message)?.length)
 }
 
 function insertRuntimeTimelineEvents(
@@ -520,22 +521,12 @@ function isSameToolCallProjection(
   )
 }
 
-function runtimeEventToSystemMessage(event: WorkspaceRuntimeTimelineEvent): ThreadMessage {
+function runtimeEventToSystemMessage(event: WorkspaceRuntimeTimelineEvent): Message {
   return {
     id: `runtime-event:${event.id}`,
     role: 'system',
-    text: event.message,
-    systemEvent: {
-      kind: 'agentEvent',
-      title: event.title,
-      description: event.message,
-      meta: event.meta
-    },
-    raw: {
-      role: 'system',
-      content: event.message
-    } as unknown as ThreadMessage['raw'],
-    createdAt: event.createdAt
+    content: event.message,
+    name: 'agentEvent'
   }
 }
 
@@ -543,12 +534,8 @@ function getStableToolGroupKey(toolCallIds: string[]): string | undefined {
   return toolCallIds[0] ? `tool-group:${toolCallIds[0]}` : undefined
 }
 
-interface GetAssistantTimelineItemsOptions {
-  hideThinkingBlock: boolean
-}
-
 function getCachedMessageTimelineItem(
-  message: ThreadMessage,
+  message: Message,
   renderState: MessageRenderState
 ): Extract<TimelineItem, { type: 'message' }> {
   const cached = messageTimelineItemCache.get(message)
@@ -571,7 +558,7 @@ function getCachedMessageTimelineItem(
 }
 
 function getCachedAssistantTimelineSegments(
-  message: ThreadMessage,
+  message: Message,
   renderState: MessageRenderState,
   hideThinkingBlock: boolean
 ): AssistantTimelineSegment[] {
@@ -580,119 +567,52 @@ function getCachedAssistantTimelineSegments(
     cached?.revision === renderState.revision &&
     cached.renderState === renderState.renderState &&
     cached.hideThinkingBlock === hideThinkingBlock &&
-    cached.raw === message.raw &&
-    cached.text === message.text &&
-    cached.toolCallIds === message.toolCallIds
+    cached.content === message.content &&
+    cached.toolCalls === getMessageToolCalls(message)
   ) {
     return cached.segments
   }
-  const segments = getAssistantTimelineSegments(message, renderState, { hideThinkingBlock })
+  const segments = getAssistantTimelineSegments(message, renderState)
   assistantTimelineSegmentsCache.set(message, {
     revision: renderState.revision,
     renderState: renderState.renderState,
     hideThinkingBlock,
-    raw: message.raw,
-    text: message.text,
-    toolCallIds: message.toolCallIds,
+    content: message.content,
+    toolCalls: getMessageToolCalls(message),
     segments
   })
   return segments
 }
 
 export function getAssistantTimelineItems(
-  message: ThreadMessage,
-  renderState: MessageRenderState,
-  options: GetAssistantTimelineItemsOptions
+  message: Message,
+  renderState: MessageRenderState
 ): UngroupedTimelineItem[] {
-  return getAssistantTimelineSegments(message, renderState, options).filter(
+  return getAssistantTimelineSegments(message, renderState).filter(
     (item): item is UngroupedTimelineItem => item.type !== 'assistant-tool-call'
   )
 }
 
 function getAssistantTimelineSegments(
-  message: ThreadMessage,
-  renderState: MessageRenderState,
-  options: GetAssistantTimelineItemsOptions
+  message: Message,
+  renderState: MessageRenderState
 ): AssistantTimelineSegment[] {
-  const content = getMessageRawRecord(message).content
-  if (!Array.isArray(content)) {
-    const text = getMessageText(message)
-    const items: AssistantTimelineSegment[] = text
-      ? [
-          {
-            type: 'message',
-            key: `${message.id}:text`,
-            message,
-            text,
-            revision: renderState.revision,
-            renderState: renderState.renderState
-          }
-        ]
-      : []
-    appendMissingAssistantToolCallSegments(items, message.toolCallIds, new Set())
-    return items
-  }
-
   const items: AssistantTimelineSegment[] = []
-  const rawToolCallIds = new Set<string>()
-  content.forEach((part, index) => {
-    if (!isRecord(part) || typeof part.type !== 'string') {
-      return
-    }
-    if (
-      part.type === 'thinking' &&
-      typeof part.thinking === 'string' &&
-      part.thinking &&
-      !options.hideThinkingBlock
-    ) {
-      items.push({
-        type: 'thinking',
-        key: `${message.id}:thinking:${index}`,
-        message,
-        text: part.thinking,
-        collapseWhenResponseAppears: hasFollowingResponseContent(
-          content,
-          index,
-          Boolean(message.toolCallIds?.length)
-        ),
-        revision: renderState.revision,
-        renderState: renderState.renderState
-      })
-      return
-    }
-    if (part.type === 'text' && typeof part.text === 'string' && part.text) {
-      items.push({
-        type: 'message',
-        key: `${message.id}:text:${index}`,
-        message,
-        text: part.text,
-        revision: renderState.revision,
-        renderState: renderState.renderState
-      })
-      return
-    }
-    if (part.type === 'toolCall' && typeof part.id === 'string') {
-      rawToolCallIds.add(part.id)
-      items.push({ type: 'assistant-tool-call', toolCallId: part.id })
-    }
-  })
-
-  appendMissingAssistantToolCallSegments(items, message.toolCallIds, rawToolCallIds)
-  return items
-}
-
-function appendMissingAssistantToolCallSegments(
-  items: AssistantTimelineSegment[],
-  toolCallIds: string[] | undefined,
-  seenToolCallIds: Set<string>
-): void {
-  for (const toolCallId of toolCallIds ?? []) {
-    if (seenToolCallIds.has(toolCallId)) {
-      continue
-    }
-    seenToolCallIds.add(toolCallId)
-    items.push({ type: 'assistant-tool-call', toolCallId })
+  const text = getMessageText(message)
+  if (text) {
+    items.push({
+      type: 'message',
+      key: `${message.id}:text:0`,
+      message,
+      text,
+      revision: renderState.revision,
+      renderState: renderState.renderState
+    })
   }
+  for (const toolCall of getMessageToolCalls(message) ?? []) {
+    items.push({ type: 'assistant-tool-call', toolCallId: toolCall.id })
+  }
+  return items
 }
 
 export function createProcessingCollapseResult(
@@ -894,7 +814,7 @@ export function getTimelineItemRevision(item: TimelineItem | undefined): unknown
     return [item.revision, item.text, item.collapseWhenResponseAppears]
   }
   if (item.type === 'compaction-divider') {
-    return [item.message.id, item.message.createdAt]
+    return [item.message.id]
   }
   if (item.type === 'runtime-event') {
     return [item.event.id, item.event.title, item.event.message, item.event.createdAt]
@@ -925,11 +845,10 @@ export function getTimelineItemRevision(item: TimelineItem | undefined): unknown
 }
 
 export function getToolResultMessageToolCall(
-  message: ThreadMessage,
+  message: Message,
   toolCallsById: Record<string, DesktopToolCall | undefined>
 ): DesktopToolCall | undefined {
-  const raw = getMessageRawRecord(message)
-  return typeof raw.toolCallId === 'string' ? toolCallsById[raw.toolCallId] : undefined
+  return message.role === 'tool' ? toolCallsById[message.toolCallId] : undefined
 }
 
 function appendTimelineRange(
@@ -1012,8 +931,8 @@ function isUserMessageItem(item: TimelineItem | undefined): boolean {
   return item?.type === 'message' && item.message.role === 'user'
 }
 
-function hasAssistantToolCall(message: ThreadMessage): boolean {
-  return Boolean(message.toolCallIds?.length)
+function hasAssistantToolCall(message: Message): boolean {
+  return Boolean(getMessageToolCalls(message)?.length)
 }
 
 function countTurnsInRange(items: TimelineItem[], startIndex: number, endIndex: number): number {
@@ -1080,10 +999,7 @@ function getTimelineItemStartTime(item: TimelineItem | undefined): number | unde
     }
     return undefined
   }
-  if (item.type === 'compaction-divider') {
-    return parseTime(item.message.createdAt)
-  }
-  return parseTime(item.message.createdAt)
+  return item.type === 'runtime-event' ? parseTime(item.event.createdAt) : undefined
 }
 
 function getTimelineItemEndTime(item: TimelineItem | undefined): number | undefined {
@@ -1103,36 +1019,26 @@ function getTimelineItemEndTime(item: TimelineItem | undefined): number | undefi
     }
     return undefined
   }
-  if (item.type === 'compaction-divider') {
-    return parseTime(item.message.createdAt)
-  }
-  return parseTime(item.message.createdAt)
+  return item.type === 'runtime-event' ? parseTime(item.event.createdAt) : undefined
 }
 
-function hasFollowingResponseContent(
-  content: unknown[],
-  index: number,
-  hasToolCalls: boolean
-): boolean {
-  if (hasToolCalls) {
-    return true
-  }
-  for (let nextIndex = index + 1; nextIndex < content.length; nextIndex += 1) {
-    const part = content[nextIndex]
-    if (
-      isRecord(part) &&
-      part.type === 'text' &&
-      typeof part.text === 'string' &&
-      Boolean(part.text)
-    ) {
-      return true
-    }
-  }
-  return false
+function hasFollowingResponseMessage(messages: Message[], message: Message): boolean {
+  const index = messages.indexOf(message)
+  return messages
+    .slice(index + 1)
+    .some(
+      (candidate) =>
+        candidate.role === 'assistant' &&
+        (Boolean(candidate.content) || Boolean(candidate.toolCalls?.length))
+    )
 }
 
-function isCompactionMessage(message: ThreadMessage): boolean {
-  return message.role === 'system' && message.systemEvent?.kind === 'compaction'
+function getMessageToolCalls(message: Message): ToolCall[] | undefined {
+  return message.role === 'assistant' ? message.toolCalls : undefined
+}
+
+function isCompactionMessage(message: Message): boolean {
+  return message.role === 'system' && message.name === 'compaction'
 }
 
 function isGenericToolName(value: unknown): boolean {

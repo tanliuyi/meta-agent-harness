@@ -3,6 +3,7 @@
  */
 
 import { app, dialog, ipcMain, shell, type IpcMainInvokeEvent, type WebContents } from 'electron'
+import type { AGUIEvent } from '@ag-ui/core'
 import { readFile, realpath, rm, stat } from 'node:fs/promises'
 import { basename, extname, join } from 'node:path'
 import { randomUUID } from 'node:crypto'
@@ -28,9 +29,11 @@ import { normalizeAllowedExternalUrl } from './external-url'
 import { launchChangedFile } from './changed-file-target'
 import { createWebContentsLifetime } from './web-contents-lifetime'
 import { readDesktopRuntimeConfig, writeDesktopRuntimeConfig } from './desktop-runtime-config'
+import { SessionMessageRepository } from './session-message-repository'
 import type { WorkerClient, WorkerEnvelope } from './worker-types'
 import type { ThreadWorkerLifecycleEvent } from './thread-worker-registry'
 import type {
+  AgentSessionIpcEvent,
   CodingAgentIpcEvent,
   CompactInput,
   CreateThreadInput,
@@ -48,6 +51,7 @@ import type {
   ExtensionUiResponseInput,
   ForkInput,
   ForkThreadInput,
+  OpenSessionMessageFeedInput,
   ImportSessionInput,
   IpcResult,
   ListThreadsInput,
@@ -80,6 +84,7 @@ import type {
   SetSessionEntryLabelInput,
   SetProviderApiKeyInput,
   SetProjectTrustInput,
+  ThreadSnapshot,
   ThreadStatus,
   SetModelInput,
   SetThinkingInput,
@@ -190,12 +195,14 @@ function registerCodingAgentIpcUnchecked(
   setRollback: (cleanup: () => void) => void
 ): CodingThreadManager {
   const subscribers = options.subscribers ?? new Set<WebContents>()
+  const sessionFeeds = new SessionAgentSubscriptionManager()
   const projectStore = new ProjectStore()
   const projectTrustService = new ProjectTrustService()
   const resourceCapabilities = new ResourcePathCapabilityStore()
   let modelSettingsService: Promise<ModelSettingsService> | undefined
   let agentSettingsService: Promise<AgentSettingsService> | undefined
   const store = new CodingThreadStore()
+  const sessionMessages: { repository?: SessionMessageRepository } = {}
   let createdManager: CodingThreadManager | undefined
   const ownsManager = !options.manager
   setRollback(() => {
@@ -231,6 +238,23 @@ function registerCodingAgentIpcUnchecked(
           if (!ipcEvent) {
             return
           }
+          if (isAgentSessionIpcEvent(ipcEvent)) {
+            const repository = sessionMessages.repository
+            if (!repository) return
+            for (const event of repository.record(ipcEvent)) {
+              publishSessionAgentEvent(sessionFeeds.subscriptions, ipcEvent.threadId, event)
+            }
+            if (ipcEvent.type === 'compaction_end' || ipcEvent.type === 'message_end') {
+              repository.invalidate(ipcEvent.threadId)
+              void repository
+                .get(ipcEvent.threadId)
+                .then((snapshot) =>
+                  publishSessionAgentEvent(sessionFeeds.subscriptions, ipcEvent.threadId, snapshot)
+                )
+                .catch(() => undefined)
+            }
+            return
+          }
           publishCodingAgentEvent(subscribers, ipcEvent)
         },
         onLifecycle: (event) => {
@@ -253,6 +277,9 @@ function registerCodingAgentIpcUnchecked(
       () => (modelSettingsService ??= createModelSettingsService()),
       () => (agentSettingsService ??= createAgentSettingsService())
     ))
+  sessionMessages.repository = new SessionMessageRepository((sessionId) =>
+    manager.getSessionMessages(sessionId)
+  )
   void cleanupLegacyPromptImageTempFiles().catch(() => undefined)
 
   handle(manager, codingAgentChannels.createProject, async () => {
@@ -318,26 +345,43 @@ function registerCodingAgentIpcUnchecked(
   })
   handle(manager, codingAgentChannels.createThread, async (input: CreateThreadInput) => {
     const snapshot = await manager.createThread(input)
+    sessionMessages.repository!.replace(snapshot.threadId, snapshot.messages)
+    const nonChatSnapshot = toNonChatSnapshot(snapshot)
     publishCodingAgentEvent(subscribers, {
       type: 'threadSnapshot',
       threadId: snapshot.threadId,
-      snapshot
+      snapshot: nonChatSnapshot
     })
-    return snapshot
+    return nonChatSnapshot
   })
   handle(manager, codingAgentChannels.stopThread, (threadId: string) =>
     manager.stopThread(threadId)
   )
-  handle(manager, codingAgentChannels.restartThread, (threadId: string) =>
-    manager.restartThread(threadId)
+  handle(manager, codingAgentChannels.restartThread, async (threadId: string) =>
+    toNonChatSnapshot(await manager.restartThread(threadId))
   )
   handle(manager, codingAgentChannels.listThreads, (input?: ListThreadsInput) =>
     manager.listThreads(input)
   )
-  handle(manager, codingAgentChannels.getThread, (threadId: string) => manager.getThread(threadId))
-  handle(manager, codingAgentChannels.getSnapshot, (threadId: string) =>
-    manager.getSnapshot(threadId)
+  handle(manager, codingAgentChannels.getThread, async (threadId: string) =>
+    toNonChatSnapshot(await manager.getThread(threadId))
   )
+  handle(manager, codingAgentChannels.getSnapshot, async (threadId: string) =>
+    toNonChatSnapshot(await manager.getSnapshot(threadId))
+  )
+  handleWithEvent(
+    manager,
+    codingAgentChannels.openSessionMessageFeed,
+    async (event, input: OpenSessionMessageFeedInput) => {
+      assertRendererSessionId(input?.sessionId)
+      return sessionFeeds.open(event.sender, input.sessionId, () =>
+        sessionMessages.repository!.get(input.sessionId)
+      )
+    }
+  )
+  handleWithEvent(manager, codingAgentChannels.closeSessionMessageFeed, (event) => {
+    sessionFeeds.close(event.sender)
+  })
   handle(manager, codingAgentChannels.prompt, (input: PromptInput) => manager.prompt(input))
   handle(manager, codingAgentChannels.steer, (input: TextInput) => manager.steer(input))
   handle(manager, codingAgentChannels.followUp, (input: TextInput) => manager.followUp(input))
@@ -366,14 +410,14 @@ function registerCodingAgentIpcUnchecked(
     (input: FileReferenceCompletionInput) => completeFileReference(manager, input)
   )
   handle(manager, codingAgentChannels.abort, (threadId: string) => manager.abort(threadId))
-  handle(manager, codingAgentChannels.newSession, (input: NewSessionInput) =>
-    manager.newSession(input)
+  handle(manager, codingAgentChannels.newSession, async (input: NewSessionInput) =>
+    replaceSessionMessages(sessionMessages.repository!, await manager.newSession(input))
   )
-  handle(manager, codingAgentChannels.switchSession, (input: SwitchSessionInput) =>
-    manager.switchSession(input)
+  handle(manager, codingAgentChannels.switchSession, async (input: SwitchSessionInput) =>
+    replaceSessionMessages(sessionMessages.repository!, await manager.switchSession(input))
   )
-  handle(manager, codingAgentChannels.importSession, (input: ImportSessionInput) =>
-    manager.importSession(input)
+  handle(manager, codingAgentChannels.importSession, async (input: ImportSessionInput) =>
+    replaceSessionMessages(sessionMessages.repository!, await manager.importSession(input))
   )
   handle(manager, codingAgentChannels.exportSession, async (input: ExportSessionInput) => {
     if (
@@ -391,10 +435,14 @@ function registerCodingAgentIpcUnchecked(
       resourceCapability: resourceCapabilities.issue(capabilityPath)
     }
   })
-  handle(manager, codingAgentChannels.fork, (input: ForkInput) => manager.fork(input))
+  handle(manager, codingAgentChannels.fork, async (input: ForkInput) =>
+    replaceSessionMessages(sessionMessages.repository!, await manager.fork(input))
+  )
   handle(manager, codingAgentChannels.forkThread, async (input: ForkThreadInput) => {
     const result = await manager.forkThread(input)
     if (result.snapshot) {
+      sessionMessages.repository!.replace(result.snapshot.threadId, result.snapshot.messages)
+      result.snapshot = toNonChatSnapshot(result.snapshot)
       publishCodingAgentEvent(subscribers, {
         type: 'threadSnapshot',
         threadId: result.snapshot.threadId,
@@ -403,10 +451,14 @@ function registerCodingAgentIpcUnchecked(
     }
     return result
   })
-  handle(manager, codingAgentChannels.clone, (threadId: string) => manager.clone(threadId))
-  handle(manager, codingAgentChannels.navigateTree, (input: NavigateTreeInput) =>
-    manager.navigateTree(input)
+  handle(manager, codingAgentChannels.clone, async (threadId: string) =>
+    replaceSessionMessages(sessionMessages.repository!, await manager.clone(threadId))
   )
+  handle(manager, codingAgentChannels.navigateTree, async (input: NavigateTreeInput) => {
+    const result = await manager.navigateTree(input)
+    sessionMessages.repository!.replace(result.snapshot.threadId, result.snapshot.messages)
+    return { ...result, snapshot: toNonChatSnapshot(result.snapshot) }
+  })
   handle(
     manager,
     codingAgentChannels.loadSessionTreeChildren,
@@ -420,8 +472,11 @@ function registerCodingAgentIpcUnchecked(
   handle(manager, codingAgentChannels.loadSessionTreePath, (input: LoadSessionTreePathInput) =>
     manager.loadSessionTreePath(input)
   )
-  handle(manager, codingAgentChannels.setSessionEntryLabel, (input: SetSessionEntryLabelInput) =>
-    manager.setSessionEntryLabel(input)
+  handle(
+    manager,
+    codingAgentChannels.setSessionEntryLabel,
+    async (input: SetSessionEntryLabelInput) =>
+      toNonChatSnapshot(await manager.setSessionEntryLabel(input))
   )
   handle(manager, codingAgentChannels.setThreadTitle, (input: SetThreadTitleInput) =>
     manager.setThreadTitle(input)
@@ -802,6 +857,84 @@ function handleWithEvent<TArgs extends unknown[], TResult>(
       return fail(error)
     }
   })
+}
+
+/** Serializes open/close requests independently for each renderer WebContents. */
+export class SessionAgentSubscriptionManager {
+  readonly subscriptions = new Map<WebContents, string>()
+  private readonly requests = new WeakMap<WebContents, object>()
+  private readonly observedWebContents = new WeakSet<WebContents>()
+
+  async open<T>(
+    webContents: WebContents,
+    sessionId: string,
+    loadSnapshot: () => Promise<T>
+  ): Promise<T> {
+    const token = this.begin(webContents)
+    const snapshot = await loadSnapshot()
+    if (this.requests.get(webContents) === token && !webContents.isDestroyed()) {
+      this.subscriptions.set(webContents, sessionId)
+    }
+    return snapshot
+  }
+
+  close(webContents: WebContents): void {
+    this.requests.delete(webContents)
+    this.subscriptions.delete(webContents)
+  }
+
+  private begin(webContents: WebContents): object {
+    this.close(webContents)
+    const token = {}
+    this.requests.set(webContents, token)
+    if (!this.observedWebContents.has(webContents)) {
+      this.observedWebContents.add(webContents)
+      webContents.once('destroyed', () => this.close(webContents))
+    }
+    return token
+  }
+}
+
+/** 只向当前打开对应 session feed 的窗口发送标准 AG-UI event。 */
+export function publishSessionAgentEvent(
+  subscribers: Map<WebContents, string>,
+  sessionId: string,
+  event: AGUIEvent
+): void {
+  for (const [webContents, subscribedSessionId] of subscribers) {
+    if (!webContents.isDestroyed() && subscribedSessionId === sessionId) {
+      webContents.send(codingAgentChannels.sessionAgentEvent, event)
+    }
+  }
+}
+
+function toNonChatSnapshot(snapshot: ThreadSnapshot): ThreadSnapshot {
+  return { ...snapshot, messages: [] }
+}
+
+function replaceSessionMessages(
+  repository: SessionMessageRepository,
+  snapshot: ThreadSnapshot
+): ThreadSnapshot {
+  repository.replace(snapshot.threadId, snapshot.messages)
+  return toNonChatSnapshot(snapshot)
+}
+
+function assertRendererSessionId(sessionId: string | undefined): asserts sessionId is string {
+  if (typeof sessionId !== 'string' || !sessionId.trim()) {
+    throw new Error('sessionId is required')
+  }
+}
+
+function isAgentSessionIpcEvent(event: CodingAgentIpcEvent): event is AgentSessionIpcEvent {
+  return (
+    'threadId' in event &&
+    typeof event.threadId === 'string' &&
+    event.type !== 'projection' &&
+    event.type !== 'worker' &&
+    event.type !== 'threadSnapshot' &&
+    event.type !== 'threadWorker'
+  )
 }
 
 /**

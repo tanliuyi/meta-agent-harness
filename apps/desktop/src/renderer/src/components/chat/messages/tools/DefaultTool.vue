@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import { formatUnknown, getMessageRawRecord } from '../support/message-format'
+import { formatUnknown } from '../support/message-format'
 import BaseTool from './BaseTool.vue'
 import {
   countObjectKeys,
@@ -15,14 +15,7 @@ const emit = defineEmits<{
   'update:open': [open: boolean]
 }>()
 
-const toolName = computed(() => {
-  const rawToolName = props.message ? getMessageRawRecord(props.message).toolName : undefined
-  return (
-    props.toolCall?.toolName ??
-    (typeof rawToolName === 'string' ? rawToolName : undefined) ??
-    'tool'
-  )
-})
+const toolName = computed(() => props.toolCall?.toolName ?? 'tool')
 const argCount = computed(() => countObjectKeys(props.toolCall?.args))
 const summary = computed(() => truncateSummary(formatUnknown(props.toolCall?.args), 80))
 const result = computed(() => getToolResultText(props.message, props.toolCall))
