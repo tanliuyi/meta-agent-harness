@@ -15,7 +15,7 @@ import useWorkspaceSessionStore from '@renderer/stores/workspace-session'
 import useWorkspaceUiStore from '@renderer/stores/workspace-ui'
 import { useElementSize } from '@vueuse/core'
 import { computed, ref, watch } from 'vue'
-import WorkspaceContent from './components/content/WorkspaceContent.vue'
+import { RouterView } from 'vue-router'
 import Sidebar from './components/sidebar/Sidebar.vue'
 import { MIN_WORKSPACE_MAIN_SESSION_WIDTH, WORKSPACE_RESIZER_WIDTH } from './workspace-layout'
 
@@ -97,7 +97,7 @@ const workspaceGridAreas = computed(() => {
 <template>
   <main
     ref="workspaceRef"
-    class="workspace"
+    class="workspace app-shell__workspace-host"
     :class="{ 'workspace--resizing-sidebar': isSidebarResizing }"
     :style="{
       gridTemplateColumns: workspaceGridColumns,
@@ -150,12 +150,16 @@ const workspaceGridAreas = computed(() => {
 
     <ResizeDragShield v-if="isSidebarResizing" />
 
-    <WorkspaceContent
-      class="workspace__content"
-      :style="{
-        '--session-header-padding-left': !workspaceUi.sidebarOpen && app.isMac ? '124px' : undefined
-      }"
-    />
+    <RouterView v-slot="{ Component }">
+      <component
+        :is="Component"
+        class="workspace__content"
+        :style="{
+          '--session-header-padding-left':
+            !workspaceUi.sidebarOpen && app.isMac ? '124px' : undefined
+        }"
+      />
+    </RouterView>
   </main>
 </template>
 

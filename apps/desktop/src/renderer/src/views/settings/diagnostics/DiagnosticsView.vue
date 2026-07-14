@@ -7,6 +7,7 @@ import useDiagnosticsStore, {
   type DiagnosticsSeverity
 } from '@renderer/stores/diagnostics'
 import useWorkspaceSessionStore from '@renderer/stores/workspace-session'
+import { WORKSPACE_SESSION_ROUTE_NAME } from '@renderer/router/workspace-route-host'
 import {
   AlertTriangle,
   CheckCircle2,
@@ -98,12 +99,15 @@ async function openDiagnosticTarget(item: DiagnosticsItem): Promise<void> {
   if (item.domain === 'thread') {
     if (item.threadId) {
       workspaceSession.setContextActiveThreadId(item.threadId)
-      await router.replace({ name: 'Workspace', params: { sessionid: item.threadId } })
+      await router.replace({
+        name: WORKSPACE_SESSION_ROUTE_NAME,
+        params: { sessionId: item.threadId }
+      })
       return
     }
     await router.replace({
-      name: 'Workspace',
-      params: { sessionid: workspaceSession.activeSessionId ?? 'new' }
+      name: WORKSPACE_SESSION_ROUTE_NAME,
+      params: { sessionId: workspaceSession.activeSessionId ?? 'new' }
     })
     return
   }

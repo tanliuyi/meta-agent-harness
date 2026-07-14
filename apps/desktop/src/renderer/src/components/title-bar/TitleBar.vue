@@ -12,6 +12,7 @@
 import { Maximize2, Minus, Minimize2, PanelLeft, X } from 'lucide-vue-next'
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { useRoute } from 'vue-router'
+import { isWorkspaceRouteName } from '@renderer/router/workspace-route-host'
 import { useAppStore } from '@renderer/stores/app'
 import useWorkspaceUiStore from '@renderer/stores/workspace-ui'
 
@@ -19,7 +20,7 @@ const app = useAppStore()
 const route = useRoute()
 const workspaceUi = useWorkspaceUiStore()
 const isMaximized = ref(false)
-const isWorkspaceRoute = computed(() => route.name === 'Workspace')
+const isWorkspaceRoute = computed(() => isWorkspaceRouteName(route.name))
 
 async function refreshMaximizedState(): Promise<void> {
   isMaximized.value = await window.api.windowControl.isMaximized()

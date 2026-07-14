@@ -1,50 +1,39 @@
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { resolveWorkspaceRouteHostState } from '../workspace-route-host'
+import {
+  isWorkspaceRouteName,
+  WORKSPACE_ROUTE_NAME,
+  WORKSPACE_SESSION_ROUTE_NAME
+} from '../workspace-route-host'
 
 describe('workspace route host', () => {
-  it('mounts lazily, remains mounted, and never renders a second workspace branch', () => {
-    let state = resolveWorkspaceRouteHostState(false, 'SettingsGeneral')
-    expect(state).toEqual({
-      routerViewVisible: true,
-      workspaceMounted: false,
-      workspaceVisible: false
-    })
-
-    state = resolveWorkspaceRouteHostState(state.workspaceMounted, 'Workspace')
-    expect(state).toEqual({
-      routerViewVisible: false,
-      workspaceMounted: true,
-      workspaceVisible: true
-    })
-
-    state = resolveWorkspaceRouteHostState(state.workspaceMounted, 'SettingsAgent')
-    expect(state).toEqual({
-      routerViewVisible: true,
-      workspaceMounted: true,
-      workspaceVisible: false
-    })
-
-    state = resolveWorkspaceRouteHostState(state.workspaceMounted, 'Workspace')
-    expect(state).toEqual({
-      routerViewVisible: false,
-      workspaceMounted: true,
-      workspaceVisible: true
-    })
+  it('recognizes the workspace container and session child routes', () => {
+    expect(isWorkspaceRouteName(WORKSPACE_ROUTE_NAME)).toBe(true)
+    expect(isWorkspaceRouteName(WORKSPACE_SESSION_ROUTE_NAME)).toBe(true)
+    expect(isWorkspaceRouteName('SettingsGeneral')).toBe(false)
   })
 
-  it('wires the persistent host to the same async component as the router record', () => {
+  it('uses a standard nested route and unmounts workspace outside its route', () => {
     const appSource = readFileSync(join(__dirname, '..', '..', 'App.vue'), 'utf8')
     const routerSource = readFileSync(join(__dirname, '..', 'index.ts'), 'utf8')
+    const workspaceSource = readFileSync(
+      join(__dirname, '..', '..', 'views', 'workspace', 'View.vue'),
+      'utf8'
+    )
 
-    expect(appSource).toContain('v-if="workspaceRouteState.workspaceMounted"')
-    expect(appSource).toContain('v-show="workspaceRouteState.workspaceVisible"')
-    expect(appSource).toContain('v-if="workspaceRouteState.routerViewVisible"')
-    expect(routerSource).toContain('component: WorkspaceRouteView')
+    expect(appSource).toContain('<RouterView />')
+    expect(appSource).not.toContain('v-show=')
+    expect(routerSource).toContain("path: ':sessionId'")
+    expect(routerSource).toContain(
+      "component: () => import('@/views/workspace/components/content/WorkspaceContent.vue')"
+    )
+    expect(workspaceSource).toContain('class="workspace app-shell__workspace-host"')
+    expect(workspaceSource).toContain('<RouterView v-slot="{ Component }">')
+    expect(workspaceSource).not.toContain('import WorkspaceContent')
   })
 
-  it('route-gates global shortcuts while the mounted workspace is hidden', () => {
+  it('route-gates global shortcuts outside workspace routes', () => {
     const chatViewSource = readFileSync(
       join(__dirname, '..', '..', 'components', 'chat', 'ChatView.vue'),
       'utf8'
@@ -67,27 +56,7 @@ describe('workspace route host', () => {
     expect(browserPageSource).toContain('!isWorkspaceRouteName(route.name)')
   })
 
-  it('route-gates extension panel visibility while the workspace host remains mounted', () => {
-    const extensionPanelSource = readFileSync(
-      join(
-        __dirname,
-        '..',
-        '..',
-        'components',
-        'session',
-        'panel',
-        'tabs',
-        'ExtensionWebviewPanelTab.vue'
-      ),
-      'utf8'
-    )
-
-    expect(extensionPanelSource).toContain('isWorkspaceRouteName(route.name)')
-    expect(extensionPanelSource).toContain('panelThreadId === workspaceSession.activeSessionId')
-    expect(extensionPanelSource).toContain('watch(panelVisible, syncPanelActivation')
-  })
-
-  it('keeps workspace-owned teleports inside the persistent host', () => {
+  it('keeps workspace-owned teleports inside the workspace host', () => {
     const workspaceTeleportSources = [
       join(__dirname, '..', '..', 'components', 'chat', 'composer', 'Composer.vue'),
       join(__dirname, '..', '..', 'components', 'chat', 'ImagePreviewDialog.vue'),

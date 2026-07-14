@@ -13,6 +13,7 @@ import {
   Info
 } from 'lucide-vue-next'
 import { RouterLink, useRouter } from 'vue-router'
+import { WORKSPACE_SESSION_ROUTE_NAME } from '@renderer/router/workspace-route-host'
 import useWorkspaceSession from '@/stores/workspace-session'
 
 const router = useRouter()
@@ -20,8 +21,8 @@ const workspaceSession = useWorkspaceSession()
 
 const goBack = (): void => {
   router.replace({
-    name: 'Workspace',
-    params: { sessionid: workspaceSession.activeSessionId ?? 'new' }
+    name: WORKSPACE_SESSION_ROUTE_NAME,
+    params: { sessionId: workspaceSession.activeSessionId ?? 'new' }
   })
 }
 </script>

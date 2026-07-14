@@ -6,7 +6,11 @@
  */
 
 import { createRouter, createWebHashHistory } from 'vue-router'
-import { WorkspaceRouteView } from './workspace-route-host'
+import {
+  WORKSPACE_ROUTE_NAME,
+  WORKSPACE_SESSION_ROUTE_NAME,
+  WorkspaceRouteView
+} from './workspace-route-host'
 
 /**
  * Vue Router 应用实例。
@@ -17,12 +21,16 @@ const router = createRouter({
   routes: [
     {
       path: '/',
-      redirect: '/new'
-    },
-    {
-      path: '/:sessionid',
-      name: 'Workspace',
-      component: WorkspaceRouteView
+      name: WORKSPACE_ROUTE_NAME,
+      component: WorkspaceRouteView,
+      redirect: { name: WORKSPACE_SESSION_ROUTE_NAME, params: { sessionId: 'new' } },
+      children: [
+        {
+          path: ':sessionId',
+          name: WORKSPACE_SESSION_ROUTE_NAME,
+          component: () => import('@/views/workspace/components/content/WorkspaceContent.vue')
+        }
+      ]
     },
     {
       path: '/settings',

@@ -11,7 +11,6 @@ import {
   type WorkspaceSession
 } from '../workspace-session'
 import useWorkspaceProjectStore from '../workspace-project'
-import { sessionPanelFullscreenByKey } from '../session-panel-layout-state'
 import useWorkspaceSessionStore from '../workspace-session'
 import { createComposerContentFromText } from '../workspace-session-composer'
 import { getBrowserSessionScope } from '@renderer/components/session/panel/tabs/state/browserPreviewTabs'
@@ -3932,8 +3931,6 @@ describe('workspace-session Project-first actions', () => {
     installCodingAgentApi({ createThread, prompt, setThreadTitle })
     const store = useWorkspaceSessionStore()
     store.startNewSession('project-a')
-    const orphanPanelLayoutKey = store.activeSessionPanelTabsKey
-    sessionPanelFullscreenByKey.setFullscreen(orphanPanelLayoutKey, true)
     store.setActiveSessionPanelOpen(true)
     store.setActiveSessionPanelWidth(560)
     store.draftMessage = createComposerContent('first prompt')
@@ -3951,9 +3948,6 @@ describe('workspace-session Project-first actions', () => {
     expect(store.activeProjectId).toBe('project-a')
     expect(store.hasDraftMessage).toBe(false)
     expect(store.activeSessionPanel).toEqual({ panelOpen: true, panelWidth: 560 })
-    expect(sessionPanelFullscreenByKey.isFullscreen(orphanPanelLayoutKey)).toBe(false)
-    expect(sessionPanelFullscreenByKey.isFullscreen('thread-new')).toBe(true)
-    sessionPanelFullscreenByKey.setFullscreen('thread-new', false)
   })
 
   it('createThread 返回前收到 threadSnapshot 时先迁移 draft 再切换 active thread', async () => {

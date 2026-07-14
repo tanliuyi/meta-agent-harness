@@ -6,55 +6,23 @@
  */
 
 import { BaseIconButton } from '@renderer/components/base'
-import { Maximize2, Minimize2 } from 'lucide-vue-next'
 import SessionPanelTabs from './panel/SessionPanelTabs.vue'
 
 defineProps<{
   collapsed?: boolean
   disabled?: boolean
-  fullscreen?: boolean
 }>()
 
 defineEmits<{
   toggle: []
-  toggleFullscreen: []
 }>()
 </script>
 
 <template>
-  <section
-    class="session-panel"
-    :class="{
-      'session-panel--collapsed': collapsed,
-      'session-panel--fullscreen': fullscreen
-    }"
-  >
+  <section class="session-panel" :class="{ 'session-panel--collapsed': collapsed }">
     <SessionPanelTabs :collapsed="collapsed">
       <template #actions="{ hasAttention }">
         <div class="session-panel__actions">
-          <BaseIconButton
-            v-if="!collapsed"
-            class="session-panel__fullscreen"
-            :active="fullscreen"
-            :disabled="disabled"
-            :label="fullscreen ? '退出全屏' : '全屏显示会话面板'"
-            @click="$emit('toggleFullscreen')"
-          >
-            <Minimize2
-              v-if="fullscreen"
-              class="session-panel__fullscreen-icon"
-              :size="13"
-              :stroke-width="1.8"
-              aria-hidden="true"
-            />
-            <Maximize2
-              v-else
-              class="session-panel__fullscreen-icon"
-              :size="13"
-              :stroke-width="1.8"
-              aria-hidden="true"
-            />
-          </BaseIconButton>
           <BaseIconButton
             class="session-panel__collapse"
             :class="{ 'has-attention': collapsed && hasAttention }"
