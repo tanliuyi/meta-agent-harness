@@ -440,12 +440,20 @@ export class ThreadManagerCore {
     return await this.getSnapshot(threadId)
   }
 
-  /**
-   * 获取 renderer-facing messages。页面 sessionId 当前定义为 threadId；底层 Pi session
-   * identity 仍由 JSONL 管理，不在此处迁移。
-   */
-  async getSessionMessages(threadId: string): Promise<ThreadSnapshot['messages']> {
-    return (await this.getSnapshot(threadId)).messages
+  /** 直接获取 Pi canonical messages，供 AG-UI 历史投影使用。 */
+  async getCanonicalSessionMessages(threadId: string): Promise<ThreadMessagesResponse> {
+    const thread = this.requireThread(threadId)
+    if (this.hasWorker(threadId)) {
+      const response = await this.workers.send(threadId, { type: 'get_messages' })
+      if (response.success) return response.data as ThreadMessagesResponse
+      if (!isMissingWorkerResponse(response)) throwResponseError(response)
+    }
+    if (!thread.sessionFile) return { messages: [], messageEntryIds: [] }
+    const { readCanonicalSessionMessages } = await loadSessionSnapshotModule()
+    return readCanonicalSessionMessages({
+      sessionFile: thread.sessionFile,
+      cwdOverride: this.getThreadCwd(thread)
+    })
   }
 
   /**

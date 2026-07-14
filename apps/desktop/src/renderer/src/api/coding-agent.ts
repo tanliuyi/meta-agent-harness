@@ -48,7 +48,6 @@ import type {
   OpenChangedFileInput,
   OpenChangedFileResult,
   OpenExternalUrlInput,
-  OpenSessionMessageFeedInput,
   PromptInput,
   ProjectExtensionPathsInput,
   ProjectSummary,
@@ -148,7 +147,7 @@ export const codingAgentApi = {
 
   /** 列出所有线程 */
   listThreads(input?: ListThreadsInput): Promise<ThreadSummary[]> {
-    return window.api.codingAgent.listThreads(input)
+    return input ? window.api.codingAgent.listThreads(input) : window.api.codingAgent.listThreads()
   },
 
   /** 获取线程详情 */
@@ -169,16 +168,6 @@ export const codingAgentApi = {
   /** 按 thread 所有权断开 AG-UI event stream。 */
   disconnectAgent(input: DisconnectAgentInput): Promise<void> {
     return window.api.codingAgent.disconnectAgent(input)
-  },
-
-  /** @deprecated 使用 connectAgent，并从 onAgentEvent 接收 MESSAGES_SNAPSHOT。 */
-  openSessionMessageFeed(input: OpenSessionMessageFeedInput) {
-    return window.api.codingAgent.openSessionMessageFeed(input)
-  },
-
-  /** @deprecated 使用 disconnectAgent。 */
-  closeSessionMessageFeed(): Promise<void> {
-    return window.api.codingAgent.closeSessionMessageFeed()
   },
 
   /** 使用标准 AG-UI input 发起一次 agent run。 */
@@ -607,10 +596,5 @@ export const codingAgentApi = {
   /** 监听当前已连接 thread 的标准 AG-UI event。 */
   onAgentEvent(listener: (event: AGUIEvent) => void): () => void {
     return window.api.codingAgent.onAgentEvent(listener)
-  },
-
-  /** @deprecated 使用 onAgentEvent。 */
-  onSessionAgentEvent(listener: (event: AGUIEvent) => void): () => void {
-    return window.api.codingAgent.onSessionAgentEvent(listener)
   }
 }

@@ -3,9 +3,10 @@
 import { EventSchemas, EventType } from '@ag-ui/core'
 import type { Message } from '@ag-ui/core'
 import { describe, expect, it, vi } from 'vitest'
+import type { AgentMessage } from '@earendil-works/pi-agent-core'
 import { SessionMessageRepository } from '../session-message-repository'
 import { reduceAgUiMessages } from '@shared/coding-agent/ag-ui-messages'
-import type { AgentSessionIpcEvent, ThreadMessage } from '@shared/coding-agent/types'
+import type { AgentSessionIpcEvent } from '@shared/coding-agent/types'
 
 const timestamp = Date.parse('2026-07-14T00:00:00.000Z')
 
@@ -46,15 +47,38 @@ function assistant(
   return { type, threadId: 'thread-a', message }
 }
 
-function desktopMessage(id: string, text: string): ThreadMessage {
-  return { id, role: 'user', text, raw: { role: 'user', content: text } as never }
+function canonicalUser(text: string, messageTimestamp = timestamp): AgentMessage {
+  return { role: 'user', content: text, timestamp: messageTimestamp }
+}
+
+function canonicalAssistant(
+  content: Extract<AgentMessage, { role: 'assistant' }>['content'],
+  stopReason: Extract<AgentMessage, { role: 'assistant' }>['stopReason'] = 'stop'
+): Extract<AgentMessage, { role: 'assistant' }> {
+  return {
+    role: 'assistant',
+    content,
+    api: 'responses',
+    provider: 'openai',
+    model: 'gpt-5',
+    usage: {
+      input: 0,
+      output: 0,
+      cacheRead: 0,
+      cacheWrite: 0,
+      totalTokens: 0,
+      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 }
+    },
+    stopReason,
+    timestamp
+  }
 }
 
 describe('SessionMessageRepository', () => {
   it('buffers Pi events racing initialization and returns a standard MESSAGES_SNAPSHOT', async () => {
-    let release!: (messages: ThreadMessage[]) => void
+    let release!: (messages: AgentMessage[]) => void
     const repository = new SessionMessageRepository(
-      () => new Promise<ThreadMessage[]>((resolve) => (release = resolve))
+      () => new Promise<AgentMessage[]>((resolve) => (release = resolve))
     )
 
     const loading = repository.get('thread-a')
@@ -88,6 +112,34 @@ describe('SessionMessageRepository', () => {
       { id: 'current-user', role: 'user', content: 'Current prompt' }
     ])
     expect(reconnectSnapshot).toEqual(runSnapshot)
+  })
+
+  it('does not merge client-projected assistant, reasoning, or tool history', async () => {
+    const repository = new SessionMessageRepository(async () => ({
+      messages: [canonicalAssistant([{ type: 'text', text: 'Canonical response' }])],
+      messageEntryIds: ['canonical-assistant']
+    }))
+
+    const snapshot = await repository.mergeMessages('thread-a', [
+      {
+        id: 'canonical-assistant-reasoning-reasoning-client',
+        role: 'reasoning',
+        content: 'stale client reasoning'
+      },
+      { id: 'client-assistant', role: 'assistant', content: 'stale client response' },
+      {
+        id: 'client-tool',
+        role: 'tool',
+        content: 'stale tool result',
+        toolCallId: 'tool-a'
+      },
+      { id: 'current-user', role: 'user', content: 'Current prompt' }
+    ])
+
+    expect(snapshot.messages).toEqual([
+      { id: 'canonical-assistant', role: 'assistant', content: 'Canonical response' },
+      { id: 'current-user', role: 'user', content: 'Current prompt' }
+    ])
   })
 
   it('uses the AG-UI request runId for the next canonical agent run', () => {
@@ -169,8 +221,11 @@ describe('SessionMessageRepository', () => {
     const repository = new SessionMessageRepository(async () => [])
     repository.prepareRun('thread-a', 'failed-run')
     repository.startPreparedRun('thread-a', 'failed-run')
-    repository.cancelPreparedRun('thread-a', 'failed-run')
+    const failed = repository.failRun('thread-a', 'worker failed', 'failed-run')
+    const duplicate = repository.failRun('thread-a', 'worker failed again', 'failed-run')
 
+    expect(failed).toEqual({ type: EventType.RUN_ERROR, message: 'worker failed' })
+    expect(duplicate).toBeUndefined()
     expect(() => repository.prepareRun('thread-a', 'retry-run')).not.toThrow()
   })
 
@@ -253,6 +308,8 @@ describe('SessionMessageRepository', () => {
 
     expect(EventSchemas.safeParse(success).success).toBe(true)
     expect(EventSchemas.safeParse(failure).success).toBe(true)
+    expect(success).not.toHaveProperty('state')
+    expect(failure).not.toHaveProperty('state')
     const messages = reduceAgUiMessages(reduceAgUiMessages([], success), failure)
     expect(messages).toEqual([
       {
@@ -327,37 +384,38 @@ describe('SessionMessageRepository', () => {
     })
   })
 
-  it('does not let a late initializer overwrite an explicit replacement', async () => {
-    let release!: (messages: ThreadMessage[]) => void
+  it('does not let a late initializer overwrite a canonical reload', async () => {
+    const releases: Array<(messages: AgentMessage[]) => void> = []
     const repository = new SessionMessageRepository(
-      () => new Promise<ThreadMessage[]>((resolve) => (release = resolve))
+      () => new Promise<AgentMessage[]>((resolve) => releases.push(resolve))
     )
-    const loading = repository.get('thread-a')
-    repository.replace('thread-a', [desktopMessage('replacement', 'replacement')])
-    release([])
+    const stale = repository.get('thread-a')
+    repository.invalidate('thread-a')
+    const current = repository.get('thread-a')
+    releases[1]?.([canonicalUser('replacement')])
 
-    await expect(loading).resolves.toEqual({
+    await expect(current).resolves.toEqual({
       type: EventType.MESSAGES_SNAPSHOT,
-      messages: [{ id: 'replacement', role: 'user', content: 'replacement' }]
+      messages: [{ id: `message-${timestamp}`, role: 'user', content: 'replacement' }]
     })
+    releases[0]?.([])
+    await expect(stale).resolves.toEqual(await current)
   })
 
   it('normalizes historical user images to standard AG-UI multimodal content', async () => {
-    const repository = new SessionMessageRepository(async () => [
-      {
-        id: 'legacy-id',
-        sessionEntryId: 'entry-user',
-        role: 'user',
-        text: 'inspect this',
-        raw: {
+    const repository = new SessionMessageRepository(async () => ({
+      messages: [
+        {
           role: 'user',
           content: [
             { type: 'text', text: 'inspect this' },
             { type: 'image', data: 'aGVsbG8=', mimeType: 'image/png' }
-          ]
-        } as never
-      }
-    ])
+          ],
+          timestamp
+        } as AgentMessage
+      ],
+      messageEntryIds: ['entry-user']
+    }))
 
     const snapshot = await repository.get('thread-a')
 
@@ -377,11 +435,91 @@ describe('SessionMessageRepository', () => {
     expect(EventSchemas.safeParse(snapshot).success).toBe(true)
   })
 
+  it('projects canonical thinking, tool names, arguments, and results without JSON text', async () => {
+    const repository = new SessionMessageRepository(async () => ({
+      messages: [
+        canonicalAssistant(
+          [
+            { type: 'thinking', thinking: 'Inspecting the project' },
+            { type: 'toolCall', id: 'tool-read', name: 'read', arguments: { path: 'README.md' } },
+            { type: 'toolCall', id: 'tool-bash', name: 'bash', arguments: { command: 'ls' } }
+          ],
+          'toolUse'
+        ),
+        {
+          role: 'toolResult',
+          toolCallId: 'tool-read',
+          toolName: 'read',
+          content: [{ type: 'text', text: '# Project' }],
+          isError: false,
+          timestamp: timestamp + 1
+        } as AgentMessage,
+        {
+          role: 'toolResult',
+          toolCallId: 'tool-bash',
+          toolName: 'bash',
+          content: [{ type: 'text', text: 'permission denied' }],
+          isError: true,
+          timestamp: timestamp + 2
+        } as AgentMessage
+      ],
+      messageEntryIds: ['entry-assistant']
+    }))
+
+    const snapshot = await repository.get('thread-a')
+
+    expect(snapshot.messages).toEqual([
+      {
+        id: 'entry-assistant-reasoning',
+        role: 'reasoning',
+        content: 'Inspecting the project'
+      },
+      {
+        id: 'entry-assistant',
+        role: 'assistant',
+        toolCalls: [
+          {
+            id: 'tool-read',
+            type: 'function',
+            function: { name: 'read', arguments: '{"path":"README.md"}' }
+          },
+          {
+            id: 'tool-bash',
+            type: 'function',
+            function: { name: 'bash', arguments: '{"command":"ls"}' }
+          }
+        ]
+      },
+      {
+        id: 'tool-result-tool-read',
+        role: 'tool',
+        toolCallId: 'tool-read',
+        content: '# Project'
+      },
+      {
+        id: 'tool-result-tool-bash',
+        role: 'tool',
+        toolCallId: 'tool-bash',
+        content: 'permission denied',
+        error: 'permission denied'
+      }
+    ])
+    expect(
+      snapshot.messages.some(
+        (message) =>
+          'content' in message &&
+          typeof message.content === 'string' &&
+          message.content.includes('toolCall')
+      )
+    ).toBe(false)
+    expect(EventSchemas.safeParse(snapshot).success).toBe(true)
+  })
+
   it('invalidates compaction-era messages and reloads from the canonical source', async () => {
     const loadMessages = vi
-      .fn<() => Promise<ThreadMessage[]>>()
+      .fn<() => Promise<AgentMessage[]>>()
       .mockResolvedValueOnce([])
-      .mockResolvedValueOnce([desktopMessage('compacted', 'compressed summary')])
+      .mockResolvedValueOnce([canonicalUser('compressed summary', timestamp + 1)])
     const repository = new SessionMessageRepository(loadMessages)
 
     await repository.get('thread-a')
@@ -389,7 +527,7 @@ describe('SessionMessageRepository', () => {
 
     await expect(repository.get('thread-a')).resolves.toEqual({
       type: EventType.MESSAGES_SNAPSHOT,
-      messages: [{ id: 'compacted', role: 'user', content: 'compressed summary' }]
+      messages: [{ id: `message-${timestamp + 1}`, role: 'user', content: 'compressed summary' }]
     })
     expect(loadMessages).toHaveBeenCalledTimes(2)
   })

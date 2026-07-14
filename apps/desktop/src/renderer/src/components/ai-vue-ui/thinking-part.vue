@@ -25,7 +25,6 @@ watch(
       :aria-label="isCollapsed ? 'Expand thinking' : 'Collapse thinking'"
       @click="isCollapsed = !isCollapsed"
     >
-      <span class="text-xs">{{ isCollapsed ? '▶' : '▼' }}</span>
       <span class="italic">💭 Thinking...</span>
       <span v-if="isComplete" class="text-xs text-gray-500">(complete)</span>
     </button>

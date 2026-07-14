@@ -3,7 +3,7 @@
  */
 
 import { app, dialog, ipcMain, shell, type IpcMainInvokeEvent, type WebContents } from 'electron'
-import type { AGUIEvent, RunAgentInput } from '@ag-ui/core'
+import { RunAgentInputSchema, type AGUIEvent, type RunAgentInput } from '@ag-ui/core'
 import { readFile, realpath, rm, stat } from 'node:fs/promises'
 import { basename, extname, join } from 'node:path'
 import { randomUUID } from 'node:crypto'
@@ -54,7 +54,6 @@ import type {
   ExtensionUiResponseInput,
   ForkInput,
   ForkThreadInput,
-  OpenSessionMessageFeedInput,
   ImportSessionInput,
   IpcResult,
   ListThreadsInput,
@@ -262,6 +261,14 @@ function registerCodingAgentIpcUnchecked(
           publishCodingAgentEvent(subscribers, ipcEvent)
         },
         onLifecycle: (event) => {
+          const runFailure = getWorkerRunFailure(event)
+          const repository = sessionMessages.repository
+          if (runFailure && repository) {
+            const runError = repository.failRun(runFailure.threadId, runFailure.message)
+            if (runError) {
+              publishAgentEvent(sessionFeeds.subscriptions, runFailure.threadId, runError)
+            }
+          }
           indexWorkerLifecycle(store, event)
           syncThreadStatusFromWorkerLifecycle(manager, event)
           const statusEvent = toThreadStatusProjectionFromLifecycle(event)
@@ -281,9 +288,9 @@ function registerCodingAgentIpcUnchecked(
       () => (modelSettingsService ??= createModelSettingsService()),
       () => (agentSettingsService ??= createAgentSettingsService())
     ))
-  sessionMessages.repository = new SessionMessageRepository((sessionId) =>
-    manager.getSessionMessages(sessionId)
-  )
+  sessionMessages.repository = new SessionMessageRepository(async (sessionId) => {
+    return manager.getCanonicalSessionMessages(sessionId)
+  })
   void cleanupLegacyPromptImageTempFiles().catch(() => undefined)
 
   handle(manager, codingAgentChannels.createProject, async () => {
@@ -349,7 +356,7 @@ function registerCodingAgentIpcUnchecked(
   })
   handle(manager, codingAgentChannels.createThread, async (input: CreateThreadInput) => {
     const snapshot = await manager.createThread(input)
-    sessionMessages.repository!.replace(snapshot.threadId, snapshot.messages)
+    sessionMessages.repository!.invalidate(snapshot.threadId)
     const nonChatSnapshot = toNonChatSnapshot(snapshot)
     publishCodingAgentEvent(subscribers, {
       type: 'threadSnapshot',
@@ -391,37 +398,27 @@ function registerCodingAgentIpcUnchecked(
       sessionFeeds.close(event.sender, input.threadId)
     }
   )
-  handleWithEvent(manager, codingAgentChannels.runAgent, async (event, input: RunAgentInput) => {
-    const promptInput = toPromptInput(input)
+  handleWithEvent(manager, codingAgentChannels.runAgent, async (event, input: unknown) => {
+    const runInput = parseRunAgentInput(input)
+    const promptInput = toPromptInput(runInput)
     const repository = sessionMessages.repository!
-    repository.prepareRun(input.threadId, input.runId)
+    repository.prepareRun(runInput.threadId, runInput.runId)
     try {
       const connected = await sessionFeeds.connectRun(
         event.sender,
-        input.threadId,
-        () => repository.mergeMessages(input.threadId, input.messages),
-        () => repository.startPreparedRun(input.threadId, input.runId)
+        runInput.threadId,
+        () => repository.mergeMessages(runInput.threadId, runInput.messages),
+        () => repository.startPreparedRun(runInput.threadId, runInput.runId)
       )
       if (!connected) throw new Error('Agent connection was superseded before the run started')
       await manager.prompt(promptInput)
     } catch (error) {
-      repository.cancelPreparedRun(input.threadId, input.runId)
+      const runError = repository.failRun(runInput.threadId, getErrorMessage(error), runInput.runId)
+      if (runError) {
+        publishAgentEvent(sessionFeeds.subscriptions, runInput.threadId, runError)
+      }
       throw error
     }
-  })
-  // Deprecated compatibility handlers. New consumers receive the snapshot on the AG-UI stream.
-  handleWithEvent(
-    manager,
-    codingAgentChannels.openSessionMessageFeed,
-    async (event, input: OpenSessionMessageFeedInput) => {
-      assertRendererSessionId(input?.sessionId)
-      return sessionFeeds.open(event.sender, input.sessionId, () =>
-        sessionMessages.repository!.get(input.sessionId)
-      )
-    }
-  )
-  handleWithEvent(manager, codingAgentChannels.closeSessionMessageFeed, (event) => {
-    sessionFeeds.close(event.sender)
   })
   handle(manager, codingAgentChannels.prompt, (input: PromptInput) => manager.prompt(input))
   handle(manager, codingAgentChannels.steer, (input: TextInput) => manager.steer(input))
@@ -482,7 +479,7 @@ function registerCodingAgentIpcUnchecked(
   handle(manager, codingAgentChannels.forkThread, async (input: ForkThreadInput) => {
     const result = await manager.forkThread(input)
     if (result.snapshot) {
-      sessionMessages.repository!.replace(result.snapshot.threadId, result.snapshot.messages)
+      sessionMessages.repository!.invalidate(result.snapshot.threadId)
       result.snapshot = toNonChatSnapshot(result.snapshot)
       publishCodingAgentEvent(subscribers, {
         type: 'threadSnapshot',
@@ -497,7 +494,7 @@ function registerCodingAgentIpcUnchecked(
   )
   handle(manager, codingAgentChannels.navigateTree, async (input: NavigateTreeInput) => {
     const result = await manager.navigateTree(input)
-    sessionMessages.repository!.replace(result.snapshot.threadId, result.snapshot.messages)
+    sessionMessages.repository!.invalidate(result.snapshot.threadId)
     return { ...result, snapshot: toNonChatSnapshot(result.snapshot) }
   })
   handle(
@@ -942,20 +939,6 @@ export class SessionAgentSubscriptionManager {
     return true
   }
 
-  /** @deprecated Returns the snapshot outside the AG-UI stream for legacy renderers. */
-  async open<T>(
-    webContents: WebContents,
-    sessionId: string,
-    loadSnapshot: () => Promise<T>
-  ): Promise<T> {
-    const request = this.begin(webContents, sessionId)
-    const snapshot = await loadSnapshot()
-    if (this.isCurrent(webContents, request)) {
-      this.subscriptions.set(webContents, sessionId)
-    }
-    return snapshot
-  }
-
   close(webContents: WebContents, expectedSessionId?: string): void {
     if (expectedSessionId) {
       const request = this.requests.get(webContents)
@@ -997,9 +980,6 @@ export function publishAgentEvent(
   }
 }
 
-/** @deprecated Use publishAgentEvent. */
-export const publishSessionAgentEvent = publishAgentEvent
-
 function toNonChatSnapshot(snapshot: ThreadSnapshot): ThreadSnapshot {
   return { ...snapshot, messages: [] }
 }
@@ -1008,7 +988,7 @@ function replaceSessionMessages(
   repository: SessionMessageRepository,
   snapshot: ThreadSnapshot
 ): ThreadSnapshot {
-  repository.replace(snapshot.threadId, snapshot.messages)
+  repository.invalidate(snapshot.threadId)
   return toNonChatSnapshot(snapshot)
 }
 
@@ -1020,13 +1000,7 @@ function assertRendererSessionId(sessionId: string | undefined): asserts session
 
 /** Converts the AG-UI run request into the stateful Pi runtime's next user prompt. */
 export function toPromptInput(input: RunAgentInput): PromptInput {
-  if (!input || typeof input !== 'object') throw new Error('RunAgentInput is required')
-  assertRendererSessionId(input.threadId)
-  if (typeof input.runId !== 'string' || !input.runId.trim()) {
-    throw new Error('runId is required')
-  }
-  if (!Array.isArray(input.messages)) throw new Error('messages must be an array')
-  if (!Array.isArray(input.tools)) throw new Error('tools must be an array')
+  assertUnsupportedRunAgentInput(input)
   if (input.tools.length > 0) {
     throw new Error('Client-provided AG-UI tools are not supported by the desktop Pi runtime')
   }
@@ -1065,6 +1039,61 @@ export function toPromptInput(input: RunAgentInput): PromptInput {
   if (!message.trim() && images.length === 0) throw new Error('User message must not be empty')
   assertPromptImagePayload({ images })
   return { threadId: input.threadId, message, ...(images.length ? { images } : {}) }
+}
+
+export function parseRunAgentInput(input: unknown): RunAgentInput {
+  const parsed = RunAgentInputSchema.safeParse(input)
+  if (parsed.success) return parsed.data
+  const details = parsed.error.issues
+    .map((issue) => `${issue.path.join('.') || 'input'}: ${issue.message}`)
+    .join('; ')
+  throw new Error(`Invalid RunAgentInput: ${details}`)
+}
+
+function assertUnsupportedRunAgentInput(input: RunAgentInput): void {
+  assertRendererSessionId(input.threadId)
+  if (!input.runId.trim()) throw new Error('runId is required')
+  if (input.parentRunId) {
+    throw new Error('AG-UI parentRunId is not supported by the desktop Pi runtime')
+  }
+  if (input.resume?.length) {
+    throw new Error('AG-UI resume is not supported by the desktop Pi runtime')
+  }
+  if (input.context.length > 0) {
+    throw new Error('Client-provided AG-UI context is not supported by the desktop Pi runtime')
+  }
+  if (!isEmptyRecord(input.state)) {
+    throw new Error('Client-provided AG-UI state is not supported by the desktop Pi runtime')
+  }
+  if (!isEmptyRecord(input.forwardedProps)) {
+    throw new Error('AG-UI forwardedProps are not supported by the desktop Pi runtime')
+  }
+}
+
+function isEmptyRecord(value: unknown): boolean {
+  return (
+    value !== null &&
+    typeof value === 'object' &&
+    !Array.isArray(value) &&
+    Object.keys(value).length === 0
+  )
+}
+
+function getWorkerRunFailure(
+  event: ThreadWorkerLifecycleEvent
+): { threadId: string; message: string } | undefined {
+  if (event.type === 'worker.run.failed' && event.threadId) {
+    return { threadId: event.threadId, message: event.message }
+  }
+  if (event.type !== 'worker.run.finished' || event.reason === 'idle') return undefined
+  return {
+    threadId: event.threadId,
+    message: event.message ?? `Agent worker stopped: ${event.reason}`
+  }
+}
+
+function getErrorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error)
 }
 
 function isAgentSessionIpcEvent(event: CodingAgentIpcEvent): event is AgentSessionIpcEvent {

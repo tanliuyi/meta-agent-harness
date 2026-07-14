@@ -54,22 +54,26 @@ function session(threadId: string, messages: ThreadMessage[] = []): WorkspaceSes
 }
 
 function installFeedApi(
-  openSessionMessageFeed: (input: { sessionId: string }) => Promise<MessagesSnapshotEvent>
+  loadSnapshot: (input: { threadId: string }) => Promise<MessagesSnapshotEvent>
 ): {
   emit: (event: AGUIEvent) => void
-  closeSessionMessageFeed: ReturnType<typeof vi.fn>
+  connectAgent: ReturnType<typeof vi.fn>
 } {
   const listeners = new Set<(event: AGUIEvent) => void>()
-  const closeSessionMessageFeed = vi.fn().mockResolvedValue(undefined)
+  let connectionGeneration = 0
+  const connectAgent = vi.fn(async (input: { threadId: string }) => {
+    const generation = ++connectionGeneration
+    const event = await loadSnapshot(input)
+    if (generation === connectionGeneration) listeners.forEach((listener) => listener(event))
+  })
   vi.stubGlobal('window', {
     localStorage: createStorage(),
     sessionStorage: createStorage(),
     api: {
       codingAgent: {
         getSnapshot: vi.fn((threadId: string) => Promise.resolve(snapshot(threadId))),
-        openSessionMessageFeed,
-        closeSessionMessageFeed,
-        onSessionAgentEvent: vi.fn((listener) => {
+        connectAgent,
+        onAgentEvent: vi.fn((listener) => {
           listeners.add(listener)
           return () => listeners.delete(listener)
         }),
@@ -79,7 +83,7 @@ function installFeedApi(
   })
   return {
     emit: (event) => listeners.forEach((listener) => listener(event)),
-    closeSessionMessageFeed
+    connectAgent
   }
 }
 
@@ -89,8 +93,8 @@ function messagesSnapshot(messages: Message[]): MessagesSnapshotEvent {
 
 describe('workspace session AG-UI message feed', () => {
   it('keeps AG-UI messages only in active state and leaves every ThreadSnapshot empty', async () => {
-    installFeedApi(async ({ sessionId }) =>
-      messagesSnapshot([message(`${sessionId}-message`, sessionId)])
+    installFeedApi(async ({ threadId }) =>
+      messagesSnapshot([message(`${threadId}-message`, threadId)])
     )
     const store = useWorkspaceSessionStore()
     store.sessions['thread-a'] = session('thread-a')
@@ -105,15 +109,13 @@ describe('workspace session AG-UI message feed', () => {
     expect(store.sessions['thread-b']?.snapshot?.messages).toEqual([])
   })
 
-  it('buffers standard events that arrive while the initial snapshot request is pending', async () => {
-    let resolveSnapshot!: (snapshot: MessagesSnapshotEvent) => void
-    const feed = installFeedApi(
-      () => new Promise<MessagesSnapshotEvent>((resolve) => (resolveSnapshot = resolve))
-    )
+  it('applies standard live events after the initial snapshot establishes the connection', async () => {
+    const feed = installFeedApi(async () => messagesSnapshot([]))
     const store = useWorkspaceSessionStore()
     store.sessions['thread-a'] = session('thread-a')
 
     await store.setActiveSessionId('thread-a')
+    await vi.waitFor(() => expect(feed.connectAgent).toHaveBeenCalledOnce())
     feed.emit({
       type: EventType.TEXT_MESSAGE_START,
       messageId: 'assistant-a',
@@ -124,12 +126,11 @@ describe('workspace session AG-UI message feed', () => {
       messageId: 'assistant-a',
       delta: 'hello'
     })
-    resolveSnapshot(messagesSnapshot([]))
 
     await vi.waitFor(() => expect(store.activeSessionMessages[0]?.content).toBe('hello'))
   })
 
-  it('closes the main feed when entering a new session page', async () => {
+  it('detaches the active listener when entering a new session page', async () => {
     const feed = installFeedApi(async () => messagesSnapshot([message('active', 'active')]))
     const store = useWorkspaceSessionStore()
     store.sessions['thread-a'] = session('thread-a')
@@ -137,7 +138,7 @@ describe('workspace session AG-UI message feed', () => {
     await store.setActiveSessionId('thread-a')
     store.startNewSession('project-a')
 
-    await vi.waitFor(() => expect(feed.closeSessionMessageFeed).toHaveBeenCalledOnce())
+    feed.emit(messagesSnapshot([message('late', 'late')]))
     expect(store.activeSessionMessages).toEqual([])
   })
 
@@ -285,12 +286,12 @@ describe('workspace session AG-UI message feed', () => {
 
   it('does not let a late A snapshot overwrite the current A generation after A-B-A', async () => {
     const requests: Array<{
-      sessionId: string
+      threadId: string
       resolve: (snapshot: MessagesSnapshotEvent) => void
     }> = []
     installFeedApi(
-      ({ sessionId }) =>
-        new Promise<MessagesSnapshotEvent>((resolve) => requests.push({ sessionId, resolve }))
+      ({ threadId }) =>
+        new Promise<MessagesSnapshotEvent>((resolve) => requests.push({ threadId, resolve }))
     )
     const store = useWorkspaceSessionStore()
     store.sessions['thread-a'] = session('thread-a')

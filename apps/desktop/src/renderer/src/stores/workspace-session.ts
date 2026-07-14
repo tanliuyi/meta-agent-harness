@@ -1615,9 +1615,8 @@ export default defineStore('workspace-session', () => {
   function hasSessionMessageFeedApi(): boolean {
     const preloadApi = window.api?.codingAgent
     return (
-      typeof preloadApi?.onSessionAgentEvent === 'function' &&
-      typeof preloadApi.openSessionMessageFeed === 'function' &&
-      typeof preloadApi.closeSessionMessageFeed === 'function'
+      typeof preloadApi?.onAgentEvent === 'function' &&
+      typeof preloadApi.connectAgent === 'function'
     )
   }
 
@@ -1651,15 +1650,10 @@ export default defineStore('workspace-session', () => {
     if (sessionId !== previousSessionId) clearSessionMessageState(sessionId)
 
     if (!sessionId) {
-      try {
-        await codingAgentApi.closeSessionMessageFeed()
-      } catch (error) {
-        globalErrorMessage.value = error instanceof Error ? error.message : String(error)
-      }
       return
     }
 
-    unsubscribeSessionAgentEvent = codingAgentApi.onSessionAgentEvent((event) => {
+    unsubscribeSessionAgentEvent = codingAgentApi.onAgentEvent((event) => {
       if (generation !== activeMessageRequestGeneration) return
       if (activeMessageFeedLoading) {
         pendingSessionAgentEvents.push(event)
@@ -1688,13 +1682,10 @@ export default defineStore('workspace-session', () => {
     if (!sessionId || generation !== activeMessageRequestGeneration) return
     activeMessageFeedLoading = true
     try {
-      const snapshot = await codingAgentApi.openSessionMessageFeed({ sessionId })
+      await codingAgentApi.connectAgent({ threadId: sessionId })
       if (generation !== activeMessageRequestGeneration || activeMessageSessionId !== sessionId) {
         return
       }
-      activeSessionMessages.value = snapshot.messages
-      syncRenderStateFromMessages(sessionId, activeSessionMessages.value)
-
       const queued = pendingSessionAgentEvents
       pendingSessionAgentEvents = []
       for (const event of queued) applySessionAgentEvent(event, generation)

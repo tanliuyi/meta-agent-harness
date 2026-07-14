@@ -1,9 +1,9 @@
 import type { PluggableList } from '@crazydos/vue-markdown'
 import type { AnyClientTool } from '@tanstack/ai'
 import type { ConnectionAdapter, UIMessage } from '@tanstack/ai-vue'
-import type { DeepReadonly, VNodeChild } from 'vue'
+import type { VNodeChild } from 'vue'
 
-export type ChatUIMessage = DeepReadonly<UIMessage<ReadonlyArray<AnyClientTool>>>
+export type ChatUIMessage = UIMessage
 export type ChatMessagePart = ChatUIMessage['parts'][number]
 export type ChatSlotContent = VNodeChild
 

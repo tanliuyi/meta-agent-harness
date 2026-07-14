@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
-import type { AGUIEvent, RunAgentInput } from '@ag-ui/core'
+import { EventType, RunAgentInputSchema, type AGUIEvent, type RunAgentInput } from '@ag-ui/core'
+import { StreamProcessor } from '@tanstack/ai/client'
 import type { RunAgentInputContext } from '@tanstack/ai-vue'
 import type { UIMessage } from '@tanstack/ai/client'
 
@@ -187,7 +188,7 @@ describe('createElectronSubscribeConnectionAdapter', () => {
       forwardedProps: { baseValue: 1, requestValue: 2 },
       tools: []
     })
-    expect(input.messages).toEqual([
+    expect(input.messages).toMatchObject([
       {
         id: 'user-1',
         role: 'user',
@@ -195,9 +196,10 @@ describe('createElectronSubscribeConnectionAdapter', () => {
         content: 'Hello'
       }
     ])
+    expect(input.messages[0]).toHaveProperty('createdAt', expect.any(Date))
   })
 
-  it('preserves TanStack ModelMessages that are already in wire form', async () => {
+  it('normalizes TanStack ModelMessages into schema-valid wire messages with ids', async () => {
     const transport = createTransport()
     const adapter = createElectronSubscribeConnectionAdapter({
       threadId: 'thread-1',
@@ -218,13 +220,83 @@ describe('createElectronSubscribeConnectionAdapter', () => {
     )
 
     const input = vi.mocked(transport.runAgent).mock.calls[0][0]
-    expect(input.messages).toEqual([
+    expect(input.messages).toMatchObject([
       { role: 'user', content: 'Hello from a model message' },
-      {
-        role: 'assistant',
-        content: [{ type: 'text', content: 'Existing response' }]
-      }
+      { role: 'assistant', content: 'Existing response' }
     ])
+    expect(input.messages.every((message) => typeof message.id === 'string')).toBe(true)
+    expect(RunAgentInputSchema.safeParse(input).success).toBe(true)
+  })
+
+  it('projects failed Pi tool results into TanStack error state for live and snapshot events', async () => {
+    const transport = createTransport()
+    const adapter = createElectronSubscribeConnectionAdapter({ threadId: 'thread-1', transport })
+    const controller = new AbortController()
+    const iterator = adapter.subscribe(controller.signal)[Symbol.asyncIterator]()
+    const processor = new StreamProcessor()
+
+    const events: AGUIEvent[] = [
+      { type: EventType.TEXT_MESSAGE_START, messageId: 'assistant-1', role: 'assistant' },
+      {
+        type: EventType.TOOL_CALL_START,
+        toolCallId: 'tool-1',
+        toolCallName: 'read',
+        parentMessageId: 'assistant-1'
+      },
+      { type: EventType.TOOL_CALL_END, toolCallId: 'tool-1' },
+      {
+        type: EventType.TOOL_CALL_RESULT,
+        toolCallId: 'tool-1',
+        messageId: 'tool-result-1',
+        content: 'not found',
+        role: 'tool',
+        rawEvent: { isError: true }
+      }
+    ]
+
+    const first = iterator.next()
+    await vi.waitFor(() => expect(transport.connectAgent).toHaveBeenCalledOnce())
+    transport.emit(events[0]!)
+    processor.processChunk((await first).value!)
+    for (const event of events.slice(1)) {
+      const next = iterator.next()
+      transport.emit(event)
+      processor.processChunk((await next).value!)
+    }
+
+    const snapshot = iterator.next()
+    transport.emit({
+      type: EventType.MESSAGES_SNAPSHOT,
+      messages: [
+        {
+          id: 'assistant-1',
+          role: 'assistant',
+          toolCalls: [
+            {
+              id: 'tool-1',
+              type: 'function',
+              function: { name: 'read', arguments: '{}' }
+            }
+          ]
+        },
+        {
+          id: 'tool-result-1',
+          role: 'tool',
+          toolCallId: 'tool-1',
+          content: 'not found',
+          error: 'not found'
+        }
+      ]
+    })
+    processor.processChunk((await snapshot).value!)
+
+    expect(processor.getMessages()[0]?.parts).toMatchObject([
+      { type: 'tool-call', id: 'tool-1', state: 'error' },
+      { type: 'tool-result', toolCallId: 'tool-1', state: 'error' }
+    ])
+
+    controller.abort()
+    await iterator.next()
   })
 
   it('rejects missing, mismatched, or unsupported run context before dispatch', async () => {

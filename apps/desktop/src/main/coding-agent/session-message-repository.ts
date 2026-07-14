@@ -1,12 +1,13 @@
 /** Main-owned standard AG-UI session message projections. */
 
 import type { AGUIEvent, Message, MessagesSnapshotEvent } from '@ag-ui/core'
+import type { AgentMessage } from '@earendil-works/pi-agent-core'
 import {
   createMessagesSnapshot,
   reduceAgUiMessages,
   toAgUiMessages
 } from '@shared/coding-agent/ag-ui-messages'
-import type { AgentSessionIpcEvent, ThreadMessage } from '@shared/coding-agent/types'
+import type { AgentSessionIpcEvent } from '@shared/coding-agent/types'
 import { PiAgUiAdapter } from './pi-ag-ui-adapter'
 
 interface SessionMessageState {
@@ -16,12 +17,21 @@ interface SessionMessageState {
   loading?: Promise<void>
 }
 
+interface CanonicalMessageHistory {
+  messages: AgentMessage[]
+  messageEntryIds?: string[]
+}
+
 /** Canonical persistence remains Pi JSONL; only its renderer-facing AG-UI projection is cached. */
 export class SessionMessageRepository {
   private readonly states = new Map<string, SessionMessageState>()
   private readonly adapter = new PiAgUiAdapter()
 
-  constructor(private readonly loadMessages: (sessionId: string) => Promise<ThreadMessage[]>) {}
+  constructor(
+    private readonly loadCanonicalMessages: (
+      sessionId: string
+    ) => Promise<AgentMessage[] | CanonicalMessageHistory>
+  ) {}
 
   prepareRun(sessionId: string, runId: string): void {
     this.adapter.prepareRun(sessionId, runId)
@@ -33,6 +43,12 @@ export class SessionMessageRepository {
 
   cancelPreparedRun(sessionId: string, runId: string): void {
     this.adapter.cancelPreparedRun(sessionId, runId)
+  }
+
+  failRun(sessionId: string, message: string, runId?: string): AGUIEvent | undefined {
+    const event = this.adapter.failRun(sessionId, message, runId)
+    this.invalidate(sessionId)
+    return event
   }
 
   record(event: AgentSessionIpcEvent): AGUIEvent[] {
@@ -70,20 +86,17 @@ export class SessionMessageRepository {
     const state = this.ensureState(sessionId)
     const messageIds = new Set(state.messages!.map((message) => message.id))
     for (const message of messages) {
+      // Pi JSONL is the canonical source for assistant, reasoning, and tool history.
+      // The client sends its complete UI history with every run, and TanStack may
+      // regenerate reasoning IDs while converting that history back to AG-UI wire
+      // messages. Merging those projections would append old reasoning as new rows.
+      if (message.role !== 'user') continue
       if (!messageIds.has(message.id)) {
         state.messages!.push(message)
         messageIds.add(message.id)
       }
     }
     return createMessagesSnapshot(state.messages!)
-  }
-
-  replace(sessionId: string, messages: ThreadMessage[]): void {
-    const state = this.ensureState(sessionId)
-    state.generation += 1
-    state.messages = toAgUiMessages(messages)
-    state.pendingEvents = []
-    state.loading = undefined
   }
 
   /** Forces the next snapshot to rebuild from the worker/Pi JSONL source. */
@@ -100,7 +113,10 @@ export class SessionMessageRepository {
     state: SessionMessageState,
     generation: number
   ): Promise<void> {
-    let messages = toAgUiMessages(await this.loadMessages(sessionId))
+    const loaded = await this.loadCanonicalMessages(sessionId)
+    let messages = Array.isArray(loaded)
+      ? toAgUiMessages(loaded)
+      : toAgUiMessages(loaded.messages, loaded.messageEntryIds)
     if (state.generation !== generation) return
     for (const event of state.pendingEvents) {
       messages = reduceAgUiMessages(messages, event)

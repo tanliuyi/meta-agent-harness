@@ -25,3 +25,7 @@ onMounted(() => {
 
 onBeforeUnmount(() => unsubscribe?.())
 </script>
+
+<template>
+  <!-- Renderless host: lifecycle hooks own the browser permission subscription. -->
+</template>

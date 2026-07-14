@@ -1,34 +1,60 @@
 <script setup lang="ts">
-import ScrollArea from '@/components/ui/scroll-area/ScrollArea.vue'
 import { createElectronSubscribeConnectionAdapter } from '@/lib/electron-agent-connection'
 import { Chat, ChatInput, ChatMessage, ChatMessages, TextPart } from '@/components/ai-vue-ui'
+import ThinkingPart from '@/components/ai-vue-ui/thinking-part.vue'
 
 const props = defineProps<{
   sessionId: string
 }>()
 
 const connection = createElectronSubscribeConnectionAdapter({ threadId: props.sessionId })
+
+function formatToolPayload(value: unknown): string {
+  if (typeof value === 'string') {
+    try {
+      return JSON.stringify(JSON.parse(value), null, 2)
+    } catch {
+      return value
+    }
+  }
+  return JSON.stringify(value, null, 2) ?? String(value)
+}
 </script>
 
 <template>
   <Chat class="workspace-session" :connection="connection" :thread-id="sessionId" live>
-    <ScrollArea style="flex: 1; min-height: 0">
-      <ChatMessages class="workspace-session__messages">
-        <template #default="{ message }">
-          <ChatMessage
-            class="workspace-session__message"
-            user-class="workspace-session__message--user"
-            assistant-class="workspace-session__message--assistant"
-            :message="message"
-          >
-            <template #text="{ content }">
-              <TextPart class="workspace-session__text" :content="content" :role="message.role" />
-            </template>
-          </ChatMessage>
-        </template>
-      </ChatMessages>
-    </ScrollArea>
-    <ChatInput />
+    <ChatMessages class="workspace-session__messages">
+      <template #default="{ message }">
+        <ChatMessage
+          class="workspace-session__message"
+          user-class="workspace-session__message--user"
+          assistant-class="workspace-session__message--assistant"
+          :message="message"
+        >
+          <template #text="{ content }">
+            <TextPart class="workspace-session__text" :content="content" :role="message.role" />
+          </template>
+          <template #thinking="{ content, isComplete }">
+            <ThinkingPart :content="content" :is-complete="isComplete" />
+          </template>
+          <template #tool-default="toolScope">
+            <div data-tool-header>
+              <strong>{{ toolScope.name }}</strong>
+              <span data-tool-state-badge>{{ toolScope.state }}</span>
+            </div>
+            <div v-if="toolScope.arguments" data-tool-arguments>
+              <pre>{{ formatToolPayload(toolScope.arguments) }}</pre>
+            </div>
+            <div v-if="toolScope.output !== undefined" data-tool-output>
+              <pre>{{ formatToolPayload(toolScope.output) }}</pre>
+            </div>
+          </template>
+        </ChatMessage>
+      </template>
+    </ChatMessages>
+    <div class="workspace-session__composer">
+      <ChatInput />
+    </div>
   </Chat>
 </template>
 
@@ -48,8 +74,6 @@ const connection = createElectronSubscribeConnectionAdapter({ threadId: props.se
     gap: var(--space-4);
     min-height: 0;
     width: 100%;
-    max-width: 768px;
-    margin: 0 auto;
   }
 
   &__message {
@@ -61,8 +85,9 @@ const connection = createElectronSubscribeConnectionAdapter({ threadId: props.se
   }
 
   &__message--user {
-    align-self: flex-end;
-    max-width: min(76%, 720px);
+    width: fit-content;
+    max-width: 70%;
+    margin-left: auto;
     padding: var(--space-3) var(--space-4);
     background: var(--user-message-bg);
     border: 1px solid var(--user-message-border);
@@ -132,5 +157,11 @@ const connection = createElectronSubscribeConnectionAdapter({ threadId: props.se
     border: 1px solid var(--color-border-muted);
     border-radius: var(--radius-md);
   }
+}
+
+.workspace-session__composer {
+  width: 100%;
+  max-width: 768px;
+  margin: 0 auto;
 }
 </style>

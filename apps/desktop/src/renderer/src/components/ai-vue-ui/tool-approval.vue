@@ -1,11 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { useChatContext } from './use-chat-context'
-import type {
-  ChatSlotContent,
-  ToolApprovalProps,
-  ToolApprovalRenderProps,
-} from './types'
+import type { ChatSlotContent, ToolApprovalProps, ToolApprovalRenderProps } from './types'
 
 const props = defineProps<ToolApprovalProps>()
 
@@ -20,18 +16,18 @@ defineSlots<{
 
 const { addToolApprovalResponse } = useChatContext()
 
-const handleApprove = () => {
+const handleApprove = (): void => {
   addToolApprovalResponse({
     id: props.approval.id,
-    approved: true,
+    approved: true
   })
   emit('approve')
 }
 
-const handleDeny = () => {
+const handleDeny = (): void => {
   addToolApprovalResponse({
     id: props.approval.id,
-    approved: false,
+    approved: false
   })
   emit('deny')
 }
@@ -44,7 +40,7 @@ const slotProps = computed<ToolApprovalRenderProps>(() => ({
   onApprove: handleApprove,
   onDeny: handleDeny,
   hasResponded: hasResponded.value,
-  approved: props.approval.approved,
+  approved: props.approval.approved
 }))
 </script>
 
@@ -63,12 +59,7 @@ const slotProps = computed<ToolApprovalRenderProps>(() => ({
   </div>
 
   <!-- Default approval UI -->
-  <div
-    v-else
-    :class="props.class"
-    data-tool-approval
-    data-approval-status="pending"
-  >
+  <div v-else :class="props.class" data-tool-approval data-approval-status="pending">
     <div data-approval-header>
       <strong>{{ toolName }}</strong> requires approval
     </div>
@@ -76,8 +67,8 @@ const slotProps = computed<ToolApprovalRenderProps>(() => ({
       <pre>{{ JSON.stringify(input, null, 2) }}</pre>
     </div>
     <div data-approval-actions>
-      <button @click="handleApprove" data-approval-approve>Approve</button>
-      <button @click="handleDeny" data-approval-deny>Deny</button>
+      <button data-approval-approve @click="handleApprove">Approve</button>
+      <button data-approval-deny @click="handleDeny">Deny</button>
     </div>
   </div>
 </template>

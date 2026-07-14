@@ -2,44 +2,40 @@
 
 import { EventType } from '@ag-ui/core'
 import type { AGUIEvent, Message, MessagesSnapshotEvent, ToolCall } from '@ag-ui/core'
-import type { ThreadMessage } from './types'
+import type { AgentMessage } from '@earendil-works/pi-agent-core'
 
-export function toAgUiMessages(messages: readonly ThreadMessage[]): Message[] {
-  return messages.flatMap((message): Message[] => {
-    const id = message.sessionEntryId ?? message.id
-    const content = message.text ?? ''
-    if (message.role === 'user') {
-      return [{ id, role: 'user', content: getUserContent(message) }]
-    }
-    if (message.role === 'system') {
+export function toAgUiMessages(
+  messages: readonly AgentMessage[],
+  messageEntryIds: readonly string[] = []
+): Message[] {
+  let entryIndex = 0
+  return messages.flatMap((message, index): Message[] => {
+    const raw = asRecord(message) ?? {}
+    const role = raw.role
+    const consumesEntryId =
+      role === 'user' || (role === 'assistant' && raw?.stopReason !== 'error')
+    const entryId = consumesEntryId ? messageEntryIds[entryIndex++] : undefined
+    const id = entryId ?? getCanonicalMessageId(raw, index)
+
+    if (role === 'user') return [{ id, role: 'user', content: getCanonicalUserContent(raw) }]
+    if (role === 'assistant') return toAgUiAssistantMessages(raw, id)
+    if (role === 'toolResult') {
+      const toolCallId = typeof raw.toolCallId === 'string' ? raw.toolCallId : undefined
+      if (!toolCallId) return []
+      const content = getCanonicalMessageContent(raw)
       return [
         {
-          id,
-          role: 'system',
+          id: `tool-result-${toolCallId}`,
+          role: 'tool',
+          toolCallId,
           content,
-          ...(message.systemEvent?.kind ? { name: message.systemEvent.kind } : {})
+          ...(raw.isError === true ? { error: content || 'Tool execution failed' } : {})
         }
       ]
     }
-    if (message.role === 'tool') {
-      const toolCallId = getDesktopToolCallId(message)
-      return toolCallId ? [{ id, role: 'tool', content, toolCallId }] : []
-    }
-    if (message.role !== 'assistant') return []
 
-    const reasoning = getDesktopReasoning(message)
-    const toolCalls = getDesktopToolCalls(message)
-    const result: Message[] = []
-    if (reasoning) {
-      result.push({ id: `${id}-reasoning`, role: 'reasoning', content: reasoning })
-    }
-    result.push({
-      id,
-      role: 'assistant',
-      ...(content ? { content } : {}),
-      ...(toolCalls.length ? { toolCalls } : {})
-    })
-    return result
+    const content = getCanonicalSystemContent(raw)
+    return content ? [{ id, role: 'system', content, name: String(role ?? 'system') }] : []
   })
 }
 
@@ -118,9 +114,10 @@ export function reduceAgUiMessages(messages: readonly Message[], event: AGUIEven
   return next
 }
 
-function getUserContent(message: ThreadMessage): Extract<Message, { role: 'user' }>['content'] {
-  const raw = asRecord(message.raw)
-  const rawContent = Array.isArray(raw?.content) ? raw.content : []
+function getCanonicalUserContent(
+  message: Record<string, unknown>
+): Extract<Message, { role: 'user' }>['content'] {
+  const rawContent = Array.isArray(message.content) ? message.content : []
   const images = rawContent.flatMap((part) => {
     const item = asRecord(part)
     if (item?.type !== 'image' || typeof item.data !== 'string') return []
@@ -133,49 +130,74 @@ function getUserContent(message: ThreadMessage): Extract<Message, { role: 'user'
       }
     ]
   })
-  const text = message.text ?? ''
+  const text = getCanonicalTextContent(message)
   if (images.length === 0) return text
   return [...(text ? [{ type: 'text' as const, text }] : []), ...images]
 }
 
-function getDesktopToolCallId(message: ThreadMessage): string | undefined {
-  const raw = asRecord(message.raw)
-  return typeof raw?.toolCallId === 'string' && raw.toolCallId ? raw.toolCallId : undefined
-}
-
-function getDesktopReasoning(message: ThreadMessage): string {
-  const raw = asRecord(message.raw)
-  if (!Array.isArray(raw?.content)) return ''
-  return raw.content
+function toAgUiAssistantMessages(message: Record<string, unknown>, id: string): Message[] {
+  if (message.stopReason === 'error') {
+    const error = typeof message.errorMessage === 'string' ? message.errorMessage : 'Agent run failed'
+    return [{ id, role: 'system', name: 'agentError', content: error }]
+  }
+  const content = Array.isArray(message.content) ? message.content : []
+  const reasoning = content
     .flatMap((part) => {
       const item = asRecord(part)
       return item?.type === 'thinking' && typeof item.thinking === 'string' ? [item.thinking] : []
     })
     .join('')
+  const toolCalls = content.flatMap((part): ToolCall[] => {
+    const item = asRecord(part)
+    if (item?.type !== 'toolCall' || typeof item.id !== 'string') return []
+    return [
+      {
+        id: item.id,
+        type: 'function',
+        function: {
+          name: typeof item.name === 'string' && item.name ? item.name : 'tool',
+          arguments: stringifyToolArguments(item.arguments)
+        }
+      }
+    ]
+  })
+  const text = getCanonicalTextContent(message)
+  return [
+    ...(reasoning ? [{ id: `${id}-reasoning`, role: 'reasoning' as const, content: reasoning }] : []),
+    {
+      id,
+      role: 'assistant',
+      ...(text ? { content: text } : {}),
+      ...(toolCalls.length ? { toolCalls } : {})
+    }
+  ]
 }
 
-function getDesktopToolCalls(message: ThreadMessage): ToolCall[] {
-  const raw = asRecord(message.raw)
-  const content = Array.isArray(raw?.content) ? raw.content : []
-  const byId = new Map<string, ToolCall>()
-  for (const part of content) {
-    const item = asRecord(part)
-    if (item?.type !== 'toolCall' || typeof item.id !== 'string') continue
-    byId.set(item.id, {
-      id: item.id,
-      type: 'function',
-      function: {
-        name: typeof item.name === 'string' && item.name ? item.name : 'tool',
-        arguments: stringifyToolArguments(item.arguments)
-      }
+function getCanonicalMessageContent(message: Record<string, unknown>): string {
+  if (typeof message.content === 'string') return message.content
+  if (!Array.isArray(message.content)) return ''
+  return getCanonicalTextContent(message) || stringifyToolArguments(message.content)
+}
+
+function getCanonicalTextContent(message: Record<string, unknown>): string {
+  if (typeof message.content === 'string') return message.content
+  if (!Array.isArray(message.content)) return ''
+  return message.content
+    .flatMap((part) => {
+      const item = asRecord(part)
+      return item?.type === 'text' && typeof item.text === 'string' ? [item.text] : []
     })
-  }
-  for (const id of message.toolCallIds ?? []) {
-    if (!byId.has(id)) {
-      byId.set(id, { id, type: 'function', function: { name: 'tool', arguments: '' } })
-    }
-  }
-  return [...byId.values()]
+    .join('')
+}
+
+function getCanonicalSystemContent(message: Record<string, unknown>): string {
+  if (typeof message.summary === 'string') return message.summary
+  return getCanonicalMessageContent(message)
+}
+
+function getCanonicalMessageId(message: Record<string, unknown> | undefined, index: number): string {
+  const timestamp = message?.timestamp
+  return `message-${typeof timestamp === 'number' ? timestamp : index}`
 }
 
 function updateContent(messages: Message[], messageId: string, delta: string): Message[] {

@@ -27,7 +27,7 @@ interface Window {
       getPathForFile: (file: File) => string
     }
     runtime: {
-      platform: string
+      platform: NodeJS.Platform
     }
     updater: import('@shared/updater').UpdaterApi
     windowControl: {
@@ -35,7 +35,7 @@ interface Window {
       maximize: () => Promise<void>
       close: () => Promise<void>
       isMaximized: () => Promise<boolean>
-      platform: () => Promise<string>
+      platform: () => Promise<NodeJS.Platform>
     }
   }
 }

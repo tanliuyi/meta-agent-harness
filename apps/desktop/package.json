@@ -25,7 +25,6 @@
     "build:linux": "npm run build && electron-builder --linux"
   },
   "dependencies": {
-    "@ag-ui/client": "^0.0.57",
     "@ag-ui/core": "0.0.57",
     "@crazydos/vue-markdown": "^1.1.4",
     "@mariozechner/clipboard": "0.3.9",
@@ -35,8 +34,7 @@
     "electron-updater": "^6.3.9",
     "rehype-highlight": "^7.0.2",
     "rehype-raw": "^7.0.0",
-    "remark-gfm": "^4.0.1",
-    "rxjs": "7.8.1"
+    "remark-gfm": "^4.0.1"
   },
   "devDependencies": {
     "@chenglou/pretext": "0.0.8",

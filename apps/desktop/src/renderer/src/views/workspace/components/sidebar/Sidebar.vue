@@ -28,6 +28,13 @@ import {
   type ProjectThreadItem
 } from './support/sidebar-project-list'
 
+withDefaults(
+  defineProps<{
+    visible?: boolean
+  }>(),
+  { visible: true }
+)
+
 type ThreadMenuActionId = 'copy-id' | 'rename' | 'open-parent' | 'locate-current-leaf' | 'archive'
 type ProjectMenuActionId = 'new-thread' | 'rename-project' | 'delete-project' | 'project-trust'
 
@@ -412,7 +419,7 @@ function getProjectTrustIcon(project: ProjectSummary): Component | undefined {
 </script>
 
 <template>
-  <aside class="workspace__sidebar">
+  <aside v-show="visible" class="workspace__sidebar">
     <div class="sidebar-section__header">
       <span>工作空间</span>
       <span class="sidebar-tooltip-trigger project-tree__add-btn">

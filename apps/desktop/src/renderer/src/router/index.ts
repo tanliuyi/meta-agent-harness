@@ -5,7 +5,7 @@
  * 定义应用路由表，使用 hash 模式，支持基于会话 ID 的动态工作区路由。
  */
 
-import { createRouter, createWebHashHistory } from 'vue-router'
+import { createRouter, createWebHistory } from 'vue-router'
 import {
   WORKSPACE_ROUTE_NAME,
   WORKSPACE_SESSION_ROUTE_NAME,
@@ -17,7 +17,7 @@ import {
  * 使用 hash 模式，默认重定向到 /new，动态会话路由对应 Workspace 视图。
  */
 const router = createRouter({
-  history: createWebHashHistory(),
+  history: createWebHistory(),
   routes: [
     {
       path: '/',

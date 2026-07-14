@@ -18,20 +18,20 @@ defineSlots<{
 }>()
 
 // v-model support - defaults to empty string if not provided
-const modelValue = defineModel({ default: '' })
+const modelValue = defineModel<string>({ default: '' })
 
 const { sendMessage, isLoading } = useChatContext()
 
 const disabled = computed(() => props.disabled || isLoading.value)
 
-const handleSubmit = () => {
+const handleSubmit = (): void => {
   if (!modelValue.value.trim() || disabled.value) return
   sendMessage(modelValue.value)
   emit('submit', modelValue.value)
   modelValue.value = ''
 }
 
-const handleKeyDown = (e: KeyboardEvent) => {
+const handleKeyDown = (e: KeyboardEvent): void => {
   if (props.submitOnEnter && e.key === 'Enter') {
     e.preventDefault()
     handleSubmit()
@@ -55,25 +55,25 @@ const buttonCursor = computed(() => {
   return disabled.value || !modelValue.value.trim() ? 'not-allowed' : 'pointer'
 })
 
-const handleInputFocus = (e: FocusEvent) => {
+const handleInputFocus = (e: FocusEvent): void => {
   const target = e.currentTarget as HTMLInputElement
   target.style.borderColor = 'rgba(249, 115, 22, 0.4)'
   target.style.boxShadow = '0 0 0 2px rgba(249, 115, 22, 0.2)'
 }
 
-const handleInputBlur = (e: FocusEvent) => {
+const handleInputBlur = (e: FocusEvent): void => {
   const target = e.currentTarget as HTMLInputElement
   target.style.borderColor = 'rgba(255, 255, 255, 0.1)'
   target.style.boxShadow = 'none'
 }
 
-const handleButtonMouseEnter = (e: MouseEvent) => {
+const handleButtonMouseEnter = (e: MouseEvent): void => {
   if (!disabled.value && modelValue.value.trim()) {
     ;(e.currentTarget as HTMLButtonElement).style.backgroundColor = 'rgb(234, 88, 12)'
   }
 }
 
-const handleButtonMouseLeave = (e: MouseEvent) => {
+const handleButtonMouseLeave = (e: MouseEvent): void => {
   if (!disabled.value && modelValue.value.trim()) {
     ;(e.currentTarget as HTMLButtonElement).style.backgroundColor = 'rgb(249, 115, 22)'
   }

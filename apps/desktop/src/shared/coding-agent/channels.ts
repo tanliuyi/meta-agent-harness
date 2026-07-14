@@ -35,12 +35,6 @@ export const codingAgentChannels = {
   disconnectAgent: 'coding-agent:disconnect-agent',
   /** 按当前 WebContents/thread 定向发送的标准 AG-UI event。 */
   agentEvent: 'coding-agent:session-agent-event',
-  /** @deprecated 使用 connectAgent。 */
-  openSessionMessageFeed: 'coding-agent:open-session-message-feed',
-  /** @deprecated 使用 disconnectAgent。 */
-  closeSessionMessageFeed: 'coding-agent:close-session-message-feed',
-  /** @deprecated 使用 agentEvent；保留相同 wire channel 供迁移期兼容。 */
-  sessionAgentEvent: 'coding-agent:session-agent-event',
   /** 使用标准 AG-UI RunAgentInput 发起一次 agent run。 */
   runAgent: 'coding-agent:run-agent',
   /** @deprecated 使用 runAgent。 */

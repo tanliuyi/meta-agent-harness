@@ -107,11 +107,6 @@ const codingAgent: CodingAgentApi = {
   getSnapshot: (threadId) => invokeCodingAgent(codingAgentChannels.getSnapshot, threadId),
   connectAgent: (input) => invokeCodingAgent(codingAgentChannels.connectAgent, input),
   disconnectAgent: (input) => invokeCodingAgent(codingAgentChannels.disconnectAgent, input),
-  /** @deprecated 使用 connectAgent。 */
-  openSessionMessageFeed: (input) =>
-    invokeCodingAgent(codingAgentChannels.openSessionMessageFeed, input),
-  /** @deprecated 使用 disconnectAgent。 */
-  closeSessionMessageFeed: () => invokeCodingAgent(codingAgentChannels.closeSessionMessageFeed),
   runAgent: (input) => invokeCodingAgent(codingAgentChannels.runAgent, input),
   /** @deprecated 使用 runAgent。 */
   prompt: (input) => invokePromptInput(codingAgentChannels.prompt, input),
@@ -236,13 +231,6 @@ const codingAgent: CodingAgentApi = {
       listener(payload)
     ipcRenderer.on(codingAgentChannels.agentEvent, handler)
     return () => ipcRenderer.off(codingAgentChannels.agentEvent, handler)
-  },
-  /** @deprecated 使用 onAgentEvent。 */
-  onSessionAgentEvent: (listener) => {
-    const handler = (_event: Electron.IpcRendererEvent, payload: AGUIEvent): void =>
-      listener(payload)
-    ipcRenderer.on(codingAgentChannels.sessionAgentEvent, handler)
-    return () => ipcRenderer.off(codingAgentChannels.sessionAgentEvent, handler)
   }
 }
 

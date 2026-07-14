@@ -12,19 +12,17 @@ const roleClass = computed(() =>
     ? (props.userClass ?? '')
     : props.role === 'assistant'
       ? (props.assistantClass ?? '')
-      : '',
+      : ''
 )
 
-const combinedClass = computed(() =>
-  [props.class ?? '', roleClass.value].filter(Boolean).join(' '),
-)
+const combinedClass = computed(() => [props.class ?? '', roleClass.value].filter(Boolean).join(' '))
 
 const resolved = computed(() =>
   resolveMarkdownPlugins({
     remarkPlugins: props.remarkPlugins,
     rehypePlugins: props.rehypePlugins,
-    disableDefaultPlugins: props.disableDefaultPlugins,
-  }),
+    disableDefaultPlugins: props.disableDefaultPlugins
+  })
 )
 
 // @crazydos/vue-markdown applies rehype-sanitize automatically when `sanitize`

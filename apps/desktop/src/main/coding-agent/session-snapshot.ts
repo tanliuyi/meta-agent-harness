@@ -10,6 +10,8 @@ import {
   toDesktopToolCalls
 } from '@coding-agent-desktop-src/protocol/message'
 import { buildSnapshotFromSession as buildPackageSnapshotFromSession } from '@coding-agent-desktop-src/storage/session-snapshot'
+import { readCanonicalSessionMessages as readPackageCanonicalSessionMessages } from '@coding-agent-desktop-src/storage/session-snapshot'
+import type { CanonicalSessionMessages } from '@coding-agent-desktop-src/storage/session-snapshot'
 import type { ThreadMessage, ThreadSnapshot, ThreadSummary } from '@shared/coding-agent/types'
 
 /** 构建 snapshot 输入。 */
@@ -53,6 +55,15 @@ export function buildSnapshotFromSession(input: BuildSnapshotFromSessionInput): 
     ...snapshot,
     projectId: input.thread.projectId
   }
+}
+
+/** 直接读取 Pi JSONL 当前 branch 的 canonical messages。 */
+export function readCanonicalSessionMessages(input: {
+  sessionFile: string
+  cwdOverride?: string
+  currentEntryId?: string | null
+}): CanonicalSessionMessages {
+  return readPackageCanonicalSessionMessages(input)
 }
 
 /**

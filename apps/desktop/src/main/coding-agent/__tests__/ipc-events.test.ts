@@ -7,7 +7,8 @@ import { describe, expect, it, vi } from 'vitest'
 import { codingAgentChannels } from '@shared/coding-agent/channels'
 import {
   publishCodingAgentEvent,
-  publishSessionAgentEvent,
+  publishAgentEvent,
+  parseRunAgentInput,
   SessionAgentSubscriptionManager,
   syncThreadStatusFromWorkerEvent,
   syncThreadStatusFromWorkerLifecycle,
@@ -101,6 +102,36 @@ describe('coding agent IPC events', () => {
         ]
       })
     ).toThrow('image URL inputs are not supported')
+    expect(() => toPromptInput({ ...base, tools: [], parentRunId: 'run-parent' })).toThrow(
+      'parentRunId is not supported'
+    )
+    expect(() =>
+      toPromptInput({
+        ...base,
+        tools: [],
+        context: [{ description: 'selection', value: 'secret' }]
+      })
+    ).toThrow('context is not supported')
+    expect(() => toPromptInput({ ...base, tools: [], state: { value: 1 } })).toThrow(
+      'state is not supported'
+    )
+    expect(() => toPromptInput({ ...base, tools: [], forwardedProps: { debug: true } })).toThrow(
+      'forwardedProps are not supported'
+    )
+  })
+
+  it('在 IPC 边界使用官方 schema 拒绝缺少 message id 的输入', () => {
+    expect(() =>
+      parseRunAgentInput({
+        threadId: 'thread-a',
+        runId: 'run-a',
+        messages: [{ role: 'user', content: 'hello' }],
+        tools: [],
+        state: {},
+        context: [],
+        forwardedProps: {}
+      })
+    ).toThrow('messages.0.id: Required')
   })
 
   it('将 worker agent/projection envelope 转成 renderer IPC event', () => {
@@ -268,9 +299,9 @@ describe('coding agent IPC events', () => {
       delta: 'hello'
     } as const
 
-    publishSessionAgentEvent(subscribers as never, 'thread-a', event)
+    publishAgentEvent(subscribers as never, 'thread-a', event)
 
-    expect(sentA).toHaveBeenCalledWith(codingAgentChannels.sessionAgentEvent, event)
+    expect(sentA).toHaveBeenCalledWith(codingAgentChannels.agentEvent, event)
     expect(sentB).not.toHaveBeenCalled()
     expect(EventSchemas.safeParse(event).success).toBe(true)
     expect(event).not.toHaveProperty('sessionId')
@@ -390,7 +421,7 @@ describe('coding agent IPC events', () => {
     })
   })
 
-  it('A(slow)-B(fast)-A 只允许最新 open 登记订阅', async () => {
+  it('A(slow)-B(fast)-A 只允许最新 connect 登记订阅', async () => {
     const manager = new SessionAgentSubscriptionManager()
     const webContents = {
       once: vi.fn(),
@@ -398,32 +429,37 @@ describe('coding agent IPC events', () => {
       send: vi.fn()
     }
     const releases: Array<() => void> = []
-    const open = (sessionId: string): Promise<void> =>
-      manager.open(
+    const connect = (sessionId: string): Promise<boolean> =>
+      manager.connect(
         webContents as never,
         sessionId,
-        () => new Promise<void>((resolve) => releases.push(resolve))
+        () =>
+          new Promise<AGUIEvent>((resolve) =>
+            releases.push(() =>
+              resolve({ type: EventType.MESSAGES_SNAPSHOT, messages: [] })
+            )
+          )
       )
 
-    const slowA = open('thread-a')
-    const fastB = open('thread-b')
+    const slowA = connect('thread-a')
+    const fastB = connect('thread-b')
     releases[1]?.()
-    await fastB
+    expect(await fastB).toBe(true)
     expect(manager.subscriptions.get(webContents as never)).toBe('thread-b')
 
-    const latestA = open('thread-a')
+    const latestA = connect('thread-a')
     expect(manager.subscriptions.has(webContents as never)).toBe(false)
     releases[2]?.()
-    await latestA
+    expect(await latestA).toBe(true)
     expect(manager.subscriptions.get(webContents as never)).toBe('thread-a')
 
     releases[0]?.()
-    await slowA
+    expect(await slowA).toBe(false)
     expect(manager.subscriptions.get(webContents as never)).toBe('thread-a')
     expect(webContents.once).toHaveBeenCalledOnce()
   })
 
-  it('close 会立即清订阅并使 pending open 的迟到完成失效', async () => {
+  it('close 会立即清订阅并使 pending connect 的迟到完成失效', async () => {
     const destroyedListeners: Array<() => void> = []
     const manager = new SessionAgentSubscriptionManager()
     const webContents = {
@@ -432,18 +468,24 @@ describe('coding agent IPC events', () => {
       send: vi.fn()
     }
     let release!: () => void
-    const pending = manager.open(
+    const pending = manager.connect(
       webContents as never,
       'thread-a',
-      () => new Promise<void>((resolve) => (release = resolve))
+      () =>
+        new Promise<AGUIEvent>((resolve) => {
+          release = () => resolve({ type: EventType.MESSAGES_SNAPSHOT, messages: [] })
+        })
     )
 
     manager.close(webContents as never)
     release()
-    await pending
+    expect(await pending).toBe(false)
     expect(manager.subscriptions.has(webContents as never)).toBe(false)
 
-    await manager.open(webContents as never, 'thread-b', async () => undefined)
+    await manager.connect(webContents as never, 'thread-b', async () => ({
+      type: EventType.MESSAGES_SNAPSHOT,
+      messages: []
+    }))
     destroyedListeners[0]?.()
     expect(manager.subscriptions.has(webContents as never)).toBe(false)
   })

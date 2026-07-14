@@ -1,51 +1,36 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import MessagePart from './message-part.vue'
-import type {
-  ChatMessageProps,
-  ChatSlotContent,
-  ToolCallRenderProps,
-} from './types'
+import type { ChatMessageProps, ChatSlotContent, ToolCallRenderProps } from './types'
 
 const props = defineProps<ChatMessageProps>()
 
 type ChatMessageSlots = {
   text?: (props: { content: string }) => ChatSlotContent
-  thinking?: (props: {
-    content: string
-    isComplete?: boolean | undefined
-  }) => ChatSlotContent
+  thinking?: (props: { content: string; isComplete?: boolean | undefined }) => ChatSlotContent
   'tool-default'?: (props: ToolCallRenderProps) => ChatSlotContent
   'tool-result'?: (props: {
     toolCallId: string
     content: unknown
     state: string
   }) => ChatSlotContent
-} & Partial<
-  Record<`tool-${string}`, (props: ToolCallRenderProps) => ChatSlotContent>
->
+} & Partial<Record<`tool-${string}`, (props: ToolCallRenderProps) => ChatSlotContent>>
 
 const slots = defineSlots<ChatMessageSlots>()
 
 // Combine classes based on role
 const roleClass = computed(() =>
-  props.message.role === 'user'
-    ? (props.userClass ?? '')
-    : (props.assistantClass ?? ''),
+  props.message.role === 'user' ? (props.userClass ?? '') : (props.assistantClass ?? '')
 )
 
-const combinedClass = computed(() =>
-  [props.class ?? '', roleClass.value].filter(Boolean).join(' '),
-)
+const combinedClass = computed(() => [props.class ?? '', roleClass.value].filter(Boolean).join(' '))
 
 // Check if thinking is complete (if there's a text part after this thinking part)
-const isThinkingComplete = (partIndex: string | number) => {
+const isThinkingComplete = (partIndex: string | number): boolean => {
   const index = Number(partIndex)
   const part = props.message.parts[index]
   if (!part || part.type !== 'thinking') return false
-  return props.message.parts
-    .slice(index + 1)
-    .some((part) => part.type === 'text')
+  return props.message.parts.slice(index + 1).some((part) => part.type === 'text')
 }
 </script>
 

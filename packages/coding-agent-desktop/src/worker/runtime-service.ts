@@ -211,7 +211,7 @@ export class RuntimeDesktopWorkerService implements DesktopWorkerService {
         await this.runtime.session.extensionRunner.emit({
           type: 'desktop_panel_disposed',
           panelId: event.panelId,
-          reason: event.reason
+          reason: event.reason === 'threadRestart' ? 'sessionRestart' : event.reason
         })
       }
       return createWorkerResponse(envelope.id, envelope.command.type, { ok: true })

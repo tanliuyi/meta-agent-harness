@@ -9,6 +9,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { resolveSessionCwd, SessionManager } from '@earendil-works/pi-coding-agent'
 import {
   buildSnapshotFromSession,
+  readCanonicalSessionMessages,
   toDesktopSessionTreeChildren
 } from '../storage/session-snapshot.ts'
 
@@ -23,6 +24,64 @@ afterEach(() => {
 
 /** buildSnapshotFromSession 测试套件。 */
 describe('buildSnapshotFromSession', () => {
+  it('为 AG-UI 直接读取包含工具 payload 的 Pi canonical messages', () => {
+    const root = mkdtempSync(join(tmpdir(), 'desktop-session-'))
+    roots.push(root)
+    const manager = SessionManager.create(join(root, 'repo'), join(root, 'sessions'))
+    const assistantEntryId = manager.appendMessage({
+      role: 'assistant',
+      content: [
+        { type: 'toolCall', id: 'tool-read', name: 'read', arguments: { path: 'README.md' } }
+      ],
+      api: 'responses',
+      provider: 'openai',
+      model: 'gpt-test',
+      usage: {
+        input: 1,
+        output: 1,
+        cacheRead: 0,
+        cacheWrite: 0,
+        totalTokens: 2,
+        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 }
+      },
+      stopReason: 'toolUse',
+      timestamp: 1
+    })
+    manager.appendMessage({
+      role: 'toolResult',
+      toolCallId: 'tool-read',
+      toolName: 'read',
+      content: [{ type: 'text', text: '# Project' }],
+      isError: false,
+      timestamp: 2
+    })
+    const sessionFile = manager.getSessionFile()
+    if (!sessionFile) throw new Error('session file is required')
+
+    const history = readCanonicalSessionMessages({ sessionFile })
+
+    expect(history.messageEntryIds).toEqual([assistantEntryId])
+    expect(history.messages).toMatchObject([
+      {
+        role: 'assistant',
+        content: [
+          {
+            type: 'toolCall',
+            id: 'tool-read',
+            name: 'read',
+            arguments: { path: 'README.md' }
+          }
+        ]
+      },
+      {
+        role: 'toolResult',
+        toolCallId: 'tool-read',
+        toolName: 'read',
+        content: [{ type: 'text', text: '# Project' }]
+      }
+    ])
+  })
+
   /** 验证使用 Pi SessionManager 读取 JSONL 并重建最小 snapshot。 */
   it('使用 Pi SessionManager 读取 JSONL 并重建最小 snapshot', () => {
     const root = mkdtempSync(join(tmpdir(), 'desktop-session-'))

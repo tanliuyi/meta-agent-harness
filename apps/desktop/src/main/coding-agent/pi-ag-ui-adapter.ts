@@ -52,6 +52,15 @@ export class PiAgUiAdapter {
     }
   }
 
+  failRun(threadId: string, message: string, runId?: string): AGUIEvent | undefined {
+    const state = this.state(threadId)
+    if (runId && state.requestedRunId === runId) state.requestedRunId = undefined
+    if (!state.runId || (runId && state.runId !== runId)) return undefined
+    state.runId = undefined
+    state.runErrorMessage = undefined
+    return { type: EventType.RUN_ERROR, message }
+  }
+
   adapt(event: AgentSessionIpcEvent): AGUIEvent[] {
     const state = this.state(event.threadId)
     switch (event.type) {

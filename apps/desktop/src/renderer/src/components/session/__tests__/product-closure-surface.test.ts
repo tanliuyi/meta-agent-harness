@@ -141,6 +141,7 @@ describe('renderer product closure surface', () => {
     expect(browserPage).not.toContain('refs.clear();')
     expect(browserPermissionHost).toContain('onPermissionRequested')
     expect(browserPermissionHost).toContain("confirmText: '允许'")
+    expect(browserPermissionHost).toContain('<template>')
     expect(app).toMatch(/<ConfirmDialogProvider>[\s\S]*<BrowserPermissionRequestHost\s*\/>/)
     expect(safetySettings).toContain('saveSafetyWithConfirmation')
     expect(safetySettings).toContain('了解风险并开启')

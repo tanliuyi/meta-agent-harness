@@ -130,7 +130,7 @@ const workspaceGridAreas = computed(() => {
         <line x1="9" y1="3" x2="9" y2="21" />
       </svg>
     </BaseIconButton>
-    <Sidebar v-show="workspaceUi.sidebarOpen" class="workspace__sidebar" />
+    <Sidebar :visible="workspaceUi.sidebarOpen" />
 
     <ResizablePaneSeparator
       v-if="workspaceUi.sidebarOpen"
@@ -145,17 +145,15 @@ const workspaceGridAreas = computed(() => {
     <ResizeDragShield v-if="isSidebarResizing" />
 
     <RouterView v-slot="{ Component, route }">
-      <KeepAlive>
-        <component
-          :is="Component"
-          :key="route.params.sessionId"
-          class="workspace__content"
-          :style="{
-            '--session-header-padding-left':
-              !workspaceUi.sidebarOpen && app.isMac ? '124px' : undefined
-          }"
-        />
-      </KeepAlive>
+      <component
+        :is="Component"
+        :key="route.params.sessionId"
+        class="workspace__content"
+        :style="{
+          '--session-header-padding-left':
+            !workspaceUi.sidebarOpen && app.isMac ? '124px' : undefined
+        }"
+      />
     </RouterView>
   </main>
 </template>

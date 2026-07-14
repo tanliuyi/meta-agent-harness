@@ -42,6 +42,36 @@ export interface BuildSnapshotFromSessionInput {
   modelContextWindows?: Record<string, number>
 }
 
+/** 从 Pi session 当前 branch 读取 canonical messages 所需的输入。 */
+export interface ReadCanonicalSessionMessagesInput {
+  sessionFile: string
+  cwdOverride?: string
+  currentEntryId?: string | null
+}
+
+/** Pi canonical message 历史及与可渲染对话消息对齐的 entry IDs。 */
+export interface CanonicalSessionMessages {
+  messages: AgentMessage[]
+  messageEntryIds: string[]
+}
+
+/**
+ * 直接读取 Pi canonical message 历史，供 AG-UI 等新协议投影消费。
+ * 不经过 DesktopMessage/DesktopToolCall 旧 UI projection。
+ */
+export function readCanonicalSessionMessages(
+  input: ReadCanonicalSessionMessagesInput
+): CanonicalSessionMessages {
+  const manager = SessionManager.open(input.sessionFile, undefined, input.cwdOverride)
+  const currentEntryId =
+    input.currentEntryId !== undefined ? input.currentEntryId : manager.getLeafId()
+  const branchEntries = currentEntryId === null ? [] : manager.getBranch(currentEntryId)
+  return {
+    messages: buildTimelineMessages(branchEntries),
+    messageEntryIds: getRenderableMessageEntryIds(branchEntries)
+  }
+}
+
 /**
  * 根据 session 文件构建 desktop thread snapshot。
  * @param input - 构建输入。
@@ -311,12 +341,7 @@ function attachSessionEntryIds(
   messages: ThreadSnapshot['messages'],
   branchEntries: SessionEntry[]
 ): ThreadSnapshot['messages'] {
-  const messageEntryIds = branchEntries.flatMap((entry) => {
-    if (entry.type !== 'message' || !isRenderableConversationMessage(entry.message)) {
-      return []
-    }
-    return [entry.id]
-  })
+  const messageEntryIds = getRenderableMessageEntryIds(branchEntries)
   let index = 0
   return messages.map((message) => {
     if (message.role !== 'user' && message.role !== 'assistant') {
@@ -324,6 +349,13 @@ function attachSessionEntryIds(
     }
     const sessionEntryId = messageEntryIds[index++]
     return sessionEntryId ? { ...message, sessionEntryId } : message
+  })
+}
+
+function getRenderableMessageEntryIds(branchEntries: SessionEntry[]): string[] {
+  return branchEntries.flatMap((entry) => {
+    if (entry.type !== 'message' || !isRenderableConversationMessage(entry.message)) return []
+    return [entry.id]
   })
 }
 

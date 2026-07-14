@@ -1,4 +1,4 @@
-import { uiMessagesToWire } from '@tanstack/ai/client'
+import { generateMessageId, normalizeToUIMessage, uiMessagesToWire } from '@tanstack/ai/client'
 import type { ModelMessage, StreamChunk, UIMessage } from '@tanstack/ai/client'
 import type { AGUIEvent, RunAgentInput } from '@ag-ui/core'
 import type { RunAgentInputContext, SubscribeConnectionAdapter } from '@tanstack/ai-vue'
@@ -68,7 +68,7 @@ export function createElectronSubscribeConnectionAdapter(
       let connected = false
 
       const unsubscribe = transport.onAgentEvent((event) => {
-        const chunk = event as StreamChunk
+        const chunk = projectAgentEventForTanStack(event)
         settleRunAbortRegistration(chunk, clearRunAbortRegistration, clearRunAbortRegistrations)
         queue.push(chunk)
       })
@@ -143,7 +143,9 @@ export function createElectronSubscribeConnectionAdapter(
         runId,
         ...(runContext.parentRunId !== undefined && { parentRunId: runContext.parentRunId }),
         state: {},
-        messages: uiMessagesToWire(messages as Array<UIMessage>) as RunAgentInput['messages'],
+        messages: uiMessagesToWire(
+          messages.map((message) => normalizeToUIMessage(message, generateMessageId))
+        ) as RunAgentInput['messages'],
         tools: [],
         context: [],
         forwardedProps
@@ -161,6 +163,92 @@ export function createElectronSubscribeConnectionAdapter(
       }
     }
   }
+}
+
+export function projectAgentEventForTanStack(event: AGUIEvent): StreamChunk {
+  if (event.type === 'TOOL_CALL_RESULT') {
+    const isError = getRecord(event.rawEvent)?.isError === true
+    return {
+      ...event,
+      state: isError ? 'output-error' : 'output-available'
+    } as StreamChunk
+  }
+  if (event.type !== 'MESSAGES_SNAPSHOT') return event as StreamChunk
+
+  const toolResults = new Map<string, { content: string; error?: string }>()
+  for (const message of event.messages) {
+    if (message.role === 'tool') {
+      toolResults.set(message.toolCallId, {
+        content: message.content,
+        ...(message.error ? { error: message.error } : {})
+      })
+    }
+  }
+
+  return {
+    ...event,
+    messages: event.messages.map((message) => {
+      if (message.role === 'assistant' && message.toolCalls) {
+        const hasToolResult = message.toolCalls.some((toolCall) => toolResults.has(toolCall.id))
+        if (!hasToolResult) return message
+
+        return {
+          id: message.id,
+          role: 'assistant',
+          parts: [
+            ...(message.content ? [{ type: 'text' as const, content: message.content }] : []),
+            ...message.toolCalls.map((toolCall) => {
+              const result = toolResults.get(toolCall.id)
+              return {
+                type: 'tool-call' as const,
+                id: toolCall.id,
+                name: toolCall.function.name,
+                arguments: toolCall.function.arguments,
+                state: result
+                  ? result.error
+                    ? ('error' as const)
+                    : ('complete' as const)
+                  : ('input-complete' as const),
+                ...(result && {
+                  output: result.error
+                    ? { error: result.error }
+                    : parseToolResultContent(result.content)
+                })
+              }
+            })
+          ]
+        }
+      }
+      if (message.role !== 'tool' || !message.error) return message
+      return {
+        id: message.id,
+        role: 'assistant',
+        parts: [
+          {
+            type: 'tool-result',
+            toolCallId: message.toolCallId,
+            content: message.content,
+            state: 'error',
+            error: message.error
+          }
+        ]
+      }
+    })
+  } as StreamChunk
+}
+
+function parseToolResultContent(content: string): unknown {
+  try {
+    return JSON.parse(content)
+  } catch {
+    return content
+  }
+}
+
+function getRecord(value: unknown): Record<string, unknown> | undefined {
+  return value !== null && typeof value === 'object'
+    ? (value as Record<string, unknown>)
+    : undefined
 }
 
 function getSubscriptionCoordinator(
