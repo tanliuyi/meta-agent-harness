@@ -23,10 +23,34 @@
 		"indentWidth": 3,
 		"lineWidth": 120
 	},
+	"css": {
+		"parser": {
+			"tailwindDirectives": true
+		}
+	},
+	"overrides": [
+		{
+			"includes": ["packages/desktop/**"],
+			"formatter": {
+				"indentStyle": "space",
+				"indentWidth": 2
+			}
+		},
+		{
+			"includes": ["packages/desktop/**/*.tsx", "packages/desktop/**/*.css"],
+			"linter": {
+				"enabled": false
+			}
+		}
+	],
 	"files": {
 		"includes": [
 			"packages/*/src/**/*.ts",
 			"packages/*/test/**/*.ts",
+			"packages/desktop/*.ts",
+			"packages/desktop/**/*.tsx",
+			"packages/desktop/**/*.css",
+			"packages/desktop/**/*.json",
 			"packages/coding-agent/examples/**/*.ts",
 			"!**/node_modules/**/*",
 			"!**/test-sessions.ts",

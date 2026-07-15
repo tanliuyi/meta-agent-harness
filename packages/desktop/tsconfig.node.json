@@ -1,16 +1,21 @@
 {
-	"extends": "../../tsconfig.base.json",
-	"compilerOptions": {
-		"composite": false,
-		"target": "ES2024",
-		"lib": ["ES2024", "DOM.Iterable"],
-		"module": "ESNext",
-		"moduleResolution": "Bundler",
-		"noEmit": true,
-		"types": ["node", "electron-vite/node"],
-		"paths": {
-			"@earendil-works/pi-coding-agent": ["./src/main/pi/pi-sdk.d.ts"]
-		}
-	},
-	"include": ["electron.vite.config.ts", "src/main/**/*.ts", "src/preload/**/*.ts", "src/shared/**/*.ts"]
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "composite": false,
+    "target": "ES2024",
+    "lib": ["ES2024", "DOM.Iterable"],
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "noEmit": true,
+    "types": ["node", "electron-vite/node"],
+    "paths": {
+      "@earendil-works/pi-ai": ["../ai/src/index.ts"],
+      "@earendil-works/pi-ai/compat": ["../ai/src/compat.ts"],
+      "@earendil-works/pi-ai/oauth": ["../ai/src/oauth.ts"],
+      "@earendil-works/pi-agent-core": ["../agent/src/index.ts"],
+      "@earendil-works/pi-coding-agent": ["../coding-agent/src/index.ts"],
+      "@earendil-works/pi-tui": ["../tui/src/index.ts"]
+    }
+  },
+  "include": ["electron.vite.config.ts", "src/main/**/*.ts", "src/preload/**/*.ts", "src/shared/**/*.ts"]
 }

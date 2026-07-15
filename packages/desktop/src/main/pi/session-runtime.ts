@@ -1,283 +1,373 @@
 import { join } from "node:path";
+import type { Message, RunAgentInput } from "@ag-ui/core";
 import {
-	type AgentSession,
-	type AgentSessionEvent,
-	AuthStorage,
-	createAgentSession,
-	getAgentDir,
-	ModelRegistry,
-	type SessionManager,
-	SettingsManager,
+  type AgentSession,
+  type AgentSessionEvent,
+  AuthStorage,
+  createAgentSession,
+  getAgentDir,
+  ModelRegistry,
+  type SessionManager,
+  SettingsManager,
 } from "@earendil-works/pi-coding-agent";
-import { type ChatMessage, PROTOCOL_VERSION, type SendInput, type SessionSnapshot } from "../../shared/contracts.ts";
+import {
+  PROTOCOL_VERSION,
+  type SendInput,
+  type SessionBootstrap,
+  type SessionControlState,
+  type SessionPushPayload,
+  type Thread,
+} from "../../shared/contracts.ts";
 import { HostUi } from "./host-ui.ts";
-import { projectMessages, resultText, type ToolState, toJson } from "./message-projector.ts";
+import { projectMessages } from "./message-projector.ts";
+import { PiAgUiAdapter } from "./pi-ag-ui-adapter.ts";
 import { getSessionCommands, parseDesktopCommand } from "./session-commands.ts";
 
 interface RuntimeOptions {
-	projectId: string;
-	cwd: string;
-	sessionManager?: SessionManager;
-	changed(snapshot: SessionSnapshot): void;
+  projectId: string;
+  cwd: string;
+  sessionManager?: SessionManager;
+  push(update: SessionPushPayload): void;
+  onSummaryChanged(runtime: SessionRuntime): void;
 }
 
-/** 单个 Pi AgentSession 的本地生命周期和权威快照。 */
+/** 单个 Pi AgentSession 的生命周期、控制面与 AG-UI 数据面。 */
 export class SessionRuntime {
-	private readonly tools = new Map<string, ToolState>();
-	private readonly hostUi: HostUi;
-	private revision = 0;
-	private compacting = false;
-	private retry?: SessionSnapshot["retry"];
-	private lastError?: string;
-	private timer?: ReturnType<typeof setTimeout>;
-	private unsubscribe?: () => void;
-	readonly projectId: string;
-	readonly cwd: string;
-	readonly session: AgentSession;
-	private readonly models: ModelRegistry;
-	private readonly changed: (snapshot: SessionSnapshot) => void;
+  private readonly hostUi: HostUi;
+  private readonly adapter: PiAgUiAdapter;
+  private revision = 0;
+  private compacting = false;
+  private retry?: SessionControlState["retry"];
+  private lastError?: string;
+  private unsubscribe?: () => void;
+  private summaryState: Omit<Thread, "projectId" | "archived" | "running">;
+  readonly projectId: string;
+  readonly cwd: string;
+  readonly session: AgentSession;
+  private readonly models: ModelRegistry;
+  private readonly push: (update: SessionPushPayload) => void;
+  private readonly onSummaryChanged: (runtime: SessionRuntime) => void;
 
-	private constructor(
-		projectId: string,
-		cwd: string,
-		session: AgentSession,
-		models: ModelRegistry,
-		changed: (snapshot: SessionSnapshot) => void,
-	) {
-		this.projectId = projectId;
-		this.cwd = cwd;
-		this.session = session;
-		this.models = models;
-		this.changed = changed;
-		this.hostUi = new HostUi(
-			() => this.publish(),
-			() => [...this.session.state.pendingToolCalls],
-		);
-	}
+  private constructor(
+    projectId: string,
+    cwd: string,
+    session: AgentSession,
+    models: ModelRegistry,
+    push: (update: SessionPushPayload) => void,
+    onSummaryChanged: (runtime: SessionRuntime) => void,
+  ) {
+    this.projectId = projectId;
+    this.cwd = cwd;
+    this.session = session;
+    this.models = models;
+    this.push = push;
+    this.onSummaryChanged = onSummaryChanged;
+    this.hostUi = new HostUi(
+      () => this.publishControl(),
+      () => [...this.session.state.pendingToolCalls],
+    );
+    this.adapter = new PiAgUiAdapter({
+      projectId,
+      session,
+      onEvents: (batch) => this.push({ type: "events", projectId, threadId: this.id, batch }),
+      onTool: (update) => this.push({ type: "tool", projectId, threadId: this.id, update }),
+    });
+    this.summaryState = createSummary(session);
+  }
 
-	/** 创建新会话或从指定 SessionManager 恢复会话。 */
-	static async create(options: RuntimeOptions): Promise<SessionRuntime> {
-		const agentDir = getAgentDir();
-		const auth = AuthStorage.create(join(agentDir, "auth.json"));
-		const models = ModelRegistry.create(auth, join(agentDir, "models.json"));
-		const settings = SettingsManager.create(options.cwd, agentDir);
-		const result = await createAgentSession({
-			cwd: options.cwd,
-			sessionManager: options.sessionManager,
-			modelRegistry: models,
-			authStorage: auth,
-			settingsManager: settings,
-			sessionStartEvent: {
-				type: "session_start",
-				reason: options.sessionManager ? "resume" : "new",
-			},
-		});
-		const runtime = new SessionRuntime(options.projectId, options.cwd, result.session, models, options.changed);
-		runtime.lastError = result.modelFallbackMessage;
-		await result.session.bindExtensions({
-			uiContext: runtime.hostUi.createContext(),
-			mode: "rpc",
-			onError: (error) => {
-				runtime.lastError = `${error.extensionPath}: ${error.error}`;
-				runtime.publish();
-			},
-		});
-		runtime.unsubscribe = result.session.subscribe((event) => runtime.onEvent(event));
-		return runtime;
-	}
+  /** 创建新会话或从指定 SessionManager 恢复会话。 */
+  static async create(options: RuntimeOptions): Promise<SessionRuntime> {
+    const agentDir = getAgentDir();
+    const auth = AuthStorage.create(join(agentDir, "auth.json"));
+    const models = ModelRegistry.create(auth, join(agentDir, "models.json"));
+    const settings = SettingsManager.create(options.cwd, agentDir);
+    const result = await createAgentSession({
+      cwd: options.cwd,
+      sessionManager: options.sessionManager,
+      modelRegistry: models,
+      authStorage: auth,
+      settingsManager: settings,
+      sessionStartEvent: { type: "session_start", reason: options.sessionManager ? "resume" : "new" },
+    });
+    const runtime = new SessionRuntime(
+      options.projectId,
+      options.cwd,
+      result.session,
+      models,
+      options.push,
+      options.onSummaryChanged,
+    );
+    runtime.lastError = result.modelFallbackMessage;
+    await result.session.bindExtensions({
+      uiContext: runtime.hostUi.createContext(),
+      mode: "rpc",
+      onError: (error) => {
+        runtime.lastError = `${error.extensionPath}: ${error.error}`;
+        runtime.publishControl();
+      },
+    });
+    runtime.unsubscribe = result.session.subscribe((event) => runtime.onEvent(event));
+    return runtime;
+  }
 
-	/** 当前 Pi session id。 */
-	get id(): string {
-		return this.session.sessionId;
-	}
+  get id(): string {
+    return this.session.sessionId;
+  }
 
-	/** 当前 session 文件路径，首次写入前可能为空。 */
-	get file(): string | undefined {
-		return this.session.sessionFile;
-	}
+  get file(): string | undefined {
+    return this.session.sessionFile;
+  }
 
-	/** 生成 renderer 恢复所需的完整权威快照。 */
-	snapshot(): SessionSnapshot {
-		const model = this.session.model;
-		const available = this.models.getAvailable();
-		const context = this.session.getContextUsage();
-		const messages = projectMessages(this.session, this.tools);
-		return {
-			protocolVersion: PROTOCOL_VERSION,
-			revision: this.revision,
-			projectId: this.projectId,
-			threadId: this.id,
-			title: this.title(messages),
-			cwd: this.cwd,
-			messages,
-			running: this.session.isStreaming,
-			compacting: this.compacting,
-			retry: this.retry,
-			queue: {
-				steering: [...this.session.getSteeringMessages()],
-				followUp: [...this.session.getFollowUpMessages()],
-			},
-			model: model ? { provider: model.provider, id: model.id, name: model.name } : undefined,
-			models: available.map((item) => ({
-				provider: item.provider,
-				id: item.id,
-				name: item.name,
-				contextWindow: item.contextWindow,
-				thinking: item.reasoning,
-			})),
-			commands: getSessionCommands(this.session),
-			thinkingLevel: this.session.thinkingLevel,
-			thinkingLevels: this.session.getAvailableThinkingLevels(),
-			context: context
-				? { tokens: context.tokens, contextWindow: context.contextWindow, percent: context.percent }
-				: undefined,
-			readiness: readiness(Boolean(model), available.length, this.models.getAll().length),
-			lastError: this.lastError ?? this.session.state.errorMessage,
-			hostRequests: this.hostUi.requests,
-			extensionUi: this.hostUi.uiState,
-		};
-	}
+  /** 首次打开、reload 或 sequence 失步时返回完整 AG-UI 基线。 */
+  bootstrap(): SessionBootstrap {
+    const active = this.adapter.activeRunBootstrap;
+    return {
+      protocolVersion: PROTOCOL_VERSION,
+      projectId: this.projectId,
+      threadId: this.id,
+      cursor: this.adapter.currentSequence,
+      control: this.control(),
+      messages: active?.messages ?? projectMessages(this.session),
+      state: {},
+      ...(active ? { activeRun: { runId: active.runId, events: active.events } } : {}),
+    };
+  }
 
-	/** 向 Pi 发送普通、steer 或 follow-up 输入。 */
-	async send(input: SendInput): Promise<void> {
-		const images = input.images.map(({ data, mimeType }) => ({ type: "image" as const, data, mimeType }));
-		this.lastError = undefined;
-		if (images.length === 0 && (await this.runDesktopCommand(input.text))) return;
-		await this.session.prompt(input.text, {
-			images,
-			streamingBehavior: input.mode === "prompt" ? undefined : input.mode,
-		});
-	}
+  /** 列表页使用的 O(1) 运行时摘要。 */
+  threadSummary(archived: boolean): Thread {
+    return {
+      ...this.summaryState,
+      projectId: this.projectId,
+      archived,
+      running: this.session.isStreaming,
+    };
+  }
 
-	/** 停止当前运行。 */
-	async cancel(): Promise<void> {
-		await this.session.abort();
-	}
+  /** 发起 assistant-ui 标准 AG-UI run。 */
+  async run(input: RunAgentInput): Promise<void> {
+    if (input.threadId !== this.id) throw new Error(`AG-UI threadId 不匹配: ${input.threadId}`);
+    const user = input.messages.findLast((message) => message.role === "user");
+    if (!user) throw new Error("AG-UI run 缺少 user message");
+    const { text, images } = userInput(user.content);
+    this.lastError = undefined;
+    this.adapter.start(input);
+    try {
+      if (images.length === 0 && (await this.runDesktopCommand(text))) {
+        this.adapter.complete();
+        return;
+      }
+      await this.session.prompt(text, { images });
+      if (!this.session.isStreaming) this.adapter.complete();
+    } catch (error) {
+      this.lastError = error instanceof Error ? error.message : String(error);
+      this.adapter.fail(error);
+      this.publishControl();
+      throw error;
+    }
+  }
 
-	/** 清空队列并返回可恢复到 Composer 的文本。 */
-	clearQueue(): string[] {
-		const queue = this.session.clearQueue();
-		return [...queue.steering, ...queue.followUp];
-	}
+  /** 在当前 Pi run 中发送 steer 或 follow-up，不创建并行 AG-UI run。 */
+  async enqueue(input: SendInput): Promise<void> {
+    const images = input.images.map(({ data, mimeType }) => ({ type: "image" as const, data, mimeType }));
+    if (input.mode === "steer") await this.session.steer(input.text, images);
+    else await this.session.followUp(input.text, images);
+  }
 
-	/** 手动压缩当前上下文。 */
-	async compact(): Promise<void> {
-		await this.session.compact();
-	}
+  async cancel(): Promise<void> {
+    await this.session.abort();
+  }
 
-	/** 切换当前会话模型。 */
-	async setModel(provider: string, modelId: string): Promise<void> {
-		const model = this.models.find(provider, modelId);
-		if (!model) throw new Error(`模型不存在: ${provider}/${modelId}`);
-		await this.session.setModel(model);
-		this.publish();
-	}
+  clearQueue(): string[] {
+    const queue = this.session.clearQueue();
+    return [...queue.steering, ...queue.followUp];
+  }
 
-	/** 切换当前会话 thinking level。 */
-	setThinking(level: SessionSnapshot["thinkingLevel"]): void {
-		this.session.setThinkingLevel(level);
-		this.publish();
-	}
+  async compact(): Promise<void> {
+    await this.session.compact();
+  }
 
-	/** 重命名当前会话。 */
-	rename(title: string): void {
-		this.session.setSessionName(title.trim());
-	}
+  async setModel(provider: string, modelId: string): Promise<void> {
+    const model = this.models.find(provider, modelId);
+    if (!model) throw new Error(`模型不存在: ${provider}/${modelId}`);
+    await this.session.setModel(model);
+    this.publishControl();
+  }
 
-	/** 响应扩展发起的阻塞式 UI 请求。 */
-	respond(response: Parameters<HostUi["respond"]>[0]): void {
-		this.hostUi.respond(response);
-	}
+  setThinking(level: SessionControlState["thinkingLevel"]): void {
+    this.session.setThinkingLevel(level);
+    this.publishControl();
+  }
 
-	/** 释放 session，不用于普通的前台会话切换。 */
-	async dispose(): Promise<void> {
-		if (this.timer) clearTimeout(this.timer);
-		if (this.session.isStreaming) await this.session.abort();
-		this.unsubscribe?.();
-		this.hostUi.dispose();
-		this.session.dispose();
-	}
+  rename(title: string): void {
+    this.session.setSessionName(title.trim());
+    this.summaryState = { ...this.summaryState, title: title.trim() || "新会话" };
+    this.publishControl();
+    this.onSummaryChanged(this);
+  }
 
-	private onEvent(event: AgentSessionEvent): void {
-		if (event.type === "tool_execution_start") {
-			this.tools.set(event.toolCallId, {
-				id: event.toolCallId,
-				name: event.toolName,
-				args: toJson(event.args),
-				status: "running",
-			});
-		} else if (event.type === "tool_execution_update") {
-			this.tools.set(event.toolCallId, {
-				id: event.toolCallId,
-				name: event.toolName,
-				args: toJson(event.args),
-				result: resultText(event.partialResult),
-				status: "running",
-			});
-		} else if (event.type === "tool_execution_end") {
-			const current = this.tools.get(event.toolCallId);
-			this.tools.set(event.toolCallId, {
-				id: event.toolCallId,
-				name: event.toolName,
-				args: current?.args ?? {},
-				result: resultText(event.result),
-				status: event.isError ? "error" : "complete",
-			});
-		} else if (event.type === "compaction_start") {
-			this.compacting = true;
-		} else if (event.type === "compaction_end") {
-			this.compacting = false;
-			this.lastError = event.errorMessage;
-		} else if (event.type === "auto_retry_start") {
-			this.retry = { attempt: event.attempt, maxAttempts: event.maxAttempts, message: event.errorMessage };
-		} else if (event.type === "auto_retry_end") {
-			this.retry = undefined;
-			this.lastError = event.finalError;
-		} else if (event.type === "agent_end" && !event.willRetry) {
-			this.retry = undefined;
-		}
+  respond(response: Parameters<HostUi["respond"]>[0]): void {
+    this.hostUi.respond(response);
+  }
 
-		if (event.type === "message_update" || event.type === "tool_execution_update") this.publishSoon();
-		else this.publish();
-	}
+  async dispose(): Promise<void> {
+    if (this.session.isStreaming) await this.session.abort();
+    this.unsubscribe?.();
+    this.adapter.dispose();
+    this.hostUi.dispose();
+    this.session.dispose();
+  }
 
-	private publishSoon(): void {
-		if (this.timer) return;
-		this.timer = setTimeout(() => {
-			this.timer = undefined;
-			this.publish();
-		}, 32);
-	}
+  private control(): SessionControlState {
+    const model = this.session.model;
+    const available = this.models.getAvailable();
+    const context = this.session.getContextUsage();
+    return {
+      protocolVersion: PROTOCOL_VERSION,
+      revision: this.revision,
+      projectId: this.projectId,
+      threadId: this.id,
+      title: this.summaryState.title,
+      cwd: this.cwd,
+      running: this.session.isStreaming,
+      compacting: this.compacting,
+      retry: this.retry,
+      queue: {
+        steering: [...this.session.getSteeringMessages()],
+        followUp: [...this.session.getFollowUpMessages()],
+      },
+      model: model ? { provider: model.provider, id: model.id, name: model.name } : undefined,
+      models: available.map((item) => ({
+        provider: item.provider,
+        id: item.id,
+        name: item.name,
+        contextWindow: item.contextWindow,
+        thinking: item.reasoning,
+      })),
+      commands: getSessionCommands(this.session),
+      thinkingLevel: this.session.thinkingLevel,
+      thinkingLevels: this.session.getAvailableThinkingLevels(),
+      context: context
+        ? { tokens: context.tokens, contextWindow: context.contextWindow, percent: context.percent }
+        : undefined,
+      readiness: readiness(Boolean(model), available.length, this.models.getAll().length),
+      lastError: this.lastError ?? this.session.state.errorMessage,
+      hostRequests: this.hostUi.requests,
+      extensionUi: this.hostUi.uiState,
+    };
+  }
 
-	private publish(): void {
-		this.revision += 1;
-		this.changed(this.snapshot());
-	}
+  private onEvent(event: AgentSessionEvent): void {
+    this.adapter.handle(event);
+    let publish = false;
+    if (event.type === "compaction_start") {
+      this.compacting = true;
+      publish = true;
+    } else if (event.type === "compaction_end") {
+      this.compacting = false;
+      this.lastError = event.errorMessage;
+      publish = true;
+    } else if (event.type === "auto_retry_start") {
+      this.retry = { attempt: event.attempt, maxAttempts: event.maxAttempts, message: event.errorMessage };
+      publish = true;
+    } else if (event.type === "auto_retry_end") {
+      this.retry = undefined;
+      this.lastError = event.finalError;
+      publish = true;
+    } else if (event.type === "agent_end" && !event.willRetry) {
+      this.retry = undefined;
+    } else if (
+      event.type === "agent_start" ||
+      event.type === "agent_settled" ||
+      event.type === "queue_update" ||
+      event.type === "thinking_level_changed"
+    ) {
+      publish = true;
+    }
 
-	private async runDesktopCommand(text: string): Promise<boolean> {
-		const command = parseDesktopCommand(text);
-		if (!command) return false;
-		if (command.name === "compact") await this.compact();
-		else if (command.name === "reload") await this.session.reload();
-		else {
-			if (!command.title) throw new Error("用法: /name <会话名称>");
-			this.rename(command.title);
-		}
-		this.publish();
-		return true;
-	}
+    if (event.type === "message_end" && (event.message.role === "user" || event.message.role === "assistant")) {
+      this.updateSummary(event.message);
+      this.onSummaryChanged(this);
+    }
+    if (event.type === "session_info_changed") {
+      this.summaryState = { ...this.summaryState, title: event.name?.trim() || this.summaryState.title };
+      this.onSummaryChanged(this);
+      publish = true;
+    }
+    if (event.type === "agent_settled") this.onSummaryChanged(this);
+    if (publish) this.publishControl();
+  }
 
-	private title(messages: ChatMessage[]): string {
-		if (this.session.sessionName) return this.session.sessionName;
-		const first = messages.find(({ role }) => role === "user");
-		const text = first?.parts.find(({ type }) => type === "text");
-		return text?.type === "text" && text.text.trim() ? text.text.trim().slice(0, 48) : "新会话";
-	}
+  private publishControl(): void {
+    this.revision += 1;
+    this.push({ type: "control", projectId: this.projectId, threadId: this.id, control: this.control() });
+  }
+
+  private async runDesktopCommand(text: string): Promise<boolean> {
+    const command = parseDesktopCommand(text);
+    if (!command) return false;
+    if (command.name === "compact") await this.compact();
+    else if (command.name === "reload") await this.session.reload();
+    else {
+      if (!command.title) throw new Error("用法: /name <会话名称>");
+      this.rename(command.title);
+    }
+    return true;
+  }
+
+  private updateSummary(message: AgentSession["messages"][number]): void {
+    const preview =
+      message.role === "user" && !this.summaryState.preview
+        ? contentText(message.content).slice(0, 120)
+        : this.summaryState.preview;
+    const title =
+      this.session.sessionName ||
+      (this.summaryState.preview ? this.summaryState.title : preview.slice(0, 48)) ||
+      "新会话";
+    this.summaryState = {
+      ...this.summaryState,
+      title,
+      preview,
+      updatedAt: message.timestamp,
+      messageCount: this.summaryState.messageCount + 1,
+    };
+  }
 }
 
-function readiness(hasModel: boolean, availableCount: number, allCount: number): SessionSnapshot["readiness"] {
-	if (hasModel) return { state: "ready" };
-	if (allCount === 0) return { state: "missing-model", message: "Pi 没有可用模型配置" };
-	if (availableCount === 0) return { state: "missing-credentials", message: "请先在 Pi 中配置模型凭据" };
-	return { state: "unavailable-model", message: "当前会话模型不可用，请选择其他模型" };
+function createSummary(session: AgentSession): Omit<Thread, "projectId" | "archived" | "running"> {
+  const visible = session.messages.filter((message) => message.role === "user" || message.role === "assistant");
+  const first = visible.find((message) => message.role === "user");
+  const preview = first?.role === "user" ? contentText(first.content).slice(0, 120) : "";
+  return {
+    id: session.sessionId,
+    title: session.sessionName || preview.slice(0, 48) || "新会话",
+    createdAt: visible[0]?.timestamp ?? Date.now(),
+    updatedAt: visible.at(-1)?.timestamp ?? Date.now(),
+    messageCount: visible.length,
+    preview,
+  };
+}
+
+function userInput(content: Extract<Message, { role: "user" }>["content"]): {
+  text: string;
+  images: Array<{ type: "image"; data: string; mimeType: string }>;
+} {
+  if (typeof content === "string") return { text: content, images: [] };
+  const text = content.flatMap((part) => (part.type === "text" ? [part.text] : [])).join("\n");
+  const images = content.flatMap((part) => {
+    if (part.type !== "image" || part.source.type !== "data") return [];
+    return [{ type: "image" as const, data: part.source.value, mimeType: part.source.mimeType }];
+  });
+  return { text, images };
+}
+
+function contentText(content: string | Array<{ type: string; text?: string }>): string {
+  if (typeof content === "string") return content;
+  return content.flatMap((part) => (part.type === "text" && part.text ? [part.text] : [])).join("\n");
+}
+
+function readiness(hasModel: boolean, availableCount: number, allCount: number): SessionControlState["readiness"] {
+  if (hasModel) return { state: "ready" };
+  if (allCount === 0) return { state: "missing-model", message: "Pi 没有可用模型配置" };
+  if (availableCount === 0) return { state: "missing-credentials", message: "请先在 Pi 中配置模型凭据" };
+  return { state: "unavailable-model", message: "当前会话模型不可用，请选择其他模型" };
 }

@@ -3,7 +3,7 @@
 import type { DesktopApi } from "../../shared/desktop-api.ts";
 
 declare global {
-	interface Window {
-		desktop: DesktopApi;
-	}
+  interface Window {
+    desktop: DesktopApi;
+  }
 }

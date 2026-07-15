@@ -1,0 +1,188 @@
+import { type BaseEvent, EventType, type RunAgentInput } from "@ag-ui/core";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { ElectronPiAgent } from "../src/renderer/src/runtime/electron-pi-agent.ts";
+import { sessionEventBus } from "../src/renderer/src/runtime/session-event-bus.ts";
+import type { SessionBootstrap, SessionPushPayload } from "../src/shared/contracts.ts";
+import { PROTOCOL_VERSION } from "../src/shared/contracts.ts";
+
+const originalWindow = globalThis.window;
+
+afterEach(() => {
+  sessionEventBus.detach();
+  Object.defineProperty(globalThis, "window", { configurable: true, value: originalWindow });
+  vi.restoreAllMocks();
+});
+
+describe("ElectronPiAgent", () => {
+  it("active run attach 在历史基线后 replay，且不会重新调用 main run", async () => {
+    const run = vi.fn(async () => {});
+    installWindow({ run });
+    const replay: BaseEvent[] = [
+      { type: EventType.RUN_STARTED, threadId: "thread", runId: "canonical-run" },
+      { type: EventType.TEXT_MESSAGE_START, messageId: "assistant", role: "assistant" },
+      { type: EventType.TEXT_MESSAGE_CONTENT, messageId: "assistant", delta: "partial" },
+    ];
+    const agent = new ElectronPiAgent();
+    await agent.attach({ ...bootstrap(3), activeRun: { runId: "canonical-run", events: replay } });
+    const received: BaseEvent[] = [];
+    agent.run(runInput()).subscribe({ next: (event) => received.push(event), error: () => {} });
+
+    expect(agent.messages).toEqual(bootstrap(3).messages);
+    expect(received).toEqual(replay);
+    expect(run).not.toHaveBeenCalled();
+    agent.cancelActive();
+  });
+
+  it("preload flush 在 replay 后交付 cursor 之后的 live delta", async () => {
+    let push: ((update: SessionPushPayload) => void) | undefined;
+    const continued = eventPush(4, "continued");
+    const flush = vi.fn(() => push?.(continued));
+    installWindow({
+      run: vi.fn(async () => {}),
+      flush,
+      attach: async (_projectId, _threadId, listener) => {
+        push = listener;
+        return { ...bootstrap(3), activeRun: { runId: "canonical-run", events: replayEvents() } };
+      },
+    });
+    const attached = await sessionEventBus.attach("project", "thread");
+    const agent = new ElectronPiAgent();
+    await agent.attach(attached);
+    const received: BaseEvent[] = [];
+    agent.run(runInput()).subscribe({ next: (event) => received.push(event), error: () => {} });
+
+    expect(received).toEqual([...replayEvents(), continued.batch.events[0]?.event]);
+    expect(flush).toHaveBeenCalledTimes(1);
+    agent.cancelActive();
+  });
+
+  it("detach active run 只释放本地事件订阅，不调用 Pi cancel", async () => {
+    const cancel = vi.fn(async () => {});
+    const flush = vi.fn();
+    installWindow({ cancel, flush });
+    const agent = new ElectronPiAgent();
+    await agent.attach({ ...bootstrap(3), activeRun: { runId: "canonical-run", events: replayEvents() } });
+    const running = agent.runAgent(runInput());
+    await vi.waitFor(() => expect(flush).toHaveBeenCalled());
+    await agent.detach();
+    await running;
+
+    expect(cancel).not.toHaveBeenCalled();
+    expect(agent.attachedSession).toBeUndefined();
+  });
+
+  it("sequence gap 触发 single-flight atomic reattach 并以 AbortError 结束本地流", async () => {
+    let push: ((update: SessionPushPayload) => void) | undefined;
+    const attach = vi
+      .fn<Window["desktop"]["sessions"]["attach"]>()
+      .mockImplementationOnce(async (_projectId, _threadId, listener) => {
+        push = listener;
+        return bootstrap(5);
+      })
+      .mockImplementationOnce(async () => bootstrap(9));
+    installWindow({ run: vi.fn(async () => {}), attach });
+    const initial = await sessionEventBus.attach("project", "thread");
+    const agent = new ElectronPiAgent();
+    await agent.attach(initial);
+    const error = new Promise<unknown>((resolve) => agent.run(runInput()).subscribe({ error: resolve }));
+    push?.(eventPush(7, "lost"));
+
+    await expect(error).resolves.toMatchObject({ name: "AbortError" });
+    expect(attach).toHaveBeenCalledTimes(2);
+  });
+});
+
+interface WindowOverrides {
+  run?: Window["desktop"]["sessions"]["run"];
+  attach?: Window["desktop"]["sessions"]["attach"];
+  cancel?: Window["desktop"]["sessions"]["cancel"];
+  flush?: Window["desktop"]["sessions"]["flush"];
+}
+
+function installWindow(overrides: WindowOverrides): void {
+  const sessions = {
+    run: overrides.run ?? (async () => {}),
+    attach: overrides.attach ?? (async () => bootstrap(0)),
+    cancel: overrides.cancel ?? (async () => {}),
+    flush: overrides.flush ?? (() => {}),
+    detach: () => {},
+  };
+  Object.defineProperty(globalThis, "window", {
+    configurable: true,
+    value: { desktop: { sessions } },
+  });
+}
+
+function bootstrap(cursor: number): SessionBootstrap {
+  return {
+    protocolVersion: PROTOCOL_VERSION,
+    projectId: "project",
+    threadId: "thread",
+    cursor,
+    messages: [{ id: "user", role: "user", content: "question" }],
+    state: {},
+    control: {
+      protocolVersion: PROTOCOL_VERSION,
+      revision: 0,
+      projectId: "project",
+      threadId: "thread",
+      title: "thread",
+      cwd: "/workspace",
+      running: true,
+      compacting: false,
+      queue: { steering: [], followUp: [] },
+      models: [],
+      commands: [],
+      thinkingLevel: "off",
+      thinkingLevels: ["off"],
+      readiness: { state: "ready" },
+      hostRequests: [],
+      extensionUi: { statuses: {}, workingVisible: true, toolsExpanded: false, widgets: [] },
+    },
+  };
+}
+
+function runInput(): RunAgentInput {
+  return {
+    threadId: "thread",
+    runId: "generated-run",
+    state: {},
+    messages: [{ id: "user", role: "user", content: "question" }],
+    tools: [],
+    context: [],
+    forwardedProps: {},
+  };
+}
+
+function replayEvents(): BaseEvent[] {
+  return [
+    { type: EventType.RUN_STARTED, threadId: "thread", runId: "canonical-run" },
+    { type: EventType.TEXT_MESSAGE_START, messageId: "assistant", role: "assistant" },
+    { type: EventType.TEXT_MESSAGE_CONTENT, messageId: "assistant", delta: "partial" },
+  ];
+}
+
+function eventPush(cursor: number, delta: string): Extract<SessionPushPayload, { type: "events" }> {
+  return {
+    type: "events",
+    projectId: "project",
+    threadId: "thread",
+    batch: {
+      protocolVersion: PROTOCOL_VERSION,
+      projectId: "project",
+      threadId: "thread",
+      fromSequence: cursor,
+      toSequence: cursor,
+      events: [
+        {
+          protocolVersion: PROTOCOL_VERSION,
+          projectId: "project",
+          threadId: "thread",
+          runId: "canonical-run",
+          sequence: cursor,
+          event: { type: EventType.TEXT_MESSAGE_CONTENT, messageId: "assistant", delta },
+        },
+      ],
+    },
+  };
+}
