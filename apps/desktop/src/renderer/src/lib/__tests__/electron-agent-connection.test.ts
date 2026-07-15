@@ -5,6 +5,7 @@ import type { RunAgentInputContext } from '@tanstack/ai-vue'
 import type { UIMessage } from '@tanstack/ai/client'
 
 import {
+  createElectronNewThreadConnectionAdapter,
   createElectronSubscribeConnectionAdapter,
   type ElectronAgentConnectionTransport
 } from '../electron-agent-connection'
@@ -398,5 +399,84 @@ describe('createElectronSubscribeConnectionAdapter', () => {
 
     subscriptionController.abort()
     await iterator.next()
+  })
+})
+
+describe('createElectronNewThreadConnectionAdapter', () => {
+  it('creates one thread on first send and dispatches the run with its real thread id', async () => {
+    const transport = createTransport()
+    const createThread = vi.fn(async () => ({ threadId: 'thread-created' }))
+    const onThreadCreated = vi.fn()
+    const adapter = createElectronNewThreadConnectionAdapter({
+      createThread,
+      onThreadCreated,
+      transport
+    })
+    const controller = new AbortController()
+    const iterator = adapter.subscribe(controller.signal)[Symbol.asyncIterator]()
+    const nextEvent = iterator.next()
+
+    await adapter.send(
+      [
+        {
+          id: 'user-1',
+          role: 'user',
+          parts: [{ type: 'text', content: 'Start this task' }]
+        }
+      ],
+      undefined,
+      controller.signal,
+      runContext({ threadId: 'new:project-a' })
+    )
+
+    expect(createThread).toHaveBeenCalledOnce()
+    expect(transport.runAgent).toHaveBeenCalledWith(
+      expect.objectContaining({ threadId: 'thread-created', runId: 'run-1' })
+    )
+    expect(onThreadCreated).toHaveBeenCalledWith('thread-created')
+
+    await vi.waitFor(() => {
+      expect(transport.connectAgent).toHaveBeenCalledWith({ threadId: 'thread-created' })
+    })
+    const snapshot = snapshotEvent()
+    transport.emit(snapshot)
+    await expect(nextEvent).resolves.toEqual({ value: snapshot, done: false })
+
+    controller.abort()
+    await iterator.next()
+  })
+
+  it('does not create a thread when a waiting draft subscription is abandoned', async () => {
+    const transport = createTransport()
+    const createThread = vi.fn(async () => ({ threadId: 'thread-created' }))
+    const adapter = createElectronNewThreadConnectionAdapter({ createThread, transport })
+    const controller = new AbortController()
+    const iterator = adapter.subscribe(controller.signal)[Symbol.asyncIterator]()
+    const nextEvent = iterator.next()
+
+    controller.abort()
+
+    await expect(nextEvent).resolves.toEqual({ value: undefined, done: true })
+    expect(createThread).not.toHaveBeenCalled()
+    expect(transport.connectAgent).not.toHaveBeenCalled()
+  })
+
+  it('allows thread creation to be retried after a failure', async () => {
+    const transport = createTransport()
+    const createThread = vi
+      .fn<() => Promise<{ threadId: string } | undefined>>()
+      .mockRejectedValueOnce(new Error('Project is unavailable'))
+      .mockResolvedValueOnce({ threadId: 'thread-created' })
+    const adapter = createElectronNewThreadConnectionAdapter({ createThread, transport })
+
+    await expect(
+      adapter.send([], undefined, undefined, runContext({ threadId: 'new:project-a' }))
+    ).rejects.toThrow('Project is unavailable')
+    await adapter.send([], undefined, undefined, runContext({ threadId: 'new:project-a' }))
+
+    expect(createThread).toHaveBeenCalledTimes(2)
+    expect(transport.runAgent).toHaveBeenCalledWith(
+      expect.objectContaining({ threadId: 'thread-created' })
+    )
   })
 })

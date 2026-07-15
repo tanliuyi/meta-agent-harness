@@ -18,6 +18,12 @@ export interface ElectronSubscribeConnectionAdapterOptions {
   transport?: ElectronAgentConnectionTransport
 }
 
+export interface ElectronNewThreadConnectionAdapterOptions {
+  createThread: () => Promise<{ threadId: string } | undefined>
+  onThreadCreated?: (threadId: string) => void | Promise<void>
+  transport?: ElectronAgentConnectionTransport
+}
+
 interface RunAbortRegistration {
   signal: AbortSignal
   listener: () => void
@@ -161,6 +167,96 @@ export function createElectronSubscribeConnectionAdapter(
         clearRunAbortRegistration(runId)
         throw error
       }
+    }
+  }
+}
+
+/**
+ * Create a TanStack connection that remains unbound until the first message.
+ * The first send creates the desktop thread, dispatches the AG-UI run, and
+ * then lets the route host replace the draft page with the real thread page.
+ */
+export function createElectronNewThreadConnectionAdapter(
+  options: ElectronNewThreadConnectionAdapterOptions
+): SubscribeConnectionAdapter {
+  const transport = options.transport ?? codingAgentApi
+  const waiters = new Set<{
+    resolve: (adapter: SubscribeConnectionAdapter | undefined) => void
+    reject: (error: unknown) => void
+  }>()
+  let connection: SubscribeConnectionAdapter | undefined
+  let threadId: string | undefined
+  let creationPromise: Promise<SubscribeConnectionAdapter> | undefined
+
+  const createConnection = async (): Promise<SubscribeConnectionAdapter> => {
+    if (connection) return connection
+    if (creationPromise) return creationPromise
+
+    creationPromise = options
+      .createThread()
+      .then((thread) => {
+        if (!thread?.threadId) {
+          throw new Error('创建新会话失败')
+        }
+        threadId = thread.threadId
+        connection = createElectronSubscribeConnectionAdapter({ threadId, transport })
+        for (const waiter of waiters) waiter.resolve(connection)
+        waiters.clear()
+        return connection
+      })
+      .catch((error: unknown) => {
+        creationPromise = undefined
+        for (const waiter of waiters) waiter.reject(error)
+        waiters.clear()
+        throw error
+      })
+
+    return creationPromise
+  }
+
+  const waitForConnection = (
+    signal?: AbortSignal
+  ): Promise<SubscribeConnectionAdapter | undefined> => {
+    if (signal?.aborted) return Promise.resolve(undefined)
+    if (connection) return Promise.resolve(connection)
+
+    return new Promise((resolve, reject) => {
+      const waiter = { resolve, reject }
+      const stopWaiting = (): void => {
+        waiters.delete(waiter)
+        resolve(undefined)
+      }
+      waiters.add(waiter)
+      signal?.addEventListener('abort', stopWaiting, { once: true })
+    })
+  }
+
+  return {
+    async *subscribe(signal?: AbortSignal): AsyncIterable<StreamChunk> {
+      const activeConnection = await waitForConnection(signal)
+      if (!activeConnection || signal?.aborted) return
+      yield* activeConnection.subscribe(signal)
+    },
+
+    async send(messages, data, _signal, runContext): Promise<void> {
+      if (!runContext) {
+        throw new Error('Electron agent connection requires a TanStack RunAgentInputContext')
+      }
+
+      const activeConnection = await createConnection()
+      const activeThreadId = threadId
+      if (!activeThreadId) {
+        throw new Error('创建新会话失败')
+      }
+
+      // Do not forward the draft Chat's abort signal: replacing /new unmounts
+      // that Chat immediately, while the real session route must keep the run alive.
+      const sendPromise = activeConnection.send(messages, data, undefined, {
+        ...runContext,
+        threadId: activeThreadId
+      })
+      await options.onThreadCreated?.(activeThreadId)
+      await sendPromise
     }
   }
 }

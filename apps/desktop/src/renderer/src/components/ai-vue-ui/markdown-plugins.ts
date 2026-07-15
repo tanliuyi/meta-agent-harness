@@ -13,10 +13,7 @@ import type { PluggableList as UnifiedPluggableList } from '@crazydos/vue-markdo
 export type PluggableList = UnifiedPluggableList
 
 export const DEFAULT_REMARK_PLUGINS: PluggableList = [remarkGfm]
-export const DEFAULT_REHYPE_PLUGINS: PluggableList = [
-  rehypeRaw,
-  rehypeHighlight,
-]
+export const DEFAULT_REHYPE_PLUGINS: PluggableList = [rehypeRaw, rehypeHighlight]
 
 export interface ResolveMarkdownPluginsOptions {
   remarkPlugins?: PluggableList
@@ -30,7 +27,7 @@ export interface ResolvedMarkdownPlugins {
 }
 
 export function resolveMarkdownPlugins(
-  options: ResolveMarkdownPluginsOptions,
+  options: ResolveMarkdownPluginsOptions
 ): ResolvedMarkdownPlugins {
   const userRemark = options.remarkPlugins ?? []
   const userRehype = options.rehypePlugins ?? []
@@ -38,12 +35,12 @@ export function resolveMarkdownPlugins(
   if (options.disableDefaultPlugins) {
     return {
       remarkPlugins: [...userRemark],
-      rehypePlugins: [...userRehype],
+      rehypePlugins: [...userRehype]
     }
   }
 
   return {
     remarkPlugins: [...DEFAULT_REMARK_PLUGINS, ...userRemark],
-    rehypePlugins: [...DEFAULT_REHYPE_PLUGINS, ...userRehype],
+    rehypePlugins: [...DEFAULT_REHYPE_PLUGINS, ...userRehype]
   }
 }

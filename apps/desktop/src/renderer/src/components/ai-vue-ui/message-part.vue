@@ -2,6 +2,9 @@
 import { computed } from 'vue'
 import ThinkingPart from './thinking-part.vue'
 import type { ChatMessagePart, ChatSlotContent, ToolCallRenderProps } from './types'
+import TextPart from './text-part.vue'
+import ToolPart from './tools/tool-part.vue'
+import BashToolPart from './tools/bash-tool-part.vue'
 
 interface MessagePartProps {
   part: ChatMessagePart
@@ -42,9 +45,7 @@ const toolProps = computed<ToolCallRenderProps | null>(() => {
   <!-- Text part -->
   <div v-if="part.type === 'text'">
     <slot v-if="$slots['text']" name="text" :content="part.content" />
-    <div v-else data-part-type="text" data-part-content>
-      {{ part.content }}
-    </div>
+    <TextPart v-else :content="part.content" />
   </div>
 
   <!-- Thinking part -->
@@ -72,27 +73,17 @@ const toolProps = computed<ToolCallRenderProps | null>(() => {
     <slot v-else-if="$slots['tool-default']" name="tool-default" v-bind="toolProps" />
     <!-- Fallback to built-in default renderer -->
     <template v-else>
-      <div data-tool-header>
-        <strong>{{ part.name }}</strong>
-        <span data-tool-state-badge>{{ part.state }}</span>
-      </div>
-      <div v-if="part.arguments" data-tool-arguments>
-        <pre>{{ part.arguments }}</pre>
-      </div>
-      <div v-if="part.approval" data-tool-approval>
-        {{
-          part.approval.approved !== undefined
-            ? part.approval.approved
-              ? '✓ Approved'
-              : '✗ Denied'
-            : '⏳ Awaiting approval...'
-        }}
-      </div>
-      <div v-if="part.output" data-tool-output>
-        <pre>{{
-          typeof part.output === 'string' ? part.output : JSON.stringify(part.output, null, 2)
-        }}</pre>
-      </div>
+      <template v-if="part.name === 'bash'">
+        <BashToolPart :args="part.arguments" :output="part.output" :state="part.state" />
+      </template>
+
+      <ToolPart
+        v-else
+        :name="part.name"
+        :args="part.arguments"
+        :output="part.output"
+        :state="part.state"
+      />
     </template>
   </div>
 

@@ -2,6 +2,8 @@ import type { PluggableList } from '@crazydos/vue-markdown'
 import type { AnyClientTool } from '@tanstack/ai'
 import type { ConnectionAdapter, UIMessage } from '@tanstack/ai-vue'
 import type { VNodeChild } from 'vue'
+import type { ChatProjectionIssue } from './chat-display'
+import type { ThinkingLevel } from '@shared/coding-agent/types'
 
 export type ChatUIMessage = UIMessage
 export type ChatMessagePart = ChatUIMessage['parts'][number]
@@ -35,6 +37,41 @@ export interface ChatInputProps {
   disabled?: boolean
   /** Submit on Enter (Shift+Enter for new line) */
   submitOnEnter?: boolean
+  /** Show the Project selector for an unbound new-session draft. */
+  showProjectSelect?: boolean
+  /** Projects available to the new-session draft. */
+  projectOptions?: ChatInputProjectOption[]
+  /** Project selected for the new-session draft. */
+  selectedProjectId?: string
+  /** Whether Project metadata is loading. */
+  loadingProjects?: boolean
+  /** Models available to the current desktop thread or new-session draft. */
+  modelOptions?: ChatInputModelOption[]
+  /** Model selected for the current desktop thread or new-session draft. */
+  selectedModel?: ChatInputSelectedModel
+  /** Whether model metadata is loading. */
+  loadingModelOptions?: boolean
+  /** Current Pi thinking level. */
+  thinkingLevel?: ThinkingLevel
+  /** Disable model and thinking controls without disabling message input. */
+  controlsDisabled?: boolean
+}
+
+export interface ChatInputProjectOption {
+  projectId: string
+  name: string
+  disabled?: boolean
+}
+
+export interface ChatInputModelOption {
+  provider: string
+  id: string
+  displayName?: string
+}
+
+export interface ChatInputSelectedModel {
+  provider: string
+  id: string
 }
 
 export interface ChatInputRenderProps {
@@ -86,6 +123,10 @@ export interface ChatMessagesProps {
   class?: string
   /** Auto-scroll to bottom on new messages */
   autoScroll?: boolean
+  /** Stable scope for tool-group and collapsed-history open state. */
+  stateKey?: string
+  /** Reports strict AG-UI projection issues to the host application. */
+  onProjectionIssue?: (issue: ChatProjectionIssue) => void
 }
 
 export interface TextPartProps {

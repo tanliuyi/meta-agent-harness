@@ -3,7 +3,7 @@
  */
 
 import { app, dialog, ipcMain, shell, type IpcMainInvokeEvent, type WebContents } from 'electron'
-import { RunAgentInputSchema, type AGUIEvent, type RunAgentInput } from '@ag-ui/core'
+import { EventType, RunAgentInputSchema, type AGUIEvent, type RunAgentInput } from '@ag-ui/core'
 import { readFile, realpath, rm, stat } from 'node:fs/promises'
 import { basename, extname, join } from 'node:path'
 import { randomUUID } from 'node:crypto'
@@ -244,10 +244,17 @@ function registerCodingAgentIpcUnchecked(
           if (isAgentSessionIpcEvent(ipcEvent)) {
             const repository = sessionMessages.repository
             if (!repository) return
-            for (const event of repository.record(ipcEvent)) {
+            const agentEvents = repository.record(ipcEvent)
+            for (const event of agentEvents) {
               publishAgentEvent(sessionFeeds.subscriptions, ipcEvent.threadId, event)
             }
-            if (ipcEvent.type === 'compaction_end' || ipcEvent.type === 'message_end') {
+            const messageFinalizedBySnapshot =
+              ipcEvent.type === 'message_end' &&
+              agentEvents.some((event) => event.type === EventType.MESSAGES_SNAPSHOT)
+            if (
+              ipcEvent.type === 'compaction_end' ||
+              (ipcEvent.type === 'message_end' && !messageFinalizedBySnapshot)
+            ) {
               repository.invalidate(ipcEvent.threadId)
               void repository
                 .get(ipcEvent.threadId)
@@ -264,9 +271,9 @@ function registerCodingAgentIpcUnchecked(
           const runFailure = getWorkerRunFailure(event)
           const repository = sessionMessages.repository
           if (runFailure && repository) {
-            const runError = repository.failRun(runFailure.threadId, runFailure.message)
-            if (runError) {
-              publishAgentEvent(sessionFeeds.subscriptions, runFailure.threadId, runError)
+            const runEvents = repository.failRun(runFailure.threadId, runFailure.message)
+            for (const event of runEvents) {
+              publishAgentEvent(sessionFeeds.subscriptions, runFailure.threadId, event)
             }
           }
           indexWorkerLifecycle(store, event)
@@ -413,9 +420,13 @@ function registerCodingAgentIpcUnchecked(
       if (!connected) throw new Error('Agent connection was superseded before the run started')
       await manager.prompt(promptInput)
     } catch (error) {
-      const runError = repository.failRun(runInput.threadId, getErrorMessage(error), runInput.runId)
-      if (runError) {
-        publishAgentEvent(sessionFeeds.subscriptions, runInput.threadId, runError)
+      const runEvents = repository.failRun(
+        runInput.threadId,
+        getErrorMessage(error),
+        runInput.runId
+      )
+      for (const event of runEvents) {
+        publishAgentEvent(sessionFeeds.subscriptions, runInput.threadId, event)
       }
       throw error
     }

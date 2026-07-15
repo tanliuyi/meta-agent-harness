@@ -45,18 +45,37 @@ export class SessionMessageRepository {
     this.adapter.cancelPreparedRun(sessionId, runId)
   }
 
-  failRun(sessionId: string, message: string, runId?: string): AGUIEvent | undefined {
-    const event = this.adapter.failRun(sessionId, message, runId)
+  failRun(sessionId: string, message: string, runId?: string): AGUIEvent[] {
+    const events = this.adapter.failRun(sessionId, message, runId)
     this.invalidate(sessionId)
-    return event
+    return events
   }
 
   record(event: AgentSessionIpcEvent): AGUIEvent[] {
     const state = this.ensureState(event.threadId)
+    const updatesDeclaredToolCall =
+      event.type === 'tool_execution_start' &&
+      state.messages !== undefined &&
+      hasToolCall(state.messages, event.toolCallId)
     const events = this.adapter.adapt(event)
     if (state.messages) {
+      if (
+        event.type === 'message_end' &&
+        event.message.role === 'assistant' &&
+        event.message.content.some((part) => part.type === 'toolCall')
+      ) {
+        state.messages = replaceEndedAssistantMessage(
+          state.messages,
+          event.message,
+          event.sessionEntryId
+        )
+        return [createMessagesSnapshot(state.messages)]
+      }
       for (const agUiEvent of events) {
         state.messages = reduceAgUiMessages(state.messages, agUiEvent)
+      }
+      if (updatesDeclaredToolCall) {
+        return [createMessagesSnapshot(state.messages)]
       }
     } else {
       state.pendingEvents.push(...events)
@@ -134,4 +153,35 @@ export class SessionMessageRepository {
     }
     return state
   }
+}
+
+function hasToolCall(messages: readonly Message[], toolCallId: string): boolean {
+  return messages.some(
+    (message) =>
+      message.role === 'assistant' &&
+      message.toolCalls?.some((toolCall) => toolCall.id === toolCallId)
+  )
+}
+
+function replaceEndedAssistantMessage(
+  messages: readonly Message[],
+  message: Extract<AgentMessage, { role: 'assistant' }>,
+  sessionEntryId?: string
+): Message[] {
+  const next = [...messages]
+  const assistantIndex = next.findLastIndex((item) => item.role === 'assistant')
+  const replacement = toAgUiMessages([message], sessionEntryId ? [sessionEntryId] : [])
+  if (assistantIndex < 0) return [...next, ...replacement]
+
+  const assistantId = next[assistantIndex]!.id
+  const reasoningIndex = assistantIndex - 1
+  const hasLinkedReasoning =
+    next[reasoningIndex]?.role === 'reasoning' &&
+    next[reasoningIndex]?.id === `${assistantId}-reasoning`
+  next.splice(
+    hasLinkedReasoning ? reasoningIndex : assistantIndex,
+    hasLinkedReasoning ? 2 : 1,
+    ...replacement
+  )
+  return next
 }

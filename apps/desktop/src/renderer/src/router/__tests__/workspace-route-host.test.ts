@@ -27,6 +27,19 @@ describe('workspace route host', () => {
       join(__dirname, '..', '..', 'views', 'workspace', 'components', 'sidebar', 'Sidebar.vue'),
       'utf8'
     )
+    const workspaceNewSource = readFileSync(
+      join(
+        __dirname,
+        '..',
+        '..',
+        'views',
+        'workspace',
+        'components',
+        'content',
+        'WorkspaceNew.vue'
+      ),
+      'utf8'
+    )
 
     expect(appSource).toContain('<RouterView />')
     expect(appSource).not.toContain('v-show=')
@@ -42,6 +55,20 @@ describe('workspace route host', () => {
     expect(workspaceSource).toContain('class="workspace app-shell__workspace-host"')
     expect(workspaceSource).toContain('<Sidebar :visible="workspaceUi.sidebarOpen" />')
     expect(sidebarSource).toContain('<aside v-show="visible" class="workspace__sidebar">')
+    expect(sidebarSource).toContain(
+      "void router.push({ name: 'WorkspaceNew', query: { projectId } })"
+    )
+    expect(sidebarSource).toContain('await workspaceProject.loadProjects()')
+    expect(sidebarSource).toContain('await workspaceSession.loadThreads()')
+    expect(sidebarSource).toContain('v-if="projectsLoading"')
+    expect(sidebarSource).toContain('v-if="threadsLoading"')
+    expect(workspaceNewSource).toContain('createElectronNewThreadConnectionAdapter')
+    expect(workspaceNewSource).toContain('route.query.projectId')
+    expect(workspaceNewSource).toContain(':project-options="projectOptions"')
+    expect(workspaceNewSource).toContain('@select-project="handleSelectProject"')
+    expect(workspaceNewSource).toContain('initialModel:')
+    expect(workspaceNewSource).toContain('thinkingLevel: selectedThinkingLevel.value')
+    expect(workspaceNewSource).toContain('<Chat')
     expect(workspaceSource).toContain('<RouterView v-slot="{ Component, route }">')
     expect(workspaceSource).not.toContain('<KeepAlive>')
     expect(workspaceSource).not.toContain('import WorkspaceContent')

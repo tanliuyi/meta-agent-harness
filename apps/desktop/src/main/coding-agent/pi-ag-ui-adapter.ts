@@ -52,13 +52,16 @@ export class PiAgUiAdapter {
     }
   }
 
-  failRun(threadId: string, message: string, runId?: string): AGUIEvent | undefined {
+  failRun(threadId: string, message: string, runId?: string): AGUIEvent[] {
     const state = this.state(threadId)
     if (runId && state.requestedRunId === runId) state.requestedRunId = undefined
-    if (!state.runId || (runId && state.runId !== runId)) return undefined
+    if (!state.runId || (runId && state.runId !== runId)) return []
+    const events = this.finishActiveMessage(state)
     state.runId = undefined
     state.runErrorMessage = undefined
-    return { type: EventType.RUN_ERROR, message }
+    state.lastAssistantMessageId = undefined
+    events.push({ type: EventType.RUN_ERROR, message })
+    return events
   }
 
   adapt(event: AgentSessionIpcEvent): AGUIEvent[] {
@@ -80,11 +83,16 @@ export class PiAgUiAdapter {
         if (event.willRetry) return []
         const runId = state.runId ?? `${event.threadId}-run-${++state.sequence}`
         const errorMessage = state.runErrorMessage ?? getRunErrorMessage(event.messages)
+        const events = this.finishActiveMessage(state)
         state.runId = undefined
         state.runErrorMessage = undefined
-        return errorMessage
-          ? [{ type: EventType.RUN_ERROR, message: errorMessage }]
-          : [{ type: EventType.RUN_FINISHED, threadId: event.threadId, runId }]
+        state.lastAssistantMessageId = undefined
+        events.push(
+          errorMessage
+            ? { type: EventType.RUN_ERROR, message: errorMessage }
+            : { type: EventType.RUN_FINISHED, threadId: event.threadId, runId }
+        )
+        return events
       }
       case 'turn_start':
         return [{ type: EventType.STEP_STARTED, stepName: 'turn' }]
@@ -173,15 +181,13 @@ export class PiAgUiAdapter {
     } else {
       this.appendMessageDeltas(events, event.message, state)
     }
-    if (state.reasoning) {
-      events.push({ type: EventType.REASONING_MESSAGE_END, messageId: state.reasoningId! })
-    }
-    events.push({ type: EventType.TEXT_MESSAGE_END, messageId: state.messageId! })
+    this.appendToolCallDeclarations(events, event.message, state)
     state.runErrorMessage = getMessageErrorMessage(event.message) ?? state.runErrorMessage
-    state.messageId = undefined
-    state.reasoningId = undefined
-    state.text = ''
-    state.reasoning = ''
+    events.push(...this.finishActiveMessage(state))
+    state.lastAssistantMessageId = getCanonicalAssistantMessageId(
+      event,
+      state.lastAssistantMessageId
+    )
     return events
   }
 
@@ -225,6 +231,48 @@ export class PiAgUiAdapter {
     return event.message.role === 'user' ? [] : this.raw(event)
   }
 
+  private appendToolCallDeclarations(
+    events: AGUIEvent[],
+    message: PiMessageEvent['message'],
+    state: ThreadAdapterState
+  ): void {
+    if (message.role !== 'assistant') return
+    if (message.stopReason === 'error' || message.stopReason === 'aborted') return
+    for (const part of message.content) {
+      if (part.type !== 'toolCall') continue
+      events.push(
+        {
+          type: EventType.TOOL_CALL_START,
+          toolCallId: part.id,
+          toolCallName: part.name,
+          ...(state.messageId || state.lastAssistantMessageId
+            ? { parentMessageId: state.messageId ?? state.lastAssistantMessageId }
+            : {})
+        },
+        {
+          type: EventType.TOOL_CALL_ARGS,
+          toolCallId: part.id,
+          delta: stringify(part.arguments)
+        },
+        { type: EventType.TOOL_CALL_END, toolCallId: part.id }
+      )
+    }
+  }
+
+  private finishActiveMessage(state: ThreadAdapterState): AGUIEvent[] {
+    if (!state.messageId) return []
+    const events: AGUIEvent[] = []
+    if (state.reasoning) {
+      events.push({ type: EventType.REASONING_MESSAGE_END, messageId: state.reasoningId! })
+    }
+    events.push({ type: EventType.TEXT_MESSAGE_END, messageId: state.messageId })
+    state.messageId = undefined
+    state.reasoningId = undefined
+    state.text = ''
+    state.reasoning = ''
+    return events
+  }
+
   private raw(event: AgentSessionIpcEvent): AGUIEvent[] {
     return [{ type: EventType.RAW, event, source: 'pi-coding-agent' }]
   }
@@ -248,6 +296,15 @@ function stableMessageId(
   return typeof timestamp === 'number'
     ? `${message.role}-${timestamp}`
     : `${threadId}-message-${sequence}`
+}
+
+function getCanonicalAssistantMessageId(
+  event: Extract<AgentSessionIpcEvent, { type: 'message_end' }>,
+  fallback: string | undefined
+): string | undefined {
+  if (event.sessionEntryId) return event.sessionEntryId
+  const timestamp = 'timestamp' in event.message ? event.message.timestamp : undefined
+  return typeof timestamp === 'number' ? `message-${timestamp}` : fallback
 }
 
 function contentText(
@@ -293,7 +350,7 @@ function getMessageErrorMessage(message: PiMessageEvent['message']): string | un
 function stringify(value: unknown): string {
   if (typeof value === 'string') return value
   try {
-    return JSON.stringify(value)
+    return JSON.stringify(value) ?? 'null'
   } catch {
     return String(value)
   }

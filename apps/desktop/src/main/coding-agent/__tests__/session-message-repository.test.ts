@@ -224,9 +224,128 @@ describe('SessionMessageRepository', () => {
     const failed = repository.failRun('thread-a', 'worker failed', 'failed-run')
     const duplicate = repository.failRun('thread-a', 'worker failed again', 'failed-run')
 
-    expect(failed).toEqual({ type: EventType.RUN_ERROR, message: 'worker failed' })
-    expect(duplicate).toBeUndefined()
+    expect(failed).toEqual([{ type: EventType.RUN_ERROR, message: 'worker failed' }])
+    expect(duplicate).toEqual([])
     expect(() => repository.prepareRun('thread-a', 'retry-run')).not.toThrow()
+  })
+
+  it('closes an active assistant message before a worker failure terminates the run', () => {
+    const repository = new SessionMessageRepository(async () => [])
+    repository.prepareRun('thread-a', 'run-a')
+    repository.startPreparedRun('thread-a', 'run-a')
+    const started = assistant('message_start', 'partial')
+    if (started.type !== 'message_start' || started.message.role !== 'assistant') {
+      throw new Error('invalid test fixture')
+    }
+    started.message.content = [
+      { type: 'thinking', thinking: 'working' },
+      { type: 'text', text: 'partial' }
+    ]
+    repository.record(started)
+
+    const events = repository.failRun('thread-a', 'worker exited', 'run-a')
+
+    expect(events).toEqual([
+      {
+        type: EventType.REASONING_MESSAGE_END,
+        messageId: `assistant-${timestamp}-reasoning`
+      },
+      { type: EventType.TEXT_MESSAGE_END, messageId: `assistant-${timestamp}` },
+      { type: EventType.RUN_ERROR, message: 'worker exited' }
+    ])
+    expect(events.every((event) => EventSchemas.safeParse(event).success)).toBe(true)
+  })
+
+  it('closes an active assistant message before a normal run termination', () => {
+    const repository = new SessionMessageRepository(async () => [])
+    repository.record({ type: 'agent_start', threadId: 'thread-a' })
+    repository.record(assistant('message_start', 'partial'))
+
+    const events = repository.record({
+      type: 'agent_end',
+      threadId: 'thread-a',
+      messages: [],
+      willRetry: false
+    })
+
+    expect(events.map((event) => event.type)).toEqual([
+      EventType.TEXT_MESSAGE_END,
+      EventType.RUN_FINISHED
+    ])
+    expect(events.every((event) => EventSchemas.safeParse(event).success)).toBe(true)
+  })
+
+  it('serializes absent tool payloads into schema-valid JSON strings', () => {
+    const repository = new SessionMessageRepository(async () => [])
+
+    const args = repository.record({
+      type: 'tool_execution_start',
+      threadId: 'thread-a',
+      toolCallId: 'tool-a',
+      toolName: 'read',
+      args: undefined
+    })
+    const [result] = repository.record({
+      type: 'tool_execution_end',
+      threadId: 'thread-a',
+      toolCallId: 'tool-a',
+      toolName: 'read',
+      result: undefined,
+      isError: false
+    })
+
+    expect(args[1]).toMatchObject({ type: EventType.TOOL_CALL_ARGS, delta: 'null' })
+    expect(result).toMatchObject({ type: EventType.TOOL_CALL_RESULT, content: 'null' })
+    expect([...args, result!].every((event) => EventSchemas.safeParse(event).success)).toBe(true)
+  })
+
+  it('在 message_end 原子发布完整工具组且执行开始不重复创建成员', async () => {
+    const repository = new SessionMessageRepository(async () => [])
+    await repository.get('thread-a')
+    repository.record(assistant('message_start', ''))
+    const ended = assistant('message_end', '')
+    if (ended.type !== 'message_end' || ended.message.role !== 'assistant') {
+      throw new Error('invalid test fixture')
+    }
+    ended.message.stopReason = 'toolUse'
+    ended.message.content = [
+      { type: 'toolCall', id: 'tool-read', name: 'read', arguments: { path: 'README.md' } },
+      { type: 'toolCall', id: 'tool-ls', name: 'ls', arguments: { path: 'src' } }
+    ]
+
+    const events = repository.record(ended)
+
+    expect(events).toHaveLength(1)
+    expect(events[0]).toMatchObject({
+      type: EventType.MESSAGES_SNAPSHOT,
+      messages: [
+        {
+          role: 'assistant',
+          toolCalls: [{ id: 'tool-read' }, { id: 'tool-ls' }]
+        }
+      ]
+    })
+    expect(EventSchemas.safeParse(events[0]).success).toBe(true)
+    const executionUpdate = repository.record({
+      type: 'tool_execution_start',
+      threadId: 'thread-a',
+      toolCallId: 'tool-read',
+      toolName: 'read',
+      args: { path: 'README.actual.md' }
+    })
+    expect(executionUpdate).toHaveLength(1)
+    expect(executionUpdate[0]).toMatchObject({
+      type: EventType.MESSAGES_SNAPSHOT,
+      messages: [
+        {
+          role: 'assistant',
+          toolCalls: [
+            { id: 'tool-read', function: { arguments: '{"path":"README.actual.md"}' } },
+            { id: 'tool-ls' }
+          ]
+        }
+      ]
+    })
   })
 
   it('emits schema-valid RUN, TEXT, TOOL and RAW events without desktop envelope fields', () => {

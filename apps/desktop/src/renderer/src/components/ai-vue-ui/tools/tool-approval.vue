@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import { useChatContext } from './use-chat-context'
-import type { ChatSlotContent, ToolApprovalProps, ToolApprovalRenderProps } from './types'
+import { useChatContext } from '../use-chat-context'
+import type { ChatSlotContent, ToolApprovalProps, ToolApprovalRenderProps } from '../types'
 
 const props = defineProps<ToolApprovalProps>()
 

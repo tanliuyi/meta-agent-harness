@@ -16,8 +16,8 @@ import type { Component } from 'vue'
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import ScrollArea from '@/components/ui/scroll-area/ScrollArea.vue'
-import { Pencil, ShieldAlert, ShieldCheck, ShieldOff, Trash2 } from '@lucide/vue'
-import { RouterLink } from 'vue-router'
+import { LoaderCircle, Pencil, ShieldAlert, ShieldCheck, ShieldOff, Trash2 } from '@lucide/vue'
+import { RouterLink, useRouter } from 'vue-router'
 import NameCommandDialog from '@renderer/components/chat/composer/dialogs/NameCommandDialog.vue'
 import SidebarThreadItem from './SidebarThreadItem.vue'
 import {
@@ -66,6 +66,7 @@ const workspaceProject = useWorkspaceProjectStore()
 
 const workspaceSession = useWorkspaceSessionStore()
 const workspaceUi = useWorkspaceUiStore()
+const router = useRouter()
 const { threadSortMode } = useWorkspaceViewSettings()
 const renameThreadDialogOpen = ref(false)
 const renameThreadTarget = ref<WorkspaceSession>()
@@ -73,14 +74,34 @@ const renameThreadDraft = ref('')
 const renameProjectDialogOpen = ref(false)
 const renameProjectTarget = ref<ProjectSummary>()
 const renameProjectDraft = ref('')
+const projectsLoading = ref(true)
+const threadsLoading = ref(true)
 const expandedProjects = ref<Record<string, { displayCount: number; hasExpanded: boolean }>>({})
 const defaultProjectExpansion: Readonly<ProjectExpansion> = Object.freeze({
   displayCount: 5,
   hasExpanded: false
 })
 
-workspaceProject.loadProjects()
-workspaceSession.loadThreads()
+async function loadProjects(): Promise<void> {
+  projectsLoading.value = true
+  try {
+    await workspaceProject.loadProjects()
+  } finally {
+    projectsLoading.value = false
+  }
+}
+
+async function loadThreads(): Promise<void> {
+  threadsLoading.value = true
+  try {
+    await workspaceSession.loadThreads()
+  } finally {
+    threadsLoading.value = false
+  }
+}
+
+void loadProjects()
+void loadThreads()
 
 function readProjectExpansion(projectId: string): Readonly<ProjectExpansion> {
   return expandedProjects.value[projectId] ?? defaultProjectExpansion
@@ -137,14 +158,6 @@ onBeforeUnmount(() => {
     window.clearInterval(currentTimeTimer)
   }
 })
-
-/**
- * 在指定 Project 下开始一个新会话草稿。
- * @param projectId - Project ID。
- */
-function createThreadInProject(projectId: string): void {
-  workspaceSession.startNewSession(projectId)
-}
 
 /**
  * 设置 Project trust。
@@ -280,9 +293,11 @@ async function runProjectMenuAction(
   project: ProjectSummary
 ): Promise<void> {
   switch (actionId) {
-    case 'new-thread':
-      createThreadInProject(project.projectId)
+    case 'new-thread': {
+      const projectId = project.projectId
+      void router.push({ name: 'WorkspaceNew', query: { projectId } })
       return
+    }
     case 'rename-project':
       renameProjectTarget.value = project
       renameProjectDraft.value = project.name
@@ -423,19 +438,29 @@ function getProjectTrustIcon(project: ProjectSummary): Component | undefined {
     <div class="sidebar-section__header">
       <span>工作空间</span>
       <span class="sidebar-tooltip-trigger project-tree__add-btn">
-        <BaseIconButton label="添加项目" size="small" @click="createProject">
+        <BaseIconButton
+          label="添加项目"
+          size="small"
+          :disabled="projectsLoading"
+          @click="createProject"
+        >
           <PlusIcon :size="14" />
         </BaseIconButton>
       </span>
     </div>
     <ScrollArea class="sidebar-section">
-      <template v-if="workspaceProject.errorMessage">
+      <div v-if="projectsLoading" class="sidebar-loading" role="status" aria-live="polite">
+        <LoaderCircle class="sidebar-loading__icon" :size="14" aria-hidden="true" />
+        <span>正在加载项目</span>
+      </div>
+
+      <template v-else-if="workspaceProject.errorMessage">
         <p class="sidebar-error">
           {{ workspaceProject.errorMessage }}
         </p>
       </template>
 
-      <ul class="project-tree">
+      <ul v-else class="project-tree">
         <Collapsible
           v-for="projectItem in projectListItems"
           :key="projectItem.project.projectId"
@@ -472,7 +497,12 @@ function getProjectTrustIcon(project: ProjectSummary): Component | undefined {
                     label="添加会话"
                     size="small"
                     :disabled="projectItem.project.status !== 'available'"
-                    @click.stop="createThreadInProject(projectItem.project.projectId)"
+                    @click.stop="
+                      $router.push({
+                        name: 'WorkspaceNew',
+                        query: { projectId: projectItem.project.projectId }
+                      })
+                    "
                   >
                     <PlusIcon :size="14" />
                   </BaseIconButton>
@@ -483,7 +513,18 @@ function getProjectTrustIcon(project: ProjectSummary): Component | undefined {
 
           <CollapsibleContent>
             <ul class="session-group">
-              <template v-if="projectItem.threads.length === 0">
+              <template v-if="threadsLoading">
+                <li
+                  class="session-group__item is-empty is-loading"
+                  role="status"
+                  aria-live="polite"
+                >
+                  <LoaderCircle class="sidebar-loading__icon" :size="14" aria-hidden="true" />
+                  <span class="session-group__item-title">正在加载会话</span>
+                </li>
+              </template>
+
+              <template v-else-if="projectItem.threads.length === 0">
                 <li class="session-group__item is-empty">
                   <span class="session-group__item-title">暂无会话</span>
                 </li>
@@ -637,6 +678,29 @@ function getProjectTrustIcon(project: ProjectSummary): Component | undefined {
   margin: 0;
   color: var(--color-danger);
   font-size: var(--font-size-ui-xs);
+}
+
+.sidebar-loading {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: 2.2em;
+  margin: 0 var(--space-2);
+  padding: 0 var(--space-3);
+  color: var(--color-text-muted);
+  font-family: var(--font-mono);
+  font-size: var(--font-size-ui-xs);
+}
+
+.sidebar-loading__icon {
+  flex: 0 0 auto;
+  animation: sidebar-loading-spin 0.9s linear infinite;
+}
+
+@keyframes sidebar-loading-spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .session-group {
@@ -980,6 +1044,7 @@ function getProjectTrustIcon(project: ProjectSummary): Component | undefined {
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .sidebar-loading__icon,
   .thread-status__runner,
   .thread-status__error-ring,
   .thread-status__error-dot {

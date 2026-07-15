@@ -12,8 +12,7 @@ export function toAgUiMessages(
   return messages.flatMap((message, index): Message[] => {
     const raw = asRecord(message) ?? {}
     const role = raw.role
-    const consumesEntryId =
-      role === 'user' || (role === 'assistant' && raw?.stopReason !== 'error')
+    const consumesEntryId = role === 'user' || (role === 'assistant' && raw?.stopReason !== 'error')
     const entryId = consumesEntryId ? messageEntryIds[entryIndex++] : undefined
     const id = entryId ?? getCanonicalMessageId(raw, index)
 
@@ -137,7 +136,8 @@ function getCanonicalUserContent(
 
 function toAgUiAssistantMessages(message: Record<string, unknown>, id: string): Message[] {
   if (message.stopReason === 'error') {
-    const error = typeof message.errorMessage === 'string' ? message.errorMessage : 'Agent run failed'
+    const error =
+      typeof message.errorMessage === 'string' ? message.errorMessage : 'Agent run failed'
     return [{ id, role: 'system', name: 'agentError', content: error }]
   }
   const content = Array.isArray(message.content) ? message.content : []
@@ -163,7 +163,9 @@ function toAgUiAssistantMessages(message: Record<string, unknown>, id: string): 
   })
   const text = getCanonicalTextContent(message)
   return [
-    ...(reasoning ? [{ id: `${id}-reasoning`, role: 'reasoning' as const, content: reasoning }] : []),
+    ...(reasoning
+      ? [{ id: `${id}-reasoning`, role: 'reasoning' as const, content: reasoning }]
+      : []),
     {
       id,
       role: 'assistant',
@@ -195,7 +197,10 @@ function getCanonicalSystemContent(message: Record<string, unknown>): string {
   return getCanonicalMessageContent(message)
 }
 
-function getCanonicalMessageId(message: Record<string, unknown> | undefined, index: number): string {
+function getCanonicalMessageId(
+  message: Record<string, unknown> | undefined,
+  index: number
+): string {
   const timestamp = message?.timestamp
   return `message-${typeof timestamp === 'number' ? timestamp : index}`
 }
@@ -246,7 +251,7 @@ function findLastAssistantIndex(messages: readonly Message[]): number {
 function stringifyToolArguments(value: unknown): string {
   if (typeof value === 'string') return value
   try {
-    return JSON.stringify(value ?? {})
+    return JSON.stringify(value ?? {}) ?? '{}'
   } catch {
     return String(value)
   }

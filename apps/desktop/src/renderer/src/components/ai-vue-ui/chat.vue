@@ -22,7 +22,7 @@ defineSlots<{
 const chat = useChat({
   connection: props.connection,
   ...(props.initialMessages !== undefined && {
-    initialMessages: props.initialMessages,
+    initialMessages: props.initialMessages
   }),
   ...(props.id !== undefined && { id: props.id }),
   ...(props.threadId !== undefined && { threadId: props.threadId }),
@@ -32,7 +32,7 @@ const chat = useChat({
   onChunk: (chunk: StreamChunk) => emit('chunk', chunk),
   onFinish: (message: UIMessage) => emit('finish', message),
   onError: (error: Error) => emit('error', error),
-  ...(props.tools !== undefined && { tools: props.tools }),
+  ...(props.tools !== undefined && { tools: props.tools })
 })
 
 provide(CHAT_KEY, chat)
