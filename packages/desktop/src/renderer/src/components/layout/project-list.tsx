@@ -1,142 +1,118 @@
-import { Archive, ArchiveRestore, ChevronDown, ChevronRight, Folder, MoreHorizontal, Trash2 } from "lucide-react";
+import { ChevronDown, ChevronRight, Folder, MoreHorizontal, Trash2 } from "lucide-react";
 import { DropdownMenu } from "radix-ui";
-import { useState } from "react";
-import type { Project, Thread } from "../../../../shared/contracts.ts";
+import { useEffect, useState } from "react";
+import type { Project } from "../../../../shared/contracts.ts";
 import { Button } from "../ui/button.tsx";
+import { DesktopThreadList } from "./desktop-thread-list.tsx";
 
 interface ProjectListProps {
   projects: Project[];
   projectId?: string;
-  threads: Thread[];
-  threadId: string | null;
-  renaming: string | null;
-  title: string;
-  onTitleChange(value: string): void;
-  onProjectOpen(projectId: string): void;
+  onProjectExpand(projectId: string): void;
   onProjectDelete(project: Project): void;
-  onThreadOpen(threadId: string): void;
-  onThreadRename(thread: Thread): void;
-  onRenameCommit(threadId: string): void;
-  onThreadArchive(threadId: string, archived: boolean): void;
-  onThreadDelete(thread: Thread): void;
 }
 
 /** 渲染 Project 与其活动、归档 session 列表。 */
 export function ProjectList(props: ProjectListProps) {
-  return props.projects.map((project) => (
-    <ProjectItem
-      key={project.id}
-      {...props}
-      project={project}
-      active={props.projectId === project.id}
-      threads={props.projectId === project.id ? props.threads : []}
-    />
-  ));
+  const [expandedProjectIds, setExpandedProjectIds] = useState<ReadonlySet<string>>(
+    () => new Set(props.projectId ? [props.projectId] : []),
+  );
+
+  useEffect(() => {
+    const projectId = props.projectId;
+    if (!projectId) return;
+    setExpandedProjectIds((current) => {
+      if (current.has(projectId)) return current;
+      return new Set(current).add(projectId);
+    });
+  }, [props.projectId]);
+
+  return props.projects.map((project) => {
+    const active = props.projectId === project.id;
+    const expanded = expandedProjectIds.has(project.id);
+
+    return (
+      <ProjectItem
+        key={project.id}
+        {...props}
+        project={project}
+        active={active}
+        expanded={expanded}
+        onExpandedChange={(nextExpanded) => {
+          setExpandedProjectIds((current) => {
+            const next = new Set(current);
+            if (nextExpanded) next.add(project.id);
+            else next.delete(project.id);
+            return next;
+          });
+          if (nextExpanded) props.onProjectExpand(project.id);
+        }}
+      />
+    );
+  });
 }
 
 interface ProjectItemProps extends Omit<ProjectListProps, "projects" | "projectId"> {
   project: Project;
   active: boolean;
+  expanded: boolean;
+  onExpandedChange(expanded: boolean): void;
 }
 
 function ProjectItem(props: ProjectItemProps) {
-  const [archiveOpen, setArchiveOpen] = useState(false);
-  const activeThreads = props.threads.filter(({ archived }) => !archived);
-  const archivedThreads = props.threads.filter(({ archived }) => archived);
   return (
     <section className="project-group" data-project-id={props.project.id}>
-      <div className={props.active ? "project-row is-active" : "project-row"}>
-        <button type="button" className="project-main" onClick={() => props.onProjectOpen(props.project.id)}>
-          <Folder size={15} />
-          <span>{props.project.name}</span>
+      <div
+        className="project-row group hover:bg-muted focus-visible:bg-muted has-focus-visible:bg-muted has-data-[state=open]:bg-muted relative flex h-8 items-center rounded-md transition-colors focus-visible:outline-none"
+        data-active={props.active || undefined}
+      >
+        <button
+          type="button"
+          className="project-main focus-visible:ring-ring/50 flex h-full min-w-0 flex-1 items-center gap-2 rounded-md px-2.5 text-start text-sm outline-none group-hover:pe-9 group-has-focus-visible:pe-9 group-has-data-[state=open]:pe-9 focus-visible:ring-[3px]"
+          aria-current={props.active ? "page" : undefined}
+          aria-expanded={props.expanded}
+          aria-controls={`project-threads-${props.project.id}`}
+          onClick={() => props.onExpandedChange(!props.expanded)}
+        >
+          {props.expanded ? (
+            <ChevronDown className="size-3.5 shrink-0 text-muted-foreground" />
+          ) : (
+            <ChevronRight className="size-3.5 shrink-0 text-muted-foreground" />
+          )}
+          <Folder className="size-4 shrink-0" />
+          <span className="min-w-0 flex-1 truncate">{props.project.name}</span>
           {props.project.available ? null : <span className="project-warning">不可用</span>}
         </button>
         <DropdownMenu.Root>
           <DropdownMenu.Trigger asChild>
-            <Button variant="ghost" size="icon" className="row-menu" aria-label="项目操作">
-              <MoreHorizontal size={15} />
+            <Button
+              variant="ghost"
+              size="icon"
+              className="data-[state=open]:bg-accent absolute end-1.5 top-1/2 size-6 -translate-y-1/2 p-0 opacity-0 group-hover:opacity-100 group-has-focus-visible:opacity-100 data-[state=open]:opacity-100"
+              aria-label="项目操作"
+            >
+              <MoreHorizontal className="size-3.5" />
+              <span className="sr-only">项目操作</span>
             </Button>
           </DropdownMenu.Trigger>
           <DropdownMenu.Portal>
-            <DropdownMenu.Content className="menu-content" sideOffset={4}>
-              <DropdownMenu.Item className="menu-item danger" onSelect={() => props.onProjectDelete(props.project)}>
+            <DropdownMenu.Content
+              side="right"
+              align="start"
+              sideOffset={6}
+              className="bg-popover/95 text-popover-foreground data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95 data-[state=open]:animate-in data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95 data-[state=closed]:animate-out data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 z-50 min-w-32 overflow-hidden rounded-xl border p-1.5 shadow-lg backdrop-blur-sm"
+            >
+              <DropdownMenu.Item
+                className="text-destructive hover:bg-destructive/10 hover:text-destructive focus:bg-destructive/10 focus:text-destructive flex cursor-pointer items-center gap-2 rounded-lg px-2.5 py-1.5 text-sm outline-none select-none"
+                onSelect={() => props.onProjectDelete(props.project)}
+              >
                 <Trash2 size={14} /> 移除项目
               </DropdownMenu.Item>
             </DropdownMenu.Content>
           </DropdownMenu.Portal>
         </DropdownMenu.Root>
       </div>
-      {props.active ? (
-        <div className="thread-list">
-          <ThreadRows {...props} threads={activeThreads} />
-          {archivedThreads.length > 0 ? (
-            <>
-              <button type="button" className="archive-toggle" onClick={() => setArchiveOpen((open) => !open)}>
-                {archiveOpen ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
-                <Archive size={13} />
-                <span>已归档</span>
-                <small>{archivedThreads.length}</small>
-              </button>
-              {archiveOpen ? <ThreadRows {...props} threads={archivedThreads} /> : null}
-            </>
-          ) : null}
-        </div>
-      ) : null}
+      {props.expanded ? <DesktopThreadList id={`project-threads-${props.project.id}`} project={props.project} /> : null}
     </section>
   );
-}
-
-interface ThreadRowsProps extends Omit<ProjectItemProps, "project" | "active" | "threads"> {
-  threads: Thread[];
-}
-
-function ThreadRows(props: ThreadRowsProps) {
-  return props.threads.map((thread) => (
-    <div
-      key={thread.id}
-      className={props.threadId === thread.id ? "thread-row is-active" : "thread-row"}
-      data-thread-id={thread.id}
-    >
-      {props.renaming === thread.id ? (
-        <input
-          autoFocus
-          value={props.title}
-          onChange={(event) => props.onTitleChange(event.target.value)}
-          onBlur={() => props.onRenameCommit(thread.id)}
-          onKeyDown={(event) => {
-            if (event.key === "Enter") props.onRenameCommit(thread.id);
-          }}
-        />
-      ) : (
-        <button type="button" className="thread-main" onClick={() => props.onThreadOpen(thread.id)}>
-          <span>{thread.title}</span>
-          {thread.running ? <span className="running-dot" aria-label="运行中" /> : <ChevronRight size={13} />}
-        </button>
-      )}
-      <DropdownMenu.Root>
-        <DropdownMenu.Trigger asChild>
-          <Button variant="ghost" size="icon" className="row-menu" aria-label="会话操作">
-            <MoreHorizontal size={14} />
-          </Button>
-        </DropdownMenu.Trigger>
-        <DropdownMenu.Portal>
-          <DropdownMenu.Content className="menu-content" sideOffset={4}>
-            <DropdownMenu.Item className="menu-item" onSelect={() => props.onThreadRename(thread)}>
-              重命名
-            </DropdownMenu.Item>
-            <DropdownMenu.Item
-              className="menu-item"
-              onSelect={() => props.onThreadArchive(thread.id, !thread.archived)}
-            >
-              {thread.archived ? <ArchiveRestore size={14} /> : <Archive size={14} />}
-              {thread.archived ? "恢复" : "归档"}
-            </DropdownMenu.Item>
-            <DropdownMenu.Item className="menu-item danger" onSelect={() => props.onThreadDelete(thread)}>
-              <Trash2 size={14} /> 删除
-            </DropdownMenu.Item>
-          </DropdownMenu.Content>
-        </DropdownMenu.Portal>
-      </DropdownMenu.Root>
-    </div>
-  ));
 }

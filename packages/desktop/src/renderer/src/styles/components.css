@@ -33,6 +33,10 @@
   background: hsl(var(--accent));
   outline: none;
 }
+.menu-item[data-disabled] {
+  opacity: 0.45;
+  pointer-events: none;
+}
 .menu-item.danger {
   color: hsl(var(--destructive));
 }

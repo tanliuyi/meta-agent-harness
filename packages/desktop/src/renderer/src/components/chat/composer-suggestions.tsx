@@ -1,13 +1,14 @@
 import { File, Folder, TerminalSquare } from "lucide-react";
 import { forwardRef, useEffect, useImperativeHandle, useMemo, useState } from "react";
-import type { FileNode, SessionControlState } from "../../../../shared/contracts.ts";
+import type { FileNode, SlashCommand } from "../../../../shared/contracts.ts";
 
 export interface ComposerSuggestionsHandle {
   handleKey(key: string): boolean;
 }
 
 interface ComposerSuggestionsProps {
-  snapshot: SessionControlState;
+  projectId: string;
+  commands: readonly SlashCommand[];
   text: string;
   onChange(text: string): void;
 }
@@ -22,7 +23,7 @@ interface Suggestion {
 
 /** 提供 Pi slash command 与 Project 文件的键盘补全。 */
 export const ComposerSuggestions = forwardRef<ComposerSuggestionsHandle, ComposerSuggestionsProps>(
-  function ComposerSuggestions({ snapshot, text, onChange }, ref) {
+  function ComposerSuggestions({ projectId, commands, text, onChange }, ref) {
     const context = completionContext(text);
     const [files, setFiles] = useState<FileNode[]>([]);
     const [selected, setSelected] = useState(0);
@@ -34,7 +35,7 @@ export const ComposerSuggestions = forwardRef<ComposerSuggestionsHandle, Compose
       }
       let active = true;
       void window.desktop.files
-        .list(snapshot.projectId, "", context.query)
+        .list(projectId, "", context.query)
         .then((items) => {
           if (active) setFiles(items.slice(0, 10));
         })
@@ -44,12 +45,12 @@ export const ComposerSuggestions = forwardRef<ComposerSuggestionsHandle, Compose
       return () => {
         active = false;
       };
-    }, [context?.query, context?.type, snapshot.projectId]);
+    }, [context?.query, context?.type, projectId]);
 
     const items = useMemo<Suggestion[]>(() => {
       if (!context) return [];
       if (context.type === "command") {
-        return snapshot.commands
+        return commands
           .filter(({ name }) => name.toLowerCase().includes(context.query.toLowerCase()))
           .slice(0, 10)
           .map((command) => ({
@@ -67,7 +68,7 @@ export const ComposerSuggestions = forwardRef<ComposerSuggestionsHandle, Compose
         type: file.type,
         text: `@${file.path} `,
       }));
-    }, [context, files, snapshot.commands]);
+    }, [commands, context, files]);
 
     useEffect(() => setSelected(0), [context?.query, context?.type]);
 

@@ -1,10 +1,12 @@
 import type {
+  DraftSessionConfig,
   FileNode,
   HostResponse,
   Project,
   SendInput,
   SessionBootstrap,
   SessionControlState,
+  SessionCreateInput,
   SessionPushPayload,
   SessionRunInput,
   TerminalEvent,
@@ -30,7 +32,8 @@ export interface DesktopApi {
   };
   sessions: {
     list(projectId: string, includeArchived?: boolean): Promise<Thread[]>;
-    create(projectId: string): Promise<SessionBootstrap>;
+    getDraftConfig(projectId: string): Promise<DraftSessionConfig>;
+    create(input: SessionCreateInput): Promise<SessionBootstrap>;
     attach(
       projectId: string,
       threadId: string,

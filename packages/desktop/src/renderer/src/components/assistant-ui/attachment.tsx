@@ -99,7 +99,7 @@ const AttachmentThumb: FC = () => {
   );
 };
 
-const AttachmentUI: FC = () => {
+const AttachmentUI: FC<{ disabled?: boolean }> = ({ disabled }) => {
   const aui = useAui();
   const isComposer = aui.attachment.source !== "message";
 
@@ -171,7 +171,7 @@ const AttachmentUI: FC = () => {
             </div>
           </TooltipTrigger>
         </AttachmentPreviewDialog>
-        {isComposer && <AttachmentRemove />}
+        {isComposer && <AttachmentRemove disabled={disabled} />}
       </AttachmentPrimitive.Root>
       <TooltipContent side="top">
         <AttachmentPrimitive.Name />
@@ -181,13 +181,14 @@ const AttachmentUI: FC = () => {
   );
 };
 
-const AttachmentRemove: FC = () => {
+const AttachmentRemove: FC<{ disabled?: boolean }> = ({ disabled }) => {
   return (
     <AttachmentPrimitive.Remove asChild>
       <TooltipIconButton
         tooltip="Remove file"
         className="aui-attachment-tile-remove text-muted-foreground hover:[&_svg]:text-destructive absolute end-1.5 top-1.5 size-3.5 rounded-full bg-white opacity-100 shadow-sm hover:bg-white! [&_svg]:text-black"
         side="top"
+        disabled={disabled}
       >
         <XIcon className="aui-attachment-remove-icon size-3 dark:stroke-[2.5px]" />
       </TooltipIconButton>
@@ -203,10 +204,10 @@ export const UserMessageAttachments: FC = () => {
   );
 };
 
-export const ComposerAttachments: FC = () => {
+export const ComposerAttachments: FC<{ disabled?: boolean }> = ({ disabled }) => {
   return (
     <div className="aui-composer-attachments flex w-full flex-row items-center gap-2 overflow-x-auto empty:hidden">
-      <ComposerPrimitive.Attachments>{() => <AttachmentUI />}</ComposerPrimitive.Attachments>
+      <ComposerPrimitive.Attachments>{() => <AttachmentUI disabled={disabled} />}</ComposerPrimitive.Attachments>
     </div>
   );
 };

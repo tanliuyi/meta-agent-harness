@@ -1,8 +1,16 @@
 import type { AssistantRuntime } from "@assistant-ui/react";
 import { type AgUiAssistantRuntime, type UseAgUiThreadListAdapter, useAgUiRuntime } from "@assistant-ui/react-ag-ui";
 import { useCallback, useEffect, useMemo, useRef } from "react";
-import type { Project, SessionBootstrap, Thread, WorkbenchState } from "../../../shared/contracts.ts";
+import type {
+  Project,
+  SessionBootstrap,
+  SessionCreateInput,
+  Thread,
+  WorkbenchState,
+} from "../../../shared/contracts.ts";
+import { resolveDesktopAdapterThread } from "../state/thread-list-commands.ts";
 import { convertAgUiMessages, messageRepository } from "./ag-ui-messages.ts";
+import { type ComposerReseed, prepareDraftSubmission, reseedComposer } from "./draft-session.ts";
 import { ElectronPiAgent } from "./electron-pi-agent.ts";
 import { imageAttachmentAdapter } from "./image-attachments.ts";
 import { sessionEventBus } from "./session-event-bus.ts";
@@ -12,9 +20,18 @@ export interface PreparedThread {
   workbench: WorkbenchState;
 }
 
+export type PreparedDraftSubmission =
+  | (PreparedThread & { sent: true })
+  | (PreparedThread & { sent: false; reseed: ComposerReseed });
+
 export interface DesktopThreadActions {
   open(project: Project, threadId: string): Promise<PreparedThread>;
-  create(project: Project): Promise<PreparedThread>;
+  enterDraft(): Promise<void>;
+  submitDraft(
+    input: { project: Project; model: SessionCreateInput["model"]; thinkingLevel: SessionCreateInput["thinkingLevel"] },
+    onPrepared: () => void,
+  ): Promise<PreparedDraftSubmission>;
+  discardDraft(): Promise<PreparedThread | null>;
   rename(project: Project, threadId: string, title: string): Promise<void>;
   archive(project: Project, threadId: string, archived: boolean): Promise<void>;
   remove(project: Project, threadId: string): Promise<void>;
@@ -22,8 +39,9 @@ export interface DesktopThreadActions {
 }
 
 interface PiRuntimeOptions {
+  projects: Project[];
   project: Project | null;
-  threads: Thread[];
+  threadCatalogs: Readonly<Record<string, Thread[]>>;
   threadId: string | null;
   isSendDisabled: boolean;
 }
@@ -40,55 +58,45 @@ export function usePiRuntime(options: PiRuntimeOptions): {
   const agent = useMemo(() => new ElectronPiAgent(), []);
   const projectRef = useRef(options.project);
   const targetProjectRef = useRef<Project | null>(null);
-  const targetThreadIdRef = useRef<string | null>(null);
+  const targetCreateInputRef = useRef<SessionCreateInput | null>(null);
   const preparedRef = useRef<PreparedSwitch | null>(null);
+  const createdThreadRef = useRef<{ projectId: string; threadId: string } | null>(null);
+  const pendingReseedRef = useRef<{ projectId: string; threadId: string; reseed: ComposerReseed } | null>(null);
   const committedThreadRef = useRef<{ projectId: string; threadId: string } | null>(null);
+  const draftModeRef = useRef(false);
   const switchGeneration = useRef(0);
   const targetGenerationRef = useRef(0);
   projectRef.current = options.project;
 
   const threadList = useMemo<UseAgUiThreadListAdapter>(() => {
     const project = options.project;
-    const regular = options.threads.filter(({ archived }) => !archived);
-    const archived = options.threads.filter((thread) => thread.archived);
+    const catalog = options.projects.flatMap((item) =>
+      (options.threadCatalogs[item.id] ?? []).map((thread) => ({ project: item, thread })),
+    );
+    const regular = catalog.filter(({ thread }) => !thread.archived);
+    const archived = catalog.filter(({ thread }) => thread.archived);
     const currentProject = () => targetProjectRef.current ?? projectRef.current;
-    const currentThreadId = (adapterThreadId: string) => {
-      const target = targetThreadIdRef.current;
-      if (target) return target;
-      const current = currentProject();
-      if (!current) throw new Error("没有可用的 Project");
-      return adapterThreadId.slice(current.id.length + 1);
-    };
-    const threadIdFromAdapter = (value: string) => {
-      const current = currentProject();
-      if (!current) throw new Error("没有可用的 Project");
-      const prefix = `${current.id}:`;
-      if (!value.startsWith(prefix)) throw new Error(`assistant-ui thread 不属于当前 Project: ${value}`);
-      return value.slice(prefix.length);
-    };
+    const resolveAdapterThread = (adapterThreadId: string) =>
+      resolveDesktopAdapterThread(adapterThreadId, options.projects, options.threadCatalogs, targetProjectRef.current);
     return {
       threadId: project && options.threadId ? threadAdapterId(project.id, options.threadId) : undefined,
-      threads: project
-        ? regular.map((thread) => ({
-            id: threadAdapterId(project.id, thread.id),
-            remoteId: thread.id,
-            title: thread.title,
-            status: "regular" as const,
-          }))
-        : [],
-      archivedThreads: project
-        ? archived.map((thread) => ({
-            id: threadAdapterId(project.id, thread.id),
-            remoteId: thread.id,
-            title: thread.title,
-            status: "archived" as const,
-          }))
-        : [],
+      threads: regular.map(({ project: item, thread }) => ({
+        id: threadAdapterId(item.id, thread.id),
+        remoteId: thread.id,
+        title: thread.title,
+        status: "regular" as const,
+        custom: { projectId: item.id },
+      })),
+      archivedThreads: archived.map(({ project: item, thread }) => ({
+        id: threadAdapterId(item.id, thread.id),
+        remoteId: thread.id,
+        title: thread.title,
+        status: "archived" as const,
+        custom: { projectId: item.id },
+      })),
       async onSwitchToThread(adapterThreadId) {
         const generation = targetGenerationRef.current;
-        const activeProject = currentProject();
-        if (!activeProject) throw new Error("打开 session 前必须先选择 Project");
-        const threadId = currentThreadId(adapterThreadId);
+        const { project: activeProject, threadId } = resolveAdapterThread(adapterThreadId);
         const [bootstrap, workbench] = await Promise.all([
           sessionEventBus.attach(activeProject.id, threadId),
           window.desktop.workbench.get(activeProject.id, threadId),
@@ -103,8 +111,10 @@ export function usePiRuntime(options: PiRuntimeOptions): {
         const generation = targetGenerationRef.current;
         const activeProject = currentProject();
         if (!activeProject) throw new Error("创建 session 前必须先选择 Project");
-        const created = await window.desktop.sessions.create(activeProject.id);
-        targetThreadIdRef.current = created.threadId;
+        const createInput = targetCreateInputRef.current;
+        if (!createInput || createInput.projectId !== activeProject.id) throw new Error("新会话创建配置不存在");
+        const created = await window.desktop.sessions.create(createInput);
+        createdThreadRef.current = { projectId: activeProject.id, threadId: created.threadId };
         const [bootstrap, workbench] = await Promise.all([
           sessionEventBus.attach(activeProject.id, created.threadId),
           window.desktop.workbench.get(activeProject.id, created.threadId),
@@ -114,27 +124,23 @@ export function usePiRuntime(options: PiRuntimeOptions): {
         preparedRef.current = { bootstrap, workbench, messages: [] };
       },
       onRename: async (adapterThreadId, title) => {
-        const activeProject = currentProject();
-        if (!activeProject) throw new Error("没有可用的 Project");
-        await window.desktop.sessions.rename(activeProject.id, threadIdFromAdapter(adapterThreadId), title);
+        const { project: activeProject, threadId } = resolveAdapterThread(adapterThreadId);
+        await window.desktop.sessions.rename(activeProject.id, threadId, title);
       },
       onArchive: async (adapterThreadId) => {
-        const activeProject = currentProject();
-        if (!activeProject) throw new Error("没有可用的 Project");
-        await window.desktop.sessions.archive(activeProject.id, threadIdFromAdapter(adapterThreadId), true);
+        const { project: activeProject, threadId } = resolveAdapterThread(adapterThreadId);
+        await window.desktop.sessions.archive(activeProject.id, threadId, true);
       },
       onUnarchive: async (adapterThreadId) => {
-        const activeProject = currentProject();
-        if (!activeProject) throw new Error("没有可用的 Project");
-        await window.desktop.sessions.archive(activeProject.id, threadIdFromAdapter(adapterThreadId), false);
+        const { project: activeProject, threadId } = resolveAdapterThread(adapterThreadId);
+        await window.desktop.sessions.archive(activeProject.id, threadId, false);
       },
       onDelete: async (adapterThreadId) => {
-        const activeProject = currentProject();
-        if (!activeProject) throw new Error("没有可用的 Project");
-        await window.desktop.sessions.remove(activeProject.id, threadIdFromAdapter(adapterThreadId));
+        const { project: activeProject, threadId } = resolveAdapterThread(adapterThreadId);
+        await window.desktop.sessions.remove(activeProject.id, threadId);
       },
     };
-  }, [agent, options.project, options.threadId, options.threads]);
+  }, [agent, options.project, options.projects, options.threadCatalogs, options.threadId]);
 
   const cancel = useCallback(() => {
     const attached = agent.attachedSession;
@@ -168,27 +174,47 @@ export function usePiRuntime(options: PiRuntimeOptions): {
     [agent, runtime],
   );
 
+  const projectId = options.project?.id;
+  useEffect(() => {
+    const pending = pendingReseedRef.current;
+    if (!pending || pending.projectId !== projectId || pending.threadId !== options.threadId) return;
+    pendingReseedRef.current = null;
+    void reseedComposer(runtime.thread.composer, pending.reseed).catch((error: unknown) =>
+      console.error("恢复新会话 Composer 失败", error),
+    );
+  }, [options.threadId, projectId, runtime]);
+
   const actions = useMemo<DesktopThreadActions>(() => {
+    const resetToDraft = async () => {
+      sessionEventBus.detach();
+      await agent.detach();
+      runtime.thread.reset();
+      targetProjectRef.current = null;
+      targetCreateInputRef.current = null;
+      preparedRef.current = null;
+    };
     const restoreCommittedThread = async () => {
       const committed = committedThreadRef.current;
       if (!committed) {
-        sessionEventBus.detach();
-        await agent.detach();
-        runtime.thread.reset();
-        return;
+        await resetToDraft();
+        return null;
       }
-      const bootstrap = await sessionEventBus.attach(committed.projectId, committed.threadId);
+      const [bootstrap, workbench] = await Promise.all([
+        sessionEventBus.attach(committed.projectId, committed.threadId),
+        window.desktop.workbench.get(committed.projectId, committed.threadId),
+      ]);
       await agent.attach(bootstrap);
       const messages = convertAgUiMessages(bootstrap.messages);
       runtime.thread.import(messageRepository(messages));
       if (!joinActiveRun(runtime, bootstrap, messages)) window.desktop.sessions.flush();
+      return { bootstrap, workbench };
     };
     return {
       async open(project, threadId) {
+        const wasDraft = draftModeRef.current;
         const generation = ++switchGeneration.current;
         targetGenerationRef.current = generation;
         targetProjectRef.current = project;
-        targetThreadIdRef.current = threadId;
         preparedRef.current = null;
         try {
           await runtime.threads.switchToThread(threadAdapterId(project.id, threadId));
@@ -198,41 +224,86 @@ export function usePiRuntime(options: PiRuntimeOptions): {
             throw new Error("assistant-ui thread hydrate 未完成");
           if (!joinActiveRun(runtime, prepared.bootstrap, prepared.messages)) window.desktop.sessions.flush();
           committedThreadRef.current = { projectId: project.id, threadId };
+          draftModeRef.current = false;
           return prepared;
         } catch (error) {
-          if (generation === switchGeneration.current) await restoreCommittedThread();
+          if (generation === switchGeneration.current) {
+            if (wasDraft) await resetToDraft();
+            else await restoreCommittedThread();
+          }
           throw error;
         } finally {
           if (generation === switchGeneration.current) {
             targetProjectRef.current = null;
-            targetThreadIdRef.current = null;
           }
         }
       },
-      async create(project) {
+      async enterDraft() {
+        switchGeneration.current += 1;
+        pendingReseedRef.current = null;
+        createdThreadRef.current = null;
+        draftModeRef.current = true;
+        await resetToDraft();
+      },
+      async submitDraft(input, onPrepared) {
+        const submission = await prepareDraftSubmission(runtime.thread.composer.getState());
+        onPrepared();
+        const { project } = input;
         const generation = ++switchGeneration.current;
         targetGenerationRef.current = generation;
         targetProjectRef.current = project;
-        targetThreadIdRef.current = null;
+        targetCreateInputRef.current = {
+          projectId: project.id,
+          model: input.model,
+          thinkingLevel: input.thinkingLevel,
+        };
         preparedRef.current = null;
+        createdThreadRef.current = null;
         try {
           await runtime.threads.switchToNewThread();
           if (generation !== switchGeneration.current)
             throw new DOMException("Thread creation superseded", "AbortError");
           const prepared = readPrepared(preparedRef);
           if (!prepared) throw new Error("assistant-ui new thread hydrate 未完成");
-          window.desktop.sessions.flush();
           committedThreadRef.current = { projectId: project.id, threadId: prepared.bootstrap.threadId };
-          return prepared;
+          draftModeRef.current = false;
+          if (prepared.bootstrap.control.readiness.state !== "ready") {
+            pendingReseedRef.current = {
+              projectId: project.id,
+              threadId: prepared.bootstrap.threadId,
+              reseed: submission.reseed,
+            };
+            window.desktop.sessions.flush();
+            return { ...prepared, sent: false, reseed: submission.reseed };
+          }
+          runtime.thread.append(submission.message);
+          void runtime.thread.composer
+            .reset()
+            .catch((error: unknown) => console.error("清空已发送 Composer 失败", error));
+          return { ...prepared, sent: true };
         } catch (error) {
-          if (generation === switchGeneration.current) await restoreCommittedThread();
+          const created = createdThreadRef.current as { projectId: string; threadId: string } | null;
+          if (created) await Promise.allSettled([window.desktop.sessions.remove(created.projectId, created.threadId)]);
+          if (generation === switchGeneration.current) {
+            pendingReseedRef.current = null;
+            committedThreadRef.current = null;
+            draftModeRef.current = true;
+            await resetToDraft();
+          }
           throw error;
         } finally {
           if (generation === switchGeneration.current) {
             targetProjectRef.current = null;
-            targetThreadIdRef.current = null;
+            targetCreateInputRef.current = null;
           }
         }
+      },
+      async discardDraft() {
+        switchGeneration.current += 1;
+        pendingReseedRef.current = null;
+        createdThreadRef.current = null;
+        draftModeRef.current = false;
+        return restoreCommittedThread();
       },
       async rename(project, threadId, title) {
         await runtime.threads.getItemById(threadAdapterId(project.id, threadId)).rename(title);
@@ -251,9 +322,12 @@ export function usePiRuntime(options: PiRuntimeOptions): {
         await agent.detach();
         runtime.thread.reset();
         targetProjectRef.current = null;
-        targetThreadIdRef.current = null;
+        targetCreateInputRef.current = null;
         preparedRef.current = null;
+        createdThreadRef.current = null;
+        pendingReseedRef.current = null;
         committedThreadRef.current = null;
+        draftModeRef.current = false;
       },
     };
   }, [agent, runtime]);

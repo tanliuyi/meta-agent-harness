@@ -39,20 +39,26 @@
 .sidebar-footer > button:first-child {
   display: flex;
   align-items: center;
-  gap: 9px;
+  gap: 8px;
   width: 100%;
   height: 32px;
-  padding: 0 8px;
+  padding: 0 10px;
   border: 0;
-  border-radius: 6px;
+  border-radius: var(--radius);
   background: transparent;
   font-size: 13px;
   text-align: left;
   cursor: pointer;
 }
-.sidebar-actions button:hover,
+.sidebar-actions button:hover {
+  background: hsl(var(--muted));
+}
 .sidebar-footer > button:first-child:hover {
   background: hsl(var(--accent));
+}
+.sidebar-actions button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
 }
 
 .sidebar-section-heading {
@@ -65,49 +71,21 @@
 
 .sidebar-projects {
   min-height: 0;
-  overflow: auto;
   padding: 0 8px 16px;
+}
+.sidebar-projects [data-radix-scroll-area-viewport] > div {
+  display: block !important;
+  width: 100%;
+  min-width: 0 !important;
 }
 
 .project-group {
   margin-bottom: 6px;
 }
-.project-row,
-.thread-row {
-  position: relative;
-  display: flex;
-  align-items: center;
-  min-width: 0;
-}
-.project-main,
-.thread-main {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  min-width: 0;
-  flex: 1;
-  height: 30px;
-  padding: 0 8px;
+.project-main {
   border: 0;
-  border-radius: 6px;
   background: transparent;
-  font-size: 13px;
-  text-align: left;
   cursor: pointer;
-}
-.project-main span:not(.project-warning),
-.thread-main span:first-child {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.project-main:hover,
-.thread-main:hover,
-.thread-row.is-active .thread-main {
-  background: hsl(var(--accent));
-}
-.project-row.is-active .project-main {
-  font-weight: 600;
 }
 .project-warning {
   margin-left: auto;
@@ -115,8 +93,12 @@
   font-size: 10px;
 }
 .thread-list {
-  padding-left: 22px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-top: 4px;
 }
+
 .archive-toggle {
   display: flex;
   align-items: center;
@@ -137,29 +119,9 @@
   margin-left: auto;
   font-size: 10px;
 }
-.thread-main {
-  justify-content: space-between;
-}
-.thread-row input {
-  min-width: 0;
-  height: 28px;
-  flex: 1;
-  padding: 0 7px;
-  border: 1px solid hsl(var(--ring));
-  border-radius: 5px;
-  background: hsl(var(--background));
-  font-size: 12px;
-}
-.row-menu {
-  width: 26px;
-  height: 26px;
-  flex: 0 0 26px;
-  opacity: 0;
-}
-.project-row:hover .row-menu,
-.thread-row:hover .row-menu,
-.row-menu[data-state="open"] {
-  opacity: 1;
+.thread-row[data-pending="true"] button,
+.thread-row button:disabled {
+  cursor: wait;
 }
 .running-dot {
   width: 8px;

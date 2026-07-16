@@ -13,10 +13,13 @@ export function DesktopProvider({ children }: { children: ReactNode }) {
   const threadActions = useRef<DesktopThreadActions | null>(null);
   const desktop = useDesktopController(threadActions);
   const { runtime, actions } = usePiRuntime({
+    projects: desktop.projects,
     project: desktop.project,
-    threads: desktop.threads,
+    threadCatalogs: desktop.threadCatalogs,
     threadId: desktop.threadId,
-    isSendDisabled: desktop.snapshot?.readiness.state !== "ready",
+    isSendDisabled: desktop.draft
+      ? desktop.draft.config?.readiness.state !== "ready"
+      : desktop.snapshot?.readiness.state !== "ready",
   });
   threadActions.current = actions;
   return (

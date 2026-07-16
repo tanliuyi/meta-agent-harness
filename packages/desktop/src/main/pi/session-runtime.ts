@@ -1,20 +1,17 @@
-import { join } from "node:path";
 import type { Message, RunAgentInput } from "@ag-ui/core";
 import {
   type AgentSession,
   type AgentSessionEvent,
-  AuthStorage,
   createAgentSession,
-  getAgentDir,
-  ModelRegistry,
+  type ModelRegistry,
   type SessionManager,
-  SettingsManager,
 } from "@earendil-works/pi-coding-agent";
 import {
   PROTOCOL_VERSION,
   type SendInput,
   type SessionBootstrap,
   type SessionControlState,
+  type SessionCreateInput,
   type SessionPushPayload,
   type Thread,
 } from "../../shared/contracts.ts";
@@ -22,11 +19,17 @@ import { HostUi } from "./host-ui.ts";
 import { projectMessages } from "./message-projector.ts";
 import { PiAgUiAdapter } from "./pi-ag-ui-adapter.ts";
 import { getSessionCommands, parseDesktopCommand } from "./session-commands.ts";
+import {
+  createSessionConfigurationServices,
+  resolveSessionCreateSelection,
+  sessionReadiness,
+} from "./session-configuration.ts";
 
 interface RuntimeOptions {
   projectId: string;
   cwd: string;
   sessionManager?: SessionManager;
+  createInput?: SessionCreateInput;
   push(update: SessionPushPayload): void;
   onSummaryChanged(runtime: SessionRuntime): void;
 }
@@ -77,16 +80,15 @@ export class SessionRuntime {
 
   /** 创建新会话或从指定 SessionManager 恢复会话。 */
   static async create(options: RuntimeOptions): Promise<SessionRuntime> {
-    const agentDir = getAgentDir();
-    const auth = AuthStorage.create(join(agentDir, "auth.json"));
-    const models = ModelRegistry.create(auth, join(agentDir, "models.json"));
-    const settings = SettingsManager.create(options.cwd, agentDir);
+    const { auth, models, settings } = createSessionConfigurationServices(options.cwd);
+    const selection = options.createInput ? resolveSessionCreateSelection(options.createInput, models) : undefined;
     const result = await createAgentSession({
       cwd: options.cwd,
       sessionManager: options.sessionManager,
       modelRegistry: models,
       authStorage: auth,
       settingsManager: settings,
+      ...(selection ? { model: selection.model, thinkingLevel: selection.thinkingLevel } : {}),
       sessionStartEvent: { type: "session_start", reason: options.sessionManager ? "resume" : "new" },
     });
     const runtime = new SessionRuntime(
@@ -249,7 +251,7 @@ export class SessionRuntime {
       context: context
         ? { tokens: context.tokens, contextWindow: context.contextWindow, percent: context.percent }
         : undefined,
-      readiness: readiness(Boolean(model), available.length, this.models.getAll().length),
+      readiness: sessionReadiness(Boolean(model), available.length, this.models.getAll().length),
       lastError: this.lastError ?? this.session.state.errorMessage,
       hostRequests: this.hostUi.requests,
       extensionUi: this.hostUi.uiState,
@@ -363,11 +365,4 @@ function userInput(content: Extract<Message, { role: "user" }>["content"]): {
 function contentText(content: string | Array<{ type: string; text?: string }>): string {
   if (typeof content === "string") return content;
   return content.flatMap((part) => (part.type === "text" && part.text ? [part.text] : [])).join("\n");
-}
-
-function readiness(hasModel: boolean, availableCount: number, allCount: number): SessionControlState["readiness"] {
-  if (hasModel) return { state: "ready" };
-  if (allCount === 0) return { state: "missing-model", message: "Pi 没有可用模型配置" };
-  if (availableCount === 0) return { state: "missing-credentials", message: "请先在 Pi 中配置模型凭据" };
-  return { state: "unavailable-model", message: "当前会话模型不可用，请选择其他模型" };
 }

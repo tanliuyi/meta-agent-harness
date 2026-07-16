@@ -171,12 +171,16 @@ export type { ReadonlyFooterDataProvider } from "./core/footer-data-provider.ts"
 export { convertToLlm } from "./core/messages.ts";
 export { ModelRegistry } from "./core/model-registry.ts";
 export {
+	findInitialModel,
+	type InitialModelResult,
 	type ModelScopeDiagnostic,
 	type ResolveCliModelResult,
 	type ResolveModelScopeResult,
 	resolveCliModel,
 	resolveModelScopeWithDiagnostics,
+	resolveThinkingConfiguration,
 	type ScopedModel,
+	type ThinkingConfiguration,
 } from "./core/model-resolver.ts";
 export type {
 	PackageManager,

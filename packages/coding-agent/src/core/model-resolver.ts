@@ -3,7 +3,14 @@
  */
 
 import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
-import { type Api, type KnownProvider, type Model, modelsAreEqual } from "@earendil-works/pi-ai";
+import {
+	type Api,
+	clampThinkingLevel,
+	getSupportedThinkingLevels,
+	type KnownProvider,
+	type Model,
+	modelsAreEqual,
+} from "@earendil-works/pi-ai";
 import chalk from "chalk";
 import { minimatch } from "minimatch";
 import { isValidThinkingLevel } from "../cli/args.ts";
@@ -538,6 +545,23 @@ export interface InitialModelResult {
 	model: Model<Api> | undefined;
 	thinkingLevel: ThinkingLevel;
 	fallbackMessage: string | undefined;
+}
+
+export interface ThinkingConfiguration {
+	thinkingLevel: ThinkingLevel;
+	thinkingLevels: ThinkingLevel[];
+}
+
+/** 使用与 AgentSession 相同的模型能力规则解析 thinking。 */
+export function resolveThinkingConfiguration(
+	model: Model<Api> | undefined,
+	requestedLevel: ThinkingLevel,
+): ThinkingConfiguration {
+	if (!model) return { thinkingLevel: "off", thinkingLevels: ["off"] };
+	return {
+		thinkingLevel: clampThinkingLevel(model, requestedLevel) as ThinkingLevel,
+		thinkingLevels: getSupportedThinkingLevels(model) as ThinkingLevel[],
+	};
 }
 
 /**

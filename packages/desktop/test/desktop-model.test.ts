@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { desktopReducer, INITIAL_STATE } from "../src/renderer/src/state/desktop-model.ts";
+import { desktopReducer, INITIAL_STATE, selectActiveThreadId } from "../src/renderer/src/state/desktop-model.ts";
 import type {
+  DraftSessionConfig,
   Project,
   SessionBootstrap,
   SessionControlState,
@@ -33,27 +34,208 @@ describe("desktop reducer", () => {
   it("只接受 revision 更新的 control state，不复制消息历史", () => {
     const workbench = createWorkbench();
     let state = desktopReducer(INITIAL_STATE, { type: "project-loaded", project, threads: [thread] });
-    state = desktopReducer(state, { type: "thread-loaded", bootstrap: createBootstrap(1, "第一版"), workbench });
+    state = desktopReducer(state, {
+      type: "thread-loaded",
+      project,
+      bootstrap: createBootstrap(1, "第一版"),
+      workbench,
+    });
     state = desktopReducer(state, { type: "control", control: createControl(3, "第三版") });
     state = desktopReducer(state, { type: "control", control: createControl(2, "过期版本") });
 
     expect(state.controls["project:thread"]?.title).toBe("第三版");
     expect(state.bootstraps["project:thread"]?.messages).toEqual([]);
-    expect(state.threads[0]?.title).toBe("第三版");
+    expect(state.threadCatalogs[project.id]?.[0]?.title).toBe("第三版");
   });
 
   it("归档状态与当前 session 选择相互独立", () => {
     let state = desktopReducer(INITIAL_STATE, { type: "project-loaded", project, threads: [thread] });
     state = desktopReducer(state, {
       type: "thread-loaded",
+      project,
       bootstrap: createBootstrap(1, "会话"),
       workbench: createWorkbench(),
     });
-    state = desktopReducer(state, { type: "thread-archived", threadId: thread.id, archived: true });
+    state = desktopReducer(state, {
+      type: "thread-archived",
+      projectId: project.id,
+      threadId: thread.id,
+      archived: true,
+    });
 
-    expect(state.threadId).toBe(thread.id);
-    expect(state.threads[0]?.archived).toBe(true);
-    expect(desktopReducer(state, { type: "thread-cleared" }).threadId).toBeNull();
+    expect(state.activeThreadIds[project.id]).toBe(thread.id);
+    expect(state.threadCatalogs[project.id]?.[0]?.archived).toBe(true);
+    expect(
+      desktopReducer(state, { type: "thread-cleared", projectId: project.id }).activeThreadIds[project.id],
+    ).toBeUndefined();
+  });
+
+  it("刷新 Project catalog 时保留仍然有效的 active thread 和列表引用", () => {
+    let state = desktopReducer(INITIAL_STATE, { type: "project-loaded", project, threads: [thread] });
+    state = desktopReducer(state, {
+      type: "thread-loaded",
+      project,
+      bootstrap: createBootstrap(1, "会话"),
+      workbench: createWorkbench(),
+    });
+    const cachedThreads = state.threadCatalogs[project.id];
+
+    state = desktopReducer(state, { type: "project-loaded", project, threads: [{ ...thread }] });
+
+    expect(state.activeThreadIds[project.id]).toBe(thread.id);
+    expect(state.threadCatalogs[project.id]).toBe(cachedThreads);
+  });
+
+  it("分别缓存每个 Project 的 threads 和 active thread", () => {
+    const otherProject = { ...project, id: "other-project", cwd: "C:/other" };
+    const otherThread = { ...thread, id: "other-thread", projectId: otherProject.id };
+    let state = desktopReducer(INITIAL_STATE, { type: "project-loaded", project, threads: [thread] });
+    state = desktopReducer(state, {
+      type: "thread-loaded",
+      project,
+      bootstrap: createBootstrap(1, "会话"),
+      workbench: createWorkbench(),
+    });
+    state = desktopReducer(state, { type: "project-loaded", project: otherProject, threads: [otherThread] });
+
+    expect(state.threadCatalogs[project.id]).toEqual([thread]);
+    expect(state.threadCatalogs[otherProject.id]).toEqual([otherThread]);
+    expect(state.activeThreadIds[project.id]).toBe(thread.id);
+  });
+
+  it("只加载展开 Project 的 catalog，不切换当前 Project 或 thread", () => {
+    const otherProject = { ...project, id: "other-project", cwd: "C:/other" };
+    const otherThread = { ...thread, id: "other-thread", projectId: otherProject.id };
+    let state = desktopReducer(INITIAL_STATE, { type: "project-loaded", project, threads: [thread] });
+    state = desktopReducer(state, {
+      type: "thread-loaded",
+      project,
+      bootstrap: createBootstrap(1, "会话"),
+      workbench: createWorkbench(),
+    });
+
+    state = desktopReducer(state, {
+      type: "project-threads-loaded",
+      projectId: otherProject.id,
+      threads: [otherThread],
+    });
+
+    expect(state.project).toEqual(project);
+    expect(state.activeThreadIds[otherProject.id]).toBeUndefined();
+    expect(state.threadCatalogs[otherProject.id]).toEqual([otherThread]);
+  });
+
+  it("进入 draft 时保留 committed selection，但对外不暴露 thread", () => {
+    let state = desktopReducer(INITIAL_STATE, { type: "project-loaded", project, threads: [thread] });
+    state = desktopReducer(state, {
+      type: "thread-loaded",
+      project,
+      bootstrap: createBootstrap(1, "会话"),
+      workbench: createWorkbench(),
+    });
+    const catalog = state.threadCatalogs[project.id];
+
+    state = desktopReducer(state, { type: "draft-started", projectId: project.id });
+
+    expect(state.draft).toEqual({ projectId: project.id, config: null, configLoading: true, phase: "editing" });
+    expect(state.project).toEqual(project);
+    expect(state.activeThreadIds[project.id]).toBe(thread.id);
+    expect(state.threadCatalogs[project.id]).toBe(catalog);
+    expect(selectActiveThreadId(state)).toBeNull();
+  });
+
+  it("draft Project 切换只更新目标，不改变 committed Project 或 catalog", () => {
+    const otherProject = { ...project, id: "other-project", cwd: "C:/other" };
+    let state = desktopReducer(INITIAL_STATE, { type: "project-loaded", project, threads: [thread] });
+    state = desktopReducer(state, { type: "draft-started", projectId: project.id });
+
+    state = desktopReducer(state, {
+      type: "draft-project-selected",
+      projectId: otherProject.id,
+    });
+
+    expect(state.project).toEqual(project);
+    expect(state.draft).toEqual({
+      projectId: otherProject.id,
+      config: null,
+      configLoading: true,
+      phase: "editing",
+    });
+    expect(state.threadCatalogs[otherProject.id]).toBeUndefined();
+    expect(state.activeThreadIds[otherProject.id]).toBeUndefined();
+    expect(selectActiveThreadId(state)).toBeNull();
+  });
+
+  it("draft commit 原子增加真实 thread 并清除 draft", () => {
+    let state = desktopReducer(INITIAL_STATE, { type: "draft-started", projectId: project.id });
+    const bootstrap = createBootstrap(1, "首条消息");
+
+    state = desktopReducer(state, {
+      type: "draft-committed",
+      project,
+      thread,
+      bootstrap,
+      workbench: createWorkbench(),
+    });
+
+    expect(state.draft).toBeNull();
+    expect(state.threadCatalogs[project.id]).toEqual([thread]);
+    expect(state.activeThreadIds[project.id]).toBe(thread.id);
+    expect(state.bootstraps["project:thread"]).toBe(bootstrap);
+    expect(selectActiveThreadId(state)).toBe(thread.id);
+  });
+
+  it("删除 draft Project 时保留草稿状态并清空目标", () => {
+    let state = desktopReducer(INITIAL_STATE, { type: "draft-started", projectId: project.id });
+
+    state = desktopReducer(state, { type: "project-removed", projectId: project.id });
+
+    expect(state.project).toBeNull();
+    expect(state.draft).toEqual({
+      projectId: null,
+      config: null,
+      configLoading: false,
+      phase: "editing",
+    });
+  });
+
+  it("draft model 切换按目标模型能力 clamp thinking", () => {
+    let state = desktopReducer(INITIAL_STATE, { type: "draft-started", projectId: project.id });
+    state = desktopReducer(state, {
+      type: "draft-config-loaded",
+      projectId: project.id,
+      config: createDraftConfig(),
+    });
+    state = desktopReducer(state, {
+      type: "draft-thinking-selected",
+      thinkingLevel: "high",
+    });
+    state = desktopReducer(state, {
+      type: "draft-model-selected",
+      provider: "plain",
+      modelId: "plain-model",
+    });
+
+    expect(state.draft?.config).toMatchObject({
+      model: { provider: "plain", id: "plain-model" },
+      thinkingLevel: "off",
+      thinkingLevels: ["off"],
+      readiness: { state: "ready" },
+    });
+  });
+
+  it("committed 空历史 thread 不会被推断为 draft", () => {
+    let state = desktopReducer(INITIAL_STATE, { type: "project-loaded", project, threads: [thread] });
+    state = desktopReducer(state, {
+      type: "thread-loaded",
+      project,
+      bootstrap: createBootstrap(1, "空会话"),
+      workbench: createWorkbench(),
+    });
+
+    expect(thread.messageCount).toBe(0);
+    expect(state.draft).toBeNull();
+    expect(selectActiveThreadId(state)).toBe(thread.id);
   });
 });
 
@@ -101,5 +283,32 @@ function createControl(revision: number, title: string): SessionControlState {
     readiness: { state: "missing-model" },
     hostRequests: [],
     extensionUi: { statuses: {}, workingVisible: true, toolsExpanded: false, widgets: [] },
+  };
+}
+
+function createDraftConfig(): DraftSessionConfig {
+  return {
+    models: [
+      {
+        provider: "reasoning",
+        id: "reasoning-model",
+        name: "Reasoning",
+        contextWindow: 128_000,
+        thinking: true,
+        thinkingLevels: ["off", "low", "high"],
+      },
+      {
+        provider: "plain",
+        id: "plain-model",
+        name: "Plain",
+        contextWindow: 128_000,
+        thinking: false,
+        thinkingLevels: ["off"],
+      },
+    ],
+    model: { provider: "reasoning", id: "reasoning-model", name: "Reasoning" },
+    thinkingLevel: "low",
+    thinkingLevels: ["off", "low", "high"],
+    readiness: { state: "ready" },
   };
 }

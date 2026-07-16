@@ -7,6 +7,7 @@ import {
 	resolveCliModel,
 	resolveModelScope,
 	resolveModelScopeWithDiagnostics,
+	resolveThinkingConfiguration,
 } from "../src/core/model-resolver.ts";
 
 // Mock models for testing
@@ -587,6 +588,15 @@ describe("resolveCliModel", () => {
 });
 
 describe("default model selection", () => {
+	test("thinking configuration clamps to the selected model capabilities", () => {
+		const reasoning = resolveThinkingConfiguration(mockModels[0], "max");
+		const plain = resolveThinkingConfiguration(mockModels[1], "high");
+
+		expect(reasoning.thinkingLevel).toBe("high");
+		expect(reasoning.thinkingLevels).toEqual(["off", "minimal", "low", "medium", "high"]);
+		expect(plain).toEqual({ thinkingLevel: "off", thinkingLevels: ["off"] });
+	});
+
 	test("openai defaults track current models", () => {
 		expect(defaultModelPerProvider.openai).toBe("gpt-5.5");
 		expect(defaultModelPerProvider["openai-codex"]).toBe("gpt-5.5");

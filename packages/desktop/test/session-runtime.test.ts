@@ -4,15 +4,18 @@ import { SessionRuntime } from "../src/main/pi/session-runtime.ts";
 
 const mocks = vi.hoisted(() => ({
   createAgentSession: vi.fn(),
+  resolveSelection: vi.fn(),
   listener: undefined as ((event: AgentSessionEvent) => void) | undefined,
 }));
 
 vi.mock("@earendil-works/pi-coding-agent", () => ({
-  AuthStorage: { create: () => ({}) },
-  ModelRegistry: { create: () => ({}) },
-  SettingsManager: { create: () => ({}) },
   createAgentSession: mocks.createAgentSession,
-  getAgentDir: () => "/agent",
+}));
+
+vi.mock("../src/main/pi/session-configuration.ts", () => ({
+  createSessionConfigurationServices: () => ({ auth: {}, models: {}, settings: {} }),
+  resolveSessionCreateSelection: mocks.resolveSelection,
+  sessionReadiness: () => ({ state: "ready" }),
 }));
 
 vi.mock("../src/main/pi/host-ui.ts", () => ({
@@ -45,6 +48,24 @@ describe("SessionRuntime summary", () => {
   beforeEach(() => {
     mocks.listener = undefined;
     mocks.createAgentSession.mockReset();
+    mocks.resolveSelection.mockReset();
+  });
+
+  it("创建新 session 时把显式 model 和 thinking 交给 createAgentSession", async () => {
+    const session = createSession();
+    const model = { provider: "openai", id: "gpt" };
+    mocks.resolveSelection.mockReturnValue({ model, thinkingLevel: "high" });
+    mocks.createAgentSession.mockResolvedValue({ session });
+
+    await SessionRuntime.create({
+      projectId: "project",
+      cwd: "/workspace",
+      createInput: { projectId: "project", model, thinkingLevel: "max" },
+      push: () => {},
+      onSummaryChanged: () => {},
+    });
+
+    expect(mocks.createAgentSession).toHaveBeenCalledWith(expect.objectContaining({ model, thinkingLevel: "high" }));
   });
 
   it("首条用户消息替换新会话占位标题", async () => {

@@ -1,7 +1,7 @@
 # Desktop assistant-ui Thread Adapter 与原子 Attach 规范
 
 状态：Implemented  
-最后更新：2026-07-15
+最后更新：2026-07-16
 
 ## 1. 背景
 
@@ -206,7 +206,7 @@ adapter 必须提供：
 - `threadId`：Desktop 当前 active thread；
 - `threads` / `archivedThreads`：来自 Desktop session catalog；
 - `onSwitchToThread`：执行原子 attach，并返回转换后的 bootstrap messages/state；
-- `onSwitchToNewThread`：创建 Pi session、attach 新 session；新 session 初始消息为空；
+- `onSwitchToNewThread`：只在 renderer 新会话草稿首次提交时创建并 attach Pi session；Sidebar New 本身不得调用；
 - `onRename`、`onArchive`、`onUnarchive`、`onDelete`：委托现有 Desktop 控制面。
 
 Sidebar 可以继续使用现有布局，但 open/create/rename/archive/delete 命令必须调用 `AssistantRuntime.threads`，不得绕过 thread adapter 维护另一套切换生命周期。
@@ -353,6 +353,7 @@ npm run check
 - active run 由稳定 `ElectronPiAgent` replay/join，sequence gap 通过 `thread.import()` 恢复；
 - 已删除 history adapter、hydration barrier、session-key runtime remount 和 renderer 跨 session event buffer；
 - Desktop 12 个定点测试文件共 28 个测试通过；根级 `npm run check` 通过。
+- 新会话 draft 按 [Desktop 新会话草稿规范](./new-session-draft-spec.md) 延迟到首次有效 submit 才进入 `onSwitchToNewThread()`。
 
 ## 13. 参考
 

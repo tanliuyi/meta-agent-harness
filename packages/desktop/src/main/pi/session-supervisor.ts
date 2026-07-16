@@ -4,17 +4,20 @@ import { rm } from "node:fs/promises";
 import { dirname } from "node:path";
 import { type SessionInfo, SessionManager } from "@earendil-works/pi-coding-agent";
 import type {
+  DraftSessionConfig,
   HostResponse,
   SendInput,
   SessionAttachment,
   SessionBootstrap,
   SessionControlState,
+  SessionCreateInput,
   SessionPush,
   SessionPushPayload,
   SessionRunInput,
   Thread,
 } from "../../shared/contracts.ts";
 import type { ProjectStore } from "../store/project-store.ts";
+import { loadDraftSessionConfig } from "./session-configuration.ts";
 import { SessionRuntime } from "./session-runtime.ts";
 
 interface ProjectCatalog {
@@ -68,10 +71,14 @@ export class SessionSupervisor {
     return [...threads.values()].sort((left, right) => right.updatedAt - left.updatedAt);
   }
 
-  async create(projectId: string): Promise<SessionBootstrap> {
-    const runtime = await this.createRuntime(projectId);
-    this.runtimes.set(runtimeKey(projectId, runtime.id), runtime);
-    this.watchRuntimeDirectory(projectId, runtime);
+  getDraftConfig(projectId: string): Promise<DraftSessionConfig> {
+    return loadDraftSessionConfig(this.projects.getCwd(projectId));
+  }
+
+  async create(input: SessionCreateInput): Promise<SessionBootstrap> {
+    const runtime = await this.createRuntime(input.projectId, undefined, input);
+    this.runtimes.set(runtimeKey(input.projectId, runtime.id), runtime);
+    this.watchRuntimeDirectory(input.projectId, runtime);
     return runtime.bootstrap();
   }
 
@@ -215,11 +222,16 @@ export class SessionSupervisor {
     }
   }
 
-  private createRuntime(projectId: string, sessionManager?: SessionManager): Promise<SessionRuntime> {
+  private createRuntime(
+    projectId: string,
+    sessionManager?: SessionManager,
+    createInput?: SessionCreateInput,
+  ): Promise<SessionRuntime> {
     return SessionRuntime.create({
       projectId,
       cwd: this.projects.getCwd(projectId),
       sessionManager,
+      createInput,
       push: (update) => this.publish(update),
       onSummaryChanged: (runtime) => this.updateRuntimeCatalog(runtime),
     });

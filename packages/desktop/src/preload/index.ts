@@ -46,7 +46,8 @@ const desktopApi: DesktopApi = {
   },
   sessions: {
     list: (projectId, includeArchived) => ipcRenderer.invoke(CHANNELS.sessionsList, projectId, includeArchived),
-    create: (projectId) => ipcRenderer.invoke(CHANNELS.sessionsCreate, projectId),
+    getDraftConfig: (projectId) => ipcRenderer.invoke(CHANNELS.sessionsDraftConfig, projectId),
+    create: (input) => ipcRenderer.invoke(CHANNELS.sessionsCreate, input),
     async attach(projectId, threadId, listener) {
       const generation = ++sessionGeneration;
       const previous = activeSessionAttachment;

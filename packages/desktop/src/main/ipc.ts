@@ -4,6 +4,7 @@ import type {
   HostResponse,
   SendInput,
   SessionControlState,
+  SessionCreateInput,
   SessionRunInput,
   TerminalEvent,
   WorkbenchState,
@@ -40,7 +41,8 @@ export function registerIpc(
   ipcMain.handle(CHANNELS.sessionsList, (_event, projectId: string, includeArchived?: boolean) =>
     sessions.list(projectId, includeArchived),
   );
-  ipcMain.handle(CHANNELS.sessionsCreate, (_event, projectId: string) => sessions.create(projectId));
+  ipcMain.handle(CHANNELS.sessionsDraftConfig, (_event, projectId: string) => sessions.getDraftConfig(projectId));
+  ipcMain.handle(CHANNELS.sessionsCreate, (_event, input: SessionCreateInput) => sessions.create(input));
   ipcMain.handle(CHANNELS.sessionsAttach, (event, projectId: string, threadId: string) => {
     const ownerId = event.sender.id;
     if (!subscribedWebContents.has(ownerId)) {

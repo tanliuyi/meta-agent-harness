@@ -1,13 +1,21 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { SessionSupervisor } from "../src/main/pi/session-supervisor.ts";
 import type { ProjectStore } from "../src/main/store/project-store.ts";
-import type { SessionBootstrap, SessionPush, SessionPushPayload, Thread } from "../src/shared/contracts.ts";
+import type {
+  DraftSessionConfig,
+  SessionBootstrap,
+  SessionCreateInput,
+  SessionPush,
+  SessionPushPayload,
+  Thread,
+} from "../src/shared/contracts.ts";
 import { PROTOCOL_VERSION } from "../src/shared/contracts.ts";
 
 const mocks = vi.hoisted(() => ({
   list: vi.fn(),
   open: vi.fn(),
   create: vi.fn(),
+  loadDraftConfig: vi.fn(),
 }));
 
 vi.mock("@earendil-works/pi-coding-agent", () => ({
@@ -18,14 +26,20 @@ vi.mock("../src/main/pi/session-runtime.ts", () => ({
   SessionRuntime: { create: mocks.create },
 }));
 
+vi.mock("../src/main/pi/session-configuration.ts", () => ({
+  loadDraftSessionConfig: mocks.loadDraftConfig,
+}));
+
 describe("SessionSupervisor", () => {
   beforeEach(() => {
     mocks.list.mockReset();
     mocks.open.mockReset();
     mocks.create.mockReset();
+    mocks.loadDraftConfig.mockReset();
     mocks.list.mockResolvedValue([sessionInfo()]);
     mocks.open.mockReturnValue({ getSessionDir: () => "/missing/sessions" });
     mocks.create.mockResolvedValue(runtime());
+    mocks.loadDraftConfig.mockResolvedValue(draftConfig());
   });
 
   it("并发打开同一 session 只创建一个 runtime", async () => {
@@ -48,6 +62,23 @@ describe("SessionSupervisor", () => {
     await supervisor.list("project");
 
     expect(mocks.list).toHaveBeenCalledTimes(1);
+    await supervisor.dispose();
+  });
+
+  it("draft config 不创建 runtime，首次 create 原样转发 model 和 thinking", async () => {
+    const supervisor = new SessionSupervisor(projectStore());
+    const input: SessionCreateInput = {
+      projectId: "project",
+      model: { provider: "openai", id: "gpt" },
+      thinkingLevel: "high",
+    };
+
+    await expect(supervisor.getDraftConfig("project")).resolves.toEqual(draftConfig());
+    expect(mocks.create).not.toHaveBeenCalled();
+    await supervisor.create(input);
+
+    expect(mocks.loadDraftConfig).toHaveBeenCalledWith("/workspace");
+    expect(mocks.create).toHaveBeenCalledWith(expect.objectContaining({ projectId: "project", createInput: input }));
     await supervisor.dispose();
   });
 
@@ -199,5 +230,15 @@ function deferred<T>(): { promise: Promise<T>; resolve(value: T): void } {
     resolve(value) {
       resolvePromise?.(value);
     },
+  };
+}
+
+function draftConfig(): DraftSessionConfig {
+  return {
+    models: [],
+    model: null,
+    thinkingLevel: "off",
+    thinkingLevels: ["off"],
+    readiness: { state: "missing-model" },
   };
 }

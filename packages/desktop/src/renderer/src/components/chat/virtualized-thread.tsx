@@ -214,7 +214,7 @@ function ThreadFooter({
       <div className="relative mx-auto flex w-full max-w-(--thread-max-width) flex-col gap-2 px-4 pb-4">
         <ThreadScrollToBottom visible={showScrollToBottom} onClick={onScrollToBottom} />
         <SessionStatus snapshot={snapshot} />
-        <Composer snapshot={snapshot} />
+        <Composer mode="session" snapshot={snapshot} />
       </div>
     </div>
   );

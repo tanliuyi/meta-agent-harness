@@ -1,4 +1,5 @@
 import type {
+  DraftSessionConfig,
   Project,
   SessionBootstrap,
   SessionControlState,
@@ -9,7 +10,9 @@ import type {
 export interface DesktopContextValue {
   projects: Project[];
   project: Project | null;
+  draft: DraftSessionState | null;
   threads: Thread[];
+  threadCatalogs: Readonly<Record<string, Thread[]>>;
   threadId: string | null;
   bootstrap: SessionBootstrap | null;
   snapshot: SessionControlState | null;
@@ -17,22 +20,35 @@ export interface DesktopContextValue {
   loading: boolean;
   error: string | null;
   chooseProject(): Promise<void>;
-  openProject(projectId: string): Promise<void>;
+  loadProjectThreads(projectId: string): Promise<void>;
   removeProject(projectId: string): Promise<void>;
-  createThread(): Promise<void>;
-  openThread(threadId: string): Promise<void>;
-  renameThread(threadId: string, title: string): Promise<void>;
-  setThreadArchived(threadId: string, archived: boolean): Promise<void>;
-  removeThread(threadId: string): Promise<void>;
+  beginDraft(): Promise<void>;
+  selectDraftProject(projectId: string): Promise<void>;
+  selectDraftModel(provider: string, modelId: string): void;
+  selectDraftThinking(level: SessionControlState["thinkingLevel"]): void;
+  submitDraft(): Promise<void>;
+  discardDraft(): Promise<void>;
+  openThread(projectId: string, threadId: string): Promise<void>;
+  renameThread(projectId: string, threadId: string, title: string): Promise<void>;
+  setThreadArchived(projectId: string, threadId: string, archived: boolean): Promise<void>;
+  removeThread(projectId: string, threadId: string): Promise<void>;
   updateWorkbench(value: Partial<WorkbenchState>): void;
   clearError(): void;
+}
+
+export interface DraftSessionState {
+  projectId: string | null;
+  config: DraftSessionConfig | null;
+  configLoading: boolean;
+  phase: "editing" | "materializing";
 }
 
 export interface DesktopState {
   projects: Project[];
   project: Project | null;
-  threads: Thread[];
-  threadId: string | null;
+  draft: DraftSessionState | null;
+  threadCatalogs: Record<string, Thread[]>;
+  activeThreadIds: Record<string, string | undefined>;
   bootstraps: Record<string, SessionBootstrap>;
   controls: Record<string, SessionControlState>;
   workbenches: Record<string, WorkbenchState>;
@@ -43,8 +59,9 @@ export interface DesktopState {
 export const INITIAL_STATE: DesktopState = {
   projects: [],
   project: null,
-  threads: [],
-  threadId: null,
+  draft: null,
+  threadCatalogs: {},
+  activeThreadIds: {},
   bootstraps: {},
   controls: {},
   workbenches: {},
@@ -55,14 +72,31 @@ export const INITIAL_STATE: DesktopState = {
 export type DesktopAction =
   | { type: "projects-loaded"; projects: Project[] }
   | { type: "project-upserted"; project: Project }
+  | { type: "project-threads-loaded"; projectId: string; threads: Thread[] }
   | { type: "project-loaded"; project: Project; threads: Thread[] }
   | { type: "project-removed"; projectId: string }
-  | { type: "thread-loaded"; bootstrap: SessionBootstrap; workbench: WorkbenchState }
+  | { type: "draft-started"; projectId: string }
+  | { type: "draft-project-selected"; projectId: string }
+  | { type: "draft-config-loaded"; projectId: string; config: DraftSessionConfig }
+  | { type: "draft-config-failed"; projectId: string }
+  | { type: "draft-model-selected"; provider: string; modelId: string }
+  | { type: "draft-thinking-selected"; thinkingLevel: SessionControlState["thinkingLevel"] }
+  | { type: "draft-materializing" }
+  | { type: "draft-restored" }
+  | {
+      type: "draft-committed";
+      project: Project;
+      thread: Thread;
+      bootstrap: SessionBootstrap;
+      workbench: WorkbenchState;
+    }
+  | { type: "draft-discarded" }
+  | { type: "thread-loaded"; project: Project; bootstrap: SessionBootstrap; workbench: WorkbenchState }
   | { type: "thread-created"; thread: Thread; bootstrap: SessionBootstrap; workbench: WorkbenchState }
-  | { type: "thread-renamed"; threadId: string; title: string }
-  | { type: "thread-archived"; threadId: string; archived: boolean }
-  | { type: "thread-removed"; threadId: string }
-  | { type: "thread-cleared" }
+  | { type: "thread-renamed"; projectId: string; threadId: string; title: string }
+  | { type: "thread-archived"; projectId: string; threadId: string; archived: boolean }
+  | { type: "thread-removed"; projectId: string; threadId: string }
+  | { type: "thread-cleared"; projectId: string }
   | { type: "control"; control: SessionControlState }
   | { type: "workbench"; workbench: WorkbenchState }
   | { type: "loading"; loading: boolean }
@@ -77,24 +111,126 @@ export function desktopReducer(state: DesktopState, action: DesktopAction): Desk
       projects: sortProjects([...state.projects.filter(({ id }) => id !== action.project.id), action.project]),
     };
   }
-  if (action.type === "project-loaded")
-    return { ...state, project: action.project, threads: action.threads, threadId: null };
+  if (action.type === "project-threads-loaded") {
+    return {
+      ...state,
+      threadCatalogs: {
+        ...state.threadCatalogs,
+        [action.projectId]: reuseThreadCatalog(state.threadCatalogs[action.projectId], action.threads),
+      },
+    };
+  }
+  if (action.type === "project-loaded") {
+    const activeThreadId = state.activeThreadIds[action.project.id];
+    const preserveActiveThread = action.threads.some((thread) => thread.id === activeThreadId && !thread.archived);
+    return {
+      ...state,
+      project: action.project,
+      threadCatalogs: {
+        ...state.threadCatalogs,
+        [action.project.id]: reuseThreadCatalog(state.threadCatalogs[action.project.id], action.threads),
+      },
+      activeThreadIds: {
+        ...state.activeThreadIds,
+        [action.project.id]: preserveActiveThread ? activeThreadId : undefined,
+      },
+    };
+  }
   if (action.type === "project-removed") {
     const current = state.project?.id === action.projectId;
+    const draft =
+      state.draft?.projectId === action.projectId
+        ? { projectId: null, config: null, configLoading: false, phase: "editing" as const }
+        : state.draft;
+    const threadCatalogs = { ...state.threadCatalogs };
+    const activeThreadIds = { ...state.activeThreadIds };
+    delete threadCatalogs[action.projectId];
+    delete activeThreadIds[action.projectId];
     return {
       ...state,
       projects: state.projects.filter(({ id }) => id !== action.projectId),
       project: current ? null : state.project,
-      threads: current ? [] : state.threads,
-      threadId: current ? null : state.threadId,
+      draft,
+      threadCatalogs,
+      activeThreadIds,
     };
   }
-  if (action.type === "thread-loaded" || action.type === "thread-created") {
-    const key = sessionKey(action.bootstrap.projectId, action.bootstrap.threadId);
+  if (action.type === "draft-started") {
     return {
       ...state,
-      ...(action.type === "thread-created" ? { threads: [action.thread, ...state.threads] } : {}),
-      threadId: action.bootstrap.threadId,
+      draft: { projectId: action.projectId, config: null, configLoading: true, phase: "editing" },
+    };
+  }
+  if (action.type === "draft-project-selected") {
+    return {
+      ...state,
+      draft: { projectId: action.projectId, config: null, configLoading: true, phase: "editing" },
+    };
+  }
+  if (action.type === "draft-config-loaded") {
+    if (!state.draft || state.draft.projectId !== action.projectId) return state;
+    return { ...state, draft: { ...state.draft, config: action.config, configLoading: false } };
+  }
+  if (action.type === "draft-config-failed") {
+    if (!state.draft || state.draft.projectId !== action.projectId) return state;
+    return { ...state, draft: { ...state.draft, config: null, configLoading: false } };
+  }
+  if (action.type === "draft-model-selected") {
+    const config = state.draft?.config;
+    const model = config?.models.find(({ provider, id }) => provider === action.provider && id === action.modelId);
+    if (!state.draft || !config || !model) return state;
+    const thinkingLevel = clampDraftThinking(config.thinkingLevel, model.thinkingLevels);
+    return {
+      ...state,
+      draft: {
+        ...state.draft,
+        config: {
+          ...config,
+          model: { provider: model.provider, id: model.id, name: model.name },
+          thinkingLevel,
+          thinkingLevels: model.thinkingLevels,
+          readiness: { state: "ready" },
+        },
+      },
+    };
+  }
+  if (action.type === "draft-thinking-selected") {
+    const config = state.draft?.config;
+    if (!state.draft || !config?.thinkingLevels.includes(action.thinkingLevel)) return state;
+    return { ...state, draft: { ...state.draft, config: { ...config, thinkingLevel: action.thinkingLevel } } };
+  }
+  if (action.type === "draft-materializing") {
+    if (!state.draft || state.draft.phase === "materializing") return state;
+    return { ...state, draft: { ...state.draft, phase: "materializing" } };
+  }
+  if (action.type === "draft-restored") {
+    if (!state.draft || state.draft.phase === "editing") return state;
+    return { ...state, draft: { ...state.draft, phase: "editing" } };
+  }
+  if (action.type === "draft-discarded") return state.draft ? { ...state, draft: null } : state;
+  if (action.type === "thread-loaded" || action.type === "thread-created" || action.type === "draft-committed") {
+    const key = sessionKey(action.bootstrap.projectId, action.bootstrap.threadId);
+    const projectThreads = state.threadCatalogs[action.bootstrap.projectId] ?? [];
+    const created = action.type === "thread-created" || action.type === "draft-committed";
+    return {
+      ...state,
+      draft: null,
+      ...(action.type === "thread-loaded" || action.type === "draft-committed" ? { project: action.project } : {}),
+      ...(created
+        ? {
+            threadCatalogs: {
+              ...state.threadCatalogs,
+              [action.bootstrap.projectId]: [
+                action.thread,
+                ...projectThreads.filter(({ id }) => id !== action.thread.id),
+              ],
+            },
+          }
+        : {}),
+      activeThreadIds: {
+        ...state.activeThreadIds,
+        [action.bootstrap.projectId]: action.bootstrap.threadId,
+      },
       bootstraps: { ...state.bootstraps, [key]: action.bootstrap },
       controls: { ...state.controls, [key]: action.bootstrap.control },
       workbenches: { ...state.workbenches, [key]: action.workbench },
@@ -103,7 +239,7 @@ export function desktopReducer(state: DesktopState, action: DesktopAction): Desk
   if (action.type === "thread-renamed") {
     return {
       ...state,
-      threads: state.threads.map((thread) =>
+      threadCatalogs: updateProjectThreads(state.threadCatalogs, action.projectId, (thread) =>
         thread.id === action.threadId ? { ...thread, title: action.title } : thread,
       ),
     };
@@ -111,14 +247,24 @@ export function desktopReducer(state: DesktopState, action: DesktopAction): Desk
   if (action.type === "thread-archived") {
     return {
       ...state,
-      threads: state.threads.map((thread) =>
+      threadCatalogs: updateProjectThreads(state.threadCatalogs, action.projectId, (thread) =>
         thread.id === action.threadId ? { ...thread, archived: action.archived } : thread,
       ),
     };
   }
   if (action.type === "thread-removed")
-    return { ...state, threads: state.threads.filter(({ id }) => id !== action.threadId) };
-  if (action.type === "thread-cleared") return { ...state, threadId: null };
+    return {
+      ...state,
+      threadCatalogs: {
+        ...state.threadCatalogs,
+        [action.projectId]: (state.threadCatalogs[action.projectId] ?? []).filter(({ id }) => id !== action.threadId),
+      },
+    };
+  if (action.type === "thread-cleared")
+    return {
+      ...state,
+      activeThreadIds: { ...state.activeThreadIds, [action.projectId]: undefined },
+    };
   if (action.type === "control") return applyControl(state, action.control);
   if (action.type === "workbench") {
     const key = sessionKey(action.workbench.projectId, action.workbench.threadId);
@@ -135,16 +281,19 @@ function applyControl(state: DesktopState, control: SessionControlState): Deskto
   return {
     ...state,
     controls: { ...state.controls, [key]: control },
-    threads: state.threads.map((thread) =>
-      thread.id === control.threadId && thread.projectId === control.projectId
-        ? { ...thread, title: control.title, running: control.running }
-        : thread,
+    threadCatalogs: updateProjectThreads(state.threadCatalogs, control.projectId, (thread) =>
+      thread.id === control.threadId ? { ...thread, title: control.title, running: control.running } : thread,
     ),
   };
 }
 
 export function sessionKey(projectId: string, threadId: string): string {
   return `${projectId}:${threadId}`;
+}
+
+export function selectActiveThreadId(state: DesktopState): string | null {
+  if (state.draft || !state.project) return null;
+  return state.activeThreadIds[state.project.id] ?? null;
 }
 
 export function threadFromBootstrap(bootstrap: SessionBootstrap): Thread {
@@ -164,4 +313,59 @@ export function threadFromBootstrap(bootstrap: SessionBootstrap): Thread {
 
 function sortProjects(projects: Project[]): Project[] {
   return projects.toSorted((left, right) => right.lastOpenedAt - left.lastOpenedAt);
+}
+
+function updateProjectThreads(
+  catalogs: Record<string, Thread[]>,
+  projectId: string,
+  update: (thread: Thread) => Thread,
+): Record<string, Thread[]> {
+  return { ...catalogs, [projectId]: (catalogs[projectId] ?? []).map(update) };
+}
+
+function reuseThreadCatalog(previous: Thread[] | undefined, next: Thread[]): Thread[] {
+  if (!previous || previous.length !== next.length) return next;
+  return previous.every((thread, index) => equalThread(thread, next[index])) ? previous : next;
+}
+
+function equalThread(left: Thread, right: Thread | undefined): boolean {
+  return (
+    right !== undefined &&
+    left.id === right.id &&
+    left.projectId === right.projectId &&
+    left.title === right.title &&
+    left.createdAt === right.createdAt &&
+    left.updatedAt === right.updatedAt &&
+    left.messageCount === right.messageCount &&
+    left.preview === right.preview &&
+    left.archived === right.archived &&
+    left.running === right.running
+  );
+}
+
+const THINKING_LEVELS: SessionControlState["thinkingLevel"][] = [
+  "off",
+  "minimal",
+  "low",
+  "medium",
+  "high",
+  "xhigh",
+  "max",
+];
+
+function clampDraftThinking(
+  requested: SessionControlState["thinkingLevel"],
+  available: SessionControlState["thinkingLevels"],
+): SessionControlState["thinkingLevel"] {
+  if (available.includes(requested)) return requested;
+  const requestedIndex = THINKING_LEVELS.indexOf(requested);
+  for (let index = requestedIndex; index < THINKING_LEVELS.length; index += 1) {
+    const candidate = THINKING_LEVELS[index];
+    if (candidate && available.includes(candidate)) return candidate;
+  }
+  for (let index = requestedIndex - 1; index >= 0; index -= 1) {
+    const candidate = THINKING_LEVELS[index];
+    if (candidate && available.includes(candidate)) return candidate;
+  }
+  return "off";
 }

@@ -38,6 +38,28 @@ export interface ModelOption {
   thinking: boolean;
 }
 
+export type ThinkingLevel = "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
+
+export interface DraftModelOption extends ModelOption {
+  thinkingLevels: ThinkingLevel[];
+}
+
+/** 创建真实 session 前可读取和选择的最小控制配置。 */
+export interface DraftSessionConfig {
+  models: DraftModelOption[];
+  model: { provider: string; id: string; name: string } | null;
+  thinkingLevel: ThinkingLevel;
+  thinkingLevels: ThinkingLevel[];
+  readiness: Readiness;
+}
+
+/** 首次 prompt materialize session 时原子应用的配置。 */
+export interface SessionCreateInput {
+  projectId: string;
+  model: { provider: string; id: string };
+  thinkingLevel: ThinkingLevel;
+}
+
 /** Composer 可补全的 Pi slash command。 */
 export interface SlashCommand {
   name: string;
@@ -113,8 +135,8 @@ export interface SessionControlState {
   model?: { provider: string; id: string; name: string };
   models: ModelOption[];
   commands: SlashCommand[];
-  thinkingLevel: "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
-  thinkingLevels: Array<"off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max">;
+  thinkingLevel: ThinkingLevel;
+  thinkingLevels: ThinkingLevel[];
   context?: ContextUsage;
   readiness: Readiness;
   lastError?: string;
