@@ -4,9 +4,11 @@ import {
   ErrorPrimitive,
   groupPartByType,
   MessagePrimitive,
-  ThreadPrimitive,
+  useAuiState,
 } from "@assistant-ui/react";
 import { Check, Copy } from "lucide-react";
+import { createContext, type ReactNode, useContext, useLayoutEffect, useMemo, useState } from "react";
+import { cn } from "../../lib/cn.ts";
 import { UserMessageAttachments } from "../assistant-ui/attachment.tsx";
 import { ReasoningContent, ReasoningRoot, ReasoningText, ReasoningTrigger } from "../assistant-ui/reasoning.tsx";
 import { StreamdownText } from "../assistant-ui/streamdown-text.tsx";
@@ -20,17 +22,44 @@ const GROUP_PARTS = groupPartByType({
   "standalone-tool-call": [],
 });
 
-/** assistant-ui 官方 Thread message 组合。 */
-export function Messages() {
-  return <ThreadPrimitive.Messages components={{ UserMessage, AssistantMessage }} />;
+interface MessageEntranceAnimationState {
+  isRunning: boolean;
+  seenMessageIds: Set<string>;
 }
 
+const MessageEntranceAnimationContext = createContext<MessageEntranceAnimationState | null>(null);
+
+export function MessageEntranceAnimationProvider({
+  children,
+  isRunning,
+  messageIds,
+}: {
+  children: ReactNode;
+  isRunning: boolean;
+  messageIds: readonly string[];
+}) {
+  const [seenMessageIds] = useState(() => new Set(messageIds));
+  useLayoutEffect(() => {
+    if (!isRunning) {
+      for (const messageId of messageIds) seenMessageIds.add(messageId);
+    }
+  }, [isRunning, messageIds, seenMessageIds]);
+  const value = useMemo(() => ({ isRunning, seenMessageIds }), [isRunning, seenMessageIds]);
+  return <MessageEntranceAnimationContext.Provider value={value}>{children}</MessageEntranceAnimationContext.Provider>;
+}
+
+export const THREAD_MESSAGE_COMPONENTS = { UserMessage, AssistantMessage };
+
 function UserMessage() {
+  const animateEntrance = useMessageEntranceAnimation();
   return (
     <MessagePrimitive.Root
       data-slot="aui-user-message-root"
       data-role="user"
-      className="fade-in slide-in-from-bottom-1 animate-in grid auto-rows-auto grid-cols-[minmax(72px,1fr)_auto] content-start gap-y-2 px-2 duration-150 [contain-intrinsic-size:auto_160px] [content-visibility:auto] [&:where(>*)]:col-start-2"
+      className={cn(
+        "grid auto-rows-auto grid-cols-[minmax(72px,1fr)_auto] content-start gap-y-2 px-2 [&:where(>*)]:col-start-2",
+        animateEntrance && "fade-in slide-in-from-bottom-1 animate-in duration-150",
+      )}
     >
       <UserMessageAttachments />
       <div className="relative col-start-2 min-w-0">
@@ -43,11 +72,12 @@ function UserMessage() {
 }
 
 function AssistantMessage() {
+  const animateEntrance = useMessageEntranceAnimation();
   return (
     <MessagePrimitive.Root
       data-slot="aui-assistant-message-root"
       data-role="assistant"
-      className="fade-in slide-in-from-bottom-1 animate-in relative -mb-7 pb-7 duration-150 [contain-intrinsic-size:auto_200px] [content-visibility:auto]"
+      className={cn("relative -mb-7 pb-7", animateEntrance && "fade-in slide-in-from-bottom-1 animate-in duration-150")}
     >
       <div className="px-2 text-sm leading-relaxed text-foreground wrap-break-word">
         <MessagePrimitive.GroupedParts groupBy={GROUP_PARTS}>
@@ -124,4 +154,14 @@ function AssistantMessage() {
       </AuiIf>
     </MessagePrimitive.Root>
   );
+}
+
+function useMessageEntranceAnimation(): boolean {
+  const messageId = useAuiState((state) => state.message.id);
+  const state = useContext(MessageEntranceAnimationContext);
+  const animate = state?.isRunning === true && !state.seenMessageIds.has(messageId);
+  useLayoutEffect(() => {
+    state?.seenMessageIds.add(messageId);
+  }, [messageId, state]);
+  return animate;
 }

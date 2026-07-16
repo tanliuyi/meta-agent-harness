@@ -1,17 +1,12 @@
 "use client";
 
-import {
-  type ReasoningGroupComponent,
-  type ReasoningMessagePartComponent,
-  useAuiState,
-  useScrollLock,
-} from "@assistant-ui/react";
+import { type ReasoningGroupComponent, type ReasoningMessagePartComponent, useAuiState } from "@assistant-ui/react";
 import { StreamdownText } from "@renderer/components/assistant-ui/streamdown-text";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@renderer/components/ui/collapsible";
 import { cn } from "@renderer/lib/cn";
 import { cva, type VariantProps } from "class-variance-authority";
 import { BrainIcon, ChevronDownIcon } from "lucide-react";
-import { createContext, memo, useCallback, useContext, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { createContext, memo, useCallback, useContext, useEffect, useRef, useState } from "react";
 
 const ANIMATION_DURATION = 200;
 
@@ -54,37 +49,26 @@ function ReasoningRoot({
   children,
   ...props
 }: ReasoningRootProps) {
-  const collapsibleRef = useRef<HTMLDivElement>(null);
   const initialOpenRef = useRef(defaultOpen);
   const [userOpen, setUserOpen] = useState<boolean | null>(null);
-  const lockScroll = useScrollLock(collapsibleRef, ANIMATION_DURATION);
 
   const isControlled = controlledOpen !== undefined;
   const isOpen = isControlled ? controlledOpen : (userOpen ?? streaming ?? initialOpenRef.current);
   const isAutoMode = isControlled || userOpen === null;
   const isPreview = streaming === true && isOpen && isAutoMode;
 
-  const prevStreamingRef = useRef(streaming);
-  useLayoutEffect(() => {
-    if (prevStreamingRef.current === streaming) return;
-    prevStreamingRef.current = streaming;
-    if (!isControlled && userOpen === null) lockScroll();
-  }, [streaming, isControlled, userOpen, lockScroll]);
-
   const handleOpenChange = useCallback(
     (open: boolean) => {
-      lockScroll();
       if (!isControlled) {
         setUserOpen(open);
       }
       controlledOnOpenChange?.(open);
     },
-    [lockScroll, isControlled, controlledOnOpenChange],
+    [isControlled, controlledOnOpenChange],
   );
 
   return (
     <Collapsible
-      ref={collapsibleRef}
       data-slot="reasoning-root"
       data-variant={variant}
       open={isOpen}

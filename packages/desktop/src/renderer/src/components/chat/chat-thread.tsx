@@ -1,13 +1,11 @@
 import { ThreadPrimitive } from "@assistant-ui/react";
-import { ArrowDown, MessageSquarePlus } from "lucide-react";
+import { MessageSquarePlus } from "lucide-react";
 import type { CSSProperties, ReactNode } from "react";
 import { useDesktop } from "../../state/desktop-context.tsx";
-import { TooltipIconButton } from "../assistant-ui/tooltip-icon-button.tsx";
+import { sessionKey } from "../../state/desktop-model.ts";
 import { Button } from "../ui/button.tsx";
-import { Composer } from "./composer.tsx";
 import { HostRequests } from "./host-requests.tsx";
-import { Messages } from "./messages.tsx";
-import { SessionStatus } from "./session-status.tsx";
+import { VirtualizedThreadSurface } from "./virtualized-thread.tsx";
 
 /** 中央聊天工作区。 */
 export function ChatThread() {
@@ -35,30 +33,7 @@ export function ChatThread() {
           } as CSSProperties
         }
       >
-        <ThreadPrimitive.Viewport
-          turnAnchor="top"
-          className="thread-viewport relative flex flex-1 flex-col overflow-x-hidden overflow-y-scroll scroll-smooth"
-        >
-          <div className="thread-column mx-auto flex w-full max-w-(--thread-max-width) flex-1 flex-col px-4 pt-4">
-            <div data-slot="aui-message-group" className="mb-14 flex flex-col empty:hidden">
-              <Messages />
-            </div>
-            <ThreadPrimitive.ViewportFooter className="thread-footer sticky bottom-0 mt-auto flex flex-col gap-2 overflow-visible bg-background pb-4">
-              <ThreadPrimitive.ScrollToBottom asChild>
-                <TooltipIconButton
-                  tooltip="滚动到底部"
-                  side="top"
-                  variant="outline"
-                  className="absolute -top-12 z-10 self-center rounded-full bg-background shadow-sm disabled:invisible"
-                >
-                  <ArrowDown />
-                </TooltipIconButton>
-              </ThreadPrimitive.ScrollToBottom>
-              <SessionStatus snapshot={snapshot} />
-              <Composer snapshot={snapshot} />
-            </ThreadPrimitive.ViewportFooter>
-          </div>
-        </ThreadPrimitive.Viewport>
+        <VirtualizedThreadSurface sessionKey={sessionKey(snapshot.projectId, snapshot.threadId)} snapshot={snapshot} />
       </ThreadPrimitive.Root>
       <HostRequests snapshot={snapshot} />
     </>

@@ -1,14 +1,11 @@
-.thread-root,
-.thread-viewport {
+.thread-root {
   width: 100%;
   height: 100%;
 }
-.thread-viewport {
-}
-[data-slot="aui-message-group"] > [data-role] + [data-role] {
+[data-slot="aui-turn"] > [data-role] + [data-role] {
   margin-top: 24px;
 }
-[data-slot="aui-message-group"] > [data-role="assistant"] + [data-role="assistant"] {
+[data-slot="aui-turn"] > [data-role="assistant"] + [data-role="assistant"] {
   margin-top: 8px;
 }
 .tool-view {
