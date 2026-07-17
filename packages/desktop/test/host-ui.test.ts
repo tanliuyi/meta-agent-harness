@@ -58,8 +58,16 @@ describe("HostUi", () => {
       workingMessage: "正在检查",
       workingVisible: false,
       editorText: "draft",
+      editorRevision: 1,
       toolsExpanded: true,
       widgets: [{ key: "summary", lines: ["A", "B"], placement: "belowEditor" }],
     });
+
+    host.syncEditorText("typed in Desktop");
+    expect(ui.getEditorText()).toBe("typed in Desktop");
+    expect(host.uiState.editorRevision).toBe(1);
+
+    ui.pasteToEditor(" + extension");
+    expect(host.uiState).toMatchObject({ editorText: "typed in Desktop + extension", editorRevision: 2 });
   });
 });

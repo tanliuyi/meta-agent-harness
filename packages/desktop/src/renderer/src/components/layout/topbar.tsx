@@ -1,10 +1,13 @@
-import { FolderOpen, GitBranch, PanelRight, PanelRightOpen, TerminalSquare } from "lucide-react";
+import { FolderOpen, GitBranch, Minimize2, PanelRight, PanelRightOpen, TerminalSquare } from "lucide-react";
+import { usePiThreadPhase } from "../../runtime/use-pi-thread-snapshot.ts";
 import { useDesktop } from "../../state/desktop-context.tsx";
+import { TooltipIconButton } from "../assistant-ui/tooltip-icon-button.tsx";
 import { Button } from "../ui/button.tsx";
 
 /** 当前 session 的工作台顶栏。 */
 export function Topbar() {
-  const { project, snapshot, workbench, updateWorkbench } = useDesktop();
+  const { project, snapshot, workbench, compactSession, updateWorkbench } = useDesktop();
+  const phase = usePiThreadPhase();
   return (
     <header className="topbar">
       <div className="topbar-title">
@@ -18,6 +21,14 @@ export function Topbar() {
             <GitBranch size={14} /> cwd
           </div>
         ) : null}
+        <TooltipIconButton
+          tooltip="压缩上下文"
+          aria-label="压缩上下文"
+          disabled={!snapshot || phase !== "idle" || snapshot.readiness.state !== "ready"}
+          onClick={() => void compactSession().catch(() => {})}
+        >
+          <Minimize2 size={15} />
+        </TooltipIconButton>
         <Button
           variant="ghost"
           size="icon"

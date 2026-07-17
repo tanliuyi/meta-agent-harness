@@ -1,38 +1,32 @@
-import type {
-  SessionBootstrap,
-  SessionControlState,
-  SessionEventBatch,
-  SessionPushPayload,
-} from "../../../shared/contracts.ts";
-import { applyToolUpdate, clearToolUpdates } from "./tool-status-store.ts";
+import type { SessionBootstrap, SessionControlState, SessionPushPayload } from "../../../shared/contracts.ts";
+import { detachedSnapshot, PiThreadStore } from "./pi-thread-store.ts";
 
-type EventListener = (batch: SessionEventBatch) => void;
 type ControlListener = (control: SessionControlState) => void;
 type ResyncListener = (bootstrap: SessionBootstrap) => void;
 
-/** renderer 内单一 active session 的 Electron transport 分发器。 */
-export class SessionEventBus {
+/** renderer 内单一 active attachment 的 Pi timeline 分发器。 */
+export class PiSessionBus {
+  readonly store = new PiThreadStore();
   private activeKey = "";
-  private eventListener?: EventListener;
   private readonly controlListeners = new Set<ControlListener>();
   private readonly resyncListeners = new Set<ResyncListener>();
   private pendingResync?: Promise<SessionBootstrap>;
 
   async attach(projectId: string, threadId: string): Promise<SessionBootstrap> {
-    const key = sessionKey(projectId, threadId);
-    clearToolUpdates();
-    const bootstrap = await window.desktop.sessions.attach(projectId, threadId, (update) => this.receive(update));
-    this.activeKey = key;
+    return window.desktop.sessions.attach(projectId, threadId, (update) => this.receive(update));
+  }
+
+  commit(bootstrap: SessionBootstrap): void {
+    this.activeKey = sessionKey(bootstrap.projectId, bootstrap.threadId);
+    this.store.replace(bootstrap.timeline);
     for (const listener of this.controlListeners) listener(bootstrap.control);
-    return bootstrap;
   }
 
   detach(): void {
     window.desktop.sessions.detach();
     this.activeKey = "";
-    this.eventListener = undefined;
     this.pendingResync = undefined;
-    clearToolUpdates();
+    this.store.replace(detachedSnapshot());
   }
 
   onControl(listener: ControlListener): () => void {
@@ -45,29 +39,19 @@ export class SessionEventBus {
     return () => this.resyncListeners.delete(listener);
   }
 
-  subscribeEvents(listener: EventListener): () => void {
-    this.eventListener = listener;
-    return () => {
-      if (this.eventListener === listener) this.eventListener = undefined;
-    };
-  }
-
   resync(projectId: string, threadId: string): Promise<SessionBootstrap> {
     const key = sessionKey(projectId, threadId);
     if (this.pendingResync && this.activeKey === key) return this.pendingResync;
     const promise = this.attach(projectId, threadId).then((bootstrap) => {
+      this.commit(bootstrap);
       for (const listener of this.resyncListeners) listener(bootstrap);
       return bootstrap;
     });
     this.pendingResync = promise;
-    void promise.then(
-      () => {
-        if (this.pendingResync === promise) this.pendingResync = undefined;
-      },
-      () => {
-        if (this.pendingResync === promise) this.pendingResync = undefined;
-      },
-    );
+    const clearPending = () => {
+      if (this.pendingResync === promise) this.pendingResync = undefined;
+    };
+    void promise.then(clearPending, clearPending);
     return promise;
   }
 
@@ -76,17 +60,26 @@ export class SessionEventBus {
       for (const listener of this.controlListeners) listener(update.control);
       return;
     }
-    if (update.type === "tool") {
-      applyToolUpdate(update.update);
-      return;
-    }
     if (sessionKey(update.projectId, update.threadId) !== this.activeKey) return;
-    this.eventListener?.(update.batch);
+    try {
+      this.store.apply(update.batch);
+    } catch (error) {
+      const [projectId, threadId] = splitSessionKey(this.activeKey);
+      if (!projectId || !threadId) throw error;
+      void this.resync(projectId, threadId).catch((resyncError: unknown) =>
+        console.error("Pi timeline resync 失败", resyncError),
+      );
+    }
   }
 }
 
-export const sessionEventBus = new SessionEventBus();
+export const piSessionBus = new PiSessionBus();
 
 function sessionKey(projectId: string, threadId: string): string {
-  return `${projectId}:${threadId}`;
+  return `${projectId}\u0000${threadId}`;
+}
+
+function splitSessionKey(key: string): [string, string] {
+  const separator = key.indexOf("\u0000");
+  return separator === -1 ? ["", ""] : [key.slice(0, separator), key.slice(separator + 1)];
 }

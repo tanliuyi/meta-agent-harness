@@ -2,10 +2,11 @@ import { BrowserWindow, dialog, ipcMain } from "electron";
 import { CHANNELS } from "../shared/channels.ts";
 import type {
   HostResponse,
-  SendInput,
   SessionControlState,
   SessionCreateInput,
-  SessionRunInput,
+  SessionEditInput,
+  SessionPromptInput,
+  SessionReloadInput,
   TerminalEvent,
   WorkbenchState,
 } from "../shared/contracts.ts";
@@ -22,6 +23,14 @@ export function registerIpc(
   terminals: TerminalSupervisor,
 ): void {
   const subscribedWebContents = new Set<number>();
+  ipcMain.on(CHANNELS.windowMinimize, (event) => BrowserWindow.fromWebContents(event.sender)?.minimize());
+  ipcMain.on(CHANNELS.windowToggleMaximize, (event) => {
+    const owner = BrowserWindow.fromWebContents(event.sender);
+    if (!owner) return;
+    if (owner.isMaximized()) owner.unmaximize();
+    else owner.maximize();
+  });
+  ipcMain.on(CHANNELS.windowClose, (event) => BrowserWindow.fromWebContents(event.sender)?.close());
   ipcMain.handle(CHANNELS.projectsList, () => projects.list());
   ipcMain.handle(CHANNELS.projectsActive, () => projects.getActive());
   ipcMain.handle(CHANNELS.projectsChoose, async (event) => {
@@ -67,8 +76,9 @@ export function registerIpc(
     await sessions.remove(projectId, threadId);
     terminals.disposeSession(projectId, threadId);
   });
-  ipcMain.handle(CHANNELS.sessionsRun, (_event, input: SessionRunInput) => sessions.run(input));
-  ipcMain.handle(CHANNELS.sessionsEnqueue, (_event, input: SendInput) => sessions.enqueue(input));
+  ipcMain.handle(CHANNELS.sessionsPrompt, (_event, input: SessionPromptInput) => sessions.prompt(input));
+  ipcMain.handle(CHANNELS.sessionsEdit, (_event, input: SessionEditInput) => sessions.edit(input));
+  ipcMain.handle(CHANNELS.sessionsReload, (_event, input: SessionReloadInput) => sessions.reload(input));
   ipcMain.handle(CHANNELS.sessionsCancel, (_event, projectId: string, threadId: string) =>
     sessions.cancel(projectId, threadId),
   );
@@ -87,6 +97,9 @@ export function registerIpc(
     CHANNELS.sessionsSetThinking,
     (_event, projectId: string, threadId: string, level: SessionControlState["thinkingLevel"]) =>
       sessions.setThinking(projectId, threadId, level),
+  );
+  ipcMain.handle(CHANNELS.sessionsSetEditorText, (_event, projectId: string, threadId: string, text: string) =>
+    sessions.setEditorText(projectId, threadId, text),
   );
   ipcMain.handle(CHANNELS.sessionsRespond, (_event, projectId: string, threadId: string, response: HostResponse) =>
     sessions.respond(projectId, threadId, response),

@@ -1,7 +1,8 @@
 import { type RefObject, useCallback, useEffect, useMemo, useReducer, useRef } from "react";
+import { unstable_batchedUpdates } from "react-dom";
 import type { Project, ThinkingLevel, WorkbenchState } from "../../../shared/contracts.ts";
 import { runDraftSubmissionSingleFlight } from "../runtime/draft-session.ts";
-import { sessionEventBus } from "../runtime/session-event-bus.ts";
+import { piSessionBus } from "../runtime/pi-session-bus.ts";
 import type { DesktopThreadActions } from "../runtime/use-pi-runtime.ts";
 import {
   type DesktopContextValue,
@@ -66,7 +67,10 @@ export function useDesktopController(threadActions: RefObject<DesktopThreadActio
         const actions = threadActions.current;
         if (!actions) throw new Error("assistant-ui thread adapter 尚未就绪");
         const prepared = await actions.open(project, threadId);
-        dispatch({ type: "thread-loaded", project, bootstrap: prepared.bootstrap, workbench: prepared.workbench });
+        unstable_batchedUpdates(() => {
+          actions.commit(prepared);
+          dispatch({ type: "thread-loaded", project, bootstrap: prepared.bootstrap, workbench: prepared.workbench });
+        });
       } catch (value) {
         dispatch({ type: "thread-load-failed", projectId: project.id, threadId });
         if (value instanceof DOMException && value.name === "AbortError") return;
@@ -130,7 +134,7 @@ export function useDesktopController(threadActions: RefObject<DesktopThreadActio
     };
   }, [loadProject, report]);
 
-  useEffect(() => sessionEventBus.onControl((control) => dispatch({ type: "control", control })), []);
+  useEffect(() => piSessionBus.onControl((control) => dispatch({ type: "control", control })), []);
   useEffect(
     () => () => {
       void threadActions.current?.detach();
@@ -377,6 +381,27 @@ export function useDesktopController(threadActions: RefObject<DesktopThreadActio
     [activeThreadId, report, state.project, state.workbenches],
   );
 
+  const clearQueue = useCallback(async () => {
+    const actions = threadActions.current;
+    if (!actions) throw new Error("assistant-ui thread adapter 尚未就绪");
+    try {
+      await actions.clearQueue();
+    } catch (value) {
+      report(value);
+      throw value;
+    }
+  }, [report, threadActions]);
+
+  const compactSession = useCallback(async () => {
+    if (!state.project || !activeThreadId) throw new Error("压缩前必须打开 Pi session");
+    try {
+      await window.desktop.sessions.compact(state.project.id, activeThreadId);
+    } catch (value) {
+      report(value);
+      throw value;
+    }
+  }, [activeThreadId, report, state.project]);
+
   const key = state.project && activeThreadId ? sessionKey(state.project.id, activeThreadId) : "";
   const bootstrap =
     state.bootstrap && sessionKey(state.bootstrap.projectId, state.bootstrap.threadId) === key ? state.bootstrap : null;
@@ -408,6 +433,8 @@ export function useDesktopController(threadActions: RefObject<DesktopThreadActio
       renameThread,
       setThreadArchived,
       removeThread,
+      clearQueue,
+      compactSession,
       updateWorkbench,
       clearError: () => dispatch({ type: "error", error: null }),
     }),
@@ -432,6 +459,8 @@ export function useDesktopController(threadActions: RefObject<DesktopThreadActio
       renameThread,
       setThreadArchived,
       removeThread,
+      clearQueue,
+      compactSession,
       updateWorkbench,
     ],
   );

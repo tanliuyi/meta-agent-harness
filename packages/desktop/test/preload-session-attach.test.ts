@@ -7,9 +7,10 @@ import "../src/preload/index.ts";
 
 const electron = vi.hoisted(() => ({
   exposed: undefined as DesktopApi | undefined,
-  listeners: new Map<string, (event: unknown, update: SessionPush) => void>(),
+  listeners: new Map<string, (event: unknown, payload: unknown) => void>(),
   invoke: vi.fn(),
   send: vi.fn(),
+  removeListener: vi.fn(),
 }));
 
 vi.mock("electron", () => ({
@@ -21,14 +22,50 @@ vi.mock("electron", () => ({
   ipcRenderer: {
     invoke: electron.invoke,
     send: electron.send,
-    on: (channel: string, listener: (event: unknown, update: SessionPush) => void) => {
+    on: (channel: string, listener: (event: unknown, payload: unknown) => void) => {
       electron.listeners.set(channel, listener);
     },
-    removeListener: vi.fn(),
+    removeListener: electron.removeListener,
   },
 }));
 
-describe("preload session atomic attach", () => {
+describe("preload desktop bridge", () => {
+  it("映射窗口控制并订阅最大化状态", () => {
+    const api = electron.exposed;
+    if (!api) throw new Error("DesktopApi 未暴露");
+    electron.send.mockReset();
+    electron.removeListener.mockReset();
+    const listener = vi.fn();
+
+    api.windowControls.minimize();
+    api.windowControls.toggleMaximize();
+    api.windowControls.close();
+    const unsubscribe = api.windowControls.onMaximizedChanged(listener);
+    electron.listeners.get(CHANNELS.windowMaximizedChanged)?.({}, true);
+
+    expect(electron.send.mock.calls).toEqual([
+      [CHANNELS.windowMinimize],
+      [CHANNELS.windowToggleMaximize],
+      [CHANNELS.windowClose],
+    ]);
+    expect(listener).toHaveBeenCalledWith(true);
+    unsubscribe();
+    expect(electron.removeListener).toHaveBeenCalledWith(
+      CHANNELS.windowMaximizedChanged,
+      electron.listeners.get(CHANNELS.windowMaximizedChanged),
+    );
+  });
+
+  it("将真实 Composer 文本同步到当前 Pi session", async () => {
+    const api = electron.exposed;
+    if (!api) throw new Error("DesktopApi 未暴露");
+    electron.invoke.mockReset().mockResolvedValue(undefined);
+
+    await api.sessions.setEditorText("project", "thread", "draft");
+
+    expect(electron.invoke).toHaveBeenCalledWith(CHANNELS.sessionsSetEditorText, "project", "thread", "draft");
+  });
+
   it("hydrate 前按 attachment token 缓存 push，并保护新 attachment 不被 stale detach 清理", async () => {
     const api = electron.exposed;
     if (!api) throw new Error("DesktopApi 未暴露");
@@ -107,26 +144,33 @@ function bootstrap(cursor: number, threadId: string): SessionBootstrap {
     protocolVersion: PROTOCOL_VERSION,
     projectId: "project",
     threadId,
-    cursor,
-    messages: [],
-    state: {},
+    timeline: {
+      protocolVersion: PROTOCOL_VERSION,
+      projectId: "project",
+      threadId,
+      cursor,
+      headId: null,
+      nodes: [],
+      queue: [],
+      phase: "idle",
+    },
     control: {
       protocolVersion: PROTOCOL_VERSION,
       revision: 0,
       projectId: "project",
       threadId,
       title: threadId,
+      updatedAt: 0,
       cwd: "/workspace",
       running: false,
-      compacting: false,
-      queue: { steering: [], followUp: [] },
+      queueModes: { steering: "one-at-a-time", followUp: "one-at-a-time" },
       models: [],
       commands: [],
       thinkingLevel: "off",
       thinkingLevels: ["off"],
       readiness: { state: "ready" },
       hostRequests: [],
-      extensionUi: { statuses: {}, workingVisible: true, toolsExpanded: false, widgets: [] },
+      extensionUi: { statuses: {}, workingVisible: true, editorRevision: 0, toolsExpanded: false, widgets: [] },
     },
   };
 }

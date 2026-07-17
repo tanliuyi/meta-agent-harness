@@ -1,10 +1,5 @@
-import type { BaseEvent, Message, RunAgentInput, State } from "@ag-ui/core";
-
 /** Desktop 与 renderer 之间使用的协议版本。 */
-export const PROTOCOL_VERSION = 3;
-
-/** Pi 开始消费排队 user message 时发送的有序 AG-UI 事件名。 */
-export const CONSUMED_USER_MESSAGE_EVENT = "desktop.user-message-consumed";
+export const PROTOCOL_VERSION = 5;
 
 /** 可以安全通过 Electron IPC 传输的 JSON 值。 */
 export type JsonValue = null | boolean | number | string | JsonValue[] | { [key: string]: JsonValue };
@@ -119,8 +114,160 @@ export interface ExtensionUiState {
   hiddenThinkingLabel?: string;
   windowTitle?: string;
   editorText?: string;
+  /** Extension setEditorText/pasteToEditor 的命令序号；renderer 只应用新序号。 */
+  editorRevision: number;
   toolsExpanded: boolean;
   widgets: Array<{ key: string; lines: string[]; placement: "aboveEditor" | "belowEditor" }>;
+}
+
+export type PiThreadPhase = "idle" | "running" | "retrying" | "compacting" | "tree-navigation";
+
+export interface PiTimelineNodeBase {
+  id: string;
+  parentId: string | null;
+  sourceEntryId?: string;
+  createdAt: number;
+  label?: string;
+}
+
+export type PiUserContentPart = { type: "text"; text: string } | { type: "image"; data: string; mimeType: string };
+
+export interface PiUserMessage extends PiTimelineNodeBase {
+  kind: "user";
+  content: PiUserContentPart[];
+  delivery: { state: "live"; requestId?: string; queueId?: string } | { state: "persisted" };
+}
+
+export type PiAssistantStatus =
+  | { type: "running" }
+  | { type: "complete"; reason: "stop" | "unknown" }
+  | { type: "incomplete"; reason: "cancelled" | "length" | "error" | "other"; error?: JsonValue };
+
+export interface PiAssistantProvenance {
+  api: string;
+  provider: string;
+  model: string;
+  responseModel?: string;
+  responseId?: string;
+}
+
+export interface PiAssistantUsage {
+  input: number;
+  output: number;
+  cacheRead: number;
+  cacheWrite: number;
+  cacheWrite1h?: number;
+  reasoning?: number;
+  totalTokens: number;
+  cost: {
+    input: number;
+    output: number;
+    cacheRead: number;
+    cacheWrite: number;
+    total: number;
+  };
+}
+
+export interface PiToolCallPart {
+  id: string;
+  type: "tool-call";
+  toolCallId: string;
+  toolName: string;
+  args: { [key: string]: JsonValue };
+  argsText: string;
+  execution: "streaming-args" | "waiting" | "running" | "complete" | "error";
+  partialResult?: JsonValue;
+  result?: JsonValue;
+  isError?: boolean;
+}
+
+export type PiAssistantPart =
+  | { id: string; type: "text"; text: string }
+  | { id: string; type: "reasoning"; text: string }
+  | PiToolCallPart;
+
+export interface PiAssistantMessage extends PiTimelineNodeBase {
+  kind: "assistant";
+  content: PiAssistantPart[];
+  status: PiAssistantStatus;
+  provenance: PiAssistantProvenance;
+  usage: PiAssistantUsage;
+  diagnostics?: JsonValue;
+}
+
+export type PiNoticeContent =
+  | { type: "text"; text: string }
+  | {
+      type: "command";
+      command: string;
+      output: string;
+      exitCode?: number;
+      cancelled: boolean;
+      truncated: boolean;
+      fullOutputPath?: string;
+      excludeFromContext?: boolean;
+    }
+  | { type: "custom"; customType: string; content: PiUserContentPart[]; details?: JsonValue };
+
+export interface PiNoticeMessage extends PiTimelineNodeBase {
+  kind: "notice";
+  noticeType: "bash" | "custom" | "compaction" | "branch-summary";
+  title: string;
+  content: PiNoticeContent;
+  metadata?: JsonValue;
+}
+
+export type PiTimelineNode = PiUserMessage | PiAssistantMessage | PiNoticeMessage;
+
+export interface PiQueueItem {
+  id: string;
+  mode: "steer" | "followUp";
+  prompt: string;
+  source: "desktop" | "pi-observed";
+  requestId?: string;
+  createdAt?: number;
+}
+
+export interface PiThreadSnapshot {
+  protocolVersion: typeof PROTOCOL_VERSION;
+  projectId: string;
+  threadId: string;
+  cursor: number;
+  headId: string | null;
+  nodes: readonly PiTimelineNode[];
+  queue: readonly PiQueueItem[];
+  phase: PiThreadPhase;
+  activeTurnId?: string;
+}
+
+export type PiThreadEvent =
+  | { type: "phase-changed"; phase: PiThreadPhase; activeTurnId?: string }
+  | { type: "node-added"; node: PiTimelineNode }
+  | { type: "node-rekeyed"; previousId: string; node: PiTimelineNode }
+  | { type: "node-replaced"; node: PiTimelineNode }
+  | { type: "part-added"; messageId: string; part: PiAssistantPart }
+  | { type: "text-delta"; messageId: string; partId: string; delta: string }
+  | { type: "reasoning-delta"; messageId: string; partId: string; delta: string }
+  | { type: "tool-call-replaced"; messageId: string; part: PiToolCallPart }
+  | { type: "message-finished"; message: PiAssistantMessage }
+  | { type: "queue-replaced"; items: readonly PiQueueItem[] }
+  | { type: "branch-replaced"; snapshot: PiThreadSnapshot };
+
+export interface PiThreadEventEnvelope {
+  protocolVersion: typeof PROTOCOL_VERSION;
+  projectId: string;
+  threadId: string;
+  sequence: number;
+  event: PiThreadEvent;
+}
+
+export interface PiThreadEventBatch {
+  protocolVersion: typeof PROTOCOL_VERSION;
+  projectId: string;
+  threadId: string;
+  fromSequence: number;
+  toSequence: number;
+  events: readonly PiThreadEventEnvelope[];
 }
 
 /** 低频更新的 Pi 会话控制面，不携带消息历史。 */
@@ -130,11 +277,12 @@ export interface SessionControlState {
   projectId: string;
   threadId: string;
   title: string;
+  updatedAt: number;
   cwd: string;
+  /** 仅供 thread catalog 展示；active runtime 必须读取 PiThreadSnapshot.phase。 */
   running: boolean;
-  compacting: boolean;
   retry?: { attempt: number; maxAttempts: number; message: string };
-  queue: { steering: string[]; followUp: string[] };
+  queueModes: { steering: "all" | "one-at-a-time"; followUp: "all" | "one-at-a-time" };
   model?: { provider: string; id: string; name: string };
   models: ModelOption[];
   commands: SlashCommand[];
@@ -147,19 +295,13 @@ export interface SessionControlState {
   extensionUi: ExtensionUiState;
 }
 
-/** renderer 建立或恢复 AG-UI runtime 所需的权威基线。 */
+/** renderer attach 所需的权威 Pi timeline 与低频控制基线。 */
 export interface SessionBootstrap {
   protocolVersion: typeof PROTOCOL_VERSION;
   projectId: string;
   threadId: string;
-  cursor: number;
+  timeline: PiThreadSnapshot;
   control: SessionControlState;
-  messages: Message[];
-  state: State;
-  activeRun?: {
-    runId: string;
-    events: BaseEvent[];
-  };
 }
 
 /** main 原子建立窗口订阅后返回的 session 基线。 */
@@ -169,59 +311,46 @@ export interface SessionAttachment {
   bootstrap: SessionBootstrap;
 }
 
-/** Electron 传输层为单个 AG-UI 事件补充的顺序信息。 */
-export interface SessionEventEnvelope {
-  protocolVersion: typeof PROTOCOL_VERSION;
-  projectId: string;
-  threadId: string;
-  runId?: string;
-  sequence: number;
-  event: BaseEvent;
-}
-
-/** 一个 session 在单个渲染帧内产生的有序 AG-UI 事件。 */
-export interface SessionEventBatch {
-  protocolVersion: typeof PROTOCOL_VERSION;
-  projectId: string;
-  threadId: string;
-  fromSequence: number;
-  toSequence: number;
-  events: SessionEventEnvelope[];
-}
-
-/** AG-UI 标准 tool result 之外的 Desktop 展示状态。 */
-export interface SessionToolUpdate {
-  toolCallId: string;
-  status: "running" | "complete" | "error";
-  result?: string;
-}
-
 /** main 定向推送给当前 session renderer 的数据。 */
 export type SessionPushPayload =
   | { type: "control"; projectId: string; threadId: string; control: SessionControlState }
-  | { type: "tool"; projectId: string; threadId: string; update: SessionToolUpdate }
-  | { type: "events"; projectId: string; threadId: string; batch: SessionEventBatch };
+  | { type: "timeline"; projectId: string; threadId: string; batch: PiThreadEventBatch };
 
 /** main 到 preload 的定向推送；attachmentId 隔离快速切换产生的迟到事件。 */
 export type SessionPush = SessionPushPayload & { attachmentId: string };
 
-/** 发送消息时的运行模式。 */
-export type SendMode = "steer" | "followUp";
-
-/** 发送给 Pi 的消息。 */
-export interface SendInput {
+/** 所有 Composer 输入统一交给 Pi prompt()。 */
+export interface SessionPromptInput {
+  requestId: string;
   projectId: string;
   threadId: string;
   text: string;
-  mode: SendMode;
   images: ImageInput[];
+  desiredMode?: "steer" | "followUp";
 }
 
-/** assistant-ui 官方 runtime 发起的新 AG-UI run。 */
-export interface SessionRunInput {
+export interface SessionEditInput extends SessionPromptInput {
+  sourceId: string;
+}
+
+export interface SessionReloadInput {
+  requestId: string;
   projectId: string;
   threadId: string;
-  input: RunAgentInput;
+  parentId: string | null;
+}
+
+export interface SessionCommandResult {
+  /** Pi preflight 已接受输入；后续 provider/tool error 不得触发 renderer 重发。 */
+  accepted: boolean;
+  /** Desktop 在 command 返回时是否观察到该 request 仍位于 Pi queue。 */
+  queued: boolean;
+  error?: string;
+}
+
+export interface ClearedQueue {
+  steering: string[];
+  followUp: string[];
 }
 
 /** Project 下的文件树节点。 */

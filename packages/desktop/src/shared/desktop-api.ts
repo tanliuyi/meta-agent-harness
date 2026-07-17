@@ -1,14 +1,17 @@
 import type {
+  ClearedQueue,
   DraftSessionConfig,
   FileNode,
   HostResponse,
   Project,
-  SendInput,
   SessionBootstrap,
+  SessionCommandResult,
   SessionControlState,
   SessionCreateInput,
+  SessionEditInput,
+  SessionPromptInput,
   SessionPushPayload,
-  SessionRunInput,
+  SessionReloadInput,
   TerminalEvent,
   TerminalSnapshot,
   TextFile,
@@ -22,6 +25,12 @@ export interface DesktopApi {
     electron: string;
     chrome: string;
     node: string;
+  };
+  windowControls: {
+    minimize(): void;
+    toggleMaximize(): void;
+    close(): void;
+    onMaximizedChanged(listener: (maximized: boolean) => void): () => void;
   };
   projects: {
     list(): Promise<Project[]>;
@@ -44,13 +53,15 @@ export interface DesktopApi {
     rename(projectId: string, threadId: string, title: string): Promise<void>;
     archive(projectId: string, threadId: string, archived: boolean): Promise<void>;
     remove(projectId: string, threadId: string): Promise<void>;
-    run(input: SessionRunInput): Promise<void>;
-    enqueue(input: SendInput): Promise<void>;
+    prompt(input: SessionPromptInput): Promise<SessionCommandResult>;
+    edit(input: SessionEditInput): Promise<SessionCommandResult>;
+    reload(input: SessionReloadInput): Promise<SessionCommandResult>;
     cancel(projectId: string, threadId: string): Promise<void>;
-    clearQueue(projectId: string, threadId: string): Promise<string[]>;
+    clearQueue(projectId: string, threadId: string): Promise<ClearedQueue>;
     compact(projectId: string, threadId: string): Promise<void>;
     setModel(projectId: string, threadId: string, provider: string, modelId: string): Promise<void>;
     setThinking(projectId: string, threadId: string, level: SessionControlState["thinkingLevel"]): Promise<void>;
+    setEditorText(projectId: string, threadId: string, text: string): Promise<void>;
     respond(projectId: string, threadId: string, response: HostResponse): Promise<void>;
   };
   files: {

@@ -11,17 +11,16 @@ import {
   Wrench,
   X,
 } from "lucide-react";
-import { useToolUpdate } from "../../runtime/tool-status-store.ts";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "../ui/collapsible.tsx";
 import { ToolContent } from "./tools/tool-content.tsx";
 
 /** 按 Pi 原生工具类型渲染紧凑工具状态。 */
-export function ToolView({ toolCallId, toolName, args, result, status }: ToolCallMessagePartProps) {
+export function ToolView({ toolName, args, result, status, artifact, isError }: ToolCallMessagePartProps) {
   const view = toolView(toolName);
-  const update = useToolUpdate(toolCallId);
-  const running = update ? update.status === "running" : status.type === "running";
-  const error = update ? update.status === "error" : status.type === "incomplete";
-  const displayedResult = update?.result ?? result;
+  const execution = toolArtifact(artifact)?.execution;
+  const running = execution === "streaming-args" || execution === "waiting" || execution === "running";
+  const error = isError === true || execution === "error" || status.type === "incomplete";
+  const displayedResult = result ?? toolArtifact(artifact)?.partialResult;
 
   return (
     <Collapsible className="tool-view">
@@ -41,6 +40,13 @@ export function ToolView({ toolCallId, toolName, args, result, status }: ToolCal
       </CollapsibleContent>
     </Collapsible>
   );
+}
+
+function toolArtifact(value: unknown): { execution?: string; partialResult?: unknown } | undefined {
+  if (!value || typeof value !== "object") return undefined;
+  const execution = "execution" in value && typeof value.execution === "string" ? value.execution : undefined;
+  const partialResult = "partialResult" in value ? value.partialResult : undefined;
+  return { execution, partialResult };
 }
 
 function toolView(name: string): { label: string; icon: React.ReactNode } {

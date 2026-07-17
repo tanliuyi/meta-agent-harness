@@ -1,36 +1,42 @@
 import { ActionBarPrimitive, AuiIf, ErrorPrimitive, MessagePrimitive, useAuiState } from "@assistant-ui/react";
-import { Check, Copy } from "lucide-react";
+import { Check, Copy, RotateCcw } from "lucide-react";
 import { type ReactNode, useMemo } from "react";
 import { ReasoningContent, ReasoningRoot, ReasoningText, ReasoningTrigger } from "../../assistant-ui/reasoning.tsx";
 import { StreamdownText } from "../../assistant-ui/streamdown-text.tsx";
 import { TooltipIconButton } from "../../assistant-ui/tooltip-icon-button.tsx";
-import { createProcessGroupBy, hasFinalResponseText, summarizeChainOfThought } from "../message-part-grouping.ts";
+import { groupMessagePart, summarizeChainOfThought } from "../message-part-grouping.ts";
+import { PiNoticeView } from "../pi-notice-view.tsx";
 import { ToolView } from "../tool-view.tsx";
 
 export function AssistantMessage() {
   const messageParts = useAuiState((state) => state.message.parts);
   const isMessageRunning = useAuiState((state) => state.message.status?.type === "running");
-  const hasFinalText = useMemo(() => hasFinalResponseText(messageParts), [messageParts]);
-  const groupParts = useMemo(
-    () => createProcessGroupBy(messageParts, isMessageRunning),
-    [isMessageRunning, messageParts],
-  );
+  const isPersistedPiAssistant = useAuiState((state) => {
+    const pi = state.message.metadata.custom.pi;
+    return (
+      pi !== null &&
+      typeof pi === "object" &&
+      "kind" in pi &&
+      pi.kind === "assistant" &&
+      "sourceEntryId" in pi &&
+      typeof pi.sourceEntryId === "string" &&
+      !state.message.metadata.isOptimistic
+    );
+  });
+  const hasCopyableText = useMemo(() => {
+    const lastPart = messageParts.at(-1);
+    return lastPart?.type === "text" && lastPart.text.trim().length > 0;
+  }, [messageParts]);
   return (
     <MessagePrimitive.Root
       data-slot="aui-assistant-message-root"
       data-role="assistant"
       className="fade-in slide-in-from-bottom-1 animate-in relative -mb-7 pb-7 duration-150 [contain-intrinsic-size:auto_200px] [content-visibility:auto]"
     >
-      <div className="flex flex-col gap-2 text-sm leading-relaxed text-foreground wrap-break-word">
-        <MessagePrimitive.GroupedParts groupBy={groupParts}>
+      <div className="flex flex-col gap-3 text-sm leading-relaxed text-foreground wrap-break-word">
+        <MessagePrimitive.GroupedParts groupBy={groupMessagePart}>
           {({ part, children }) => {
             switch (part.type) {
-              case "group-process":
-                return (
-                  <ProcessGroup running={isMessageRunning} hasFinalText={hasFinalText}>
-                    {children}
-                  </ProcessGroup>
-                );
               case "group-chainOfThought": {
                 const isLatestGroup = part.indices.at(-1) === messageParts.length - 1;
                 const running = part.status.type === "running" || (isMessageRunning && isLatestGroup);
@@ -46,7 +52,7 @@ export function AssistantMessage() {
               case "tool-call":
                 return part.toolUI ?? <ToolView {...part} />;
               case "data":
-                return part.dataRendererUI;
+                return part.name === "pi-notice" ? <PiNoticeView data={part.data} /> : part.dataRendererUI;
               case "indicator":
                 return (
                   <span className="animate-pulse text-muted-foreground" aria-label="Assistant 正在工作">
@@ -64,31 +70,36 @@ export function AssistantMessage() {
           </ErrorPrimitive.Root>
         </MessagePrimitive.Error>
       </div>
-      <AuiIf
-        condition={(state) => {
-          const lastPart = state.message.parts.at(-1);
-          return lastPart?.type === "text" && lastPart.text.trim().length > 0;
-        }}
-      >
+      {isPersistedPiAssistant && hasCopyableText ? (
         <div className="flex min-h-7 items-center pt-1">
           <ActionBarPrimitive.Root
             hideWhenRunning
             autohide="not-last"
             className="animate-in fade-in flex gap-1 text-muted-foreground duration-200"
           >
-            <ActionBarPrimitive.Copy asChild>
-              <TooltipIconButton tooltip="复制消息" side="top">
-                <AuiIf condition={(state) => state.message.isCopied}>
-                  <Check className="animate-in zoom-in-50 fade-in" />
-                </AuiIf>
-                <AuiIf condition={(state) => !state.message.isCopied}>
-                  <Copy className="animate-in zoom-in-75 fade-in" />
-                </AuiIf>
-              </TooltipIconButton>
-            </ActionBarPrimitive.Copy>
+            {hasCopyableText ? (
+              <ActionBarPrimitive.Copy asChild>
+                <TooltipIconButton tooltip="复制消息" side="top">
+                  <AuiIf condition={(state) => state.message.isCopied}>
+                    <Check className="animate-in zoom-in-50 fade-in" />
+                  </AuiIf>
+                  <AuiIf condition={(state) => !state.message.isCopied}>
+                    <Copy className="animate-in zoom-in-75 fade-in" />
+                  </AuiIf>
+                </TooltipIconButton>
+              </ActionBarPrimitive.Copy>
+            ) : null}
+            {/* 产品约束：非最终回复不展示入口；assistant-ui reload 链路保持注册。 */}
+            <AuiIf condition={(state) => state.message.isLast && state.message.status?.type === "complete"}>
+              <ActionBarPrimitive.Reload asChild>
+                <TooltipIconButton tooltip="重新生成" side="top">
+                  <RotateCcw />
+                </TooltipIconButton>
+              </ActionBarPrimitive.Reload>
+            </AuiIf>
           </ActionBarPrimitive.Root>
         </div>
-      </AuiIf>
+      ) : null}
     </MessagePrimitive.Root>
   );
 }
@@ -104,35 +115,10 @@ function ChainOfThoughtGroup({
 }) {
   const label = useAuiState((state) => summarizeChainOfThought(state.message.parts, indices));
   return (
-    <ReasoningRoot variant="ghost">
+    <ReasoningRoot variant="ghost" streaming={running}>
       <ReasoningTrigger label={label} active={running} />
       <ReasoningContent className="text-foreground" aria-busy={running}>
         <ReasoningText>{children}</ReasoningText>
-      </ReasoningContent>
-    </ReasoningRoot>
-  );
-}
-
-function ProcessGroup({
-  running,
-  hasFinalText,
-  children,
-}: {
-  running: boolean;
-  hasFinalText: boolean;
-  children: ReactNode;
-}) {
-  const label = running ? "正在处理" : "已处理";
-  return (
-    <ReasoningRoot variant="ghost" autoOpen={running || !hasFinalText} streaming={running}>
-      <ReasoningTrigger
-        label={label}
-        active={running}
-        disabled={running}
-        className="w-full max-w-none border-b border-border/60 pb-2.5"
-      />
-      <ReasoningContent className="text-foreground" aria-busy={running}>
-        <ReasoningText className="mt-3 max-h-[none] overflow-visible p-0 text-foreground">{children}</ReasoningText>
       </ReasoningContent>
     </ReasoningRoot>
   );

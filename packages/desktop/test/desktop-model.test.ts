@@ -69,8 +69,25 @@ describe("desktop reducer", () => {
     state = desktopReducer(state, { type: "control", control: createControl(2, "过期版本") });
 
     expect(state.controls["project:thread"]?.title).toBe("第三版");
-    expect(state.bootstrap?.messages).toEqual([]);
+    expect(state.bootstrap?.timeline.nodes).toEqual([]);
     expect(state.threadCatalogs[project.id]?.[0]?.title).toBe("第三版");
+  });
+
+  it("control 更新活动时间后按最近活动顺序重排 threads", () => {
+    const newerThread = { ...thread, id: "newer-thread", updatedAt: 2 };
+    let state = desktopReducer(INITIAL_STATE, {
+      type: "project-loaded",
+      project,
+      threads: [newerThread, thread],
+    });
+
+    state = desktopReducer(state, {
+      type: "control",
+      control: { ...createControl(1, thread.title), updatedAt: 3 },
+    });
+
+    expect(state.threadCatalogs[project.id]?.map(({ id }) => id)).toEqual([thread.id, newerThread.id]);
+    expect(state.threadCatalogs[project.id]?.[0]?.updatedAt).toBe(3);
   });
 
   it("thread 加载开始时乐观切换 navigation，并在失败后恢复原选择", () => {
@@ -490,10 +507,17 @@ function createBootstrap(revision: number, title: string, cursor = 0, threadId =
     protocolVersion: PROTOCOL_VERSION,
     projectId: project.id,
     threadId,
-    cursor,
+    timeline: {
+      protocolVersion: PROTOCOL_VERSION,
+      projectId: project.id,
+      threadId,
+      cursor,
+      headId: null,
+      nodes: [],
+      queue: [],
+      phase: "idle",
+    },
     control: { ...createControl(revision, title), threadId },
-    messages: [],
-    state: {},
   };
 }
 
@@ -504,17 +528,17 @@ function createControl(revision: number, title: string): SessionControlState {
     projectId: project.id,
     threadId: thread.id,
     title,
+    updatedAt: thread.updatedAt,
     cwd: project.cwd,
     running: false,
-    compacting: false,
-    queue: { steering: [], followUp: [] },
+    queueModes: { steering: "one-at-a-time", followUp: "one-at-a-time" },
     models: [],
     commands: [],
     thinkingLevel: "off",
     thinkingLevels: ["off"],
     readiness: { state: "missing-model" },
     hostRequests: [],
-    extensionUi: { statuses: {}, workingVisible: true, toolsExpanded: false, widgets: [] },
+    extensionUi: { statuses: {}, workingVisible: true, editorRevision: 0, toolsExpanded: false, widgets: [] },
   };
 }
 

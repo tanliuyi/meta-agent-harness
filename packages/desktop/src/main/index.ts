@@ -1,6 +1,7 @@
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { app, BrowserWindow } from "electron";
+import { app, BrowserWindow, Menu } from "electron";
+import { CHANNELS } from "../shared/channels.ts";
 import { FileService } from "./files/file-service.ts";
 import { broadcastTerminalEvent, registerIpc } from "./ipc.ts";
 import { SessionSupervisor } from "./pi/session-supervisor.ts";
@@ -23,6 +24,7 @@ function createWindow(): void {
     minWidth: 1024,
     minHeight: 680,
     show: false,
+    frame: false,
     backgroundColor: "#ffffff",
     webPreferences: {
       preload: join(appDir, "../preload/index.cjs"),
@@ -33,8 +35,21 @@ function createWindow(): void {
   });
 
   window.once("ready-to-show", () => window.show());
+  window.on("maximize", () => window.webContents.send(CHANNELS.windowMaximizedChanged, true));
+  window.on("unmaximize", () => window.webContents.send(CHANNELS.windowMaximizedChanged, false));
   window.webContents.on("preload-error", (_event, path, error) => {
     console.error(`Preload 加载失败: ${path}`, error);
+  });
+  window.webContents.on("before-input-event", (event, input) => {
+    if (input.type !== "keyDown" || !input.control || input.alt || input.meta) return;
+    const key = input.key.toLowerCase();
+    if (key === "r" && !input.shift) {
+      event.preventDefault();
+      window.webContents.reload();
+    } else if (key === "i" && input.shift) {
+      event.preventDefault();
+      window.webContents.toggleDevTools();
+    }
   });
   window.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
 
@@ -43,6 +58,7 @@ function createWindow(): void {
 }
 
 app.whenReady().then(async () => {
+  Menu.setApplicationMenu(null);
   const projects = new ProjectStore(join(app.getPath("userData"), "desktop-state.json"));
   await projects.load();
   sessions = new SessionSupervisor(projects);

@@ -1,9 +1,9 @@
 # Desktop AG-UI 集成规范
 
-状态：Implemented  
-最后更新：2026-07-15
+状态：Superseded
+最后更新：2026-07-17
 
-> Thread 切换、active run 恢复和 Electron 订阅原子性已由 [Desktop assistant-ui Thread Adapter 与原子 Attach 规范](./assistant-ui-thread-attach-spec.md) 取代。本规范后续只作为 Pi -> AG-UI 映射、控制面和 catalog/runtime 基础规范。
+> 本规范中的 AG-UI 消息数据面、`PiAgUiAdapter`、`ElectronPiAgent` 和 active-run replay 已由 [Desktop Pi-native assistant-ui External Store Runtime 规范](./pi-native-assistant-ui-runtime-spec.md) 取代。本文仅保留历史决策背景，不再作为实现依据。
 
 ## 1. 背景
 

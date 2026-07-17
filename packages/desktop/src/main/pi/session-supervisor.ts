@@ -4,16 +4,19 @@ import { rm } from "node:fs/promises";
 import { dirname } from "node:path";
 import { type SessionInfo, SessionManager } from "@earendil-works/pi-coding-agent";
 import type {
+  ClearedQueue,
   DraftSessionConfig,
   HostResponse,
-  SendInput,
   SessionAttachment,
   SessionBootstrap,
+  SessionCommandResult,
   SessionControlState,
   SessionCreateInput,
+  SessionEditInput,
+  SessionPromptInput,
   SessionPush,
   SessionPushPayload,
-  SessionRunInput,
+  SessionReloadInput,
   Thread,
 } from "../../shared/contracts.ts";
 import type { ProjectStore } from "../store/project-store.ts";
@@ -105,19 +108,23 @@ export class SessionSupervisor {
     }
   }
 
-  async run(request: SessionRunInput): Promise<void> {
-    await (await this.requireRuntime(request.projectId, request.threadId)).run(request.input);
+  async prompt(input: SessionPromptInput): Promise<SessionCommandResult> {
+    return (await this.requireRuntime(input.projectId, input.threadId)).prompt(input);
   }
 
-  async enqueue(input: SendInput): Promise<void> {
-    await (await this.requireRuntime(input.projectId, input.threadId)).enqueue(input);
+  async edit(input: SessionEditInput): Promise<SessionCommandResult> {
+    return (await this.requireRuntime(input.projectId, input.threadId)).edit(input);
+  }
+
+  async reload(input: SessionReloadInput): Promise<SessionCommandResult> {
+    return (await this.requireRuntime(input.projectId, input.threadId)).reload(input);
   }
 
   async cancel(projectId: string, threadId: string): Promise<void> {
     await (await this.requireRuntime(projectId, threadId)).cancel();
   }
 
-  async clearQueue(projectId: string, threadId: string): Promise<string[]> {
+  async clearQueue(projectId: string, threadId: string): Promise<ClearedQueue> {
     return (await this.requireRuntime(projectId, threadId)).clearQueue();
   }
 
@@ -131,6 +138,10 @@ export class SessionSupervisor {
 
   async setThinking(projectId: string, threadId: string, level: SessionControlState["thinkingLevel"]): Promise<void> {
     (await this.requireRuntime(projectId, threadId)).setThinking(level);
+  }
+
+  async setEditorText(projectId: string, threadId: string, text: string): Promise<void> {
+    (await this.requireRuntime(projectId, threadId)).setEditorText(text);
   }
 
   async rename(projectId: string, threadId: string, title: string): Promise<void> {
@@ -308,7 +319,7 @@ export class SessionSupervisor {
   private publish(update: SessionPushPayload): void {
     for (const subscription of this.subscriptions.values()) {
       const isActiveSession = subscription.projectId === update.projectId && subscription.threadId === update.threadId;
-      if (update.type !== "control" && !isActiveSession) continue;
+      if (update.type === "timeline" && !isActiveSession) continue;
       subscription.send({ ...update, attachmentId: subscription.attachmentId });
     }
   }

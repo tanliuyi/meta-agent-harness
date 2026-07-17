@@ -1,15 +1,14 @@
 import type { PartState } from "@assistant-ui/react";
 import { describe, expect, it } from "vitest";
 import {
-  createProcessGroupBy,
-  hasFinalResponseText,
+  groupMessagePart,
   summarizeChainOfThought,
 } from "../src/renderer/src/components/chat/message-part-grouping.ts";
 
 const COMPLETE = { type: "complete" } as const;
 
 describe("message part grouping", () => {
-  it("运行中将过程 text 与相邻 reasoning/tool 纳入外层过程组", () => {
+  it("仅将 reasoning 与 tool 纳入思考过程组", () => {
     const parts = [
       { type: "reasoning", text: "分析", status: COMPLETE },
       { type: "reasoning", text: "补充分析", status: COMPLETE },
@@ -19,49 +18,29 @@ describe("message part grouping", () => {
       { type: "tool-call", toolCallId: "tool-2", toolName: "write", args: {}, status: COMPLETE },
     ] satisfies PartState[];
 
-    const groupBy = createProcessGroupBy(parts, true);
-    expect(parts.map((part) => groupBy(part, {}))).toEqual([
-      ["group-process", "group-chainOfThought"],
-      ["group-process", "group-chainOfThought"],
-      ["group-process", "group-chainOfThought"],
-      ["group-process"],
-      ["group-process", "group-chainOfThought"],
-      ["group-process", "group-chainOfThought"],
+    expect(parts.map((part) => groupMessagePart(part, {}))).toEqual([
+      ["group-chainOfThought"],
+      ["group-chainOfThought"],
+      ["group-chainOfThought"],
+      [],
+      ["group-chainOfThought"],
+      ["group-chainOfThought"],
     ]);
   });
 
-  it("run_end 后仅将最后一段非空 text 留在过程组外", () => {
+  it("不区分中间 text 与最终 text，均保持直接展示", () => {
     const parts = [
       { type: "reasoning", text: "分析", status: COMPLETE },
       { type: "text", text: "阶段说明", status: COMPLETE },
       { type: "tool-call", toolCallId: "tool", toolName: "read", args: {}, status: COMPLETE },
       { type: "text", text: "最终回复", status: COMPLETE },
     ] satisfies PartState[];
-    const groupBy = createProcessGroupBy(parts, false);
-
-    expect(parts.map((part) => groupBy(part, {}))).toEqual([
-      ["group-process", "group-chainOfThought"],
-      ["group-process"],
-      ["group-process", "group-chainOfThought"],
+    expect(parts.map((part) => groupMessagePart(part, {}))).toEqual([
+      ["group-chainOfThought"],
+      [],
+      ["group-chainOfThought"],
       [],
     ]);
-    expect(hasFinalResponseText(parts)).toBe(true);
-  });
-
-  it("run_end 后没有最终 text 时保持整个过程组", () => {
-    const parts = [
-      { type: "text", text: "阶段说明", status: COMPLETE },
-      { type: "tool-call", toolCallId: "tool", toolName: "read", args: {}, status: COMPLETE },
-      { type: "text", text: "", status: COMPLETE },
-    ] satisfies PartState[];
-    const groupBy = createProcessGroupBy(parts, false);
-
-    expect(parts.map((part) => groupBy(part, {}))).toEqual([
-      ["group-process"],
-      ["group-process", "group-chainOfThought"],
-      ["group-process"],
-    ]);
-    expect(hasFinalResponseText(parts)).toBe(false);
   });
 
   it("按工具语义去重汇总折叠标题", () => {

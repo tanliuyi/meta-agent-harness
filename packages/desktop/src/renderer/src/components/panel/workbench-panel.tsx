@@ -1,5 +1,6 @@
 import { Files, ListTodo, PanelRightClose, Plus, TerminalSquare } from "lucide-react";
 import { Suspense } from "react";
+import { usePiQueueCount, usePiThreadPhase } from "../../runtime/use-pi-thread-snapshot.ts";
 import { useDesktop } from "../../state/desktop-context.tsx";
 import { Button } from "../ui/button.tsx";
 import { useResize } from "../ui/use-resize.ts";
@@ -95,6 +96,8 @@ function TerminalPanel() {
 
 function TaskPanel() {
   const { snapshot } = useDesktop();
+  const phase = usePiThreadPhase();
+  const queueCount = usePiQueueCount();
   if (!snapshot) return null;
   return (
     <div className="task-panel">
@@ -102,7 +105,7 @@ function TaskPanel() {
       <dl>
         <div>
           <dt>运行</dt>
-          <dd>{snapshot.running ? "进行中" : "空闲"}</dd>
+          <dd>{phase === "idle" ? "空闲" : "进行中"}</dd>
         </div>
         <div>
           <dt>上下文</dt>
@@ -114,11 +117,11 @@ function TaskPanel() {
         </div>
         <div>
           <dt>队列</dt>
-          <dd>{snapshot.queue.steering.length + snapshot.queue.followUp.length}</dd>
+          <dd>{queueCount}</dd>
         </div>
         <div>
           <dt>压缩</dt>
-          <dd>{snapshot.compacting ? "进行中" : "空闲"}</dd>
+          <dd>{phase === "compacting" ? "进行中" : "空闲"}</dd>
         </div>
       </dl>
       {Object.keys(snapshot.extensionUi.statuses).length > 0 ? (

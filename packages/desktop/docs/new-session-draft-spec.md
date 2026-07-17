@@ -3,6 +3,8 @@
 状态：Implemented
 最后更新：2026-07-16
 
+> 本规范的 renderer-only draft、显式 Project/model/thinking 选择和“首次有效提交才创建 Pi session”产品语义继续有效。文中的 `ElectronPiAgent`、AG-UI run、attach/replay 和 transport 实施细节已由 [Desktop Pi-native assistant-ui External Store Runtime 规范](./pi-native-assistant-ui-runtime-spec.md) 取代，不再作为实现依据。
+
 ## 1. 背景
 
 当前 Desktop 把“点击新建任务”和“创建 Pi session”视为同一个动作：

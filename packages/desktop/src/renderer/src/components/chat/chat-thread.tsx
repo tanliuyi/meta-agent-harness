@@ -61,13 +61,13 @@ export function ChatThread() {
       >
         <ThreadPrimitive.Viewport
           ref={viewportRef}
-          turnAnchor="top"
+          turnAnchor="bottom"
           scrollToBottomOnThreadSwitch={false}
           data-slot="aui_thread-viewport"
           className="relative flex flex-1 flex-col overflow-x-auto overflow-y-scroll scroll-smooth"
         >
           <div ref={contentRef} className="mx-auto flex w-full max-w-(--thread-max-width) flex-1 flex-col px-4 pt-4">
-            <div data-slot="aui_message-group" className="mb-14 flex flex-col gap-y-6 empty:hidden">
+            <div data-slot="aui_message-group" className="mb-14 flex flex-col  empty:hidden">
               <Messages />
             </div>
             <ThreadPrimitive.ViewportFooter className="aui-thread-viewport-footer sticky bottom-0 mt-auto flex flex-col gap-2 overflow-visible rounded-t-(--composer-radius) bg-background pb-4">
@@ -82,7 +82,7 @@ export function ChatThread() {
                 </TooltipIconButton>
               </ThreadPrimitive.ScrollToBottom>
               <SessionStatus snapshot={snapshot} />
-              <Composer mode="session" snapshot={snapshot} />
+              <Composer mode="session" snapshot={snapshot} onClearQueue={desktop.clearQueue} />
             </ThreadPrimitive.ViewportFooter>
           </div>
         </ThreadPrimitive.Viewport>

@@ -1,14 +1,14 @@
 import type { AgentSession, AgentSessionEvent } from "@earendil-works/pi-coding-agent";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { SessionRuntime } from "../src/main/pi/session-runtime.ts";
+import { PiTimelineUnavailableError, SessionRuntime } from "../src/main/pi/session-runtime.ts";
 
 const mocks = vi.hoisted(() => ({
   createAgentSession: vi.fn(),
   resolveSelection: vi.fn(),
-  listener: undefined as ((event: AgentSessionEvent) => void) | undefined,
 }));
 
 vi.mock("@earendil-works/pi-coding-agent", () => ({
+  VERSION: "0.80.7",
   createAgentSession: mocks.createAgentSession,
 }));
 
@@ -37,20 +37,8 @@ vi.mock("../src/main/pi/host-ui.ts", () => ({
   },
 }));
 
-vi.mock("../src/main/pi/pi-ag-ui-adapter.ts", () => ({
-  PiAgUiAdapter: class {
-    readonly currentSequence = 0;
-    readonly activeRunBootstrap = undefined;
-
-    handle() {}
-
-    dispose() {}
-  },
-}));
-
-describe("SessionRuntime summary", () => {
+describe("SessionRuntime Pi-native commands", () => {
   beforeEach(() => {
-    mocks.listener = undefined;
     mocks.createAgentSession.mockReset();
     mocks.resolveSelection.mockReset();
   });
@@ -72,7 +60,7 @@ describe("SessionRuntime summary", () => {
     expect(mocks.createAgentSession).toHaveBeenCalledWith(expect.objectContaining({ model, thinkingLevel: "high" }));
   });
 
-  it("首条用户消息替换新会话占位标题并立即推送 control", async () => {
+  it("所有 Composer 输入直接交给 session.prompt，并立即更新首条标题", async () => {
     const session = createSession();
     const push = vi.fn();
     mocks.createAgentSession.mockResolvedValue({ session });
@@ -82,45 +70,132 @@ describe("SessionRuntime summary", () => {
       push,
       onSummaryChanged: () => {},
     });
-    const message: AgentSession["messages"][number] = {
-      role: "user",
-      content: "第一条问题",
-      timestamp: 1,
-    };
-    session.messages.push(message);
 
-    mocks.listener?.({ type: "message_end", message });
+    await runtime.prompt({
+      requestId: "request",
+      projectId: "project",
+      threadId: "thread",
+      text: "/extension arg",
+      images: [],
+    });
 
-    expect(runtime.threadSummary(false).title).toBe("第一条问题");
-    expect(push).toHaveBeenCalledWith(
-      expect.objectContaining({ type: "control", control: expect.objectContaining({ title: "第一条问题" }) }),
+    expect(session.prompt).toHaveBeenCalledWith(
+      "/extension arg",
+      expect.objectContaining({ source: "interactive", expandPromptTemplates: true }),
     );
+    expect(runtime.threadSummary(false).title).toBe("/extension arg");
+    expect(push).toHaveBeenCalledWith(
+      expect.objectContaining({ type: "control", control: expect.objectContaining({ title: "/extension arg" }) }),
+    );
+    await runtime.dispose();
+  });
+
+  it("配置 queue 后的 running prompt 仍走 prompt streamingBehavior", async () => {
+    const session = createSession(true);
+    mocks.createAgentSession.mockResolvedValue({ session });
+    const runtime = await SessionRuntime.create({
+      projectId: "project",
+      cwd: "/workspace",
+      push: () => {},
+      onSummaryChanged: () => {},
+    });
+
+    await runtime.prompt({
+      requestId: "request",
+      projectId: "project",
+      threadId: "thread",
+      text: "follow",
+      images: [],
+      desiredMode: "steer",
+    });
+
+    expect(session.prompt).toHaveBeenCalledWith("follow", expect.objectContaining({ streamingBehavior: "steer" }));
+    await runtime.dispose();
+  });
+
+  it("projector rebuild 失败后 attach 与新 prompt fail fast", async () => {
+    const session = createSession();
+    let emit: ((event: AgentSessionEvent) => void) | undefined;
+    let failBranch = false;
+    const mutable = session as unknown as {
+      subscribe(listener: (event: AgentSessionEvent) => void): () => void;
+      sessionManager: AgentSession["sessionManager"] & {
+        getLeafId(): string | null;
+        getBranch(): ReturnType<AgentSession["sessionManager"]["getBranch"]>;
+      };
+    };
+    mutable.subscribe = (listener) => {
+      emit = listener;
+      return () => {};
+    };
+    mutable.sessionManager.getLeafId = () => (failBranch ? "changed" : null);
+    mutable.sessionManager.getBranch = () => {
+      if (failBranch) throw new Error("branch unavailable");
+      return [];
+    };
+    mocks.createAgentSession.mockResolvedValue({ session });
+    const runtime = await SessionRuntime.create({
+      projectId: "project",
+      cwd: "/workspace",
+      push: () => {},
+      onSummaryChanged: () => {},
+    });
+    failBranch = true;
+
+    emit?.({ type: "agent_start" });
+
+    expect(() => runtime.bootstrap()).toThrow(PiTimelineUnavailableError);
+    expect(() =>
+      runtime.prompt({
+        requestId: "request",
+        projectId: "project",
+        threadId: "thread",
+        text: "blocked",
+        images: [],
+      }),
+    ).toThrow(PiTimelineUnavailableError);
     await runtime.dispose();
   });
 });
 
-function createSession(): AgentSession {
+function createSession(streaming = false): AgentSession & { prompt: ReturnType<typeof vi.fn> } {
+  const prompt = vi.fn(async (_text: string, options?: { preflightResult?: (success: boolean) => void }) => {
+    options?.preflightResult?.(true);
+  });
   const session = {
     sessionId: "thread",
     sessionFile: undefined,
     sessionName: undefined,
     messages: [],
     state: { pendingToolCalls: new Map(), errorMessage: undefined },
-    isStreaming: false,
+    isStreaming: streaming,
     thinkingLevel: "off",
+    steeringMode: "one-at-a-time",
+    followUpMode: "one-at-a-time",
     extensionRunner: { getRegisteredCommands: () => [] },
     promptTemplates: [],
     resourceLoader: { getSkills: () => ({ skills: [] }) },
-    getContextUsage: () => undefined,
+    sessionManager: {
+      getLeafId: () => null,
+      getBranch: () => [],
+      getEntry: () => undefined,
+      getLabel: () => undefined,
+    },
+    prompt,
+    sendUserMessage: vi.fn(),
+    abort: vi.fn(async () => {}),
+    clearQueue: () => ({ steering: [], followUp: [] }),
     getSteeringMessages: () => [],
     getFollowUpMessages: () => [],
+    navigateTree: vi.fn(),
+    compact: vi.fn(),
+    abortCompaction: vi.fn(),
+    abortBranchSummary: vi.fn(),
+    getContextUsage: () => undefined,
     getAvailableThinkingLevels: () => ["off"],
     async bindExtensions() {},
-    subscribe(listener: (event: AgentSessionEvent) => void) {
-      mocks.listener = listener;
-      return () => {};
-    },
+    subscribe: () => () => {},
     dispose() {},
-  };
-  return session as unknown as AgentSession;
+  } as unknown as AgentSession & { prompt: ReturnType<typeof vi.fn> };
+  return session;
 }

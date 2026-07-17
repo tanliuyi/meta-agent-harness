@@ -281,3 +281,39 @@
   color: hsl(var(--destructive));
   font-size: 11px;
 }
+.pi-notice {
+  display: grid;
+  gap: 6px;
+  width: 100%;
+  padding: 8px 10px;
+  border-left: 2px solid hsl(var(--border));
+  background: hsl(var(--muted) / 0.28);
+  color: hsl(var(--muted-foreground));
+  font-size: 12px;
+}
+.pi-notice header {
+  color: hsl(var(--foreground));
+  font-weight: 600;
+}
+.pi-notice code,
+.pi-notice pre {
+  margin: 0;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-family: "Cascadia Mono", Consolas, monospace;
+  font-size: 11px;
+  line-height: 1.55;
+}
+.pi-notice small {
+  font-size: 10px;
+}
+.pi-notice-custom {
+  display: grid;
+  gap: 6px;
+}
+.pi-notice-custom img {
+  max-width: min(100%, 520px);
+  max-height: 360px;
+  object-fit: contain;
+}

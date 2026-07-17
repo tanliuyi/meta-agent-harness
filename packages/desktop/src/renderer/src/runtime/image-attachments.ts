@@ -1,14 +1,14 @@
-import { SimpleImageAttachmentAdapter, type ThreadComposerState } from "@assistant-ui/react";
+import { type Attachment, SimpleImageAttachmentAdapter } from "@assistant-ui/react";
 import type { ImageInput } from "../../../shared/contracts.ts";
 
 /** Composer 与 Pi enqueue 共用的图片附件适配器。 */
 export const imageAttachmentAdapter = new SimpleImageAttachmentAdapter();
 
-type ComposerAttachment = ThreadComposerState["attachments"][number];
+type ComposerAttachment = Attachment;
 type PendingImageAttachment = Parameters<SimpleImageAttachmentAdapter["send"]>[0];
 
 /** 将 assistant-ui Composer 中的图片附件转换为 Pi IPC 输入。 */
-export async function toPiImageInputs(attachments: ThreadComposerState["attachments"]): Promise<ImageInput[]> {
+export async function toPiImageInputs(attachments: readonly Attachment[]): Promise<ImageInput[]> {
   const images: ImageInput[] = [];
   for (const attachment of attachments) {
     const complete = isPendingImageAttachment(attachment) ? await imageAttachmentAdapter.send(attachment) : attachment;

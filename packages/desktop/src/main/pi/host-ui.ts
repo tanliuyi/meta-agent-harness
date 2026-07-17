@@ -16,6 +16,7 @@ interface PendingRequest {
 const EMPTY_UI: ExtensionUiState = {
   statuses: {},
   workingVisible: true,
+  editorRevision: 0,
   toolsExpanded: false,
   widgets: [],
 };
@@ -24,6 +25,7 @@ const EMPTY_UI: ExtensionUiState = {
 export class HostUi {
   private readonly pending = new Map<string, PendingRequest>();
   private state: ExtensionUiState = EMPTY_UI;
+  private editorText = "";
   private readonly changed: () => void;
   private readonly activeToolIds: () => string[];
 
@@ -67,9 +69,9 @@ export class HostUi {
       setHeader: () => this.unsupported("setHeader"),
       setTitle: (title: string) => this.patch({ windowTitle: title }),
       custom: () => this.unsupported("custom"),
-      pasteToEditor: (text: string) => this.patch({ editorText: `${this.state.editorText ?? ""}${text}` }),
-      setEditorText: (text: string) => this.patch({ editorText: text }),
-      getEditorText: () => this.state.editorText ?? "",
+      pasteToEditor: (text: string) => this.setEditorText(`${this.editorText}${text}`),
+      setEditorText: (text: string) => this.setEditorText(text),
+      getEditorText: () => this.editorText,
       addAutocompleteProvider: () => this.unsupported("addAutocompleteProvider"),
       setEditorComponent: () => this.unsupported("setEditorComponent"),
       getEditorComponent: () => undefined,
@@ -102,6 +104,11 @@ export class HostUi {
       item.reject(new Error("Pi session 已关闭"));
     }
     this.pending.clear();
+  }
+
+  /** 同步真实 Desktop Composer，不回推 control，供扩展 getEditorText() 同步读取。 */
+  syncEditorText(text: string): void {
+    this.editorText = text;
   }
 
   private ask<T>(
@@ -161,6 +168,11 @@ export class HostUi {
     if (text === undefined) delete statuses[key];
     else statuses[key] = text;
     this.patch({ statuses });
+  }
+
+  private setEditorText(text: string): void {
+    this.editorText = text;
+    this.patch({ editorText: text, editorRevision: this.state.editorRevision + 1 });
   }
 
   private setWidget(key: string, content: unknown, options?: ExtensionWidgetOptions): void {

@@ -1,4 +1,3 @@
-import type { Message, RunAgentInput } from "@ag-ui/core";
 import {
   type AgentSession,
   type AgentSessionEvent,
@@ -7,18 +6,22 @@ import {
   type SessionManager,
 } from "@earendil-works/pi-coding-agent";
 import {
+  type ClearedQueue,
   PROTOCOL_VERSION,
-  type SendInput,
   type SessionBootstrap,
+  type SessionCommandResult,
   type SessionControlState,
   type SessionCreateInput,
+  type SessionEditInput,
+  type SessionPromptInput,
   type SessionPushPayload,
+  type SessionReloadInput,
   type Thread,
 } from "../../shared/contracts.ts";
 import { HostUi } from "./host-ui.ts";
-import { projectMessages } from "./message-projector.ts";
-import { PiAgUiAdapter } from "./pi-ag-ui-adapter.ts";
-import { getSessionCommands, parseDesktopCommand } from "./session-commands.ts";
+import { PiCompatibilityAdapter } from "./pi-compatibility-adapter.ts";
+import { PiThreadProjector } from "./pi-thread-projector.ts";
+import { getSessionCommands } from "./session-commands.ts";
 import {
   createSessionConfigurationServices,
   resolveSessionCreateSelection,
@@ -34,14 +37,17 @@ interface RuntimeOptions {
   onSummaryChanged(runtime: SessionRuntime): void;
 }
 
-/** 单个 Pi AgentSession 的生命周期、控制面与 AG-UI 数据面。 */
+/** 单个 Pi AgentSession 的生命周期、控制面与 Pi-native timeline。 */
 export class SessionRuntime {
   private readonly hostUi: HostUi;
-  private readonly adapter: PiAgUiAdapter;
+  private readonly projector: PiThreadProjector;
+  private readonly compatibility: PiCompatibilityAdapter;
+  private readonly commands = new Map<string, Promise<SessionCommandResult>>();
+  private readonly commandExpiryTimers = new Set<ReturnType<typeof setTimeout>>();
   private revision = 0;
-  private compacting = false;
   private retry?: SessionControlState["retry"];
   private lastError?: string;
+  private timelineError?: PiTimelineUnavailableError;
   private unsubscribe?: () => void;
   private summaryState: Omit<Thread, "projectId" | "archived" | "running">;
   readonly projectId: string;
@@ -69,12 +75,12 @@ export class SessionRuntime {
       () => this.publishControl(),
       () => [...this.session.state.pendingToolCalls],
     );
-    this.adapter = new PiAgUiAdapter({
+    this.projector = new PiThreadProjector({
       projectId,
       session,
-      onEvents: (batch) => this.push({ type: "events", projectId, threadId: this.id, batch }),
-      onTool: (update) => this.push({ type: "tool", projectId, threadId: this.id, update }),
+      publish: (batch) => this.push({ type: "timeline", projectId, threadId: this.id, batch }),
     });
+    this.compatibility = new PiCompatibilityAdapter({ session, projector: this.projector });
     this.summaryState = createSummary(session);
   }
 
@@ -91,14 +97,20 @@ export class SessionRuntime {
       ...(selection ? { model: selection.model, thinkingLevel: selection.thinkingLevel } : {}),
       sessionStartEvent: { type: "session_start", reason: options.sessionManager ? "resume" : "new" },
     });
-    const runtime = new SessionRuntime(
-      options.projectId,
-      options.cwd,
-      result.session,
-      models,
-      options.push,
-      options.onSummaryChanged,
-    );
+    let runtime: SessionRuntime;
+    try {
+      runtime = new SessionRuntime(
+        options.projectId,
+        options.cwd,
+        result.session,
+        models,
+        options.push,
+        options.onSummaryChanged,
+      );
+    } catch (error) {
+      result.session.dispose();
+      throw new PiTimelineUnavailableError("initial projection", error);
+    }
     runtime.lastError = result.modelFallbackMessage;
     await result.session.bindExtensions({
       uiContext: runtime.hostUi.createContext(),
@@ -108,6 +120,7 @@ export class SessionRuntime {
         runtime.publishControl();
       },
     });
+    runtime.projector.checkpoint();
     runtime.unsubscribe = result.session.subscribe((event) => runtime.onEvent(event));
     return runtime;
   }
@@ -120,18 +133,23 @@ export class SessionRuntime {
     return this.session.sessionFile;
   }
 
-  /** 首次打开、reload 或 sequence 失步时返回完整 AG-UI 基线。 */
+  /** attach 或 sequence resync 时直接返回完整 Pi snapshot。 */
   bootstrap(): SessionBootstrap {
-    const active = this.adapter.activeRunBootstrap;
+    this.assertTimelineAvailable();
+    try {
+      this.compatibility.synchronizePersistedBranch();
+    } catch (error) {
+      this.timelineError = new PiTimelineUnavailableError("bootstrap checkpoint", error);
+      this.lastError = this.timelineError.message;
+      this.publishControl();
+      throw this.timelineError;
+    }
     return {
       protocolVersion: PROTOCOL_VERSION,
       projectId: this.projectId,
       threadId: this.id,
-      cursor: this.adapter.currentSequence,
+      timeline: this.projector.snapshot(),
       control: this.control(),
-      messages: active?.messages ?? projectMessages(this.session),
-      state: {},
-      ...(active ? { activeRun: { runId: active.runId, events: active.events } } : {}),
     };
   }
 
@@ -141,51 +159,39 @@ export class SessionRuntime {
       ...this.summaryState,
       projectId: this.projectId,
       archived,
-      running: this.session.isStreaming,
+      running: this.projector.snapshot().phase !== "idle",
     };
   }
 
-  /** 发起 assistant-ui 标准 AG-UI run。 */
-  async run(input: RunAgentInput): Promise<void> {
-    if (input.threadId !== this.id) throw new Error(`AG-UI threadId 不匹配: ${input.threadId}`);
-    const user = input.messages.findLast((message) => message.role === "user");
-    if (!user) throw new Error("AG-UI run 缺少 user message");
-    const { text, images } = userInput(user.content);
-    this.lastError = undefined;
-    this.adapter.start(input);
-    try {
-      if (images.length === 0 && (await this.runDesktopCommand(text))) {
-        this.adapter.complete();
-        return;
-      }
-      await this.session.prompt(text, { images });
-      if (!this.session.isStreaming) this.adapter.complete();
-    } catch (error) {
-      this.lastError = error instanceof Error ? error.message : String(error);
-      this.adapter.fail(error);
-      this.publishControl();
-      throw error;
-    }
+  prompt(input: SessionPromptInput): Promise<SessionCommandResult> {
+    this.assertTimelineAvailable();
+    if (input.threadId !== this.id || input.projectId !== this.projectId) throw new Error("Pi prompt session 不匹配");
+    this.updateTitleFromPrompt(input.text);
+    return this.runCommand(input.requestId, () => this.compatibility.prompt(input));
   }
 
-  /** 在当前 Pi run 中发送 steer 或 follow-up，不创建并行 AG-UI run。 */
-  async enqueue(input: SendInput): Promise<void> {
-    const images = input.images.map(({ data, mimeType }) => ({ type: "image" as const, data, mimeType }));
-    if (input.mode === "steer") await this.session.steer(input.text, images);
-    else await this.session.followUp(input.text, images);
+  edit(input: SessionEditInput): Promise<SessionCommandResult> {
+    this.assertTimelineAvailable();
+    if (input.threadId !== this.id || input.projectId !== this.projectId) throw new Error("Pi edit session 不匹配");
+    return this.runCommand(input.requestId, () => this.compatibility.edit(input));
+  }
+
+  reload(input: SessionReloadInput): Promise<SessionCommandResult> {
+    this.assertTimelineAvailable();
+    if (input.threadId !== this.id || input.projectId !== this.projectId) throw new Error("Pi reload session 不匹配");
+    return this.runCommand(input.requestId, () => this.compatibility.reload(input));
   }
 
   async cancel(): Promise<void> {
-    await this.session.abort();
+    await this.compatibility.cancel();
   }
 
-  clearQueue(): string[] {
-    const queue = this.session.clearQueue();
-    return [...queue.steering, ...queue.followUp];
+  clearQueue(): ClearedQueue {
+    return this.compatibility.clearQueue();
   }
 
   async compact(): Promise<void> {
-    await this.session.compact();
+    await this.compatibility.compact();
   }
 
   async setModel(provider: string, modelId: string): Promise<void> {
@@ -200,6 +206,10 @@ export class SessionRuntime {
     this.publishControl();
   }
 
+  setEditorText(text: string): void {
+    this.hostUi.syncEditorText(text);
+  }
+
   rename(title: string): void {
     this.session.setSessionName(title.trim());
     this.summaryState = { ...this.summaryState, title: title.trim() || "新会话" };
@@ -212,10 +222,19 @@ export class SessionRuntime {
   }
 
   async dispose(): Promise<void> {
-    if (this.session.isStreaming) await this.session.abort();
+    if (this.projector.snapshot().phase !== "idle") {
+      try {
+        await this.compatibility.cancel();
+      } catch {
+        // Session disposal below remains authoritative when an operation settled concurrently.
+      }
+    }
     this.unsubscribe?.();
-    this.adapter.dispose();
+    this.projector.dispose();
     this.hostUi.dispose();
+    for (const timer of this.commandExpiryTimers) clearTimeout(timer);
+    this.commandExpiryTimers.clear();
+    this.commands.clear();
     this.session.dispose();
   }
 
@@ -229,14 +248,11 @@ export class SessionRuntime {
       projectId: this.projectId,
       threadId: this.id,
       title: this.summaryState.title,
+      updatedAt: this.summaryState.updatedAt,
       cwd: this.cwd,
-      running: this.session.isStreaming,
-      compacting: this.compacting,
+      running: this.projector.snapshot().phase !== "idle",
       retry: this.retry,
-      queue: {
-        steering: [...this.session.getSteeringMessages()],
-        followUp: [...this.session.getFollowUpMessages()],
-      },
+      queueModes: { steering: this.session.steeringMode, followUp: this.session.followUpMode },
       model: model ? { provider: model.provider, id: model.id, name: model.name } : undefined,
       models: available.map((item) => ({
         provider: item.provider,
@@ -259,13 +275,22 @@ export class SessionRuntime {
   }
 
   private onEvent(event: AgentSessionEvent): void {
-    this.adapter.handle(event);
+    if (!this.timelineError) {
+      try {
+        this.projector.handle(event);
+      } catch (error) {
+        this.lastError = errorMessage(error);
+        try {
+          this.projector.resync();
+        } catch (rebuildError) {
+          this.timelineError = new PiTimelineUnavailableError(error, rebuildError);
+          this.lastError = this.timelineError.message;
+        }
+      }
+    }
+
     let publish = false;
-    if (event.type === "compaction_start") {
-      this.compacting = true;
-      publish = true;
-    } else if (event.type === "compaction_end") {
-      this.compacting = false;
+    if (event.type === "compaction_end") {
       this.lastError = event.errorMessage;
       publish = true;
     } else if (event.type === "auto_retry_start") {
@@ -280,17 +305,16 @@ export class SessionRuntime {
     } else if (
       event.type === "agent_start" ||
       event.type === "agent_settled" ||
-      event.type === "queue_update" ||
-      event.type === "thinking_level_changed"
+      event.type === "thinking_level_changed" ||
+      event.type === "compaction_start"
     ) {
       publish = true;
     }
 
     if (event.type === "message_end" && (event.message.role === "user" || event.message.role === "assistant")) {
-      const previousTitle = this.summaryState.title;
       this.updateSummary(event.message);
       this.onSummaryChanged(this);
-      if (this.summaryState.title !== previousTitle) publish = true;
+      publish = true;
     }
     if (event.type === "session_info_changed") {
       this.summaryState = { ...this.summaryState, title: event.name?.trim() || this.summaryState.title };
@@ -298,7 +322,12 @@ export class SessionRuntime {
       publish = true;
     }
     if (event.type === "agent_settled") this.onSummaryChanged(this);
-    if (publish) this.publishControl();
+    if (this.timelineError) this.lastError = this.timelineError.message;
+    if (publish || this.lastError) this.publishControl();
+  }
+
+  private assertTimelineAvailable(): void {
+    if (this.timelineError) throw this.timelineError;
   }
 
   private publishControl(): void {
@@ -306,16 +335,37 @@ export class SessionRuntime {
     this.push({ type: "control", projectId: this.projectId, threadId: this.id, control: this.control() });
   }
 
-  private async runDesktopCommand(text: string): Promise<boolean> {
-    const command = parseDesktopCommand(text);
-    if (!command) return false;
-    if (command.name === "compact") await this.compact();
-    else if (command.name === "reload") await this.session.reload();
-    else {
-      if (!command.title) throw new Error("用法: /name <会话名称>");
-      this.rename(command.title);
-    }
-    return true;
+  private runCommand(requestId: string, command: () => Promise<SessionCommandResult>): Promise<SessionCommandResult> {
+    const existing = this.commands.get(requestId);
+    if (existing) return existing;
+    this.lastError = undefined;
+    const promise = command()
+      .then((result) => {
+        this.lastError = result.error;
+        if (result.error) this.publishControl();
+        return result;
+      })
+      .catch((error: unknown) => {
+        this.lastError = errorMessage(error);
+        this.publishControl();
+        throw error;
+      });
+    this.commands.set(requestId, promise);
+    const timer = setTimeout(() => {
+      this.commands.delete(requestId);
+      this.commandExpiryTimers.delete(timer);
+    }, 60_000);
+    this.commandExpiryTimers.add(timer);
+    return promise;
+  }
+
+  private updateTitleFromPrompt(text: string): void {
+    if (this.session.sessionName || this.summaryState.preview) return;
+    const title = text.slice(0, 48) || "新会话";
+    if (title === this.summaryState.title) return;
+    this.summaryState = { ...this.summaryState, title };
+    this.onSummaryChanged(this);
+    this.publishControl();
   }
 
   private updateSummary(message: AgentSession["messages"][number]): void {
@@ -337,6 +387,13 @@ export class SessionRuntime {
   }
 }
 
+export class PiTimelineUnavailableError extends Error {
+  constructor(projectionError: unknown, rebuildError: unknown) {
+    super(`Pi timeline 不可用: ${errorMessage(projectionError)}; rebuild 失败: ${errorMessage(rebuildError)}`);
+    this.name = "PiTimelineUnavailableError";
+  }
+}
+
 function createSummary(session: AgentSession): Omit<Thread, "projectId" | "archived" | "running"> {
   const visible = session.messages.filter((message) => message.role === "user" || message.role === "assistant");
   const first = visible.find((message) => message.role === "user");
@@ -351,20 +408,11 @@ function createSummary(session: AgentSession): Omit<Thread, "projectId" | "archi
   };
 }
 
-function userInput(content: Extract<Message, { role: "user" }>["content"]): {
-  text: string;
-  images: Array<{ type: "image"; data: string; mimeType: string }>;
-} {
-  if (typeof content === "string") return { text: content, images: [] };
-  const text = content.flatMap((part) => (part.type === "text" ? [part.text] : [])).join("\n");
-  const images = content.flatMap((part) => {
-    if (part.type !== "image" || part.source.type !== "data") return [];
-    return [{ type: "image" as const, data: part.source.value, mimeType: part.source.mimeType }];
-  });
-  return { text, images };
-}
-
 function contentText(content: string | Array<{ type: string; text?: string }>): string {
   if (typeof content === "string") return content;
   return content.flatMap((part) => (part.type === "text" && part.text ? [part.text] : [])).join("\n");
+}
+
+function errorMessage(value: unknown): string {
+  return value instanceof Error ? value.message : String(value);
 }

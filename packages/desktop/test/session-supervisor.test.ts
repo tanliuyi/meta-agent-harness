@@ -114,7 +114,7 @@ describe("SessionSupervisor", () => {
     await supervisor.dispose();
   });
 
-  it("切换后继续接收非 active session 的 control，但不接收其数据面事件", async () => {
+  it("切换后继续接收非 active session 的 control，但不接收其 timeline", async () => {
     mocks.list.mockResolvedValue([sessionInfo("running"), sessionInfo("active")]);
     let publishRunning: ((update: SessionPushPayload) => void) | undefined;
     mocks.create
@@ -135,10 +135,25 @@ describe("SessionSupervisor", () => {
       control: runtime("running").bootstrap().control,
     });
     publishRunning?.({
-      type: "tool",
+      type: "timeline",
       projectId: "project",
       threadId: "running",
-      update: { toolCallId: "tool", status: "complete" },
+      batch: {
+        protocolVersion: PROTOCOL_VERSION,
+        projectId: "project",
+        threadId: "running",
+        fromSequence: 1,
+        toSequence: 1,
+        events: [
+          {
+            protocolVersion: PROTOCOL_VERSION,
+            projectId: "project",
+            threadId: "running",
+            sequence: 1,
+            event: { type: "queue-replaced", items: [] },
+          },
+        ],
+      },
     });
 
     expect(activePush).toHaveBeenCalledOnce();
@@ -231,26 +246,33 @@ function runtime(id = "thread") {
       protocolVersion: PROTOCOL_VERSION,
       projectId: "project",
       threadId: id,
-      cursor: 0,
-      messages: [],
-      state: {},
+      timeline: {
+        protocolVersion: PROTOCOL_VERSION,
+        projectId: "project",
+        threadId: id,
+        cursor: 0,
+        headId: null,
+        nodes: [],
+        queue: [],
+        phase: "idle",
+      },
       control: {
         protocolVersion: PROTOCOL_VERSION,
         revision: 0,
         projectId: "project",
         threadId: id,
         title: "question",
+        updatedAt: 2,
         cwd: "/workspace",
         running: false,
-        compacting: false,
-        queue: { steering: [], followUp: [] },
+        queueModes: { steering: "one-at-a-time", followUp: "one-at-a-time" },
         models: [],
         commands: [],
         thinkingLevel: "off",
         thinkingLevels: ["off"],
         readiness: { state: "ready" },
         hostRequests: [],
-        extensionUi: { statuses: {}, workingVisible: true, toolsExpanded: false, widgets: [] },
+        extensionUi: { statuses: {}, workingVisible: true, editorRevision: 0, toolsExpanded: false, widgets: [] },
       },
     }),
     threadSummary: () => summary,

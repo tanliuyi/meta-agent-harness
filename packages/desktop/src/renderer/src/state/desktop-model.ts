@@ -34,6 +34,8 @@ export interface DesktopContextValue {
   renameThread(projectId: string, threadId: string, title: string): Promise<void>;
   setThreadArchived(projectId: string, threadId: string, archived: boolean): Promise<void>;
   removeThread(projectId: string, threadId: string): Promise<void>;
+  clearQueue(): Promise<void>;
+  compactSession(): Promise<void>;
   updateWorkbench(value: Partial<WorkbenchState>): void;
   clearError(): void;
 }
@@ -329,9 +331,14 @@ function updateThreadSummary(
   if (!threads) return catalogs;
   const index = threads.findIndex(({ id }) => id === control.threadId);
   const thread = threads[index];
-  if (!thread || (thread.title === control.title && thread.running === control.running)) return catalogs;
+  if (
+    !thread ||
+    (thread.title === control.title && thread.updatedAt === control.updatedAt && thread.running === control.running)
+  )
+    return catalogs;
   const next = [...threads];
-  next[index] = { ...thread, title: control.title, running: control.running };
+  next[index] = { ...thread, title: control.title, updatedAt: control.updatedAt, running: control.running };
+  next.sort((left, right) => right.updatedAt - left.updatedAt);
   return { ...catalogs, [control.projectId]: next };
 }
 
@@ -360,11 +367,11 @@ export function threadFromBootstrap(bootstrap: SessionBootstrap): Thread {
     title: bootstrap.control.title,
     createdAt: Date.now(),
     updatedAt: Date.now(),
-    messageCount: bootstrap.messages.filter((message) => message.role === "user" || message.role === "assistant")
+    messageCount: bootstrap.timeline.nodes.filter((message) => message.kind === "user" || message.kind === "assistant")
       .length,
     preview: "",
     archived: false,
-    running: bootstrap.control.running,
+    running: bootstrap.timeline.phase !== "idle",
   };
 }
 

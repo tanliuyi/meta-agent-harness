@@ -1,6 +1,11 @@
-import type { AssistantRuntime } from "@assistant-ui/react";
-import { type AgUiAssistantRuntime, type UseAgUiThreadListAdapter, useAgUiRuntime } from "@assistant-ui/react-ag-ui";
-import { useCallback, useEffect, useMemo, useRef } from "react";
+import {
+  type AssistantRuntime,
+  type ExternalStoreThreadListAdapter,
+  type ExternalThreadQueueAdapter,
+  type ThreadMessage,
+  useExternalStoreRuntime,
+} from "@assistant-ui/react";
+import { useEffect, useMemo, useRef, useSyncExternalStore } from "react";
 import type {
   Project,
   SessionBootstrap,
@@ -9,11 +14,11 @@ import type {
   WorkbenchState,
 } from "../../../shared/contracts.ts";
 import { resolveDesktopAdapterThread } from "../state/thread-list-commands.ts";
-import { convertAgUiMessages, messageRepository } from "./ag-ui-messages.ts";
 import { type ComposerReseed, prepareDraftSubmission, reseedComposer } from "./draft-session.ts";
-import { ElectronPiAgent } from "./electron-pi-agent.ts";
 import { imageAttachmentAdapter } from "./image-attachments.ts";
-import { sessionEventBus } from "./session-event-bus.ts";
+import { PiCommandCoordinator, resolveReloadUserEntry } from "./pi-command-coordinator.ts";
+import { PiMessageRepositoryConverter } from "./pi-message-repository.ts";
+import { piSessionBus } from "./pi-session-bus.ts";
 
 export interface PreparedThread {
   bootstrap: SessionBootstrap;
@@ -26,6 +31,7 @@ export type PreparedDraftSubmission =
 
 export interface DesktopThreadActions {
   open(project: Project, threadId: string): Promise<PreparedThread>;
+  commit(prepared: PreparedThread): void;
   enterDraft(): Promise<void>;
   submitDraft(
     input: { project: Project; model: SessionCreateInput["model"]; thinkingLevel: SessionCreateInput["thinkingLevel"] },
@@ -35,6 +41,7 @@ export interface DesktopThreadActions {
   rename(project: Project, threadId: string, title: string): Promise<void>;
   archive(project: Project, threadId: string, archived: boolean): Promise<void>;
   remove(project: Project, threadId: string): Promise<void>;
+  clearQueue(): Promise<void>;
   detach(): Promise<void>;
 }
 
@@ -46,45 +53,30 @@ interface PiRuntimeOptions {
   isSendDisabled: boolean;
 }
 
-interface PreparedSwitch extends PreparedThread {
-  messages: ReturnType<typeof convertAgUiMessages>;
+interface AttachedTarget {
+  projectId: string;
+  threadId: string;
+  generation: number;
 }
 
-/** 使用 assistant-ui thread adapter 管理跨 Pi session 的 hydrate 与切换。 */
+/** 使用 assistant-ui External Store Runtime 投影 Pi-native timeline。 */
 export function usePiRuntime(options: PiRuntimeOptions): {
-  runtime: AgUiAssistantRuntime;
+  runtime: AssistantRuntime;
   actions: DesktopThreadActions;
 } {
-  const runtimeRef = useRef<AgUiAssistantRuntime | null>(null);
-  const agent = useMemo(
-    () =>
-      new ElectronPiAgent(
-        (messages) => {
-          const activeRuntime = runtimeRef.current;
-          if (!activeRuntime) return;
-          activeRuntime.thread.import(messageRepository(convertAgUiMessages(messages)));
-        },
-        (message) => {
-          const activeRuntime = runtimeRef.current;
-          if (!activeRuntime) return;
-          const converted = convertAgUiMessages([message])[0];
-          if (converted?.role !== "user") return;
-          activeRuntime.thread.append({
-            role: "user",
-            content: converted.content,
-            attachments: converted.attachments,
-            metadata: converted.metadata,
-            createdAt: converted.createdAt,
-            startRun: false,
-          });
-        },
-      ),
-    [],
+  const snapshot = useSyncExternalStore(
+    piSessionBus.store.subscribe,
+    piSessionBus.store.getSnapshot,
+    piSessionBus.store.getSnapshot,
   );
+  const converter = useMemo(() => new PiMessageRepositoryConverter(), []);
+  const repository = useMemo(() => converter.build(snapshot), [converter, snapshot]);
+  const runtimeRef = useRef<AssistantRuntime | null>(null);
+  const targetRef = useRef<AttachedTarget | null>(null);
   const projectRef = useRef(options.project);
   const targetProjectRef = useRef<Project | null>(null);
   const targetCreateInputRef = useRef<SessionCreateInput | null>(null);
-  const preparedRef = useRef<PreparedSwitch | null>(null);
+  const preparedRef = useRef<PreparedThread | null>(null);
   const createdThreadRef = useRef<{ projectId: string; threadId: string } | null>(null);
   const pendingReseedRef = useRef<{ projectId: string; threadId: string; reseed: ComposerReseed } | null>(null);
   const committedThreadRef = useRef<{ projectId: string; threadId: string } | null>(null);
@@ -93,44 +85,60 @@ export function usePiRuntime(options: PiRuntimeOptions): {
   const targetGenerationRef = useRef(0);
   projectRef.current = options.project;
 
-  const threadList = useMemo<UseAgUiThreadListAdapter>(() => {
+  const coordinator = useMemo(
+    () =>
+      new PiCommandCoordinator({
+        getTarget: () => targetRef.current,
+        getComposer: () => runtimeRef.current?.thread.composer ?? null,
+        getPhase: () => piSessionBus.store.getSnapshot().phase,
+        resolveReloadTarget: (parentId) => resolveReloadUserEntry(piSessionBus.store.getSnapshot(), parentId),
+        report: (error) => console.error("Pi command 失败", error),
+      }),
+    [],
+  );
+
+  useEffect(() => {
+    coordinator.observeQueue(snapshot.queue);
+  }, [coordinator, snapshot.queue]);
+
+  const threadList = useMemo<ExternalStoreThreadListAdapter>(() => {
     const project = options.project;
     const catalog = options.projects.flatMap((item) =>
       (options.threadCatalogs[item.id] ?? []).map((thread) => ({ project: item, thread })),
     );
-    const regular = catalog.filter(({ thread }) => !thread.archived);
-    const archived = catalog.filter(({ thread }) => thread.archived);
     const currentProject = () => targetProjectRef.current ?? projectRef.current;
     const resolveAdapterThread = (adapterThreadId: string) =>
       resolveDesktopAdapterThread(adapterThreadId, options.projects, options.threadCatalogs, targetProjectRef.current);
     return {
       threadId: project && options.threadId ? threadAdapterId(project.id, options.threadId) : undefined,
-      threads: regular.map(({ project: item, thread }) => ({
-        id: threadAdapterId(item.id, thread.id),
-        remoteId: thread.id,
-        title: thread.title,
-        status: "regular" as const,
-        custom: { projectId: item.id },
-      })),
-      archivedThreads: archived.map(({ project: item, thread }) => ({
-        id: threadAdapterId(item.id, thread.id),
-        remoteId: thread.id,
-        title: thread.title,
-        status: "archived" as const,
-        custom: { projectId: item.id },
-      })),
+      threads: catalog
+        .filter(({ thread }) => !thread.archived)
+        .map(({ project: item, thread }) => ({
+          id: threadAdapterId(item.id, thread.id),
+          remoteId: thread.id,
+          title: thread.title,
+          status: "regular",
+          custom: { projectId: item.id },
+        })),
+      archivedThreads: catalog
+        .filter(({ thread }) => thread.archived)
+        .map(({ project: item, thread }) => ({
+          id: threadAdapterId(item.id, thread.id),
+          remoteId: thread.id,
+          title: thread.title,
+          status: "archived",
+          custom: { projectId: item.id },
+        })),
       async onSwitchToThread(adapterThreadId) {
         const generation = targetGenerationRef.current;
         const { project: activeProject, threadId } = resolveAdapterThread(adapterThreadId);
         const [bootstrap, workbench] = await Promise.all([
-          sessionEventBus.attach(activeProject.id, threadId),
+          piSessionBus.attach(activeProject.id, threadId),
           window.desktop.workbench.get(activeProject.id, threadId),
         ]);
         if (generation !== switchGeneration.current) throw new DOMException("Thread switch superseded", "AbortError");
-        await agent.attach(bootstrap);
-        const messages = convertAgUiMessages(bootstrap.messages);
-        preparedRef.current = { bootstrap, workbench, messages };
-        return { messages, state: bootstrap.state };
+        targetRef.current = { projectId: activeProject.id, threadId, generation };
+        preparedRef.current = { bootstrap, workbench };
       },
       async onSwitchToNewThread() {
         const generation = targetGenerationRef.current;
@@ -141,12 +149,12 @@ export function usePiRuntime(options: PiRuntimeOptions): {
         const created = await window.desktop.sessions.create(createInput);
         createdThreadRef.current = { projectId: activeProject.id, threadId: created.threadId };
         const [bootstrap, workbench] = await Promise.all([
-          sessionEventBus.attach(activeProject.id, created.threadId),
+          piSessionBus.attach(activeProject.id, created.threadId),
           window.desktop.workbench.get(activeProject.id, created.threadId),
         ]);
         if (generation !== switchGeneration.current) throw new DOMException("Thread creation superseded", "AbortError");
-        await agent.attach(bootstrap);
-        preparedRef.current = { bootstrap, workbench, messages: [] };
+        targetRef.current = { projectId: activeProject.id, threadId: created.threadId, generation };
+        preparedRef.current = { bootstrap, workbench };
       },
       onRename: async (adapterThreadId, title) => {
         const { project: activeProject, threadId } = resolveAdapterThread(adapterThreadId);
@@ -165,39 +173,45 @@ export function usePiRuntime(options: PiRuntimeOptions): {
         await window.desktop.sessions.remove(activeProject.id, threadId);
       },
     };
-  }, [agent, options.project, options.projects, options.threadCatalogs, options.threadId]);
+  }, [options.project, options.projects, options.threadCatalogs, options.threadId]);
 
-  const cancel = useCallback(() => {
-    const attached = agent.attachedSession;
-    if (!attached) return;
-    agent.cancelActive();
-    void window.desktop.sessions
-      .cancel(attached.projectId, attached.threadId)
-      .then(() => sessionEventBus.resync(attached.projectId, attached.threadId))
-      .catch((error: unknown) => console.error("取消 Pi run 失败", error));
-  }, [agent]);
-
-  const runtime = useAgUiRuntime({
-    agent,
-    adapters: { attachments: imageAttachmentAdapter, threadList },
-    onCancel: cancel,
-    isSendDisabled: options.isSendDisabled,
+  const queue = useMemo<ExternalThreadQueueAdapter>(
+    () => ({
+      items: snapshot.queue.map(({ id, prompt }) => ({ id, prompt })),
+      enqueue: coordinator.enqueue,
+      steer: coordinator.unsupportedQueueOperation,
+      remove: coordinator.unsupportedQueueOperation,
+      clear: coordinator.observeFrameworkClear,
+    }),
+    [coordinator, snapshot.queue],
+  );
+  const canMutateBranch = snapshot.phase === "idle" && !options.isSendDisabled && Boolean(targetRef.current);
+  const isAgentRunning = snapshot.phase === "running" || snapshot.phase === "retrying";
+  const runtime = useExternalStoreRuntime<ThreadMessage>({
+    messageRepository: repository,
+    isRunning: isAgentRunning,
+    isLoading: snapshot.phase === "compacting" || snapshot.phase === "tree-navigation",
+    isSendDisabled:
+      options.isSendDisabled ||
+      snapshot.phase === "retrying" ||
+      snapshot.phase === "compacting" ||
+      snapshot.phase === "tree-navigation",
+    onNew: coordinator.rejectUnexpectedOnNew,
+    queue,
+    onEdit: canMutateBranch ? coordinator.edit : undefined,
+    onReload: canMutateBranch ? coordinator.reload : undefined,
+    onCancel: snapshot.phase === "idle" ? undefined : coordinator.cancel,
+    adapters: { attachments: options.isSendDisabled ? undefined : imageAttachmentAdapter, threadList },
+    unstable_enableToolInvocations: false,
   });
   runtimeRef.current = runtime;
 
   useEffect(
     () =>
-      sessionEventBus.onResync((bootstrap) => {
-        void agent
-          .attach(bootstrap)
-          .then(() => {
-            const messages = convertAgUiMessages(bootstrap.messages);
-            runtime.thread.import(messageRepository(messages));
-            if (!joinActiveRun(runtime, bootstrap, messages)) window.desktop.sessions.flush();
-          })
-          .catch((error: unknown) => console.error("恢复 Pi session 失败", error));
+      piSessionBus.onResync(() => {
+        window.desktop.sessions.flush();
       }),
-    [agent, runtime],
+    [],
   );
 
   const projectId = options.project?.id;
@@ -212,9 +226,8 @@ export function usePiRuntime(options: PiRuntimeOptions): {
 
   const actions = useMemo<DesktopThreadActions>(() => {
     const resetToDraft = async () => {
-      sessionEventBus.detach();
-      await agent.detach();
-      runtime.thread.reset();
+      piSessionBus.detach();
+      targetRef.current = null;
       targetProjectRef.current = null;
       targetCreateInputRef.current = null;
       preparedRef.current = null;
@@ -225,14 +238,14 @@ export function usePiRuntime(options: PiRuntimeOptions): {
         await resetToDraft();
         return null;
       }
+      const generation = switchGeneration.current;
       const [bootstrap, workbench] = await Promise.all([
-        sessionEventBus.attach(committed.projectId, committed.threadId),
+        piSessionBus.attach(committed.projectId, committed.threadId),
         window.desktop.workbench.get(committed.projectId, committed.threadId),
       ]);
-      await agent.attach(bootstrap);
-      const messages = convertAgUiMessages(bootstrap.messages);
-      runtime.thread.import(messageRepository(messages));
-      if (!joinActiveRun(runtime, bootstrap, messages)) window.desktop.sessions.flush();
+      targetRef.current = { ...committed, generation };
+      piSessionBus.commit(bootstrap);
+      window.desktop.sessions.flush();
       return { bootstrap, workbench };
     };
     return {
@@ -245,10 +258,9 @@ export function usePiRuntime(options: PiRuntimeOptions): {
         try {
           await runtime.threads.switchToThread(threadAdapterId(project.id, threadId));
           if (generation !== switchGeneration.current) throw new DOMException("Thread switch superseded", "AbortError");
-          const prepared = readPrepared(preparedRef);
+          const prepared = readRef(preparedRef);
           if (!prepared || prepared.bootstrap.threadId !== threadId)
             throw new Error("assistant-ui thread hydrate 未完成");
-          if (!joinActiveRun(runtime, prepared.bootstrap, prepared.messages)) window.desktop.sessions.flush();
           committedThreadRef.current = { projectId: project.id, threadId };
           draftModeRef.current = false;
           return prepared;
@@ -259,10 +271,12 @@ export function usePiRuntime(options: PiRuntimeOptions): {
           }
           throw error;
         } finally {
-          if (generation === switchGeneration.current) {
-            targetProjectRef.current = null;
-          }
+          if (generation === switchGeneration.current) targetProjectRef.current = null;
         }
+      },
+      commit(prepared) {
+        piSessionBus.commit(prepared.bootstrap);
+        window.desktop.sessions.flush();
       },
       async enterDraft() {
         switchGeneration.current += 1;
@@ -289,8 +303,9 @@ export function usePiRuntime(options: PiRuntimeOptions): {
           await runtime.threads.switchToNewThread();
           if (generation !== switchGeneration.current)
             throw new DOMException("Thread creation superseded", "AbortError");
-          const prepared = readPrepared(preparedRef);
+          const prepared = readRef(preparedRef);
           if (!prepared) throw new Error("assistant-ui new thread hydrate 未完成");
+          piSessionBus.commit(prepared.bootstrap);
           committedThreadRef.current = { projectId: project.id, threadId: prepared.bootstrap.threadId };
           draftModeRef.current = false;
           if (prepared.bootstrap.control.readiness.state !== "ready") {
@@ -302,13 +317,12 @@ export function usePiRuntime(options: PiRuntimeOptions): {
             window.desktop.sessions.flush();
             return { ...prepared, sent: false, reseed: submission.reseed };
           }
-          runtime.thread.append(submission.message);
-          void runtime.thread.composer
-            .reset()
-            .catch((error: unknown) => console.error("清空已发送 Composer 失败", error));
+          await runtime.thread.append(submission.message);
+          await runtime.thread.composer.reset();
+          window.desktop.sessions.flush();
           return { ...prepared, sent: true };
         } catch (error) {
-          const created = createdThreadRef.current as { projectId: string; threadId: string } | null;
+          const created = readRef(createdThreadRef);
           if (created) await Promise.allSettled([window.desktop.sessions.remove(created.projectId, created.threadId)]);
           if (generation === switchGeneration.current) {
             pendingReseedRef.current = null;
@@ -342,11 +356,13 @@ export function usePiRuntime(options: PiRuntimeOptions): {
       async remove(project, threadId) {
         await runtime.threads.getItemById(threadAdapterId(project.id, threadId)).delete();
       },
+      async clearQueue() {
+        await coordinator.clearQueue(piSessionBus.store.getSnapshot().queue);
+      },
       async detach() {
         switchGeneration.current += 1;
-        sessionEventBus.detach();
-        await agent.detach();
-        runtime.thread.reset();
+        piSessionBus.detach();
+        targetRef.current = null;
         targetProjectRef.current = null;
         targetCreateInputRef.current = null;
         preparedRef.current = null;
@@ -356,25 +372,15 @@ export function usePiRuntime(options: PiRuntimeOptions): {
         draftModeRef.current = false;
       },
     };
-  }, [agent, runtime]);
+  }, [coordinator, runtime]);
 
   return { runtime, actions };
-}
-
-function joinActiveRun(
-  runtime: AssistantRuntime,
-  bootstrap: SessionBootstrap,
-  messages: ReturnType<typeof convertAgUiMessages>,
-): boolean {
-  if (!bootstrap.activeRun) return false;
-  runtime.thread.startRun({ parentId: messages.at(-1)?.id ?? null });
-  return true;
 }
 
 function threadAdapterId(projectId: string, threadId: string): string {
   return `${projectId}:${threadId}`;
 }
 
-function readPrepared(reference: { current: PreparedSwitch | null }): PreparedSwitch | null {
+function readRef<T>(reference: { current: T | null }): T | null {
   return reference.current;
 }

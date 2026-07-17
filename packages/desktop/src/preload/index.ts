@@ -37,6 +37,16 @@ const desktopApi: DesktopApi = {
     chrome: process.versions.chrome,
     node: process.versions.node,
   },
+  windowControls: {
+    minimize: () => ipcRenderer.send(CHANNELS.windowMinimize),
+    toggleMaximize: () => ipcRenderer.send(CHANNELS.windowToggleMaximize),
+    close: () => ipcRenderer.send(CHANNELS.windowClose),
+    onMaximizedChanged(listener) {
+      const handler = (_event: Electron.IpcRendererEvent, maximized: boolean) => listener(maximized);
+      ipcRenderer.on(CHANNELS.windowMaximizedChanged, handler);
+      return () => ipcRenderer.removeListener(CHANNELS.windowMaximizedChanged, handler);
+    },
+  },
   projects: {
     list: () => ipcRenderer.invoke(CHANNELS.projectsList),
     choose: () => ipcRenderer.invoke(CHANNELS.projectsChoose),
@@ -97,8 +107,9 @@ const desktopApi: DesktopApi = {
     archive: (projectId, threadId, archived) =>
       ipcRenderer.invoke(CHANNELS.sessionsArchive, projectId, threadId, archived),
     remove: (projectId, threadId) => ipcRenderer.invoke(CHANNELS.sessionsRemove, projectId, threadId),
-    run: (input) => ipcRenderer.invoke(CHANNELS.sessionsRun, input),
-    enqueue: (input) => ipcRenderer.invoke(CHANNELS.sessionsEnqueue, input),
+    prompt: (input) => ipcRenderer.invoke(CHANNELS.sessionsPrompt, input),
+    edit: (input) => ipcRenderer.invoke(CHANNELS.sessionsEdit, input),
+    reload: (input) => ipcRenderer.invoke(CHANNELS.sessionsReload, input),
     cancel: (projectId, threadId) => ipcRenderer.invoke(CHANNELS.sessionsCancel, projectId, threadId),
     clearQueue: (projectId, threadId) => ipcRenderer.invoke(CHANNELS.sessionsClearQueue, projectId, threadId),
     compact: (projectId, threadId) => ipcRenderer.invoke(CHANNELS.sessionsCompact, projectId, threadId),
@@ -106,6 +117,8 @@ const desktopApi: DesktopApi = {
       ipcRenderer.invoke(CHANNELS.sessionsSetModel, projectId, threadId, provider, modelId),
     setThinking: (projectId, threadId, level) =>
       ipcRenderer.invoke(CHANNELS.sessionsSetThinking, projectId, threadId, level),
+    setEditorText: (projectId, threadId, text) =>
+      ipcRenderer.invoke(CHANNELS.sessionsSetEditorText, projectId, threadId, text),
     respond: (projectId, threadId, response) =>
       ipcRenderer.invoke(CHANNELS.sessionsRespond, projectId, threadId, response),
   },

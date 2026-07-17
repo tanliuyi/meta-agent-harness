@@ -1,14 +1,8 @@
 import { ComposerPrimitive, useAssistantRuntime, useAuiState } from "@assistant-ui/react";
-import { ArrowUp, RotateCcw, Square } from "lucide-react";
+import { ArrowUp, RotateCcw } from "lucide-react";
 import { type FormEvent, type KeyboardEvent, useCallback, useEffect, useRef, useState } from "react";
-import type {
-  DraftSessionConfig,
-  Project,
-  SendMode,
-  SessionControlState,
-  SlashCommand,
-} from "../../../../shared/contracts.ts";
-import { submitRunningMessage } from "../../runtime/running-session.ts";
+import type { DraftSessionConfig, Project, SessionControlState, SlashCommand } from "../../../../shared/contracts.ts";
+import { usePiThreadPhase } from "../../runtime/use-pi-thread-snapshot.ts";
 import type { DraftSessionState } from "../../state/desktop-model.ts";
 import { ComposerAddAttachment, ComposerAttachments } from "../assistant-ui/attachment.tsx";
 import { TooltipIconButton } from "../assistant-ui/tooltip-icon-button.tsx";
@@ -32,20 +26,27 @@ type ComposerProps =
       onThinkingChange(level: SessionControlState["thinkingLevel"]): void;
       onSubmit(): Promise<void>;
     }
-  | { mode: "session"; snapshot: SessionControlState };
+  | { mode: "session"; snapshot: SessionControlState; onClearQueue(): Promise<void> };
 
 /** assistant-ui Composer 与 Desktop draft/session 控制面的组合入口。 */
 export function Composer(props: ComposerProps) {
   const runtime = useAssistantRuntime();
-  const [mode, setMode] = useState<SendMode>("followUp");
+  const [mode, setMode] = useState<"steer" | "followUp">("followUp");
   const [sending, setSending] = useState(false);
   const [selectingProject, setSelectingProject] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [escapeCancelArmed, setEscapeCancelArmed] = useState(false);
   const escapeCancelTimer = useRef<number | undefined>(undefined);
+  const appliedEditorRevision = useRef<{ target: string; revision: number } | null>(null);
+  const syncedEditor = useRef<{ target: string; text: string } | null>(null);
   const suggestions = useRef<ComposerSuggestionsHandle>(null);
   const snapshot = props.mode === "session" ? props.snapshot : null;
   const materializing = props.mode === "draft" && props.phase === "materializing";
+  const isRunning = useAuiState((state) => state.thread.isRunning);
+  const piPhase = usePiThreadPhase();
+  const isCancelable = isRunning || piPhase === "compacting" || piPhase === "tree-navigation";
+  const queueCount = useAuiState((state) => state.composer.queue.length);
+  const composerText = useAuiState((state) => state.composer.text);
 
   const clearEscapeCancelTimer = useCallback(() => {
     if (escapeCancelTimer.current === undefined) return;
@@ -54,19 +55,39 @@ export function Composer(props: ComposerProps) {
   }, []);
 
   useEffect(() => {
-    if (!snapshot?.running) {
+    if (!isCancelable) {
       clearEscapeCancelTimer();
       setEscapeCancelArmed(false);
     }
     return clearEscapeCancelTimer;
-  }, [clearEscapeCancelTimer, snapshot?.running]);
+  }, [clearEscapeCancelTimer, isCancelable]);
 
   useEffect(() => {
-    const editorText = snapshot?.extensionUi.editorText;
-    if (editorText !== undefined && runtime.thread.composer.getState().text !== editorText) {
+    if (!snapshot) return;
+    const target = `${snapshot.projectId}:${snapshot.threadId}`;
+    const revision = snapshot.extensionUi.editorRevision;
+    const applied = appliedEditorRevision.current;
+    if (applied?.target === target && applied.revision === revision) return;
+    appliedEditorRevision.current = { target, revision };
+    const editorText = snapshot.extensionUi.editorText;
+    if (editorText !== undefined && runtime.thread.composer.getState().text !== editorText)
       runtime.thread.composer.setText(editorText);
+  }, [runtime, snapshot]);
+
+  useEffect(() => {
+    if (!snapshot) return;
+    const target = `${snapshot.projectId}:${snapshot.threadId}`;
+    const synced = syncedEditor.current;
+    if (synced?.target !== target) {
+      syncedEditor.current = { target, text: composerText };
+      return;
     }
-  }, [runtime, snapshot?.extensionUi.editorText]);
+    if (synced.text === composerText) return;
+    syncedEditor.current = { target, text: composerText };
+    void window.desktop.sessions
+      .setEditorText(snapshot.projectId, snapshot.threadId, composerText)
+      .catch((value: unknown) => setError(errorMessage(value)));
+  }, [composerText, snapshot]);
 
   useEffect(
     () =>
@@ -81,19 +102,12 @@ export function Composer(props: ComposerProps) {
   const suggestionProjectId = props.mode === "draft" ? props.project?.id : props.snapshot.projectId;
   const commands = props.mode === "draft" ? NO_COMMANDS : props.snapshot.commands;
 
-  const submitRunning = async () => {
-    if (!snapshot || runtime.thread.composer.getState().isEmpty || sending) return;
+  const submitRunning = () => {
+    if (!snapshot || runtime.thread.composer.getState().text.trim().length === 0 || sending) return;
     setSending(true);
     setError(null);
     try {
-      const composer = runtime.thread.composer;
-      const state = composer.getState();
-      await submitRunningMessage(
-        state,
-        { projectId: snapshot.projectId, threadId: snapshot.threadId, mode },
-        (input) => window.desktop.sessions.enqueue(input),
-        { resetComposer: () => composer.reset() },
-      );
+      runtime.thread.composer.send({ steer: mode === "steer" });
     } catch (value) {
       setError(errorMessage(value));
     } finally {
@@ -131,22 +145,22 @@ export function Composer(props: ComposerProps) {
       void submitDraft();
       return;
     }
-    if (!props.snapshot.running) return;
+    if (!isRunning) return;
     event.preventDefault();
-    void submitRunning();
+    submitRunning();
   };
 
   const handleInputKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
     const suggestionHandled = suggestions.current?.handleKey(event.key) === true;
     if (suggestionHandled) {
       event.preventDefault();
-      if (event.key !== "Escape" || !snapshot?.running) return;
+      if (event.key !== "Escape" || !isCancelable) return;
     }
-    if (!snapshot?.running || event.nativeEvent.isComposing) return;
+    if (!isCancelable || event.nativeEvent.isComposing) return;
 
-    if (event.key === "Enter" && !event.shiftKey && !event.ctrlKey && !event.metaKey && !event.altKey) {
+    if (isRunning && event.key === "Enter" && !event.shiftKey && !event.ctrlKey && !event.metaKey && !event.altKey) {
       event.preventDefault();
-      if (!event.repeat) void submitRunning();
+      if (!event.repeat) submitRunning();
       return;
     }
 
@@ -170,11 +184,9 @@ export function Composer(props: ComposerProps) {
   };
 
   const clearQueue = async () => {
-    if (!snapshot) return;
+    if (props.mode !== "session") return;
     try {
-      const queued = await window.desktop.sessions.clearQueue(snapshot.projectId, snapshot.threadId);
-      const composer = runtime.thread.composer;
-      composer.setText([...queued, composer.getState().text].filter((value) => value.trim()).join("\n\n"));
+      await props.onClearQueue();
     } catch (value) {
       setError(errorMessage(value));
     }
@@ -184,32 +196,33 @@ export function Composer(props: ComposerProps) {
   const readinessError = readiness?.state === "ready" ? null : readiness?.message;
   const configLoading = props.mode === "draft" && props.configLoading;
   const disabled = sending || selectingProject || materializing;
+  const attachmentsDisabled = disabled || readiness?.state !== "ready";
 
   return (
     <div className="composer-wrap" data-draft-composer={props.mode === "draft" || undefined}>
-      {snapshot && snapshot.queue.steering.length + snapshot.queue.followUp.length > 0 ? (
+      {snapshot && queueCount > 0 ? (
         <div className="queue-strip">
-          <span>{snapshot.queue.steering.length + snapshot.queue.followUp.length} 条消息正在排队</span>
+          <span>{queueCount} 条消息正在排队</span>
           <Button variant="ghost" size="sm" onClick={() => void clearQueue()}>
             <RotateCcw size={13} /> 清空
           </Button>
         </div>
       ) : null}
       <ComposerPrimitive.Root className="relative flex w-full flex-col" onSubmit={handleSubmit}>
-        <ComposerPrimitive.AttachmentDropzone asChild disabled={disabled}>
+        <ComposerPrimitive.AttachmentDropzone asChild disabled={attachmentsDisabled}>
           <div className="relative flex w-full flex-col gap-2 rounded-(--composer-radius) border border-border/60 bg-[color-mix(in_oklab,var(--color-muted)_30%,var(--color-background))] p-(--composer-padding) shadow-[0_4px_16px_-8px_rgba(0,0,0,0.08),0_1px_2px_rgba(0,0,0,0.04)] transition-[border-color,box-shadow] focus-within:border-border focus-within:shadow-[0_6px_24px_-8px_rgba(0,0,0,0.12),0_1px_2px_rgba(0,0,0,0.05)] data-[dragging=true]:border-dashed data-[dragging=true]:border-ring">
             {suggestionProjectId && !materializing ? (
               <ComposerSuggestions ref={suggestions} projectId={suggestionProjectId} commands={commands} />
             ) : null}
             <ComposerWidgets widgets={aboveWidgets} />
-            <ComposerAttachments disabled={disabled} />
+            <ComposerAttachments disabled={attachmentsDisabled} />
             <ComposerPrimitive.Input
               className="caret-primary placeholder:text-muted-foreground/80 max-h-32 min-h-10 w-full resize-none bg-transparent px-2.5 py-1 text-sm leading-relaxed outline-none"
               onKeyDown={handleInputKeyDown}
               placeholder={
                 props.mode === "draft"
                   ? "向 Pi 发送消息，@ 引用文件"
-                  : snapshot?.running
+                  : isRunning
                     ? "运行中，可发送后续消息"
                     : "向 Pi 发送消息，@ 引用文件，/ 执行命令"
               }
@@ -221,7 +234,7 @@ export function Composer(props: ComposerProps) {
             />
             <div className="flex min-h-8 items-center justify-between gap-2">
               <div className="flex min-w-0 items-center gap-1">
-                <ComposerAddAttachment disabled={disabled} />
+                <ComposerAddAttachment disabled={attachmentsDisabled} />
                 {props.mode === "draft" ? (
                   <ProjectSelect
                     projects={props.projects}
@@ -240,7 +253,7 @@ export function Composer(props: ComposerProps) {
                     }}
                   />
                 ) : null}
-                {snapshot?.running ? (
+                {isRunning ? (
                   <div className="mode-control" role="group" aria-label="运行中消息模式">
                     <button
                       type="button"
@@ -308,6 +321,7 @@ export function Composer(props: ComposerProps) {
                   configLoading={configLoading}
                   sending={sending}
                   escapeCancelArmed={escapeCancelArmed}
+                  isRunning={isRunning}
                 />
               </div>
             </div>
@@ -326,12 +340,14 @@ function ComposerSubmitControl({
   configLoading,
   sending,
   escapeCancelArmed,
+  isRunning,
 }: {
   props: ComposerProps;
   disabled: boolean;
   configLoading: boolean;
   sending: boolean;
   escapeCancelArmed: boolean;
+  isRunning: boolean;
 }) {
   const isEmpty = useAuiState((state) => state.composer.isEmpty);
   const hasText = useAuiState((state) => state.composer.text.trim().length > 0);
@@ -356,25 +372,11 @@ function ComposerSubmitControl({
       </TooltipIconButton>
     );
   }
-  if (props.snapshot.running) {
-    if (isEmpty) {
-      return (
-        <ComposerPrimitive.Cancel asChild>
-          <TooltipIconButton
-            tooltip={escapeCancelArmed ? "再次按 Esc 停止运行" : "停止运行"}
-            side="top"
-            variant="default"
-            className="size-7 rounded-full"
-          >
-            <Square className="size-3.5 fill-current" />
-          </TooltipIconButton>
-        </ComposerPrimitive.Cancel>
-      );
-    }
+  if (isRunning) {
     return (
       <TooltipIconButton
         type="submit"
-        tooltip={hasText ? "发送后续消息" : "运行中消息必须包含文字"}
+        tooltip={!hasText ? (escapeCancelArmed ? "再次按 Esc 停止运行" : "按 Esc 停止运行") : "发送后续消息"}
         side="top"
         variant="default"
         className="size-7 rounded-full"

@@ -5,7 +5,6 @@ import { cn } from "../../../lib/cn.ts";
 import { UserMessageAttachments } from "../../assistant-ui/attachment.tsx";
 import { TooltipIconButton } from "../../assistant-ui/tooltip-icon-button.tsx";
 import { Button } from "../../ui/button.tsx";
-import { BranchPicker } from "./branch-picker.tsx";
 
 const COLLAPSED_USER_MESSAGE_HEIGHT = 160;
 
@@ -26,7 +25,6 @@ export function UserMessage() {
       </div>
 
       <div className="aui-user-message-footer col-span-full col-start-1 row-start-3 flex min-h-7 items-center justify-end">
-        <BranchPicker data-slot="aui_user-branch-picker" className="-me-1 justify-end" />
         <UserActionBar />
       </div>
     </MessagePrimitive.Root>
@@ -78,8 +76,7 @@ function UserMessageContent() {
 function UserActionBar() {
   return (
     <ActionBarPrimitive.Root
-      hideWhenRunning
-      autohide="never"
+      autohide="always"
       className="aui-user-action-bar-root animate-in fade-in flex items-center gap-1 text-muted-foreground duration-200"
     >
       <ActionBarPrimitive.Edit asChild>
