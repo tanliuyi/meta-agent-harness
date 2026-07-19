@@ -1,4 +1,6 @@
-import { BrowserWindow, dialog, ipcMain } from "electron";
+import { isAbsolute, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+import { BrowserWindow, dialog, ipcMain, shell } from "electron";
 import { CHANNELS } from "../shared/channels.ts";
 import type {
   HostResponse,
@@ -10,6 +12,7 @@ import type {
   TerminalEvent,
   WorkbenchState,
 } from "../shared/contracts.ts";
+import type { NodeRuntimeProgress, NodeRuntimeStatus } from "../shared/desktop-api.ts";
 import type { FileService } from "./files/file-service.ts";
 import type { SessionSupervisor } from "./pi/session-supervisor.ts";
 import type { ProjectStore } from "./store/project-store.ts";
@@ -21,6 +24,11 @@ export function registerIpc(
   sessions: SessionSupervisor,
   files: FileService,
   terminals: TerminalSupervisor,
+  nodeRuntime: {
+    getStatus(): NodeRuntimeStatus;
+    install(): Promise<NodeRuntimeStatus>;
+    onProgress(listener: (progress: NodeRuntimeProgress) => void): () => void;
+  },
 ): void {
   const subscribedWebContents = new Set<number>();
   ipcMain.on(CHANNELS.windowMinimize, (event) => BrowserWindow.fromWebContents(event.sender)?.minimize());
@@ -31,6 +39,7 @@ export function registerIpc(
     else owner.maximize();
   });
   ipcMain.on(CHANNELS.windowClose, (event) => BrowserWindow.fromWebContents(event.sender)?.close());
+  ipcMain.handle(CHANNELS.linksOpen, (_event, target: string) => openLink(target, projects));
   ipcMain.handle(CHANNELS.projectsList, () => projects.list());
   ipcMain.handle(CHANNELS.projectsActive, () => projects.getActive());
   ipcMain.handle(CHANNELS.projectsChoose, async (event) => {
@@ -66,6 +75,10 @@ export function registerIpc(
     });
   });
   ipcMain.on(CHANNELS.sessionsDetach, (event, attachmentId?: string) => sessions.detach(event.sender.id, attachmentId));
+  ipcMain.on(CHANNELS.sessionsAck, (event, attachmentId: string, workerInstanceId: string, sidecarSequence: number) => {
+    if (!Number.isSafeInteger(sidecarSequence) || sidecarSequence < 1) return;
+    sessions.acknowledge(event.sender.id, attachmentId, workerInstanceId, sidecarSequence);
+  });
   ipcMain.handle(CHANNELS.sessionsRename, (_event, projectId: string, threadId: string, title: string) =>
     sessions.rename(projectId, threadId, title),
   );
@@ -132,6 +145,52 @@ export function registerIpc(
     projects.getWorkbench(projectId, threadId),
   );
   ipcMain.handle(CHANNELS.workbenchUpdate, (_event, state: WorkbenchState) => projects.setWorkbench(state));
+  ipcMain.handle(CHANNELS.nodeRuntimeStatus, () => nodeRuntime.getStatus());
+  ipcMain.handle(CHANNELS.nodeRuntimeInstall, () => nodeRuntime.install());
+  nodeRuntime.onProgress((progress) => {
+    for (const window of BrowserWindow.getAllWindows()) {
+      if (!window.isDestroyed()) window.webContents.send(CHANNELS.nodeRuntimeProgress, progress);
+    }
+  });
+}
+
+async function openLink(target: string, projects: ProjectStore): Promise<void> {
+  const value = target.trim();
+  if (!value) throw new Error("Cannot open an empty link");
+
+  const localTarget = value.split(/[?#]/, 1)[0];
+  if (!localTarget) throw new Error("Cannot open a link without a file path");
+  if (isAbsolute(localTarget)) {
+    await openPath(decodeURIComponent(localTarget));
+    return;
+  }
+
+  let url: URL | undefined;
+  try {
+    url = new URL(value);
+  } catch {
+    const project = await projects.getActive();
+    if (!project?.available) throw new Error(project?.issue ?? "No active project is available");
+    await openPath(resolve(project.cwd, decodeURIComponent(localTarget)));
+    return;
+  }
+
+  if (url.protocol === "file:") {
+    await openPath(fileURLToPath(url));
+    return;
+  }
+
+  if (url.protocol === "http:" || url.protocol === "https:" || url.protocol === "mailto:" || url.protocol === "tel:") {
+    await shell.openExternal(url.href);
+    return;
+  }
+
+  throw new Error(`Unsupported link protocol: ${url.protocol}`);
+}
+
+async function openPath(path: string): Promise<void> {
+  const error = await shell.openPath(path);
+  if (error) throw new Error(error);
 }
 
 /** 向所有 renderer 广播 PTY 增量事件。 */

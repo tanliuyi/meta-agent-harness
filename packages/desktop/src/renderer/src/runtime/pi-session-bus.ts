@@ -1,8 +1,14 @@
-import type { SessionBootstrap, SessionControlState, SessionPushPayload } from "../../../shared/contracts.ts";
+import type {
+  SessionBootstrap,
+  SessionControlState,
+  SessionPushPayload,
+  SessionRuntimeAvailability,
+} from "../../../shared/contracts.ts";
 import { detachedSnapshot, PiThreadStore } from "./pi-thread-store.ts";
 
 type ControlListener = (control: SessionControlState) => void;
 type ResyncListener = (bootstrap: SessionBootstrap) => void;
+type RuntimeListener = (availability: SessionRuntimeAvailability) => void;
 
 /** renderer 内单一 active attachment 的 Pi timeline 分发器。 */
 export class PiSessionBus {
@@ -10,7 +16,9 @@ export class PiSessionBus {
   private activeKey = "";
   private readonly controlListeners = new Set<ControlListener>();
   private readonly resyncListeners = new Set<ResyncListener>();
+  private readonly runtimeListeners = new Set<RuntimeListener>();
   private pendingResync?: Promise<SessionBootstrap>;
+  private recoveryTimer?: number;
 
   async attach(projectId: string, threadId: string): Promise<SessionBootstrap> {
     return window.desktop.sessions.attach(projectId, threadId, (update) => this.receive(update));
@@ -20,12 +28,15 @@ export class PiSessionBus {
     this.activeKey = sessionKey(bootstrap.projectId, bootstrap.threadId);
     this.store.replace(bootstrap.timeline);
     for (const listener of this.controlListeners) listener(bootstrap.control);
+    for (const listener of this.runtimeListeners) listener({ state: "ready", unknownOutcome: false });
   }
 
   detach(): void {
     window.desktop.sessions.detach();
     this.activeKey = "";
     this.pendingResync = undefined;
+    if (this.recoveryTimer !== undefined) window.clearTimeout(this.recoveryTimer);
+    this.recoveryTimer = undefined;
     this.store.replace(detachedSnapshot());
   }
 
@@ -37,6 +48,11 @@ export class PiSessionBus {
   onResync(listener: ResyncListener): () => void {
     this.resyncListeners.add(listener);
     return () => this.resyncListeners.delete(listener);
+  }
+
+  onRuntime(listener: RuntimeListener): () => void {
+    this.runtimeListeners.add(listener);
+    return () => this.runtimeListeners.delete(listener);
   }
 
   resync(projectId: string, threadId: string): Promise<SessionBootstrap> {
@@ -56,6 +72,19 @@ export class PiSessionBus {
   }
 
   private receive(update: SessionPushPayload): void {
+    if (update.type === "runtime-availability") {
+      if (sessionKey(update.projectId, update.threadId) !== this.activeKey) return;
+      for (const listener of this.runtimeListeners) listener(update.availability);
+      if (update.availability.state !== "ready" && this.recoveryTimer === undefined) {
+        this.recoveryTimer = window.setTimeout(() => {
+          this.recoveryTimer = undefined;
+          void this.resync(update.projectId, update.threadId).catch((error: unknown) =>
+            console.error("Pi sidecar fresh bootstrap failed", error),
+          );
+        }, 250);
+      }
+      return;
+    }
     if (update.type === "control") {
       for (const listener of this.controlListeners) listener(update.control);
       return;

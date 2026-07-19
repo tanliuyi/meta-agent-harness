@@ -1,0 +1,18 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "composite": false,
+    "target": "ES2024",
+    "lib": ["ES2024", "DOM"],
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "rootDir": "src",
+    "outDir": "out/sidecar",
+    "declaration": false,
+    "declarationMap": false,
+    "sourceMap": true,
+    "noEmit": false,
+    "types": ["node"]
+  },
+  "include": ["src/sidecar/**/*.ts", "src/main/pi/**/*.ts", "src/shared/**/*.ts"]
+}

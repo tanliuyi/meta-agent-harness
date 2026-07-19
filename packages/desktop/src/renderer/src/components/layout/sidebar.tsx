@@ -77,8 +77,9 @@ export const Sidebar = memo(function Sidebar() {
           <ProjectList
             projects={desktop.projects}
             projectId={desktop.navigationProjectId ?? undefined}
+            threadCatalogs={desktop.threadCatalogs}
             newTaskDisabled={draftPending}
-            onProjectExpand={(id) => void desktop.loadProjectThreads(id)}
+            onProjectExpand={(id) => desktop.loadProjectThreads(id)}
             onNewTask={startDraft}
           />
         </ScrollArea>

@@ -1,7 +1,7 @@
 import { ThreadListItemPrimitive, ThreadListPrimitive, useAuiState } from "@assistant-ui/react";
-import { Archive, ArchiveRestore, Trash2 } from "lucide-react";
+import { Archive, ArchiveRestore, Pencil, Trash2 } from "lucide-react";
 import { ContextMenu } from "radix-ui";
-import { type KeyboardEvent, useMemo, useRef, useState } from "react";
+import { type FormEvent, useMemo, useRef, useState } from "react";
 import type { Project, Thread } from "../../../../shared/contracts.ts";
 import { useDesktopNavigation } from "../../state/desktop-context.tsx";
 import {
@@ -19,6 +19,8 @@ import {
 } from "../../state/thread-list-commands.ts";
 import { Button } from "../ui/button.tsx";
 import { ConfirmDialog } from "../ui/confirm-dialog.tsx";
+import { Dialog, DialogClose, DialogContent, DialogDescription, DialogTitle } from "../ui/dialog.tsx";
+import { Input } from "../ui/input.tsx";
 
 interface DesktopThreadListProps {
   id: string;
@@ -51,11 +53,13 @@ export function DesktopThreadList({ id, project }: DesktopThreadListProps) {
     void runPendingThreadAction(pendingActions.current, key, setPendingKeys, action);
   };
 
-  const commitRename = (thread: Thread) => {
-    if (renaming?.threadId !== thread.id) return;
+  const commitRename = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!renaming) return;
+    const thread = threads.find(({ id }) => id === renaming.threadId);
     const title = normalizeThreadTitle(renaming.title);
     setRenaming(null);
-    if (!title || title === thread.title) return;
+    if (!thread || !title || title === thread.title) return;
     runAction(`rename:${thread.id}`, () => desktop.renameThread(project.id, thread.id, title));
   };
 
@@ -88,13 +92,9 @@ export function DesktopThreadList({ id, project }: DesktopThreadListProps) {
       threads={threads}
       visibleThreadIds={visibleThreadIds}
       activeThreadId={desktop.navigationProjectId === project.id ? desktop.navigationThreadId : null}
-      renaming={renaming}
       pendingKeys={pendingKeys}
       navigationDisabled={navigationDisabled}
-      onTitleChange={(title) => setRenaming((current) => (current ? { ...current, title } : current))}
       onRenameStart={(thread) => setRenaming({ threadId: thread.id, title: thread.title })}
-      onRenameCancel={() => setRenaming(null)}
-      onRenameCommit={commitRename}
       onOpen={openThread}
       onArchive={(thread, archived) =>
         runAction(`archive:${thread.id}`, () => desktop.setThreadArchived(project.id, thread.id, archived))
@@ -130,6 +130,36 @@ export function DesktopThreadList({ id, project }: DesktopThreadListProps) {
           ) : null}
         </div>
       ) : null}
+      <Dialog
+        open={renaming !== null}
+        onOpenChange={(open) => {
+          if (!open) setRenaming(null);
+        }}
+      >
+        <DialogContent className="gap-3 sm:max-w-md">
+          <DialogTitle>重命名会话</DialogTitle>
+          <DialogDescription>输入新的会话名称。</DialogDescription>
+          <form className="mt-2 space-y-4" onSubmit={commitRename}>
+            <Input
+              autoFocus
+              aria-label="会话名称"
+              value={renaming?.title ?? ""}
+              onFocus={(event) => event.currentTarget.select()}
+              onChange={(event) =>
+                setRenaming((current) => (current ? { ...current, title: event.target.value } : current))
+              }
+            />
+            <div className="flex justify-end gap-2">
+              <DialogClose asChild>
+                <Button variant="ghost">取消</Button>
+              </DialogClose>
+              <Button type="submit" disabled={normalizeThreadTitle(renaming?.title ?? "") === null}>
+                保存
+              </Button>
+            </div>
+          </form>
+        </DialogContent>
+      </Dialog>
       <ConfirmDialog
         open={pendingDelete !== null}
         title="删除会话"
@@ -159,13 +189,9 @@ interface DesktopThreadListItemProps {
   threads: readonly Thread[];
   visibleThreadIds: ReadonlySet<string>;
   activeThreadId: string | null;
-  renaming: RenameState | null;
   pendingKeys: ReadonlySet<string>;
   navigationDisabled: boolean;
-  onTitleChange(title: string): void;
   onRenameStart(thread: Thread): void;
-  onRenameCancel(): void;
-  onRenameCommit(thread: Thread): void;
   onOpen(thread: Thread): void;
   onArchive(thread: Thread, archived: boolean): void;
   onDelete(thread: Thread): void;
@@ -175,111 +201,86 @@ function DesktopThreadListItem(props: DesktopThreadListItemProps) {
   if (!isDesktopThreadItemForProject(props.item, props.project.id)) return null;
   const thread = resolveDesktopThreadItem(props.item, props.project.id, props.threads);
   if (!thread || !props.visibleThreadIds.has(thread.id)) return null;
-  const isRenaming = props.renaming?.threadId === thread.id;
   const isSwitching = props.navigationDisabled || props.pendingKeys.has(`switch:${thread.id}`);
   const isRenamingPending = props.pendingKeys.has(`rename:${thread.id}`);
   const isArchivePending = props.pendingKeys.has(`archive:${thread.id}`);
   const isDeletePending = props.pendingKeys.has(`delete:${thread.id}`);
   const isPending = isSwitching || isRenamingPending || isArchivePending || isDeletePending;
 
-  const handleRenameKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
-    if (event.key === "Enter") {
-      event.preventDefault();
-      props.onRenameCommit(thread);
-    } else if (event.key === "Escape") {
-      event.preventDefault();
-      props.onRenameCancel();
-    }
-  };
-
   return (
     <ContextMenu.Root>
-      <ContextMenu.Trigger asChild disabled={isRenaming}>
+      <ContextMenu.Trigger asChild>
         <ThreadListItemPrimitive.Root
           data-slot="aui_thread-list-item"
           className="thread-row group hover:bg-muted focus-visible:bg-muted data-active:bg-foreground/10 data-active:hover:bg-foreground/10 has-focus-visible:bg-muted data-[state=open]:bg-muted relative flex h-8 items-center rounded-md transition-colors focus-visible:outline-none"
           data-thread-id={thread.id}
           data-pending={isPending || undefined}
         >
-          {isRenaming ? (
-            <input
-              autoFocus
-              value={props.renaming?.title ?? ""}
-              disabled={isRenamingPending}
-              className="border-input bg-background focus-visible:ring-ring/50 h-8 min-w-0 flex-1 rounded-md border px-2.5 text-sm outline-none focus-visible:ring-[3px]"
-              onChange={(event) => props.onTitleChange(event.target.value)}
-              onBlur={() => props.onRenameCommit(thread)}
-              onKeyDown={handleRenameKeyDown}
-            />
-          ) : (
-            <ThreadListItemPrimitive.Trigger
-              data-slot="aui_thread-list-item-trigger"
-              className="thread-main focus-visible:ring-ring/50 flex h-full min-w-0 flex-1 items-center rounded-md ps-8 pe-2 text-start text-sm outline-none focus-visible:ring-[3px]"
-              disabled={isSwitching}
-              onClickCapture={preventPrimitiveThreadAction}
-              onClick={(event) =>
-                runControlledThreadAction(event, () => {
-                  if (shouldOpenThread(props.activeThreadId, thread.id)) props.onOpen(thread);
-                })
-              }
-            >
-              <span data-slot="aui_thread-list-item-title" className="min-w-0 flex-1 truncate">
-                <ThreadListItemPrimitive.Title fallback="新会话" />
-              </span>
-              {thread.running ? <span className="running-dot" aria-label="运行中" /> : null}
-            </ThreadListItemPrimitive.Trigger>
-          )}
+          <ThreadListItemPrimitive.Trigger
+            data-slot="aui_thread-list-item-trigger"
+            className="thread-main focus-visible:ring-ring/50 flex h-full min-w-0 flex-1 items-center rounded-md ps-8 pe-2 text-start text-sm outline-none focus-visible:ring-[3px]"
+            disabled={isSwitching}
+            onClickCapture={preventPrimitiveThreadAction}
+            onClick={(event) =>
+              runControlledThreadAction(event, () => {
+                if (shouldOpenThread(props.activeThreadId, thread.id)) props.onOpen(thread);
+              })
+            }
+          >
+            <span data-slot="aui_thread-list-item-title" className="min-w-0 flex-1 truncate">
+              <ThreadListItemPrimitive.Title fallback="新会话" />
+            </span>
+            {thread.running ? <span className="running-dot" aria-label="运行中" /> : null}
+          </ThreadListItemPrimitive.Trigger>
         </ThreadListItemPrimitive.Root>
       </ContextMenu.Trigger>
-      {isRenaming ? null : (
-        <ContextMenu.Portal>
-          <ContextMenu.Content
-            data-slot="aui_thread-list-item-context-menu"
-            className="bg-popover/95 text-popover-foreground data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95 data-[state=open]:animate-in data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95 data-[state=closed]:animate-out z-50 min-w-32 overflow-hidden rounded-xl border p-1.5 shadow-lg backdrop-blur-sm"
+      <ContextMenu.Portal>
+        <ContextMenu.Content
+          data-slot="aui_thread-list-item-context-menu"
+          className="bg-popover/95 text-popover-foreground data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95 data-[state=open]:animate-in data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95 data-[state=closed]:animate-out z-50 min-w-32 overflow-hidden rounded-xl border p-1.5 shadow-lg backdrop-blur-sm"
+        >
+          <ContextMenu.Item
+            data-slot="aui_thread-list-item-context-menu-item"
+            className="hover:bg-accent hover:text-accent-foreground focus:bg-accent focus:text-accent-foreground flex cursor-pointer items-center gap-2 rounded-lg px-2.5 py-1.5 text-sm outline-none select-none"
+            onSelect={() => props.onRenameStart(thread)}
           >
-            <ContextMenu.Item
-              data-slot="aui_thread-list-item-context-menu-item"
-              className="hover:bg-accent hover:text-accent-foreground focus:bg-accent focus:text-accent-foreground flex cursor-pointer items-center gap-2 rounded-lg px-2.5 py-1.5 text-sm outline-none select-none"
-              onSelect={() => props.onRenameStart(thread)}
-            >
-              重命名
-            </ContextMenu.Item>
-            {thread.archived ? (
-              <ThreadListItemPrimitive.Unarchive asChild disabled={isArchivePending}>
-                <ContextMenu.Item
-                  data-slot="aui_thread-list-item-context-menu-item"
-                  className="hover:bg-accent hover:text-accent-foreground focus:bg-accent focus:text-accent-foreground flex cursor-pointer items-center gap-2 rounded-lg px-2.5 py-1.5 text-sm outline-none select-none"
-                  onClickCapture={preventPrimitiveThreadAction}
-                  onClick={(event) => runControlledThreadAction(event, () => props.onArchive(thread, false))}
-                >
-                  <ArchiveRestore size={14} /> 恢复
-                </ContextMenu.Item>
-              </ThreadListItemPrimitive.Unarchive>
-            ) : (
-              <ThreadListItemPrimitive.Archive asChild disabled={isArchivePending}>
-                <ContextMenu.Item
-                  data-slot="aui_thread-list-item-context-menu-item"
-                  className="hover:bg-accent hover:text-accent-foreground focus:bg-accent focus:text-accent-foreground flex cursor-pointer items-center gap-2 rounded-lg px-2.5 py-1.5 text-sm outline-none select-none"
-                  onClickCapture={preventPrimitiveThreadAction}
-                  onClick={(event) => runControlledThreadAction(event, () => props.onArchive(thread, true))}
-                >
-                  <Archive size={14} /> 归档
-                </ContextMenu.Item>
-              </ThreadListItemPrimitive.Archive>
-            )}
-            <ThreadListItemPrimitive.Delete asChild disabled={isDeletePending}>
+            <Pencil size={14} /> 重命名
+          </ContextMenu.Item>
+          {thread.archived ? (
+            <ThreadListItemPrimitive.Unarchive asChild disabled={isArchivePending}>
               <ContextMenu.Item
                 data-slot="aui_thread-list-item-context-menu-item"
-                className="text-destructive hover:bg-destructive/10 hover:text-destructive focus:bg-destructive/10 focus:text-destructive flex cursor-pointer items-center gap-2 rounded-lg px-2.5 py-1.5 text-sm outline-none select-none"
+                className="hover:bg-accent hover:text-accent-foreground focus:bg-accent focus:text-accent-foreground flex cursor-pointer items-center gap-2 rounded-lg px-2.5 py-1.5 text-sm outline-none select-none"
                 onClickCapture={preventPrimitiveThreadAction}
-                onClick={(event) => runControlledThreadAction(event, () => props.onDelete(thread))}
+                onClick={(event) => runControlledThreadAction(event, () => props.onArchive(thread, false))}
               >
-                <Trash2 size={14} /> 删除
+                <ArchiveRestore size={14} /> 恢复
               </ContextMenu.Item>
-            </ThreadListItemPrimitive.Delete>
-          </ContextMenu.Content>
-        </ContextMenu.Portal>
-      )}
+            </ThreadListItemPrimitive.Unarchive>
+          ) : (
+            <ThreadListItemPrimitive.Archive asChild disabled={isArchivePending}>
+              <ContextMenu.Item
+                data-slot="aui_thread-list-item-context-menu-item"
+                className="hover:bg-accent hover:text-accent-foreground focus:bg-accent focus:text-accent-foreground flex cursor-pointer items-center gap-2 rounded-lg px-2.5 py-1.5 text-sm outline-none select-none"
+                onClickCapture={preventPrimitiveThreadAction}
+                onClick={(event) => runControlledThreadAction(event, () => props.onArchive(thread, true))}
+              >
+                <Archive size={14} /> 归档
+              </ContextMenu.Item>
+            </ThreadListItemPrimitive.Archive>
+          )}
+          <ThreadListItemPrimitive.Delete asChild disabled={isDeletePending}>
+            <ContextMenu.Item
+              data-slot="aui_thread-list-item-context-menu-item"
+              className="text-destructive hover:bg-destructive/10 hover:text-destructive focus:bg-destructive/10 focus:text-destructive flex cursor-pointer items-center gap-2 rounded-lg px-2.5 py-1.5 text-sm outline-none select-none"
+              onClickCapture={preventPrimitiveThreadAction}
+              onClick={(event) => runControlledThreadAction(event, () => props.onDelete(thread))}
+            >
+              <Trash2 size={14} /> 删除
+            </ContextMenu.Item>
+          </ThreadListItemPrimitive.Delete>
+        </ContextMenu.Content>
+      </ContextMenu.Portal>
     </ContextMenu.Root>
   );
 }

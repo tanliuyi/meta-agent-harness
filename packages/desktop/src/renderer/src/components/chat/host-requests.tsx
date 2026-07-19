@@ -114,5 +114,9 @@ function RequestField({
 }
 
 async function respond(snapshot: SessionControlState, response: HostResponse): Promise<void> {
-  await window.desktop.sessions.respond(snapshot.projectId, snapshot.threadId, response);
+  const request = snapshot.hostRequests.find((item) => item.id === response.requestId);
+  await window.desktop.sessions.respond(snapshot.projectId, snapshot.threadId, {
+    ...response,
+    workerInstanceId: request?.workerInstanceId,
+  });
 }

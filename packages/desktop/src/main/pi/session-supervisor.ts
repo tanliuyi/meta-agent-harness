@@ -1,8 +1,4 @@
 import { randomUUID } from "node:crypto";
-import { type FSWatcher, watch } from "node:fs";
-import { rm } from "node:fs/promises";
-import { dirname } from "node:path";
-import { type SessionInfo, SessionManager } from "@earendil-works/pi-coding-agent";
 import type {
   ClearedQueue,
   DraftSessionConfig,
@@ -19,21 +15,17 @@ import type {
   SessionReloadInput,
   Thread,
 } from "../../shared/contracts.ts";
+import type { ThreadWorkerRegistry } from "../sidecar/thread-worker-registry.ts";
 import type { ProjectStore } from "../store/project-store.ts";
-import { loadDraftSessionConfig } from "./session-configuration.ts";
-import { SessionRuntime } from "./session-runtime.ts";
-
-interface ProjectCatalog {
-  items: Map<string, SessionInfo>;
-  dirty: boolean;
-  watcher?: FSWatcher;
-}
 
 interface RendererSubscription {
   attachmentId: string;
   projectId: string;
   threadId: string;
   send(update: SessionPush): void;
+  pendingEvents: number;
+  pendingBytes: number;
+  resyncing: boolean;
 }
 
 interface PendingRendererAttachment {
@@ -42,47 +34,51 @@ interface PendingRendererAttachment {
   threadId: string;
 }
 
-/** 管理 Pi session 生命周期、目录索引和 renderer 定向订阅。 */
+interface PendingDeliveryAck {
+  workerInstanceId: string;
+  sidecarSequence: number;
+  ownerIds: Set<number>;
+  ownerBytes: Map<number, number>;
+  timer: ReturnType<typeof setTimeout>;
+}
+
+export interface SessionSupervisorOptions {
+  log?(scope: string, text: string): void;
+}
+
+const MAX_ATTACHMENT_PENDING_EVENTS = 128;
+const MAX_ATTACHMENT_PENDING_BYTES = 16 * 1024 * 1024;
+const DELIVERY_ACK_TIMEOUT_MS = 5_000;
+
+/** Electron-only facade for renderer attachments, ProjectStore overlays, and sidecar routing. */
 export class SessionSupervisor {
-  private readonly runtimes = new Map<string, SessionRuntime>();
-  private readonly pendingRuntimes = new Map<string, Promise<SessionRuntime>>();
-  private readonly catalogs = new Map<string, ProjectCatalog>();
   private readonly subscriptions = new Map<number, RendererSubscription>();
   private readonly pendingAttachments = new Map<number, PendingRendererAttachment>();
+  private readonly pendingDeliveryAcks = new Map<string, PendingDeliveryAck>();
+  private runtimeStatusSequence = 0;
   private readonly projects: ProjectStore;
+  private readonly workers: ThreadWorkerRegistry;
+  private readonly log?: SessionSupervisorOptions["log"];
+  private disposed = false;
 
-  constructor(projects: ProjectStore) {
+  constructor(projects: ProjectStore, workers: ThreadWorkerRegistry, options: SessionSupervisorOptions = {}) {
     this.projects = projects;
+    this.workers = workers;
+    this.log = options.log;
   }
 
   async list(projectId: string, includeArchived = false): Promise<Thread[]> {
-    const catalog = await this.requireCatalog(projectId);
-    const threads = new Map<string, Thread>();
-    for (const item of catalog.items.values()) {
-      const archived = this.projects.isArchived(projectId, item.id);
-      if (archived && !includeArchived) continue;
-      threads.set(
-        item.id,
-        threadFromInfo(projectId, item, archived, this.runtimes.get(runtimeKey(projectId, item.id))),
-      );
-    }
-    for (const runtime of this.projectRuntimes(projectId)) {
-      const archived = this.projects.isArchived(projectId, runtime.id);
-      if (archived && !includeArchived) continue;
-      threads.set(runtime.id, runtime.threadSummary(archived));
-    }
-    return [...threads.values()].sort((left, right) => right.updatedAt - left.updatedAt);
+    return (await this.workers.list(projectId))
+      .map((thread) => ({ ...thread, archived: this.projects.isArchived(projectId, thread.id) }))
+      .filter((thread) => includeArchived || !thread.archived);
   }
 
   getDraftConfig(projectId: string): Promise<DraftSessionConfig> {
-    return loadDraftSessionConfig(this.projects.getCwd(projectId));
+    return this.workers.getDraftConfig(projectId);
   }
 
-  async create(input: SessionCreateInput): Promise<SessionBootstrap> {
-    const runtime = await this.createRuntime(input.projectId, undefined, input);
-    this.runtimes.set(runtimeKey(input.projectId, runtime.id), runtime);
-    this.watchRuntimeDirectory(input.projectId, runtime);
-    return runtime.bootstrap();
+  create(input: SessionCreateInput): Promise<SessionBootstrap> {
+    return this.workers.create(input);
   }
 
   async attach(
@@ -94,12 +90,26 @@ export class SessionSupervisor {
     const requestId = Symbol("session-attachment");
     this.pendingAttachments.set(ownerId, { requestId, projectId, threadId });
     try {
-      const runtime = await this.requireRuntime(projectId, threadId);
-      const bootstrap = runtime.bootstrap();
+      const bootstrap = await this.workers.attach(projectId, threadId);
       const attachmentId = randomUUID();
       if (this.pendingAttachments.get(ownerId)?.requestId === requestId) {
         this.pendingAttachments.delete(ownerId);
-        this.subscriptions.set(ownerId, { attachmentId, projectId, threadId, send });
+        const previous = this.subscriptions.get(ownerId);
+        if (previous) {
+          this.releaseOwnerAcks(ownerId);
+          this.workers.detach(previous.projectId, previous.threadId);
+        }
+        this.subscriptions.set(ownerId, {
+          attachmentId,
+          projectId,
+          threadId,
+          send,
+          pendingEvents: 0,
+          pendingBytes: 0,
+          resyncing: false,
+        });
+      } else {
+        this.workers.detach(projectId, threadId);
       }
       return { protocolVersion: bootstrap.protocolVersion, attachmentId, bootstrap };
     } catch (error) {
@@ -108,50 +118,45 @@ export class SessionSupervisor {
     }
   }
 
-  async prompt(input: SessionPromptInput): Promise<SessionCommandResult> {
-    return (await this.requireRuntime(input.projectId, input.threadId)).prompt(input);
+  prompt(input: SessionPromptInput): Promise<SessionCommandResult> {
+    return this.workers.prompt(input);
   }
 
-  async edit(input: SessionEditInput): Promise<SessionCommandResult> {
-    return (await this.requireRuntime(input.projectId, input.threadId)).edit(input);
+  edit(input: SessionEditInput): Promise<SessionCommandResult> {
+    return this.workers.edit(input);
   }
 
-  async reload(input: SessionReloadInput): Promise<SessionCommandResult> {
-    return (await this.requireRuntime(input.projectId, input.threadId)).reload(input);
+  reload(input: SessionReloadInput): Promise<SessionCommandResult> {
+    return this.workers.reload(input);
   }
 
-  async cancel(projectId: string, threadId: string): Promise<void> {
-    await (await this.requireRuntime(projectId, threadId)).cancel();
+  cancel(projectId: string, threadId: string): Promise<void> {
+    return this.workers.cancel(projectId, threadId);
   }
 
-  async clearQueue(projectId: string, threadId: string): Promise<ClearedQueue> {
-    return (await this.requireRuntime(projectId, threadId)).clearQueue();
+  clearQueue(projectId: string, threadId: string): Promise<ClearedQueue> {
+    return this.workers.clearQueue(projectId, threadId);
   }
 
-  async compact(projectId: string, threadId: string): Promise<void> {
-    await (await this.requireRuntime(projectId, threadId)).compact();
+  compact(projectId: string, threadId: string): Promise<void> {
+    return this.workers.compact(projectId, threadId);
   }
 
-  async setModel(projectId: string, threadId: string, provider: string, modelId: string): Promise<void> {
-    await (await this.requireRuntime(projectId, threadId)).setModel(provider, modelId);
+  setModel(projectId: string, threadId: string, provider: string, modelId: string): Promise<void> {
+    return this.workers.setModel(projectId, threadId, provider, modelId);
   }
 
-  async setThinking(projectId: string, threadId: string, level: SessionControlState["thinkingLevel"]): Promise<void> {
-    (await this.requireRuntime(projectId, threadId)).setThinking(level);
+  setThinking(projectId: string, threadId: string, level: SessionControlState["thinkingLevel"]): Promise<void> {
+    return this.workers.setThinking(projectId, threadId, level);
   }
 
-  async setEditorText(projectId: string, threadId: string, text: string): Promise<void> {
-    (await this.requireRuntime(projectId, threadId)).setEditorText(text);
+  setEditorText(projectId: string, threadId: string, text: string): Promise<void> {
+    if (this.disposed) return Promise.resolve();
+    return this.workers.setEditorText(projectId, threadId, text);
   }
 
-  async rename(projectId: string, threadId: string, title: string): Promise<void> {
-    const runtime = this.runtimes.get(runtimeKey(projectId, threadId));
-    if (runtime) runtime.rename(title);
-    else {
-      const item = await this.requireCatalogItem(projectId, threadId);
-      SessionManager.open(item.path, undefined, this.projects.getCwd(projectId)).appendSessionInfo(title.trim());
-      this.updateCatalogItem(projectId, { ...item, name: title.trim(), modified: new Date() });
-    }
+  rename(projectId: string, threadId: string, title: string): Promise<void> {
+    return this.workers.rename(projectId, threadId, title);
   }
 
   async archive(projectId: string, threadId: string, archived: boolean): Promise<void> {
@@ -159,175 +164,241 @@ export class SessionSupervisor {
   }
 
   async remove(projectId: string, threadId: string): Promise<void> {
-    const key = runtimeKey(projectId, threadId);
-    const runtime = this.runtimes.get(key);
-    const file = runtime ? runtime.file : (await this.requireCatalogItem(projectId, threadId)).path;
-    if (runtime) {
-      await runtime.dispose();
-      this.runtimes.delete(key);
-    }
-    if (file) await rm(file);
-    this.catalogs.get(projectId)?.items.delete(threadId);
     this.clearPendingAttachments(projectId, threadId);
     this.clearSessionSubscriptions(projectId, threadId);
+    await this.workers.remove(projectId, threadId);
     await this.projects.removeWorkbench(projectId, threadId);
   }
 
   async removeProject(projectId: string): Promise<void> {
-    const pending = [...this.pendingRuntimes.entries()]
-      .filter(([key]) => key.startsWith(`${projectId}:`))
-      .map(([, runtime]) => runtime);
-    await Promise.allSettled(pending);
-    const runtimes = this.projectRuntimes(projectId);
-    await Promise.all(runtimes.map((runtime) => runtime.dispose()));
-    for (const runtime of runtimes) this.runtimes.delete(runtimeKey(projectId, runtime.id));
-    const catalog = this.catalogs.get(projectId);
-    catalog?.watcher?.close();
-    this.catalogs.delete(projectId);
     for (const [ownerId, subscription] of this.subscriptions) {
-      if (subscription.projectId === projectId) this.subscriptions.delete(ownerId);
+      if (subscription.projectId === projectId) {
+        this.subscriptions.delete(ownerId);
+        this.workers.detach(subscription.projectId, subscription.threadId);
+        this.releaseOwnerAcks(ownerId);
+      }
     }
+    await this.workers.removeProject(projectId);
     for (const [ownerId, pending] of this.pendingAttachments) {
       if (pending.projectId === projectId) this.pendingAttachments.delete(ownerId);
     }
   }
 
-  async respond(projectId: string, threadId: string, response: HostResponse): Promise<void> {
-    (await this.requireRuntime(projectId, threadId)).respond(response);
+  respond(projectId: string, threadId: string, response: HostResponse): Promise<void> {
+    return this.workers.respond(projectId, threadId, response);
   }
 
   detach(ownerId: number, attachmentId?: string): void {
     const current = this.subscriptions.get(ownerId);
     if (attachmentId !== undefined && current?.attachmentId !== attachmentId) return;
     this.pendingAttachments.delete(ownerId);
-    if (!current) return;
-    this.subscriptions.delete(ownerId);
+    if (current) {
+      this.subscriptions.delete(ownerId);
+      this.workers.detach(current.projectId, current.threadId);
+    }
+    this.releaseOwnerAcks(ownerId);
   }
 
-  async dispose(): Promise<void> {
-    await Promise.allSettled(this.pendingRuntimes.values());
-    await Promise.all([...this.runtimes.values()].map((runtime) => runtime.dispose()));
-    this.runtimes.clear();
-    this.pendingRuntimes.clear();
-    for (const catalog of this.catalogs.values()) catalog.watcher?.close();
-    this.catalogs.clear();
+  acknowledge(ownerId: number, attachmentId: string, workerInstanceId: string, sidecarSequence: number): void {
+    if (this.subscriptions.get(ownerId)?.attachmentId !== attachmentId) return;
+    const key = deliveryKey(workerInstanceId, sidecarSequence);
+    const pending = this.pendingDeliveryAcks.get(key);
+    if (!pending) return;
+    const subscription = this.subscriptions.get(ownerId);
+    if (!pending.ownerIds.delete(ownerId)) return;
+    if (subscription) {
+      subscription.pendingEvents = Math.max(0, subscription.pendingEvents - 1);
+      subscription.pendingBytes = Math.max(0, subscription.pendingBytes - (pending.ownerBytes.get(ownerId) ?? 0));
+    }
+    pending.ownerBytes.delete(ownerId);
+    if (pending.ownerIds.size === 0) {
+      clearTimeout(pending.timer);
+      this.pendingDeliveryAcks.delete(key);
+      this.workers.acknowledge(workerInstanceId, sidecarSequence);
+    }
+  }
+
+  workerFailed(projectId: string, threadId: string, error: Error): void {
+    this.publishRuntimeUnavailable(projectId, threadId, error.message, true);
+  }
+
+  resyncRequired(projectId: string, threadId: string, reason: string): void {
+    this.publishRuntimeRecovering(projectId, threadId, reason);
+  }
+
+  receive(update: SessionPushPayload, workerInstanceId: string, sidecarSequence: number): void {
+    const ownerIds = new Set<number>();
+    const ownerBytes = new Map<number, number>();
+    for (const [ownerId, subscription] of this.subscriptions) {
+      const active = subscription.projectId === update.projectId && subscription.threadId === update.threadId;
+      if (!active) continue;
+      if (subscription.resyncing) continue;
+      ownerIds.add(ownerId);
+      const deliveredUpdate =
+        update.type === "control"
+          ? {
+              ...update,
+              control: {
+                ...update.control,
+                hostRequests: update.control.hostRequests.map((request) => ({ ...request, workerInstanceId })),
+              },
+            }
+          : update;
+      const delivered: SessionPush = {
+        ...deliveredUpdate,
+        attachmentId: subscription.attachmentId,
+        workerInstanceId,
+        sidecarSequence,
+      };
+      const bytes = estimateDeliveryBytes(delivered);
+      if (
+        subscription.pendingEvents >= MAX_ATTACHMENT_PENDING_EVENTS ||
+        subscription.pendingBytes + bytes > MAX_ATTACHMENT_PENDING_BYTES
+      ) {
+        ownerIds.delete(ownerId);
+        this.markAttachmentResync(ownerId, subscription, "renderer-delivery-queue-overflow");
+        continue;
+      }
+      try {
+        subscription.send(delivered);
+      } catch {
+        ownerIds.delete(ownerId);
+        this.markAttachmentResync(ownerId, subscription, "renderer-delivery-failed");
+        continue;
+      }
+      subscription.pendingEvents += 1;
+      subscription.pendingBytes += bytes;
+      ownerBytes.set(ownerId, bytes);
+    }
+    if (ownerIds.size === 0) {
+      this.workers.acknowledge(workerInstanceId, sidecarSequence);
+      return;
+    }
+    this.pendingDeliveryAcks.set(deliveryKey(workerInstanceId, sidecarSequence), {
+      workerInstanceId,
+      sidecarSequence,
+      ownerIds,
+      ownerBytes,
+      timer: setTimeout(
+        () => this.handleDeliveryAckTimeout(workerInstanceId, sidecarSequence),
+        DELIVERY_ACK_TIMEOUT_MS,
+      ),
+    });
+  }
+
+  dispose(): Promise<void> {
+    this.disposed = true;
     this.subscriptions.clear();
     this.pendingAttachments.clear();
-  }
-
-  private async requireRuntime(projectId: string, threadId: string): Promise<SessionRuntime> {
-    const key = runtimeKey(projectId, threadId);
-    const current = this.runtimes.get(key);
-    if (current) return current;
-    const pending = this.pendingRuntimes.get(key);
-    if (pending) return pending;
-    const promise = this.openManager(projectId, threadId).then((manager) => this.createRuntime(projectId, manager));
-    this.pendingRuntimes.set(key, promise);
-    try {
-      const runtime = await promise;
-      this.runtimes.set(key, runtime);
-      this.watchRuntimeDirectory(projectId, runtime);
-      return runtime;
-    } finally {
-      this.pendingRuntimes.delete(key);
+    for (const pending of this.pendingDeliveryAcks.values()) {
+      clearTimeout(pending.timer);
+      this.workers.acknowledge(pending.workerInstanceId, pending.sidecarSequence);
     }
+    this.pendingDeliveryAcks.clear();
+    return this.workers.dispose();
   }
 
-  private createRuntime(
-    projectId: string,
-    sessionManager?: SessionManager,
-    createInput?: SessionCreateInput,
-  ): Promise<SessionRuntime> {
-    return SessionRuntime.create({
-      projectId,
-      cwd: this.projects.getCwd(projectId),
-      sessionManager,
-      createInput,
-      push: (update) => this.publish(update),
-      onSummaryChanged: (runtime) => this.updateRuntimeCatalog(runtime),
-    });
-  }
-
-  private async openManager(projectId: string, threadId: string): Promise<SessionManager> {
-    const item = await this.requireCatalogItem(projectId, threadId);
-    return SessionManager.open(item.path, undefined, this.projects.getCwd(projectId));
-  }
-
-  private async requireCatalog(projectId: string): Promise<ProjectCatalog> {
-    const current = this.catalogs.get(projectId);
-    if (current && !current.dirty) return current;
-    const stored = await SessionManager.list(this.projects.getCwd(projectId));
-    const catalog = current ?? { items: new Map<string, SessionInfo>(), dirty: false };
-    catalog.items = new Map(stored.map((item) => [item.id, item]));
-    catalog.dirty = false;
-    this.catalogs.set(projectId, catalog);
-    if (!catalog.watcher && stored[0]) this.watchDirectory(catalog, dirname(stored[0].path));
-    return catalog;
-  }
-
-  private async requireCatalogItem(projectId: string, threadId: string): Promise<SessionInfo> {
-    let catalog = await this.requireCatalog(projectId);
-    let item = catalog.items.get(threadId);
-    if (!item) {
-      catalog.dirty = true;
-      catalog = await this.requireCatalog(projectId);
-      item = catalog.items.get(threadId);
-    }
-    if (!item) throw new Error(`Pi session 不存在: ${threadId}`);
-    return item;
-  }
-
-  private updateRuntimeCatalog(runtime: SessionRuntime): void {
-    const file = runtime.file;
-    if (!file) return;
-    const summary = runtime.threadSummary(this.projects.isArchived(runtime.projectId, runtime.id));
-    this.updateCatalogItem(runtime.projectId, {
-      path: file,
-      id: runtime.id,
-      cwd: runtime.cwd,
-      name: summary.title,
-      created: new Date(summary.createdAt),
-      modified: new Date(summary.updatedAt),
-      messageCount: summary.messageCount,
-      firstMessage: summary.preview,
-      allMessagesText: summary.preview,
-    });
-  }
-
-  private updateCatalogItem(projectId: string, item: SessionInfo): void {
-    const catalog = this.catalogs.get(projectId);
-    catalog?.items.set(item.id, item);
-    if (catalog && !catalog.watcher) this.watchDirectory(catalog, dirname(item.path));
-  }
-
-  private watchRuntimeDirectory(projectId: string, runtime: SessionRuntime): void {
-    const catalog = this.catalogs.get(projectId);
-    if (!catalog || catalog.watcher) return;
-    this.watchDirectory(catalog, runtime.session.sessionManager.getSessionDir());
-  }
-
-  private watchDirectory(catalog: ProjectCatalog, directory: string): void {
-    try {
-      catalog.watcher = watch(directory, () => {
-        catalog.dirty = true;
-      });
-    } catch {
-      catalog.watcher = undefined;
-    }
-  }
-
-  private publish(update: SessionPushPayload): void {
+  private publishRuntimeUnavailable(projectId: string, threadId: string, error: string, unknownOutcome: boolean): void {
+    this.runtimeStatusSequence += 1;
     for (const subscription of this.subscriptions.values()) {
-      const isActiveSession = subscription.projectId === update.projectId && subscription.threadId === update.threadId;
-      if (update.type === "timeline" && !isActiveSession) continue;
-      subscription.send({ ...update, attachmentId: subscription.attachmentId });
+      if (subscription.projectId !== projectId || subscription.threadId !== threadId || subscription.resyncing)
+        continue;
+      this.sendControl(subscription, {
+        type: "runtime-availability",
+        projectId,
+        threadId,
+        availability: { state: "unavailable", error, unknownOutcome },
+      });
+    }
+  }
+
+  private publishRuntimeRecovering(projectId: string, threadId: string, reason: string): void {
+    this.runtimeStatusSequence += 1;
+    for (const subscription of this.subscriptions.values()) {
+      if (subscription.projectId !== projectId || subscription.threadId !== threadId || subscription.resyncing)
+        continue;
+      this.sendControl(subscription, {
+        type: "runtime-availability",
+        projectId,
+        threadId,
+        availability: { state: "recovering", reason, unknownOutcome: false },
+      });
     }
   }
 
   private clearSessionSubscriptions(projectId: string, threadId: string): void {
     for (const [ownerId, subscription] of this.subscriptions) {
-      if (subscription.projectId === projectId && subscription.threadId === threadId)
+      if (subscription.projectId === projectId && subscription.threadId === threadId) {
         this.subscriptions.delete(ownerId);
+        this.workers.detach(subscription.projectId, subscription.threadId);
+        this.releaseOwnerAcks(ownerId);
+      }
+    }
+  }
+
+  private releaseOwnerAcks(ownerId: number): void {
+    for (const [key, pending] of this.pendingDeliveryAcks) {
+      const subscription = this.subscriptions.get(ownerId);
+      if (!pending.ownerIds.delete(ownerId)) continue;
+      if (subscription) {
+        subscription.pendingEvents = Math.max(0, subscription.pendingEvents - 1);
+        subscription.pendingBytes = Math.max(0, subscription.pendingBytes - (pending.ownerBytes.get(ownerId) ?? 0));
+      }
+      pending.ownerBytes.delete(ownerId);
+      if (pending.ownerIds.size === 0) {
+        clearTimeout(pending.timer);
+        this.pendingDeliveryAcks.delete(key);
+        this.workers.acknowledge(pending.workerInstanceId, pending.sidecarSequence);
+      }
+    }
+  }
+
+  private handleDeliveryAckTimeout(workerInstanceId: string, sidecarSequence: number): void {
+    const key = deliveryKey(workerInstanceId, sidecarSequence);
+    const pending = this.pendingDeliveryAcks.get(key);
+    if (!pending) return;
+    this.log?.(
+      "renderer",
+      `Delivery ACK timeout: worker=${workerInstanceId}, sequence=${sidecarSequence}, owners=${pending.ownerIds.size}`,
+    );
+    for (const ownerId of [...pending.ownerIds]) {
+      const subscription = this.subscriptions.get(ownerId);
+      if (subscription) this.markAttachmentResync(ownerId, subscription, "renderer-delivery-ack-timeout");
+      else this.releaseOwnerAcks(ownerId);
+    }
+  }
+
+  private markAttachmentResync(ownerId: number, subscription: RendererSubscription, reason: string): void {
+    if (subscription.resyncing) return;
+    this.log?.(
+      "renderer",
+      `Attachment recovery: attachment=${subscription.attachmentId}, project=${subscription.projectId}, thread=${subscription.threadId}, reason=${reason}, pendingEvents=${subscription.pendingEvents}, pendingBytes=${subscription.pendingBytes}`,
+    );
+    subscription.resyncing = true;
+    this.releaseOwnerAcks(ownerId);
+    this.runtimeStatusSequence += 1;
+    this.sendControl(subscription, {
+      type: "runtime-availability",
+      projectId: subscription.projectId,
+      threadId: subscription.threadId,
+      availability: {
+        state: "recovering",
+        reason,
+        unknownOutcome: false,
+      },
+    });
+  }
+
+  private sendControl(subscription: RendererSubscription, payload: SessionPushPayload): void {
+    try {
+      subscription.send({
+        ...payload,
+        attachmentId: subscription.attachmentId,
+        workerInstanceId: "desktop-main",
+        sidecarSequence: this.runtimeStatusSequence,
+      });
+    } catch {
+      // The renderer is already unavailable; its attachment cleanup will release state.
     }
   }
 
@@ -336,27 +407,12 @@ export class SessionSupervisor {
       if (pending.projectId === projectId && pending.threadId === threadId) this.pendingAttachments.delete(ownerId);
     }
   }
-
-  private projectRuntimes(projectId: string): SessionRuntime[] {
-    return [...this.runtimes.values()].filter((runtime) => runtime.projectId === projectId);
-  }
 }
 
-function runtimeKey(projectId: string, threadId: string): string {
-  return `${projectId}:${threadId}`;
+function deliveryKey(workerInstanceId: string, sidecarSequence: number): string {
+  return `${workerInstanceId}\0${sidecarSequence}`;
 }
 
-function threadFromInfo(projectId: string, item: SessionInfo, archived: boolean, runtime?: SessionRuntime): Thread {
-  if (runtime) return runtime.threadSummary(archived);
-  return {
-    id: item.id,
-    projectId,
-    title: item.name || item.firstMessage || "新会话",
-    createdAt: item.created.getTime(),
-    updatedAt: item.modified.getTime(),
-    messageCount: item.messageCount,
-    preview: item.firstMessage,
-    archived,
-    running: false,
-  };
+function estimateDeliveryBytes(update: SessionPush | SessionPushPayload): number {
+  return JSON.stringify(update).length * 2;
 }

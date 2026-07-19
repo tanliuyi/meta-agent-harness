@@ -28,6 +28,7 @@ import { resolveSessionCreateSelection, sessionReadiness } from "./session-confi
 interface RuntimeOptions {
   projectId: string;
   cwd: string;
+  agentDir?: string;
   sessionManager?: SessionManager;
   createInput?: SessionCreateInput;
   push(update: SessionPushPayload): void;
@@ -83,7 +84,13 @@ export class SessionRuntime {
 
   /** 创建新会话或从指定 SessionManager 恢复会话。 */
   static async create(options: RuntimeOptions): Promise<SessionRuntime> {
-    const services = await createAgentSessionServices({ cwd: options.cwd });
+    const services = await createAgentSessionServices({
+      cwd: options.cwd,
+      agentDir: options.agentDir,
+      resourceLoaderOptions: {
+        packageManagerOnMissing: async () => "error",
+      },
+    });
     const selection = options.createInput
       ? resolveSessionCreateSelection(options.createInput, services.modelRegistry)
       : undefined;

@@ -21,6 +21,22 @@ import type {
 
 export type DesktopPlatform = "win32" | "darwin" | "linux";
 
+export interface NodeRuntimeStatus {
+  state: "ready" | "missing" | "invalid";
+  path?: string;
+  version?: string;
+  requiredVersion: string;
+  message: string;
+  installUrl: string;
+}
+
+export interface NodeRuntimeProgress {
+  phase: "checking" | "downloading" | "verifying" | "extracting" | "ready" | "error";
+  percent: number;
+  message: string;
+  error?: string;
+}
+
 /** Renderer 可以调用的最小 Desktop API。 */
 export interface DesktopApi {
   platform: DesktopPlatform;
@@ -28,6 +44,14 @@ export interface DesktopApi {
     electron: string;
     chrome: string;
     node: string;
+  };
+  nodeRuntime: {
+    getStatus(): Promise<NodeRuntimeStatus>;
+    install(): Promise<NodeRuntimeStatus>;
+    onProgress(listener: (progress: NodeRuntimeProgress) => void): () => void;
+  };
+  links: {
+    open(url: string): Promise<void>;
   };
   windowControls: {
     minimize(): void;

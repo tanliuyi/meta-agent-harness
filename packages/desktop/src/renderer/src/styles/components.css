@@ -44,26 +44,79 @@
 .error-toast,
 .notice {
   position: fixed;
-  right: 16px;
-  bottom: 16px;
+  left: 50%;
+  top: 60px;
   z-index: 100;
   display: flex;
   align-items: center;
   gap: 12px;
-  max-width: 440px;
+  max-width: 50vw;
   padding: 10px 12px;
   border: 1px solid hsl(var(--border));
   border-radius: var(--radius);
   background: hsl(var(--popover));
   box-shadow: 0 10px 30px hsl(var(--foreground) / 0.12);
   font-size: 13px;
+  transform: translate(-50%, 0);
 }
 .error-toast {
   border-color: hsl(var(--destructive) / 0.35);
 }
+
+.error-toast pre {
+  min-width: 0;
+  margin: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
 .error-toast button {
+  position: absolute;
+  top: 12px;
+  right: 12px;
   border: 0;
   background: transparent;
   color: hsl(var(--muted-foreground));
   cursor: pointer;
+}
+
+.node-runtime-blocker {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  gap: 24px;
+  min-height: 100vh;
+  padding: 32px;
+  border-bottom: 1px solid hsl(var(--destructive) / 0.45);
+  background: hsl(var(--destructive) / 0.12);
+}
+
+.node-runtime-blocker p,
+.node-runtime-blocker small {
+  display: block;
+  margin: 4px 0 0;
+}
+
+.node-runtime-actions {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+  gap: 10px;
+}
+
+.node-runtime-actions button {
+  min-height: 32px;
+  padding: 0 12px;
+  border: 1px solid hsl(var(--border));
+  border-radius: var(--radius);
+  background: hsl(var(--background));
+  color: hsl(var(--foreground));
+  cursor: pointer;
+}
+
+.node-runtime-actions progress {
+  width: 120px;
 }

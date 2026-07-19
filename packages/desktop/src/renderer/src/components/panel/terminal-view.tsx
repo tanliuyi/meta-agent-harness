@@ -2,6 +2,7 @@ import { FitAddon } from "@xterm/addon-fit";
 import { type ITheme, Terminal } from "@xterm/xterm";
 import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from "react";
 import type { TerminalEvent } from "../../../../shared/contracts.ts";
+import { errorMessage } from "../../lib/error-message.ts";
 import { useDesktop } from "../../state/desktop-context.tsx";
 import { type ResolvedTheme, useTheme } from "../../state/theme.tsx";
 
@@ -164,8 +165,4 @@ export interface TerminalGrid {
 
 export function isSameTerminalGrid(previous: TerminalGrid | undefined, current: TerminalGrid): boolean {
   return previous?.columns === current.columns && previous.rows === current.rows;
-}
-
-function errorMessage(value: unknown): string {
-  return value instanceof Error ? value.message : String(value);
 }

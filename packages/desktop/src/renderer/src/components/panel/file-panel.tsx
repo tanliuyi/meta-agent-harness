@@ -1,6 +1,7 @@
 import { ChevronDown, ChevronRight, File, FileCode2, Folder, FolderOpen, Search } from "lucide-react";
 import { useEffect, useState } from "react";
 import type { FileNode, TextFile } from "../../../../shared/contracts.ts";
+import { errorMessage } from "../../lib/error-message.ts";
 import { useDesktop } from "../../state/desktop-context.tsx";
 
 /** session 独立的文件预览和 Project cwd 文件树。 */
@@ -160,8 +161,4 @@ function FileTree({ nodes, children, expanded, active, onOpen, depth = 0 }: File
       </div>
     );
   });
-}
-
-function errorMessage(value: unknown): string {
-  return value instanceof Error ? value.message : String(value);
 }

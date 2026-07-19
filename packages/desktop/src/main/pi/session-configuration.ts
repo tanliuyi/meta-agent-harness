@@ -19,6 +19,7 @@ export interface SessionConfigurationServices {
 export async function loadDraftSessionConfig(
   cwd: string,
   services?: SessionConfigurationServices,
+  agentDir?: string,
 ): Promise<DraftSessionConfig> {
   let models: ModelRegistry;
   let settings: SettingsManager;
@@ -26,7 +27,13 @@ export async function loadDraftSessionConfig(
   if (services) {
     ({ models, settings, resources } = services);
   } else {
-    const runtimeServices = await createAgentSessionServices({ cwd });
+    const runtimeServices = await createAgentSessionServices({
+      cwd,
+      agentDir,
+      resourceLoaderOptions: {
+        packageManagerOnMissing: async () => "error",
+      },
+    });
     models = runtimeServices.modelRegistry;
     settings = runtimeServices.settingsManager;
     resources = runtimeServices.resourceLoader;

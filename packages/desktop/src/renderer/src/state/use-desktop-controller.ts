@@ -1,6 +1,7 @@
-import { type RefObject, useCallback, useEffect, useMemo, useReducer, useRef } from "react";
+import { type RefObject, startTransition, useCallback, useEffect, useMemo, useReducer, useRef } from "react";
 import { unstable_batchedUpdates } from "react-dom";
 import type { Project, ThinkingLevel, WorkbenchState } from "../../../shared/contracts.ts";
+import { errorMessage } from "../lib/error-message.ts";
 import { runDraftSubmissionSingleFlight } from "../runtime/draft-session.ts";
 import { piSessionBus } from "../runtime/pi-session-bus.ts";
 import type { DesktopThreadActions } from "../runtime/use-pi-runtime.ts";
@@ -37,7 +38,9 @@ export function useDesktopController(threadActions: RefObject<DesktopThreadActio
   activeProjectId.current = state.project?.id;
 
   const report = useCallback((value: unknown) => {
-    dispatch({ type: "error", error: value instanceof Error ? value.message : String(value) });
+    const message = errorMessage(value);
+    console.error("Desktop operation failed", value);
+    dispatch({ type: "error", error: message });
   }, []);
 
   const loadDraftConfiguration = useCallback(async (projectId: string, generation: number) => {
@@ -81,13 +84,14 @@ export function useDesktopController(threadActions: RefObject<DesktopThreadActio
   );
 
   const loadProject = useCallback(
-    async (project: Project) => {
+    async (project: Project, openExistingThread = true) => {
       const threads = await window.desktop.sessions.list(project.id, true);
       dispatch({ type: "project-loaded", project, threads });
       const preferredThreadId = activeThreadIds.current[project.id];
-      const target =
-        threads.find(({ archived, id }) => !archived && id === preferredThreadId) ??
-        threads.find(({ archived }) => !archived);
+      const target = openExistingThread
+        ? (threads.find(({ archived, id }) => !archived && id === preferredThreadId) ??
+          threads.find(({ archived }) => !archived))
+        : undefined;
       if (target) await loadThread(project, target.id);
       else {
         const actions = threadActions.current;
@@ -108,7 +112,11 @@ export function useDesktopController(threadActions: RefObject<DesktopThreadActio
       if (pending) return pending;
       const promise = window.desktop.sessions
         .list(projectId, true)
-        .then((threads) => dispatch({ type: "project-threads-loaded", projectId, threads }))
+        .then((threads) => {
+          startTransition(() => {
+            dispatch({ type: "project-threads-loaded", projectId, threads });
+          });
+        })
         .catch((value: unknown) => report(value))
         .finally(() => pendingThreadCatalogs.current.delete(projectId));
       pendingThreadCatalogs.current.set(projectId, promise);
@@ -123,7 +131,7 @@ export function useDesktopController(threadActions: RefObject<DesktopThreadActio
       .then(async ([projects, current]) => {
         if (!active) return;
         dispatch({ type: "projects-loaded", projects });
-        if (current?.available) await loadProject(current);
+        if (current?.available) await loadProject(current, false);
       })
       .catch(report)
       .finally(() => {
@@ -135,6 +143,20 @@ export function useDesktopController(threadActions: RefObject<DesktopThreadActio
   }, [loadProject, report]);
 
   useEffect(() => piSessionBus.onControl((control) => dispatch({ type: "control", control })), []);
+  useEffect(
+    () =>
+      piSessionBus.onRuntime((availability) => {
+        if (availability.state === "unavailable") {
+          dispatch({
+            type: "error",
+            error: availability.unknownOutcome
+              ? "The thread worker stopped. The last action may have completed; it was not replayed. Restoring from disk."
+              : (availability.error ?? "The thread worker stopped. Restoring from disk."),
+          });
+        }
+      }),
+    [],
+  );
   useEffect(
     () => () => {
       void threadActions.current?.detach();

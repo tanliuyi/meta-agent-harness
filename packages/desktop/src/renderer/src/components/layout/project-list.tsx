@@ -1,14 +1,15 @@
-import { Folder, FolderOpen, Plus } from "lucide-react";
+import { Folder, FolderOpen, LoaderCircle, Plus } from "lucide-react";
 import { useEffect, useState } from "react";
-import type { Project } from "../../../../shared/contracts.ts";
+import type { Project, Thread } from "../../../../shared/contracts.ts";
 import { TooltipIconButton } from "../assistant-ui/tooltip-icon-button.tsx";
 import { DesktopThreadList } from "./desktop-thread-list.tsx";
 
 interface ProjectListProps {
   projects: Project[];
   projectId?: string;
+  threadCatalogs: Readonly<Record<string, Thread[]>>;
   newTaskDisabled: boolean;
-  onProjectExpand(projectId: string): void;
+  onProjectExpand(projectId: string): Promise<void>;
   onNewTask(projectId: string): void;
 }
 
@@ -17,6 +18,7 @@ export function ProjectList(props: ProjectListProps) {
   const [expandedProjectIds, setExpandedProjectIds] = useState<ReadonlySet<string>>(
     () => new Set(props.projectId ? [props.projectId] : []),
   );
+  const [loadingProjectIds, setLoadingProjectIds] = useState<ReadonlySet<string>>(() => new Set());
 
   useEffect(() => {
     const projectId = props.projectId;
@@ -39,6 +41,8 @@ export function ProjectList(props: ProjectListProps) {
             project={project}
             active={active}
             expanded={expanded}
+            threadsLoaded={Object.hasOwn(props.threadCatalogs, project.id)}
+            threadsLoading={loadingProjectIds.has(project.id)}
             newTaskDisabled={props.newTaskDisabled}
             onNewTask={props.onNewTask}
             onExpandedChange={(nextExpanded) => {
@@ -48,7 +52,16 @@ export function ProjectList(props: ProjectListProps) {
                 else next.delete(project.id);
                 return next;
               });
-              if (nextExpanded) props.onProjectExpand(project.id);
+              if (nextExpanded && !Object.hasOwn(props.threadCatalogs, project.id)) {
+                setLoadingProjectIds((current) => new Set(current).add(project.id));
+                void props.onProjectExpand(project.id).finally(() => {
+                  setLoadingProjectIds((current) => {
+                    const next = new Set(current);
+                    next.delete(project.id);
+                    return next;
+                  });
+                });
+              }
             }}
           />
         );
@@ -61,6 +74,8 @@ interface ProjectItemProps {
   project: Project;
   active: boolean;
   expanded: boolean;
+  threadsLoaded: boolean;
+  threadsLoading: boolean;
   newTaskDisabled: boolean;
   onExpandedChange(expanded: boolean): void;
   onNewTask(projectId: string): void;
@@ -103,7 +118,14 @@ function ProjectItem(props: ProjectItemProps) {
           <Plus className="size-3.5" />
         </TooltipIconButton>
       </div>
-      {props.expanded ? <DesktopThreadList id={`project-threads-${props.project.id}`} project={props.project} /> : null}
+      {props.expanded && props.threadsLoaded ? (
+        <DesktopThreadList id={`project-threads-${props.project.id}`} project={props.project} />
+      ) : props.expanded && props.threadsLoading ? (
+        <div className="flex h-8 items-center gap-2 px-8 text-xs text-muted-foreground" role="status">
+          <LoaderCircle className="size-3 animate-spin" aria-hidden="true" />
+          <span>加载中</span>
+        </div>
+      ) : null}
     </li>
   );
 }

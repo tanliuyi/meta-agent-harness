@@ -84,6 +84,8 @@ describe("preload desktop bridge", () => {
 
     api.sessions.flush();
     expect(received.map((update) => (update.type === "control" ? update.control.revision : -1))).toEqual([1, 2]);
+    expect(electron.send).toHaveBeenCalledWith(CHANNELS.sessionsAck, "attachment-1", "worker-1", 1);
+    expect(electron.send).toHaveBeenCalledWith(CHANNELS.sessionsAck, "attachment-1", "worker-2", 2);
 
     const stale = deferred<SessionAttachment>();
     const current = deferred<SessionAttachment>();
@@ -119,6 +121,28 @@ describe("preload desktop bridge", () => {
     api.sessions.detach();
     expect(electron.send).toHaveBeenCalledWith(CHANNELS.sessionsDetach, "attachment-current");
   });
+
+  it("缓存溢出后按 session target 自动更换 attachment", async () => {
+    const api = electron.exposed;
+    if (!api) throw new Error("DesktopApi 未暴露");
+    electron.invoke.mockReset().mockReturnValueOnce(Promise.resolve(attachment("overflow-1", 1)));
+    electron.send.mockReset();
+    await api.sessions.attach("project", "thread", () => {});
+
+    for (let revision = 1; revision <= 129; revision += 1) push(controlPush("overflow-1", revision));
+
+    electron.invoke
+      .mockReturnValueOnce(Promise.resolve(attachment("overflow-2", 2)))
+      .mockReturnValueOnce(Promise.resolve(attachment("overflow-3", 3)));
+    const received: SessionPushPayload[] = [];
+    await api.sessions.attach("project", "thread", (update) => received.push(update));
+    push(controlPush("overflow-3", 4));
+    api.sessions.flush();
+
+    expect(received).toHaveLength(1);
+    expect(electron.send).toHaveBeenCalledWith(CHANNELS.sessionsDetach, "overflow-1");
+    expect(electron.send).toHaveBeenCalledWith(CHANNELS.sessionsDetach, "overflow-2");
+  });
 });
 
 function push(update: SessionPush): void {
@@ -132,6 +156,8 @@ function attachment(attachmentId: string, cursor: number, threadId = "thread"): 
 function controlPush(attachmentId: string, revision: number, threadId = "thread"): SessionPush {
   return {
     attachmentId,
+    workerInstanceId: `worker-${revision}`,
+    sidecarSequence: revision,
     type: "control",
     projectId: "project",
     threadId,

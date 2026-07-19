@@ -1,3 +1,4 @@
+import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { app, BrowserWindow, Menu } from "electron";
@@ -5,12 +6,34 @@ import { CHANNELS } from "../shared/channels.ts";
 import { FileService } from "./files/file-service.ts";
 import { broadcastTerminalEvent, registerIpc } from "./ipc.ts";
 import { SessionSupervisor } from "./pi/session-supervisor.ts";
+import { MetadataWorkerClient } from "./sidecar/metadata-worker-client.ts";
+import { NodeRuntimeInstaller } from "./sidecar/node-runtime-installer.ts";
+import {
+  detectNodeRuntime,
+  loadNodeRuntimeManifest,
+  type NodeRuntimeManifest,
+} from "./sidecar/node-runtime-locator.ts";
+import { SidecarLog } from "./sidecar/sidecar-log.ts";
+import { ThreadWorkerRegistry } from "./sidecar/thread-worker-registry.ts";
 import { ProjectStore } from "./store/project-store.ts";
 import { TerminalSupervisor } from "./terminal/terminal-supervisor.ts";
 
 let sessions: SessionSupervisor | undefined;
+let metadata: MetadataWorkerClient | undefined;
+let sidecarLog: SidecarLog | undefined;
 let terminals: TerminalSupervisor | undefined;
 const appDir = dirname(fileURLToPath(import.meta.url));
+const hasSingleInstanceLock = app.requestSingleInstanceLock();
+
+if (!hasSingleInstanceLock) app.quit();
+
+app.on("second-instance", () => {
+  const window = BrowserWindow.getAllWindows()[0];
+  if (!window) return;
+  if (window.isMinimized()) window.restore();
+  window.show();
+  window.focus();
+});
 
 if (!app.isPackaged) {
   app.commandLine.appendSwitch("remote-debugging-port", "9222");
@@ -68,12 +91,73 @@ function createWindow(): void {
 }
 
 app.whenReady().then(async () => {
+  if (!hasSingleInstanceLock) return;
   Menu.setApplicationMenu(null);
   const projects = new ProjectStore(join(app.getPath("userData"), "desktop-state.json"));
   await projects.load();
-  sessions = new SessionSupervisor(projects);
+  const userDataDir = app.getPath("userData");
+  const agentDir = process.env.PI_CODING_AGENT_DIR ?? join(homedir(), ".pi", "agent");
+  sidecarLog = new SidecarLog(userDataDir);
+  sidecarLog.write("main", `Sidecar log initialized at ${sidecarLog.path}`);
+  const installer = new NodeRuntimeInstaller(userDataDir, () => undefined);
+  const configuredNode = detectNodeRuntime();
+  const installedNode =
+    configuredNode.state === "ready" ? configuredNode : detectNodeRuntime(installer.activeNodePath());
+  let runtimeManifest: NodeRuntimeManifest;
+  try {
+    runtimeManifest = loadNodeRuntimeManifest({
+      isPackaged: app.isPackaged,
+      resourcesPath: process.resourcesPath,
+      appDir,
+      nodePathOverride: installedNode.path,
+      allowUnavailable: installedNode.state !== "ready",
+    });
+  } catch (error) {
+    console.error("Node runtime is unavailable:", error);
+    runtimeManifest = loadNodeRuntimeManifest({
+      isPackaged: app.isPackaged,
+      resourcesPath: process.resourcesPath,
+      appDir,
+      allowUnavailable: true,
+    });
+  }
+  metadata = new MetadataWorkerClient(runtimeManifest, agentDir, userDataDir, (scope, text) =>
+    sidecarLog?.write(scope, text),
+  );
+  let supervisor: SessionSupervisor;
+  const workers = new ThreadWorkerRegistry({
+    manifest: runtimeManifest,
+    metadata,
+    userDataDir,
+    agentDir,
+    getCwd: (projectId) => projects.getCwd(projectId),
+    push: (payload, workerInstanceId, sidecarSequence) =>
+      supervisor.receive(payload, workerInstanceId, sidecarSequence),
+    failed: (projectId, threadId, error) => {
+      console.error(`Pi sidecar failed for ${projectId}/${threadId}:`, error);
+      supervisor.workerFailed(projectId, threadId, error);
+    },
+    resync: (projectId, threadId, reason) => supervisor.resyncRequired(projectId, threadId, reason),
+    log: (scope, text) => sidecarLog?.write(scope, text),
+  });
+  supervisor = new SessionSupervisor(projects, workers, {
+    log: (scope, text) => sidecarLog?.write(scope, text),
+  });
+  sessions = supervisor;
   terminals = new TerminalSupervisor(projects, broadcastTerminalEvent);
-  registerIpc(projects, sessions, new FileService(projects), terminals);
+  registerIpc(projects, sessions, new FileService(projects), terminals, {
+    getStatus: () => {
+      const system = detectNodeRuntime();
+      return system.state === "ready" ? system : detectNodeRuntime(installer.activeNodePath());
+    },
+    install: async () => {
+      const status = await installer.install();
+      app.relaunch();
+      app.exit(0);
+      return status;
+    },
+    onProgress: (listener) => installer.onProgress(listener),
+  });
   createWindow();
 
   app.on("activate", () => {
@@ -82,14 +166,27 @@ app.whenReady().then(async () => {
 });
 
 app.on("before-quit", (event) => {
-  if (!sessions && !terminals) return;
+  if (!sessions && !metadata && !sidecarLog && !terminals) return;
+  sidecarLog?.write("main", "Desktop shutdown started");
   event.preventDefault();
   const currentSessions = sessions;
+  const currentMetadata = metadata;
+  const currentSidecarLog = sidecarLog;
   const currentTerminals = terminals;
   sessions = undefined;
+  metadata = undefined;
+  sidecarLog = undefined;
   terminals = undefined;
   currentTerminals?.dispose();
-  void (currentSessions?.dispose() ?? Promise.resolve()).finally(() => app.quit());
+  void (async () => {
+    await currentSessions
+      ?.dispose()
+      .catch((error: unknown) => console.error("Failed to stop Pi thread workers:", error));
+    await currentMetadata
+      ?.dispose()
+      .catch((error: unknown) => console.error("Failed to stop Pi metadata worker:", error));
+    await currentSidecarLog?.dispose().catch((error: unknown) => console.error("Failed to close sidecar log:", error));
+  })().finally(() => app.quit());
 });
 
 app.on("window-all-closed", () => {

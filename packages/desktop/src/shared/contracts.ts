@@ -1,5 +1,5 @@
 /** Desktop 与 renderer 之间使用的协议版本。 */
-export const PROTOCOL_VERSION = 5;
+export const PROTOCOL_VERSION = 6;
 
 /** 可以安全通过 Electron IPC 传输的 JSON 值。 */
 export type JsonValue = null | boolean | number | string | JsonValue[] | { [key: string]: JsonValue };
@@ -55,6 +55,7 @@ export interface DraftSessionConfig {
 /** 首次 prompt materialize session 时原子应用的配置。 */
 export interface SessionCreateInput {
   projectId: string;
+  createRequestId: string;
   model: { provider: string; id: string };
   thinkingLevel: ThinkingLevel;
 }
@@ -96,12 +97,14 @@ export interface HostRequest {
   options?: string[];
   notifyType?: "info" | "warning" | "error";
   toolCallId?: string;
+  workerInstanceId?: string;
   createdAt: number;
 }
 
 /** Desktop 返回给扩展交互请求的结果。 */
 export interface HostResponse {
   requestId: string;
+  workerInstanceId?: string;
   dismissed?: boolean;
   confirmed?: boolean;
   value?: string;
@@ -312,13 +315,32 @@ export interface SessionAttachment {
   bootstrap: SessionBootstrap;
 }
 
+export interface SessionRuntimeAvailability {
+  state: "ready" | "recovering" | "unavailable";
+  workerInstanceId?: string;
+  error?: string;
+  reason?: string;
+  /** A disconnected mutating request may already have changed the session and must never be replayed automatically. */
+  unknownOutcome: boolean;
+}
+
 /** main 定向推送给当前 session renderer 的数据。 */
 export type SessionPushPayload =
   | { type: "control"; projectId: string; threadId: string; control: SessionControlState }
-  | { type: "timeline"; projectId: string; threadId: string; batch: PiThreadEventBatch };
+  | { type: "timeline"; projectId: string; threadId: string; batch: PiThreadEventBatch }
+  | {
+      type: "runtime-availability";
+      projectId: string;
+      threadId: string;
+      availability: SessionRuntimeAvailability;
+    };
 
 /** main 到 preload 的定向推送；attachmentId 隔离快速切换产生的迟到事件。 */
-export type SessionPush = SessionPushPayload & { attachmentId: string };
+export type SessionPush = SessionPushPayload & {
+  attachmentId: string;
+  workerInstanceId: string;
+  sidecarSequence: number;
+};
 
 /** 所有 Composer 输入统一交给 Pi prompt()。 */
 export interface SessionPromptInput {

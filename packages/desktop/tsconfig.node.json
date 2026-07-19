@@ -3,19 +3,19 @@
   "compilerOptions": {
     "composite": false,
     "target": "ES2024",
-    "lib": ["ES2024", "DOM.Iterable"],
+    "lib": ["ES2024", "DOM", "DOM.Iterable"],
     "module": "ESNext",
     "moduleResolution": "Bundler",
     "noEmit": true,
-    "types": ["node", "electron-vite/node"],
-    "paths": {
-      "@earendil-works/pi-ai": ["../ai/src/index.ts"],
-      "@earendil-works/pi-ai/compat": ["../ai/src/compat.ts"],
-      "@earendil-works/pi-ai/oauth": ["../ai/src/oauth.ts"],
-      "@earendil-works/pi-agent-core": ["../agent/src/index.ts"],
-      "@earendil-works/pi-coding-agent": ["../coding-agent/src/index.ts"],
-      "@earendil-works/pi-tui": ["../tui/src/index.ts"]
-    }
+    "types": ["node", "electron-vite/node"]
   },
-  "include": ["electron.vite.config.ts", "src/main/**/*.ts", "src/preload/**/*.ts", "src/shared/**/*.ts"]
+  "include": ["electron.vite.config.ts", "src/main/**/*.ts", "src/preload/**/*.ts", "src/shared/**/*.ts"],
+  "exclude": [
+    "src/main/pi/host-ui.ts",
+    "src/main/pi/pi-compatibility-adapter.ts",
+    "src/main/pi/pi-thread-projector.ts",
+    "src/main/pi/session-commands.ts",
+    "src/main/pi/session-configuration.ts",
+    "src/main/pi/session-runtime.ts"
+  ]
 }

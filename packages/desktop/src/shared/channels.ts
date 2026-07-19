@@ -4,6 +4,7 @@ export const CHANNELS = {
   windowToggleMaximize: "desktop:window:toggle-maximize",
   windowClose: "desktop:window:close",
   windowMaximizedChanged: "desktop:window:maximized-changed",
+  linksOpen: "desktop:links:open",
   projectsList: "desktop:projects:list",
   projectsChoose: "desktop:projects:choose",
   projectsOpen: "desktop:projects:open",
@@ -21,6 +22,7 @@ export const CHANNELS = {
   sessionsEdit: "desktop:sessions:edit",
   sessionsReload: "desktop:sessions:reload",
   sessionsPush: "desktop:sessions:push",
+  sessionsAck: "desktop:sessions:ack",
   sessionsCancel: "desktop:sessions:cancel",
   sessionsClearQueue: "desktop:sessions:clear-queue",
   sessionsCompact: "desktop:sessions:compact",
@@ -37,4 +39,7 @@ export const CHANNELS = {
   terminalsEvent: "desktop:terminals:event",
   workbenchGet: "desktop:workbench:get",
   workbenchUpdate: "desktop:workbench:update",
+  nodeRuntimeStatus: "desktop:node-runtime:status",
+  nodeRuntimeInstall: "desktop:node-runtime:install",
+  nodeRuntimeProgress: "desktop:node-runtime:progress",
 } as const;

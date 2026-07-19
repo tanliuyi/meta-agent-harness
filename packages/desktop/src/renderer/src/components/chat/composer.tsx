@@ -1,7 +1,8 @@
 import { ComposerPrimitive, useAui, useAuiEvent, useAuiState } from "@assistant-ui/react";
-import { ArrowUp, RotateCcw, Square } from "lucide-react";
+import { ArrowUp, LoaderCircle, RotateCcw, Square } from "lucide-react";
 import { type FormEvent, type KeyboardEvent, useCallback, useEffect, useRef, useState } from "react";
 import type { DraftSessionConfig, Project, SessionControlState } from "../../../../shared/contracts.ts";
+import { errorMessage } from "../../lib/error-message.ts";
 import { usePiThreadPhase } from "../../runtime/use-pi-thread-snapshot.ts";
 import type { DraftSessionState } from "../../state/desktop-model.ts";
 import { ComposerAddAttachment, ComposerAttachments } from "../assistant-ui/attachment.tsx";
@@ -323,6 +324,7 @@ export function Composer(props: ComposerProps) {
                   configLoading={configLoading}
                   sending={sending}
                   isRunning={isRunning}
+                  loading={props.mode === "draft" && (sending || materializing)}
                 />
               </div>
             </div>
@@ -341,12 +343,14 @@ function ComposerSubmitControl({
   configLoading,
   sending,
   isRunning,
+  loading,
 }: {
   props: ComposerProps;
   disabled: boolean;
   configLoading: boolean;
   sending: boolean;
   isRunning: boolean;
+  loading: boolean;
 }) {
   const aui = useAui();
   const isEmpty = useAuiState((state) => state.composer.isEmpty);
@@ -355,7 +359,7 @@ function ComposerSubmitControl({
     return (
       <TooltipIconButton
         type="submit"
-        tooltip="发送消息"
+        tooltip={loading ? "正在初始化会话" : "发送消息"}
         side="top"
         variant="default"
         className="size-7 rounded-full"
@@ -368,7 +372,7 @@ function ComposerSubmitControl({
           props.config.readiness.state !== "ready"
         }
       >
-        <ArrowUp className="size-4" />
+        {loading ? <LoaderCircle className="size-4 animate-spin" /> : <ArrowUp className="size-4" />}
       </TooltipIconButton>
     );
   }
@@ -418,8 +422,4 @@ function ComposerWidgets({ widgets }: { widgets: SessionControlState["extensionU
       ))}
     </div>
   );
-}
-
-function errorMessage(value: unknown): string {
-  return value instanceof Error ? value.message : String(value);
 }

@@ -34,7 +34,11 @@ export interface DesktopThreadActions {
   commit(prepared: PreparedThread): void;
   enterDraft(): Promise<void>;
   submitDraft(
-    input: { project: Project; model: SessionCreateInput["model"]; thinkingLevel: SessionCreateInput["thinkingLevel"] },
+    input: {
+      project: Project;
+      model: SessionCreateInput["model"];
+      thinkingLevel: SessionCreateInput["thinkingLevel"];
+    },
     onPrepared: () => void,
   ): Promise<PreparedDraftSubmission>;
   discardDraft(): Promise<PreparedThread | null>;
@@ -294,6 +298,7 @@ export function usePiRuntime(options: PiRuntimeOptions): {
         targetProjectRef.current = project;
         targetCreateInputRef.current = {
           projectId: project.id,
+          createRequestId: crypto.randomUUID(),
           model: input.model,
           thinkingLevel: input.thinkingLevel,
         };

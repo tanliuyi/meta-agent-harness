@@ -1,5 +1,6 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
+import { HashRouter, Navigate, Route, Routes } from "react-router";
 import { App } from "./App.tsx";
 import { TooltipProvider } from "./components/ui/tooltip.tsx";
 import { DesktopProvider } from "./state/desktop-context.tsx";
@@ -19,7 +20,12 @@ createRoot(rootElement).render(
     <ThemeProvider>
       <TooltipProvider delayDuration={300} skipDelayDuration={100}>
         <DesktopProvider>
-          <App />
+          <HashRouter>
+            <Routes>
+              <Route path="/" element={<App />} />
+              <Route path="*" element={<Navigate to="/" replace />} />
+            </Routes>
+          </HashRouter>
         </DesktopProvider>
       </TooltipProvider>
     </ThemeProvider>

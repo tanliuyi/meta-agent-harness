@@ -108,7 +108,11 @@ export interface PackageManager {
 	listConfiguredPackages(): ConfiguredPackage[];
 	resolveExtensionSources(
 		sources: string[],
-		options?: { local?: boolean; temporary?: boolean },
+		options?: {
+			local?: boolean;
+			temporary?: boolean;
+			onMissing?: (source: string) => Promise<MissingSourceAction>;
+		},
 	): Promise<ResolvedPaths>;
 	addSourceToSettings(source: string, options?: { local?: boolean }): boolean;
 	removeSourceFromSettings(source: string, options?: { local?: boolean }): boolean;
@@ -954,12 +958,16 @@ export class DefaultPackageManager implements PackageManager {
 
 	async resolveExtensionSources(
 		sources: string[],
-		options?: { local?: boolean; temporary?: boolean },
+		options?: {
+			local?: boolean;
+			temporary?: boolean;
+			onMissing?: (source: string) => Promise<MissingSourceAction>;
+		},
 	): Promise<ResolvedPaths> {
 		const accumulator = this.createAccumulator();
 		const scope: SourceScope = options?.temporary ? "temporary" : options?.local ? "project" : "user";
 		const packageSources = sources.map((source) => ({ pkg: source as PackageSource, scope }));
-		await this.resolvePackageSources(packageSources, accumulator);
+		await this.resolvePackageSources(packageSources, accumulator, options?.onMissing);
 		return this.toResolvedPaths(accumulator);
 	}
 

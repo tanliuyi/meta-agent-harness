@@ -1,0 +1,36 @@
+appId: works.earendil.meta-agent.desktop
+productName: Meta Agent
+asar: true
+directories:
+  output: output/installers
+files:
+  - out/**/*
+  - package.json
+  - node_modules/**/*
+asarUnpack:
+  - out/sidecar/**/*
+  - node_modules/**/*
+extraResources:
+  - from: output/pi-sidecar/runtime-manifest.json
+    to: pi-sidecar/runtime-manifest.json
+afterPack: ../../scripts/validate-desktop-package.mjs
+afterSign: ../../scripts/validate-desktop-signing.mjs
+mac:
+  category: public.app-category.developer-tools
+  hardenedRuntime: true
+  entitlements: build/entitlements.mac.plist
+  entitlementsInherit: build/entitlements.mac.plist
+  gatekeeperAssess: false
+  target:
+    - dmg
+    - zip
+win:
+  target:
+    - nsis
+linux:
+  category: Development
+  target:
+    - AppImage
+    - deb
+npmRebuild: false
+buildDependenciesFromSource: false
