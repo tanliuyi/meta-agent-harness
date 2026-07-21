@@ -57,4 +57,56 @@ describe("sidecar command scheduling", () => {
     await Promise.all([first, second]);
     expect(calls).toEqual(["prompt-start", "steer", "prompt-end", "set-thinking"]);
   });
+
+  it("prompt 运行期间 rename 立即执行，不等待 prompt 结束", async () => {
+    const schedule = createSidecarCommandScheduler();
+    let releasePrompt!: () => void;
+    const promptBlocked = new Promise<void>((resolve) => {
+      releasePrompt = resolve;
+    });
+    const calls: string[] = [];
+
+    const prompt = schedule("prompt", async () => {
+      calls.push("prompt-start");
+      await promptBlocked;
+      calls.push("prompt-end");
+    });
+    await vi.waitFor(() => expect(calls).toEqual(["prompt-start"]));
+
+    const rename = schedule("rename", async () => {
+      calls.push("rename");
+    });
+    await rename;
+
+    expect(calls).toEqual(["prompt-start", "rename"]);
+    releasePrompt();
+    await prompt;
+    expect(calls).toEqual(["prompt-start", "rename", "prompt-end"]);
+  });
+
+  it("prompt 运行期间 getSummary 立即执行，不等待 prompt 结束", async () => {
+    const schedule = createSidecarCommandScheduler();
+    let releasePrompt!: () => void;
+    const promptBlocked = new Promise<void>((resolve) => {
+      releasePrompt = resolve;
+    });
+    const calls: string[] = [];
+
+    const prompt = schedule("prompt", async () => {
+      calls.push("prompt-start");
+      await promptBlocked;
+      calls.push("prompt-end");
+    });
+    await vi.waitFor(() => expect(calls).toEqual(["prompt-start"]));
+
+    const getSummary = schedule("getSummary", async () => {
+      calls.push("getSummary");
+    });
+    await getSummary;
+
+    expect(calls).toEqual(["prompt-start", "getSummary"]);
+    releasePrompt();
+    await prompt;
+    expect(calls).toEqual(["prompt-start", "getSummary", "prompt-end"]);
+  });
 });

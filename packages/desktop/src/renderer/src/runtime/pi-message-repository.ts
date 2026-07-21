@@ -163,7 +163,9 @@ export class PiMessageRepositoryConverter {
     } else {
       converted = {
         type: "tool-call",
-        toolCallId: part.toolCallId,
+        // assistant-ui indexes tool parts by toolCallId inside the merged message.
+        // Pi part IDs identify invocations, while provider tool-call IDs may repeat across turns.
+        toolCallId: part.id,
         toolName: part.toolName,
         args: part.args,
         argsText: part.argsText,

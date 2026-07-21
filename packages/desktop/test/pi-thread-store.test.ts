@@ -198,6 +198,50 @@ describe("PiMessageRepositoryConverter", () => {
       "tool-call",
       "text",
     ]);
+    expect(merged.content.flatMap((part) => (part.type === "tool-call" ? [part.toolCallId] : []))).toEqual([
+      "a-1:tool:2",
+      "a-2:tool:1",
+    ]);
+  });
+
+  it("连续 assistant 节点复用 provider toolCallId 时使用唯一 part identity", () => {
+    const first = {
+      ...assistantNode("a-1", null),
+      content: [toolPart("a-1:tool:0", "shared-call", "read")],
+    } satisfies PiAssistantMessage;
+    const second = {
+      ...assistantNode("a-2", "a-1"),
+      content: [toolPart("a-2:tool:0", "shared-call", "bash")],
+    } satisfies PiAssistantMessage;
+    const converter = new PiMessageRepositoryConverter();
+
+    const repository = converter.build(snapshot([first, second], "a-2"));
+    const converted = repository.messages[0]?.message;
+    expect(converted?.role).toBe("assistant");
+    if (converted?.role !== "assistant") throw new Error("assistant message missing");
+    expect(converted.content).toMatchObject([
+      { type: "tool-call", toolCallId: "a-1:tool:0", toolName: "read" },
+      { type: "tool-call", toolCallId: "a-2:tool:0", toolName: "bash" },
+    ]);
+    expect(first.content[0]).toMatchObject({ toolCallId: "shared-call" });
+    expect(second.content[0]).toMatchObject({ toolCallId: "shared-call" });
+  });
+
+  it("单个 assistant 节点包含重复 provider toolCallId 时仍生成唯一资源 identity", () => {
+    const assistant = {
+      ...assistantNode("a", null),
+      content: [toolPart("a:tool:0", "shared-call", "read"), toolPart("a:tool:1", "shared-call", "write")],
+    } satisfies PiAssistantMessage;
+    const converter = new PiMessageRepositoryConverter();
+
+    const repository = converter.build(snapshot([assistant], "a"));
+    const converted = repository.messages[0]?.message;
+    expect(converted?.role).toBe("assistant");
+    if (converted?.role !== "assistant") throw new Error("assistant message missing");
+    expect(converted.content).toMatchObject([
+      { type: "tool-call", toolCallId: "a:tool:0", toolName: "read" },
+      { type: "tool-call", toolCallId: "a:tool:1", toolName: "write" },
+    ]);
   });
 
   it("将 active assistant 的 notification part 原位转换为 pi-notice data", () => {

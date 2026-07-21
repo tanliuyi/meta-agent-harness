@@ -40,6 +40,8 @@ const MAX_BUFFERED_EVENT_BYTES = 16 * 1024 * 1024;
 const REENTRANT_CONTROL_COMMANDS = new Set<SidecarCommand["type"]>([
   "bootstrap",
   "ping",
+  "rename",
+  "getSummary",
   "cancel",
   "clearQueue",
   "setEditorText",
