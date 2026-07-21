@@ -71,6 +71,15 @@ describe("usePiRuntime attachment commit", () => {
     expect(prepared.bootstrap.threadId).toBe("active");
   });
 
+  it("打开当前 assistant-ui catalog 尚未包含的 fork thread 时直接 hydrate", async () => {
+    const { actions } = renderPiRuntime([thread("existing")]);
+
+    const prepared = await actions.open(targetProject, "forked");
+
+    expect(attach).toHaveBeenCalledWith("project", "forked", expect.any(Function));
+    expect(prepared.bootstrap.threadId).toBe("forked");
+  });
+
   it("官方 thread item rename 会落到 Desktop session IPC", async () => {
     const { actions } = renderPiRuntime([thread("rename-target")]);
 

@@ -1,6 +1,7 @@
+import { useParams } from "@tanstack/react-router";
 import { memo } from "react";
 import { useDesktopSelector } from "../../state/desktop-context.tsx";
-import { selectNavigationProjectId, selectProjects } from "../../state/desktop-selectors.ts";
+import { selectProjects } from "../../state/desktop-selectors.ts";
 import { ProjectItem } from "./project-item.tsx";
 
 interface ProjectListProps {
@@ -11,7 +12,8 @@ interface ProjectListProps {
 /** 渲染 Project 与其活动 session 列表。 */
 export const ProjectList = memo(function ProjectList({ newTaskDisabled, onNewTask }: ProjectListProps) {
   const projects = useDesktopSelector(selectProjects);
-  const activeProjectId = useDesktopSelector(selectNavigationProjectId);
+  const params = useParams({ strict: false }) as Record<string, string | undefined>;
+  const activeProjectId = params.projectId;
 
   return (
     <ul className="m-0 list-none p-0">
