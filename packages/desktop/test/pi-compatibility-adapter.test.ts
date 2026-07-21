@@ -64,6 +64,11 @@ describe("PiCompatibilityAdapter", () => {
         getEntry: (id: string) =>
           id === "user" ? { type: "message", message: { role: "user", content: "original" } } : undefined,
         getLabel: () => undefined,
+        getSessionDir: () => "/sessions",
+        getCwd: () => "/workspace",
+        getHeader: () => ({ id: "thread" }),
+        isPersisted: () => true,
+        createBranchedSession: () => "/sessions/branch.jsonl",
       },
       navigateTree: vi.fn(async () => ({ cancelled: false })),
     });
@@ -159,6 +164,11 @@ function createSession(overrides: Record<string, unknown> = {}): AgentSession {
       getBranch: () => [],
       getEntry: (id: string) => entries.get(id),
       getLabel: () => undefined,
+      getSessionDir: () => "/sessions",
+      getCwd: () => "/workspace",
+      getHeader: () => ({ id: "thread" }),
+      isPersisted: () => true,
+      createBranchedSession: () => "/sessions/branch.jsonl",
     },
     prompt: vi.fn(),
     sendUserMessage: vi.fn(),

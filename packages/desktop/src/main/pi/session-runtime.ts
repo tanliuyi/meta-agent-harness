@@ -10,6 +10,8 @@ import {
   type ClearedQueue,
   PROTOCOL_VERSION,
   type SessionBootstrap,
+  type SessionBranchInput,
+  type SessionBranchResult,
   type SessionCommandResult,
   type SessionControlState,
   type SessionCreateInput,
@@ -23,7 +25,11 @@ import { HostUi } from "./host-ui.ts";
 import { PiCompatibilityAdapter } from "./pi-compatibility-adapter.ts";
 import { PiThreadProjector } from "./pi-thread-projector.ts";
 import { getSessionCommands } from "./session-commands.ts";
-import { resolveSessionCreateSelection, sessionReadiness } from "./session-configuration.ts";
+import {
+  resolveSessionCreateSelection,
+  resolveSessionResumeSelection,
+  sessionReadiness,
+} from "./session-configuration.ts";
 
 interface RuntimeOptions {
   projectId: string;
@@ -92,12 +98,15 @@ export class SessionRuntime {
         packageManagerOnMissing: async () => "error",
       },
     });
+    const sessionManager = options.sessionManager ?? SessionManager.create(services.cwd);
     const selection = options.createInput
       ? resolveSessionCreateSelection(options.createInput, services.modelRegistry)
-      : undefined;
+      : options.sessionManager
+        ? resolveSessionResumeSelection(options.sessionManager, services.modelRegistry)
+        : undefined;
     const result = await createAgentSessionFromServices({
       services,
-      sessionManager: options.sessionManager ?? SessionManager.create(services.cwd),
+      sessionManager,
       ...(selection ? { model: selection.model, thinkingLevel: selection.thinkingLevel } : {}),
       sessionStartEvent: { type: "session_start", reason: options.sessionManager ? "resume" : "new" },
     });
@@ -192,6 +201,20 @@ export class SessionRuntime {
     this.assertTimelineAvailable();
     if (input.threadId !== this.id || input.projectId !== this.projectId) throw new Error("Pi reload session 不匹配");
     return this.runCommand(input.requestId, () => this.compatibility.reload(input));
+  }
+
+  /** 在指定 entry 处 fork 当前 session 为新 session 文件，返回新会话 id + 文件路径。 */
+  async branch(input: SessionBranchInput): Promise<SessionBranchResult> {
+    this.assertTimelineAvailable();
+    if (input.threadId !== this.id || input.projectId !== this.projectId) throw new Error("Pi branch session 不匹配");
+    this.lastError = undefined;
+    try {
+      return await this.compatibility.branch(input);
+    } catch (error: unknown) {
+      this.lastError = errorMessage(error);
+      this.publishControl();
+      throw error;
+    }
   }
 
   async cancel(): Promise<void> {

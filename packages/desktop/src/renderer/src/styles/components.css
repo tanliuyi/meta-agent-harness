@@ -50,6 +50,7 @@
   transform: translate(-50%, 0);
 }
 .error-toast {
+  padding: 12px 24px 12px 12px;
   border-color: hsl(var(--destructive) / 0.35);
 }
 

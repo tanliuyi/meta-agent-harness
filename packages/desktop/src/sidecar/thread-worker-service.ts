@@ -82,6 +82,8 @@ export class ThreadWorkerService implements SidecarService {
         return this.runtime.edit(command.input);
       case "reload":
         return this.runtime.reload(command.input);
+      case "branch":
+        return this.runtime.branch(command.input);
       case "cancel":
         await this.runtime.cancel();
         return null;

@@ -3,6 +3,8 @@ import type {
   PiQueueItem,
   PiThreadPhase,
   PiThreadSnapshot,
+  SessionBranchInput,
+  SessionBranchResult,
   SessionCommandResult,
   SessionPromptInput,
 } from "../../../shared/contracts.ts";
@@ -90,6 +92,19 @@ export class PiCommandCoordinator {
       parentId: userEntryId,
     });
     if (result.error) this.report(result.error);
+  };
+
+  /** 从指定 entry fork 出新 session（新文件），返回新会话 id。 */
+  branch = async (sourceEntryId: string, position?: SessionBranchInput["position"]): Promise<SessionBranchResult> => {
+    this.assertIdle("branch");
+    const target = this.requireTarget();
+    return window.desktop.sessions.branch({
+      requestId: crypto.randomUUID(),
+      projectId: target.projectId,
+      threadId: target.threadId,
+      sourceEntryId,
+      ...(position ? { position } : {}),
+    });
   };
 
   cancel = async (): Promise<void> => {

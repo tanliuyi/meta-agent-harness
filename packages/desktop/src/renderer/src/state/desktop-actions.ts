@@ -15,7 +15,10 @@ export interface DesktopActions {
   selectDraftThinking(level: SessionControlState["thinkingLevel"]): void;
   submitDraft(): Promise<void>;
   discardDraft(): Promise<void>;
+  prewarmThread(projectId: string, threadId: string): void;
   openThread(projectId: string, threadId: string): Promise<void>;
+  /** 从指定 entry fork 当前会话为新会话，并切换过去。 */
+  branchFromThread(projectId: string, threadId: string, sourceEntryId: string): Promise<void>;
   renameThread(projectId: string, threadId: string, title: string): Promise<void>;
   setThreadArchived(projectId: string, threadId: string, archived: boolean): Promise<void>;
   removeThread(projectId: string, threadId: string): Promise<void>;

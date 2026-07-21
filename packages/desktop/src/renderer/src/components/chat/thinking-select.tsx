@@ -16,7 +16,10 @@ export function ThinkingSelect({ value, levels, disabled = false, onValueChange 
       value={value}
       options={levels.map((level) => ({ value: level, label: getThinkingLevelLabel(level) }))}
       disabled={disabled || levels.length === 0}
-      onValueChange={(nextValue) => onValueChange(nextValue as SessionControlState["thinkingLevel"])}
+      onValueChange={(nextValue) => {
+        const nextLevel = nextValue as SessionControlState["thinkingLevel"];
+        if (nextLevel !== value) onValueChange(nextLevel);
+      }}
     />
   );
 }

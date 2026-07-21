@@ -373,6 +373,20 @@ export interface SessionReloadInput {
   parentId: string | null;
 }
 
+/** 在指定 entry 处 fork 当前 session 为新 session 文件。position 默认 "at"。 */
+export interface SessionBranchInput {
+  requestId: string;
+  projectId: string;
+  threadId: string;
+  sourceEntryId: string;
+  position?: "at" | "before";
+}
+
+export interface SessionBranchResult {
+  branchThreadId: string;
+  branchSessionFile: string;
+}
+
 export interface SessionCommandResult {
   /** Pi preflight 已接受输入；后续 provider/tool error 不得触发 renderer 重发。 */
   accepted: boolean;

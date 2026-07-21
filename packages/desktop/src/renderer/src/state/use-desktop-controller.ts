@@ -445,6 +445,16 @@ export function useDesktopController(
     threadActions,
   ]);
 
+  const prewarmThread = useCallback(
+    (projectId: string, threadId: string) => {
+      const state = store.getState();
+      if (state.pendingThreadLoad) return;
+      if (state.activeThreadIds[projectId] === threadId && !state.draft) return;
+      void window.desktop.sessions.prewarm(projectId, threadId).catch(() => undefined);
+    },
+    [store],
+  );
+
   const openThread = useCallback(
     async (projectId: string, threadId: string) => {
       const state = store.getState();
@@ -481,6 +491,35 @@ export function useDesktopController(
       report,
       store,
     ],
+  );
+
+  const branchFromThread = useCallback(
+    async (projectId: string, _threadId: string, sourceEntryId: string) => {
+      const state = store.getState();
+      const project = state.projects.find(({ id }) => id === projectId);
+      if (!project) throw new Error(`Branch 后无法定位 Project: ${projectId}`);
+      if (state.draft?.phase === "materializing" || pendingDraftSubmission.current || pendingThreadAttachment.current)
+        throw new Error("当前会话仍在处理；请稍后重试 branch");
+      try {
+        const actions = threadActions.current;
+        if (!actions) throw new Error("assistant-ui thread adapter 尚未就绪");
+        const branchThreadId = await actions.branch(sourceEntryId, "at");
+        if (!branchThreadId) throw new Error("Pi branch 未返回新会话 id");
+        // 重置 catalog 缓存，避免后续 openThread 仍看到旧列表。
+        threadCatalogGenerations.current.set(projectId, (threadCatalogGenerations.current.get(projectId) ?? 0) + 1);
+        pendingThreadCatalogs.current.delete(projectId);
+        const threads = await window.desktop.sessions.list(projectId, true);
+        startTransition(() => {
+          dispatch({ type: "project-threads-loaded", projectId, threads });
+        });
+        if (!store.getState().threadCatalogs[projectId]?.some(({ id }) => id === branchThreadId))
+          throw new Error(`拉取会话列表未包含 fork 出来的会话: ${branchThreadId}`);
+        await openThread(projectId, branchThreadId);
+      } catch (value) {
+        report(value);
+      }
+    },
+    [dispatch, openThread, report, store, threadActions],
   );
 
   const renameThread = useCallback(
@@ -599,7 +638,9 @@ export function useDesktopController(
       selectDraftThinking,
       submitDraft,
       discardDraft,
+      prewarmThread,
       openThread,
+      branchFromThread,
       renameThread,
       setThreadArchived,
       removeThread,
@@ -619,7 +660,9 @@ export function useDesktopController(
       selectDraftThinking,
       submitDraft,
       discardDraft,
+      prewarmThread,
       openThread,
+      branchFromThread,
       renameThread,
       setThreadArchived,
       removeThread,

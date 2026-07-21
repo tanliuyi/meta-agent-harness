@@ -196,14 +196,20 @@ export function Composer(props: ComposerProps) {
                       availableModels={props.models}
                       model={props.model}
                       onValueChange={(provider, modelId) => {
-                        void window.desktop.sessions.setModel(props.projectId, props.threadId, provider, modelId);
+                        setError(null);
+                        void window.desktop.sessions
+                          .setModel(props.projectId, props.threadId, provider, modelId)
+                          .catch(reportError);
                       }}
                     />
                     <ThinkingSelect
                       value={props.thinkingLevel}
                       levels={props.thinkingLevels}
                       onValueChange={(level) => {
-                        void window.desktop.sessions.setThinking(props.projectId, props.threadId, level);
+                        setError(null);
+                        void window.desktop.sessions
+                          .setThinking(props.projectId, props.threadId, level)
+                          .catch(reportError);
                       }}
                     />
                   </>

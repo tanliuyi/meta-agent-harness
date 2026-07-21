@@ -5,6 +5,8 @@ import type {
   HostResponse,
   SessionAttachment,
   SessionBootstrap,
+  SessionBranchInput,
+  SessionBranchResult,
   SessionCommandResult,
   SessionControlState,
   SessionCreateInput,
@@ -77,6 +79,11 @@ export class SessionSupervisor {
     return this.workers.getDraftConfig(projectId);
   }
 
+  /** 预热 thread worker，不建立 attachment，仅为后续 attach 跳过冷启动。 */
+  prewarm(projectId: string, threadId: string): Promise<void> {
+    return this.workers.prewarm(projectId, threadId);
+  }
+
   create(input: SessionCreateInput): Promise<SessionBootstrap> {
     return this.workers.create(input);
   }
@@ -128,6 +135,10 @@ export class SessionSupervisor {
 
   reload(input: SessionReloadInput): Promise<SessionCommandResult> {
     return this.workers.reload(input);
+  }
+
+  branch(input: SessionBranchInput): Promise<SessionBranchResult> {
+    return this.workers.branch(input);
   }
 
   cancel(projectId: string, threadId: string): Promise<void> {

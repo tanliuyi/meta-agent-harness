@@ -157,143 +157,147 @@ export function ModelsProviderForm({ provider, metadata, onChange, onDelete }: M
           </ScrollArea>
         </Tabs.Content>
         <Tabs.Content value="models" className="models-tab-content">
-          <div className="models-entity-toolbar">
-            <Input
-              value={newModelId}
-              placeholder="新 Model ID"
-              onChange={(event) => setNewModelId(event.target.value)}
-            />
-            <Button
-              size="sm"
-              variant="outline"
-              disabled={!newModelId.trim()}
-              onClick={() => {
-                const models = [...provider.models, createModelDraft(newModelId.trim())];
-                onChange({ ...provider, models });
-                setSelectedModel(models.length - 1);
-                setNewModelId("");
-              }}
-            >
-              <Plus />
-              添加模型
-            </Button>
-          </div>
-          <div className="models-entity-workbench">
-            <div className="models-entity-list" role="listbox" aria-label="自定义模型">
-              {provider.models.map((model, index) => (
-                <button
-                  type="button"
-                  role="option"
-                  aria-selected={index === selectedModel}
-                  data-active={index === selectedModel || undefined}
-                  key={`${model.origin?.modelIndex ?? "new"}-${index}`}
-                  onClick={() => setSelectedModel(index)}
-                >
-                  <span>{model.config.name || model.config.id}</span>
-                  <small>{model.config.id}</small>
-                </button>
-              ))}
+          <div className="p-(--space-6)">
+            <div className="models-entity-toolbar">
+              <Input
+                value={newModelId}
+                placeholder="新 Model ID"
+                onChange={(event) => setNewModelId(event.target.value)}
+              />
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={!newModelId.trim()}
+                onClick={() => {
+                  const models = [...provider.models, createModelDraft(newModelId.trim())];
+                  onChange({ ...provider, models });
+                  setSelectedModel(models.length - 1);
+                  setNewModelId("");
+                }}
+              >
+                <Plus />
+                添加模型
+              </Button>
             </div>
-            <ScrollArea className="models-entity-scroll">
-              <div className="models-entity-detail">
-                {provider.models[selectedModel] ? (
-                  <>
-                    <div className="models-inline-actions models-entity-delete">
-                      <Button size="sm" variant="ghost" onClick={() => setDeleteTarget("model")}>
-                        <Trash2 />
-                        删除模型
-                      </Button>
-                    </div>
-                    <ModelsModelForm
-                      model={provider.models[selectedModel]}
-                      metadata={metadata}
-                      onChange={(model) => {
-                        const models = [...provider.models];
-                        models[selectedModel] = model;
-                        onChange({ ...provider, models });
-                      }}
-                    />
-                  </>
-                ) : (
-                  <p className="models-empty-detail">添加模型后在此配置。</p>
-                )}
+            <div className="models-entity-workbench">
+              <div className="models-entity-list" role="listbox" aria-label="自定义模型">
+                {provider.models.map((model, index) => (
+                  <button
+                    type="button"
+                    role="option"
+                    aria-selected={index === selectedModel}
+                    data-active={index === selectedModel || undefined}
+                    key={`${model.origin?.modelIndex ?? "new"}-${index}`}
+                    onClick={() => setSelectedModel(index)}
+                  >
+                    <span>{model.config.name || model.config.id}</span>
+                    <small>{model.config.id}</small>
+                  </button>
+                ))}
               </div>
-            </ScrollArea>
+              <ScrollArea className="models-entity-scroll">
+                <div className="models-entity-detail">
+                  {provider.models[selectedModel] ? (
+                    <>
+                      <div className="models-inline-actions models-entity-delete">
+                        <Button size="sm" variant="ghost" onClick={() => setDeleteTarget("model")}>
+                          <Trash2 />
+                          删除模型
+                        </Button>
+                      </div>
+                      <ModelsModelForm
+                        model={provider.models[selectedModel]}
+                        metadata={metadata}
+                        onChange={(model) => {
+                          const models = [...provider.models];
+                          models[selectedModel] = model;
+                          onChange({ ...provider, models });
+                        }}
+                      />
+                    </>
+                  ) : (
+                    <p className="models-empty-detail">添加模型后在此配置。</p>
+                  )}
+                </div>
+              </ScrollArea>
+            </div>
           </div>
         </Tabs.Content>
         <Tabs.Content value="overrides" className="models-tab-content">
-          <div className="models-entity-toolbar">
-            <Input
-              value={newOverrideId}
-              placeholder="要覆盖的 Model ID"
-              onChange={(event) => setNewOverrideId(event.target.value)}
-            />
-            <Select
-              className="models-select models-suggestion-select"
-              value={builtIn?.models.some((model) => model.id === newOverrideId) ? newOverrideId : "custom"}
-              onValueChange={(nextValue) => {
-                if (nextValue !== "custom") setNewOverrideId(nextValue);
-              }}
-              options={[
-                { value: "custom", label: "自定义 ID" },
-                ...(builtIn?.models.map((model) => ({ value: model.id, label: model.name })) ?? []),
-              ]}
-            />
-            <Button
-              size="sm"
-              variant="outline"
-              disabled={!newOverrideId.trim()}
-              onClick={() => {
-                const modelOverrides = [...provider.modelOverrides, createModelOverrideDraft(newOverrideId.trim())];
-                onChange({ ...provider, modelOverrides });
-                setSelectedOverride(modelOverrides.length - 1);
-                setNewOverrideId("");
-              }}
-            >
-              <Plus />
-              添加覆盖
-            </Button>
-          </div>
-          <div className="models-entity-workbench">
-            <div className="models-entity-list" role="listbox" aria-label="模型覆盖">
-              {provider.modelOverrides.map((override, index) => (
-                <button
-                  type="button"
-                  role="option"
-                  aria-selected={index === selectedOverride}
-                  data-active={index === selectedOverride || undefined}
-                  key={`${override.origin?.modelId ?? "new"}-${index}`}
-                  onClick={() => setSelectedOverride(index)}
-                >
-                  <span>{override.config.name || override.modelId}</span>
-                  <small>{override.modelId}</small>
-                </button>
-              ))}
+          <div className="p-(--space-6)">
+            <div className="models-entity-toolbar">
+              <Input
+                value={newOverrideId}
+                placeholder="要覆盖的 Model ID"
+                onChange={(event) => setNewOverrideId(event.target.value)}
+              />
+              <Select
+                className="models-select models-suggestion-select"
+                value={builtIn?.models.some((model) => model.id === newOverrideId) ? newOverrideId : "custom"}
+                onValueChange={(nextValue) => {
+                  if (nextValue !== "custom") setNewOverrideId(nextValue);
+                }}
+                options={[
+                  { value: "custom", label: "自定义 ID" },
+                  ...(builtIn?.models.map((model) => ({ value: model.id, label: model.name })) ?? []),
+                ]}
+              />
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={!newOverrideId.trim()}
+                onClick={() => {
+                  const modelOverrides = [...provider.modelOverrides, createModelOverrideDraft(newOverrideId.trim())];
+                  onChange({ ...provider, modelOverrides });
+                  setSelectedOverride(modelOverrides.length - 1);
+                  setNewOverrideId("");
+                }}
+              >
+                <Plus />
+                添加覆盖
+              </Button>
             </div>
-            <ScrollArea className="models-entity-scroll">
-              <div className="models-entity-detail">
-                {provider.modelOverrides[selectedOverride] ? (
-                  <>
-                    <div className="models-inline-actions models-entity-delete">
-                      <Button size="sm" variant="ghost" onClick={() => setDeleteTarget("override")}>
-                        <Trash2 />
-                        删除覆盖
-                      </Button>
-                    </div>
-                    <ModelsOverrideForm
-                      override={provider.modelOverrides[selectedOverride]}
-                      onChange={(override) => {
-                        const modelOverrides = [...provider.modelOverrides];
-                        modelOverrides[selectedOverride] = override;
-                        onChange({ ...provider, modelOverrides });
-                      }}
-                    />
-                  </>
-                ) : (
-                  <p className="models-empty-detail">添加覆盖后在此配置。</p>
-                )}
+            <div className="models-entity-workbench">
+              <div className="models-entity-list" role="listbox" aria-label="模型覆盖">
+                {provider.modelOverrides.map((override, index) => (
+                  <button
+                    type="button"
+                    role="option"
+                    aria-selected={index === selectedOverride}
+                    data-active={index === selectedOverride || undefined}
+                    key={`${override.origin?.modelId ?? "new"}-${index}`}
+                    onClick={() => setSelectedOverride(index)}
+                  >
+                    <span>{override.config.name || override.modelId}</span>
+                    <small>{override.modelId}</small>
+                  </button>
+                ))}
               </div>
-            </ScrollArea>
+              <ScrollArea className="models-entity-scroll">
+                <div className="models-entity-detail">
+                  {provider.modelOverrides[selectedOverride] ? (
+                    <>
+                      <div className="models-inline-actions models-entity-delete">
+                        <Button size="sm" variant="ghost" onClick={() => setDeleteTarget("override")}>
+                          <Trash2 />
+                          删除覆盖
+                        </Button>
+                      </div>
+                      <ModelsOverrideForm
+                        override={provider.modelOverrides[selectedOverride]}
+                        onChange={(override) => {
+                          const modelOverrides = [...provider.modelOverrides];
+                          modelOverrides[selectedOverride] = override;
+                          onChange({ ...provider, modelOverrides });
+                        }}
+                      />
+                    </>
+                  ) : (
+                    <p className="models-empty-detail">添加覆盖后在此配置。</p>
+                  )}
+                </div>
+              </ScrollArea>
+            </div>
           </div>
         </Tabs.Content>
         <Tabs.Content value="compat" className="models-tab-content">

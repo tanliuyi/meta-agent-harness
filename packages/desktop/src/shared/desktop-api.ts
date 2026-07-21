@@ -6,6 +6,8 @@ import type {
   HostResponse,
   Project,
   SessionBootstrap,
+  SessionBranchInput,
+  SessionBranchResult,
   SessionCommandResult,
   SessionControlState,
   SessionCreateInput,
@@ -93,12 +95,14 @@ export interface DesktopApi {
     ): Promise<SessionBootstrap>;
     flush(): void;
     detach(): void;
+    prewarm(projectId: string, threadId: string): Promise<void>;
     rename(projectId: string, threadId: string, title: string): Promise<void>;
     archive(projectId: string, threadId: string, archived: boolean): Promise<void>;
     remove(projectId: string, threadId: string): Promise<void>;
     prompt(input: SessionPromptInput): Promise<SessionCommandResult>;
     edit(input: SessionEditInput): Promise<SessionCommandResult>;
     reload(input: SessionReloadInput): Promise<SessionCommandResult>;
+    branch(input: SessionBranchInput): Promise<SessionBranchResult>;
     cancel(projectId: string, threadId: string): Promise<void>;
     clearQueue(projectId: string, threadId: string): Promise<ClearedQueue>;
     compact(projectId: string, threadId: string): Promise<void>;

@@ -32,6 +32,7 @@ interface DesktopThreadListItemProps {
   onOpen(thread: Thread): void;
   onArchive(thread: Thread, archived: boolean): void;
   onDelete(thread: Thread): void;
+  onPrewarm(thread: Thread): void;
 }
 
 /** 在官方 ThreadListPrimitive.Items context 下渲染单个 session。 */
@@ -53,6 +54,12 @@ export const DesktopThreadListItem = memo(function DesktopThreadListItem(props: 
           className="thread-row group hover:bg-muted focus-visible:bg-muted data-active:bg-foreground/10 data-active:hover:bg-foreground/10 has-focus-visible:bg-muted data-[state=open]:bg-muted relative flex h-8 items-center rounded-md transition-colors focus-visible:outline-none"
           data-thread-id={thread.id}
           data-pending={isPending || undefined}
+          onMouseEnter={() => {
+            if (!props.active && !props.isSwitching) props.onPrewarm(thread);
+          }}
+          onFocus={() => {
+            if (!props.active && !props.isSwitching) props.onPrewarm(thread);
+          }}
         >
           <ThreadListItemPrimitive.Trigger
             data-slot="aui_thread-list-item-trigger"

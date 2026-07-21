@@ -1,8 +1,9 @@
-import type { ModelRegistry, ResourceLoader, SettingsManager } from "@earendil-works/pi-coding-agent";
+import type { ModelRegistry, ResourceLoader, SessionManager, SettingsManager } from "@earendil-works/pi-coding-agent";
 import { describe, expect, it } from "vitest";
 import {
   loadDraftSessionConfig,
   resolveSessionCreateSelection,
+  resolveSessionResumeSelection,
   type SessionConfigurationServices,
 } from "../src/main/pi/session-configuration.ts";
 
@@ -75,7 +76,30 @@ describe("draft session configuration", () => {
       ),
     ).toEqual({ model: plainModel, thinkingLevel: "off" });
   });
+
+  it("恢复已有 thread 时使用 session 文件里的 model 和 thinking", () => {
+    const { models } = services();
+    const sessionManager = sessionManagerWithContext("reasoning", "reasoning-model", "medium");
+
+    expect(resolveSessionResumeSelection(sessionManager, models)).toEqual({
+      model: reasoningModel,
+      thinkingLevel: "medium",
+    });
+  });
+
+  it("恢复已有 thread 时无法使用原模型则交回 Pi fallback", () => {
+    const { models } = services();
+    const sessionManager = sessionManagerWithContext("missing", "missing", "medium");
+
+    expect(resolveSessionResumeSelection(sessionManager, models)).toBeUndefined();
+  });
 });
+
+function sessionManagerWithContext(provider: string, modelId: string, thinkingLevel: string): SessionManager {
+  return {
+    buildSessionContext: () => ({ messages: [], model: { provider, modelId }, thinkingLevel }),
+  } as unknown as SessionManager;
+}
 
 function services(): SessionConfigurationServices {
   const available = [reasoningModel, plainModel];

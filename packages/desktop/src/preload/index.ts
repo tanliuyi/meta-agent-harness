@@ -172,6 +172,7 @@ const desktopApi: DesktopApi = {
       activeSessionAttachment = undefined;
       ipcRenderer.send(CHANNELS.sessionsDetach, current?.attachmentId);
     },
+    prewarm: (projectId, threadId) => ipcRenderer.invoke(CHANNELS.sessionsPrewarm, projectId, threadId),
     rename: (projectId, threadId, title) => ipcRenderer.invoke(CHANNELS.sessionsRename, projectId, threadId, title),
     archive: (projectId, threadId, archived) =>
       ipcRenderer.invoke(CHANNELS.sessionsArchive, projectId, threadId, archived),
@@ -179,6 +180,7 @@ const desktopApi: DesktopApi = {
     prompt: (input) => ipcRenderer.invoke(CHANNELS.sessionsPrompt, input),
     edit: (input) => ipcRenderer.invoke(CHANNELS.sessionsEdit, input),
     reload: (input) => ipcRenderer.invoke(CHANNELS.sessionsReload, input),
+    branch: (input) => ipcRenderer.invoke(CHANNELS.sessionsBranch, input),
     cancel: (projectId, threadId) => ipcRenderer.invoke(CHANNELS.sessionsCancel, projectId, threadId),
     clearQueue: (projectId, threadId) => ipcRenderer.invoke(CHANNELS.sessionsClearQueue, projectId, threadId),
     compact: (projectId, threadId) => ipcRenderer.invoke(CHANNELS.sessionsCompact, projectId, threadId),

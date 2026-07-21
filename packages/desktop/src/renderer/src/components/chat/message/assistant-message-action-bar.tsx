@@ -1,7 +1,11 @@
 import { ActionBarPrimitive, AuiIf, useAuiState } from "@assistant-ui/react";
 import Check from "lucide-react/dist/esm/icons/check.mjs";
 import Copy from "lucide-react/dist/esm/icons/copy.mjs";
+import GitFork from "lucide-react/dist/esm/icons/git-fork.mjs";
 import RotateCcw from "lucide-react/dist/esm/icons/rotate-ccw.mjs";
+import { useState } from "react";
+import { useDesktopActions, useDesktopSelector } from "../../../state/desktop-context.tsx";
+import { selectActiveThreadId } from "../../../state/desktop-selectors.ts";
 import { TooltipIconButton } from "../../assistant-ui/tooltip-icon-button.tsx";
 import { hasFinalResponseText } from "../message-part-grouping.ts";
 
@@ -20,6 +24,24 @@ export function AssistantMessageActionBar() {
       hasFinalResponseText(state.message.parts)
     );
   });
+
+  const sourceEntryId = useAuiState((state) => {
+    if (!visible) return null;
+    const pi = state.message.metadata.custom.pi;
+    return pi !== null && typeof pi === "object" && "sourceEntryId" in pi && typeof pi.sourceEntryId === "string"
+      ? pi.sourceEntryId
+      : null;
+  });
+  const projectId = useDesktopSelector((state) => state.project?.id ?? null);
+  const threadId = useDesktopSelector(selectActiveThreadId);
+  const { branchFromThread } = useDesktopActions();
+  const [branching, setBranching] = useState(false);
+
+  const onBranch = () => {
+    if (!visible || !sourceEntryId || !projectId || !threadId || branching) return;
+    setBranching(true);
+    void branchFromThread(projectId, threadId, sourceEntryId).finally(() => setBranching(false));
+  };
 
   if (!visible) return null;
 
@@ -40,6 +62,14 @@ export function AssistantMessageActionBar() {
             </AuiIf>
           </TooltipIconButton>
         </ActionBarPrimitive.Copy>
+        <TooltipIconButton
+          tooltip="从这里分支"
+          side="top"
+          disabled={!projectId || !threadId || branching}
+          onClick={onBranch}
+        >
+          <GitFork className={branching ? "animate-in fade-in" : undefined} />
+        </TooltipIconButton>
         {/* 产品约束：非最终回复不展示入口；assistant-ui reload 链路保持注册。 */}
         <AuiIf condition={(state) => state.message.isLast && state.message.status?.type === "complete"}>
           <ActionBarPrimitive.Reload asChild>

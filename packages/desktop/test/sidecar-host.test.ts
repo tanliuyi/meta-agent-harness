@@ -30,7 +30,7 @@ describe("sidecar command scheduling", () => {
     await prompt;
   });
 
-  it("运行中的 prompt 立即接收 steer/follow-up，同时继续串行化其他变更命令", async () => {
+  it("运行中的 prompt 立即接收 steer/follow-up 和 thinking 变更", async () => {
     const schedule = createSidecarCommandScheduler();
     let releaseFirst!: () => void;
     const firstBlocked = new Promise<void>((resolve) => {
@@ -47,15 +47,15 @@ describe("sidecar command scheduling", () => {
     const steer = schedule("prompt", async () => {
       calls.push("steer");
     });
-    const second = schedule("setThinking", async () => {
+    const setThinking = schedule("setThinking", async () => {
       calls.push("set-thinking");
     });
-    await steer;
+    await Promise.all([steer, setThinking]);
 
-    expect(calls).toEqual(["prompt-start", "steer"]);
+    expect(calls).toEqual(["prompt-start", "steer", "set-thinking"]);
     releaseFirst();
-    await Promise.all([first, second]);
-    expect(calls).toEqual(["prompt-start", "steer", "prompt-end", "set-thinking"]);
+    await first;
+    expect(calls).toEqual(["prompt-start", "steer", "set-thinking", "prompt-end"]);
   });
 
   it("prompt 运行期间 rename 立即执行，不等待 prompt 结束", async () => {

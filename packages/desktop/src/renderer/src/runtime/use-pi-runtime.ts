@@ -33,6 +33,8 @@ export type PreparedDraftSubmission =
 export interface DesktopThreadActions {
   open(project: Project, threadId: string): Promise<PreparedThread>;
   commit(prepared: PreparedThread): void;
+  /** 从指定 entry fork 当前会话为新会话，返回新会话 id。 */
+  branch(sourceEntryId: string, position?: "at" | "before"): Promise<string>;
   enterDraft(): Promise<void>;
   submitDraft(input: {
     project: Project;
@@ -335,6 +337,10 @@ export function usePiRuntime(options: PiRuntimeOptions): {
         } finally {
           if (generation === switchGeneration.current) targetProjectRef.current = null;
         }
+      },
+      async branch(sourceEntryId, position) {
+        const result = await coordinator.branch(sourceEntryId, position);
+        return result.branchThreadId;
       },
       commit(prepared) {
         piSessionBus.commit(prepared.bootstrap);

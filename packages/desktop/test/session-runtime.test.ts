@@ -1,4 +1,4 @@
-import type { AgentSession, AgentSessionEvent } from "@earendil-works/pi-coding-agent";
+import type { AgentSession, AgentSessionEvent, SessionManager } from "@earendil-works/pi-coding-agent";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { PiTimelineUnavailableError, SessionRuntime } from "../src/main/pi/session-runtime.ts";
 
@@ -7,6 +7,7 @@ const mocks = vi.hoisted(() => ({
   createAgentSessionServices: vi.fn(),
   createSessionManager: vi.fn(() => ({})),
   resolveSelection: vi.fn(),
+  resolveResumeSelection: vi.fn(),
 }));
 
 vi.mock("@earendil-works/pi-coding-agent", () => ({
@@ -18,6 +19,7 @@ vi.mock("@earendil-works/pi-coding-agent", () => ({
 
 vi.mock("../src/main/pi/session-configuration.ts", () => ({
   resolveSessionCreateSelection: mocks.resolveSelection,
+  resolveSessionResumeSelection: mocks.resolveResumeSelection,
   sessionReadiness: () => ({ state: "ready" }),
 }));
 
@@ -42,6 +44,7 @@ describe("SessionRuntime Pi-native commands", () => {
     mocks.createAgentSessionServices.mockReset();
     mocks.createSessionManager.mockClear();
     mocks.resolveSelection.mockReset();
+    mocks.resolveResumeSelection.mockReset();
     mocks.createAgentSessionServices.mockResolvedValue(createServices());
   });
 
@@ -59,12 +62,39 @@ describe("SessionRuntime Pi-native commands", () => {
       onSummaryChanged: () => {},
     });
 
-    expect(mocks.createAgentSessionServices).toHaveBeenCalledWith({ cwd: "/workspace" });
+    expect(mocks.createAgentSessionServices).toHaveBeenCalledWith(expect.objectContaining({ cwd: "/workspace" }));
     expect(mocks.createAgentSessionFromServices).toHaveBeenCalledWith(
       expect.objectContaining({
         services: expect.objectContaining({ resourceLoader: expect.any(Object) }),
         model,
         thinkingLevel: "high",
+      }),
+    );
+  });
+
+  it("恢复已有 session 时传递 session 文件中的 model 和 thinking", async () => {
+    const session = createSession();
+    const sessionManager = {
+      buildSessionContext: () => ({ messages: [], model: null, thinkingLevel: "off" }),
+    } as unknown as SessionManager;
+    const model = { provider: "anthropic", id: "claude" };
+    mocks.resolveResumeSelection.mockReturnValue({ model, thinkingLevel: "medium" });
+    mocks.createAgentSessionFromServices.mockResolvedValue({ session });
+
+    await SessionRuntime.create({
+      projectId: "project",
+      cwd: "/workspace",
+      sessionManager,
+      push: () => {},
+      onSummaryChanged: () => {},
+    });
+
+    expect(mocks.resolveResumeSelection).toHaveBeenCalledWith(sessionManager, expect.any(Object));
+    expect(mocks.createAgentSessionFromServices).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sessionManager,
+        model,
+        thinkingLevel: "medium",
       }),
     );
   });
@@ -201,6 +231,11 @@ function createSession(streaming = false): AgentSession & { prompt: ReturnType<t
       getBranch: () => [],
       getEntry: () => undefined,
       getLabel: () => undefined,
+      getSessionDir: () => "/sessions",
+      getCwd: () => "/workspace",
+      getHeader: () => ({ id: "thread" }),
+      isPersisted: () => true,
+      createBranchedSession: () => "/sessions/branch.jsonl",
     },
     prompt,
     sendUserMessage: vi.fn(),

@@ -6,6 +6,8 @@ import type {
   DraftSessionConfig,
   HostResponse,
   SessionBootstrap,
+  SessionBranchInput,
+  SessionBranchResult,
   SessionCommandResult,
   SessionControlState,
   SessionCreateInput,
@@ -170,6 +172,11 @@ export class ThreadWorkerRegistry {
     return bootstrap;
   }
 
+  /** 仅确保 thread worker 已冷启并驻留在 records 中，不建立 attachment 或返回 bootstrap。 */
+  prewarm(projectId: string, threadId: string): Promise<void> {
+    return this.use(projectId, threadId, async () => undefined);
+  }
+
   detach(projectId: string, threadId: string): void {
     const record = this.records.get(workerKey(projectId, threadId));
     if (record && record.attachments > 0) record.attachments -= 1;
@@ -189,6 +196,13 @@ export class ThreadWorkerRegistry {
     return this.use(input.projectId, input.threadId, (record) =>
       record.client.request({ type: "reload", input }, null),
     );
+  }
+
+  async branch(input: SessionBranchInput): Promise<SessionBranchResult> {
+    const result = await this.use(input.projectId, input.threadId, (record) =>
+      record.client.request<SessionBranchResult>({ type: "branch", input }, null),
+    );
+    return result;
   }
 
   async cancel(projectId: string, threadId: string): Promise<void> {

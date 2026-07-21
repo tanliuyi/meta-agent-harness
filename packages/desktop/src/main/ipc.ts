@@ -5,6 +5,8 @@ import type { SaveAuthConfigInput } from "../shared/auth-config-contracts.ts";
 import { CHANNELS } from "../shared/channels.ts";
 import type {
   HostResponse,
+  SessionBranchInput,
+  SessionBranchResult,
   SessionControlState,
   SessionCreateInput,
   SessionEditInput,
@@ -129,6 +131,9 @@ export function registerIpc(
       if (!event.sender.isDestroyed()) event.sender.send(CHANNELS.sessionsPush, update);
     });
   });
+  ipcMain.handle(CHANNELS.sessionsPrewarm, (_event, projectId: string, threadId: string) =>
+    sessions.prewarm(projectId, threadId),
+  );
   ipcMain.on(CHANNELS.sessionsDetach, (event, attachmentId?: string) => sessions.detach(event.sender.id, attachmentId));
   ipcMain.on(CHANNELS.sessionsAck, (event, attachmentId: string, workerInstanceId: string, sidecarSequence: number) => {
     if (!Number.isSafeInteger(sidecarSequence) || sidecarSequence < 1) return;
@@ -147,6 +152,10 @@ export function registerIpc(
   ipcMain.handle(CHANNELS.sessionsPrompt, (_event, input: SessionPromptInput) => sessions.prompt(input));
   ipcMain.handle(CHANNELS.sessionsEdit, (_event, input: SessionEditInput) => sessions.edit(input));
   ipcMain.handle(CHANNELS.sessionsReload, (_event, input: SessionReloadInput) => sessions.reload(input));
+  ipcMain.handle(
+    CHANNELS.sessionsBranch,
+    (_event, input: SessionBranchInput): Promise<SessionBranchResult> => sessions.branch(input),
+  );
   ipcMain.handle(CHANNELS.sessionsCancel, (_event, projectId: string, threadId: string) =>
     sessions.cancel(projectId, threadId),
   );

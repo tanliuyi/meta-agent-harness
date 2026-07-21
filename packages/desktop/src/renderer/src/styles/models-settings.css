@@ -321,7 +321,6 @@
 }
 
 .models-tab-content {
-  padding: var(--space-7);
 }
 
 .models-form-grid,
@@ -673,7 +672,7 @@
 }
 .models-tab-scroll-content {
   min-width: 0;
-  padding-bottom: var(--space-6);
+  padding: var(--space-6);
 }
 .models-editor-dialog .models-entity-workbench {
   min-height: 0;

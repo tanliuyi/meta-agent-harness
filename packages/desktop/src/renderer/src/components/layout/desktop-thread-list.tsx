@@ -100,6 +100,11 @@ export function DesktopThreadList({ project, threads }: DesktopThreadListProps) 
     runAction(`switch:${thread.id}`, () => actions.openThread(project.id, thread.id));
   }, [actions, pendingOpen, project.id, runAction]);
 
+  const prewarmThread = useCallback(
+    (thread: Thread) => actions.prewarmThread(project.id, thread.id),
+    [actions, project.id],
+  );
+
   const startRename = useCallback((thread: Thread) => {
     setRenaming({ threadId: thread.id, title: thread.title });
   }, []);
@@ -132,6 +137,7 @@ export function DesktopThreadList({ project, threads }: DesktopThreadListProps) 
               onOpen={openThread}
               onArchive={archiveThread}
               onDelete={setPendingDelete}
+              onPrewarm={prewarmThread}
             />
           );
         }}

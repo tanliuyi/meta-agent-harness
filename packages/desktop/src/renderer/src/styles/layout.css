@@ -628,6 +628,46 @@
   }
 }
 
+@keyframes thread-switch-sweep {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(400%);
+  }
+}
+
+.thread-switch-bar {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  overflow: hidden;
+  z-index: var(--stack-sticky-control, 20);
+  pointer-events: none;
+}
+
+.thread-switch-bar::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  height: 100%;
+  width: 25%;
+  background: hsl(var(--primary));
+  border-radius: 999px;
+  animation: thread-switch-sweep 1s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .thread-switch-bar::before {
+    animation: none;
+    width: 100%;
+    opacity: 0.6;
+  }
+}
+
 @media (max-width: 68.75rem) {
   .topbar-title span {
     display: none;

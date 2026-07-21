@@ -1,6 +1,9 @@
+import { readFileSync } from "node:fs";
 import { type AgentSession, VERSION } from "@earendil-works/pi-coding-agent";
 import type {
   ClearedQueue,
+  SessionBranchInput,
+  SessionBranchResult,
   SessionCommandResult,
   SessionEditInput,
   SessionPromptInput,
@@ -52,6 +55,20 @@ export class PiCompatibilityAdapter {
       },
       false,
     );
+  }
+
+  /** 在指定 entry 处创建新 session 文件并返回新会话 id + 文件路径。 */
+  async branch(input: SessionBranchInput): Promise<SessionBranchResult> {
+    const manager = this.session.sessionManager;
+    if (!manager.isPersisted()) throw new Error("只能 fork 已持久化的 session");
+    const entry = manager.getEntry(input.sourceEntryId);
+    if (!entry) throw new Error(`Pi branch 目标 entry 不存在: ${input.sourceEntryId}`);
+    // createBranchedSession 复制 root→leaf 入新文件，等价 Runtime.fork position="at"。
+    const branchSessionFile = manager.createBranchedSession(input.sourceEntryId);
+    if (!branchSessionFile) throw new Error("Pi createBranchedSession 未生成新 session 文件");
+    const header = readSessionHeader(branchSessionFile);
+    if (!header) throw new Error(`Pi branch 新 session 文件 header 无效: ${branchSessionFile}`);
+    return { branchThreadId: header.id, branchSessionFile };
   }
 
   async cancel(): Promise<void> {
@@ -178,7 +195,17 @@ function assertCompatiblePi(session: AgentSession): void {
     missing.push("sessionManager");
   } else {
     const managerSurface = manager as Record<string, unknown>;
-    for (const key of ["getLeafId", "getBranch", "getEntry", "getLabel"] as const)
+    for (const key of [
+      "getLeafId",
+      "getBranch",
+      "getEntry",
+      "getLabel",
+      "getSessionDir",
+      "getCwd",
+      "getHeader",
+      "isPersisted",
+      "createBranchedSession",
+    ] as const)
       if (typeof managerSurface[key] !== "function") missing.push(`sessionManager.${key}`);
   }
   if (missing.length > 0) throw new UnsupportedPiCodingAgentError(missing);
@@ -199,4 +226,31 @@ function userInput(content: Extract<AgentSession["messages"][number], { role: "u
 
 function errorMessage(value: unknown): string {
   return value instanceof Error ? value.message : String(value);
+}
+
+/** 读取 fork 出来的新 session 文件首行 header，避免为了一个 id 加载整份 jsonl。 */
+function readSessionHeader(path: string): { id: string } | null {
+  let firstLine = "";
+  try {
+    const content = readFileSync(path, "utf8");
+    firstLine = content.split(/\r?\n/, 1)[0] ?? "";
+  } catch {
+    return null;
+  }
+  if (!firstLine) return null;
+  try {
+    const parsed: unknown = JSON.parse(firstLine);
+    if (
+      typeof parsed === "object" &&
+      parsed !== null &&
+      "type" in parsed &&
+      parsed.type === "session" &&
+      "id" in parsed &&
+      typeof (parsed as { id: unknown }).id === "string"
+    )
+      return { id: (parsed as { id: string }).id };
+  } catch {
+    return null;
+  }
+  return null;
 }

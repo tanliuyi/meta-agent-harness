@@ -44,6 +44,7 @@ const REENTRANT_CONTROL_COMMANDS = new Set<SidecarCommand["type"]>([
   "getSummary",
   "cancel",
   "clearQueue",
+  "setThinking",
   "setEditorText",
   "respondHostUi",
 ]);

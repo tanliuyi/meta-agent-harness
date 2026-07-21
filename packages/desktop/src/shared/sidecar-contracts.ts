@@ -4,6 +4,7 @@ import type {
   HostResponse,
   JsonValue,
   SessionBootstrap,
+  SessionBranchInput,
   SessionCommandResult,
   SessionControlState,
   SessionCreateInput,
@@ -180,6 +181,7 @@ export type ThreadSidecarCommand =
   | { type: "rename"; title: string }
   | { type: "respondHostUi"; response: HostResponse }
   | { type: "getSummary"; archived: boolean }
+  | { type: "branch"; input: SessionBranchInput }
   | { type: "ping" };
 
 export interface CreationReservation {

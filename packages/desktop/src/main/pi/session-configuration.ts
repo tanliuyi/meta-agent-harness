@@ -4,6 +4,7 @@ import {
   type ModelRegistry,
   type ResourceLoader,
   resolveThinkingConfiguration,
+  type SessionManager,
   type SettingsManager,
 } from "@earendil-works/pi-coding-agent";
 import type { DraftSessionConfig, Readiness, SessionCreateInput, ThinkingLevel } from "../../shared/contracts.ts";
@@ -75,6 +76,21 @@ export function resolveSessionCreateSelection(
   if (!model) throw new Error(`模型不存在: ${input.model.provider}/${input.model.id}`);
   if (!models.hasConfiguredAuth(model)) throw new Error(`模型凭据不可用: ${input.model.provider}/${input.model.id}`);
   return { model, thinkingLevel: resolveThinkingConfiguration(model, input.thinkingLevel).thinkingLevel };
+}
+
+/** 恢复已有会话时显式带上 session 文件记录的 model/thinking，包括尚无消息的空 thread。 */
+export function resolveSessionResumeSelection(
+  sessionManager: SessionManager,
+  models: ModelRegistry,
+): { model: NonNullable<ReturnType<ModelRegistry["find"]>>; thinkingLevel: ThinkingLevel } | undefined {
+  const context = sessionManager.buildSessionContext();
+  if (!context.model) return undefined;
+  const model = models.find(context.model.provider, context.model.modelId);
+  if (!model || !models.hasConfiguredAuth(model)) return undefined;
+  return {
+    model,
+    thinkingLevel: resolveThinkingConfiguration(model, context.thinkingLevel as ThinkingLevel).thinkingLevel,
+  };
 }
 
 export function sessionReadiness(hasModel: boolean, availableCount: number, allCount: number): Readiness {
