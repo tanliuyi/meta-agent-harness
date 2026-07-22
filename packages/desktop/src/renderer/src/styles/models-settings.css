@@ -390,6 +390,54 @@
   background: hsl(var(--muted) / 0.28);
 }
 
+.models-entity-list > button {
+  display: block;
+  width: 100%;
+  min-width: 0;
+  padding: 0.4375rem 0.5625rem;
+  border: 0;
+  border-radius: var(--shape-radius-sm);
+  background: transparent;
+  color: hsl(var(--foreground));
+  text-align: left;
+  cursor: pointer;
+}
+
+.models-entity-list > button:hover {
+  background: hsl(var(--foreground) / 0.055);
+}
+
+.models-entity-list > button:active {
+  background: hsl(var(--foreground) / 0.09);
+}
+
+.models-entity-list > button[data-active] {
+  background: hsl(var(--foreground) / 0.065);
+}
+
+.models-entity-list > button:focus-visible {
+  outline: var(--focus-ring-width) solid var(--focus-ring-color);
+  outline-offset: var(--focus-ring-offset);
+}
+
+.models-entity-list > button > span,
+.models-entity-list > button > small {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.models-entity-list > button > small {
+  color: hsl(var(--muted-foreground));
+  font-size: var(--type-size-meta);
+}
+
+.models-entity-list > button[data-active] > span {
+  font-weight: 650;
+}
+
 .models-entity-detail {
   padding: var(--space-6);
   background: hsl(var(--background));
@@ -654,5 +702,11 @@
 @media (prefers-reduced-motion: reduce) {
   .models-loading span {
     animation: none;
+  }
+}
+
+@media (forced-colors: active) {
+  .models-entity-list > button[data-active] {
+    outline: 0.125rem solid Highlight;
   }
 }

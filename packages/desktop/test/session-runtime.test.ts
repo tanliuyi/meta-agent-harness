@@ -156,6 +156,29 @@ describe("SessionRuntime Pi-native commands", () => {
     await runtime.dispose();
   });
 
+  it("刷新模型时重载 sidecar 凭据、刷新 registry 并发布 control", async () => {
+    const session = createSession();
+    const services = createServices();
+    const push = vi.fn();
+    mocks.createAgentSessionServices.mockResolvedValue(services);
+    mocks.createAgentSessionFromServices.mockResolvedValue({ session });
+    const runtime = await SessionRuntime.create({
+      projectId: "project",
+      cwd: "/workspace",
+      push,
+      onSummaryChanged: () => {},
+    });
+
+    runtime.refreshModels();
+
+    expect(services.modelRegistry.authStorage.reload).toHaveBeenCalledOnce();
+    expect(services.modelRegistry.refresh).toHaveBeenCalledOnce();
+    expect(push).toHaveBeenCalledWith(
+      expect.objectContaining({ type: "control", control: expect.objectContaining({ models: [] }) }),
+    );
+    await runtime.dispose();
+  });
+
   it("配置 queue 后的 running prompt 仍走 prompt streamingBehavior", async () => {
     const session = createSession(true);
     mocks.createAgentSessionFromServices.mockResolvedValue({ session });
@@ -227,7 +250,13 @@ describe("SessionRuntime Pi-native commands", () => {
 function createServices() {
   return {
     cwd: "/workspace",
-    modelRegistry: { getAvailable: () => [], getAll: () => [] },
+    modelRegistry: {
+      authStorage: { reload: vi.fn() },
+      refresh: vi.fn(),
+      getError: () => undefined,
+      getAvailable: () => [],
+      getAll: () => [],
+    },
     resourceLoader: {
       getExtensions: () => ({ extensions: [], errors: [] }),
       getSkills: () => ({ skills: [], diagnostics: [] }),

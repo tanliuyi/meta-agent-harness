@@ -3,7 +3,7 @@ import { Composer } from "./composer.tsx";
 
 /** Reads Composer control data from the owning cached session record. */
 export function SessionComposer() {
-  const { record, clearQueue, commandsReady, setModel, setThinking, syncEditorText } = useSessionScope();
+  const { record, clearQueue, commandsReady, refreshModels, setModel, setThinking, syncEditorText } = useSessionScope();
   const control = useSessionControl();
   const timeline = useSessionTimeline();
   if (!control) return null;
@@ -25,6 +25,7 @@ export function SessionComposer() {
       editorText={control.extensionUi.editorText}
       commandsReady={commandsReady}
       onClearQueue={clearQueue}
+      onRefreshModels={refreshModels}
       onSetModel={setModel}
       onSetThinking={setThinking}
       onSyncEditorText={syncEditorText}

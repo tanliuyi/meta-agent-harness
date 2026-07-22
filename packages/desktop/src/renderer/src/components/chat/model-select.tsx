@@ -15,11 +15,12 @@ interface ModelSelectProps {
   availableModels: readonly ModelOption[];
   model: { provider: string; id: string } | null | undefined;
   disabled?: boolean;
+  onOpen?(): void;
   onValueChange(provider: string, modelId: string): void;
 }
 
 /** draft 与 committed session 共用的受控模型选择器。 */
-export function ModelSelect({ availableModels, model, disabled = false, onValueChange }: ModelSelectProps) {
+export function ModelSelect({ availableModels, model, disabled = false, onOpen, onValueChange }: ModelSelectProps) {
   const { models, groups, modelByKey } = useMemo(() => createModelSelectorState(availableModels), [availableModels]);
   const value = model ? composerModelKey(model.provider, model.id) : undefined;
 
@@ -27,12 +28,15 @@ export function ModelSelect({ availableModels, model, disabled = false, onValueC
     <ModelSelectorRoot
       models={models}
       value={value}
+      onOpenChange={(open) => {
+        if (open) onOpen?.();
+      }}
       onValueChange={(nextValue) => {
         const selected = modelByKey.get(nextValue);
         if (selected) onValueChange(selected.provider, selected.id);
       }}
     >
-      <ModelSelectorTrigger variant="ghost" size="sm" aria-label="选择模型" disabled={disabled || models.length === 0}>
+      <ModelSelectorTrigger variant="ghost" size="sm" aria-label="选择模型" disabled={disabled}>
         <ModelSelectorValue showEffort={false} />
       </ModelSelectorTrigger>
       <ModelSelectorContent align="end">

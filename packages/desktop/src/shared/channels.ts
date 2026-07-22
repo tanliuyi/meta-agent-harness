@@ -33,6 +33,7 @@ export const CHANNELS = {
   sessionsCancel: "desktop:sessions:cancel",
   sessionsClearQueue: "desktop:sessions:clear-queue",
   sessionsCompact: "desktop:sessions:compact",
+  sessionsRefreshModels: "desktop:sessions:refresh-models",
   sessionsSetModel: "desktop:sessions:set-model",
   sessionsSetThinking: "desktop:sessions:set-thinking",
   sessionsSetEditorText: "desktop:sessions:set-editor-text",

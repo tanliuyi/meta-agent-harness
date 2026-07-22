@@ -173,6 +173,9 @@ export function registerIpc(
   ipcMain.handle(CHANNELS.sessionsCompact, (_event, projectId: string, threadId: string) =>
     sessions.compact(projectId, threadId),
   );
+  ipcMain.handle(CHANNELS.sessionsRefreshModels, (_event, projectId: string, threadId: string) =>
+    sessions.refreshModels(projectId, threadId),
+  );
   ipcMain.handle(
     CHANNELS.sessionsSetModel,
     (_event, projectId: string, threadId: string, provider: string, modelId: string) =>

@@ -114,6 +114,7 @@ export interface DesktopApi {
     cancel(projectId: string, threadId: string): Promise<void>;
     clearQueue(projectId: string, threadId: string): Promise<ClearedQueue>;
     compact(projectId: string, threadId: string): Promise<void>;
+    refreshModels(projectId: string, threadId: string): Promise<void>;
     setModel(projectId: string, threadId: string, provider: string, modelId: string): Promise<void>;
     setThinking(projectId: string, threadId: string, level: SessionControlState["thinkingLevel"]): Promise<void>;
     setEditorText(projectId: string, threadId: string, text: string): Promise<void>;

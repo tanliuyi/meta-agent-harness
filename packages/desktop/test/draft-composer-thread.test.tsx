@@ -3,6 +3,7 @@ import React, { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 import { DraftComposerThread } from "../src/renderer/src/components/chat/draft-composer-thread.tsx";
+import { ModelSelect } from "../src/renderer/src/components/chat/model-select.tsx";
 import { TooltipProvider } from "../src/renderer/src/shared/ui/tooltip-provider.tsx";
 import type { DraftSessionConfig, Project } from "../src/shared/contracts.ts";
 
@@ -67,5 +68,14 @@ describe("DraftComposerThread", () => {
     expect(markup).toContain("<span>Project</span>");
     expect(markup).toContain('aria-label="选择模型"');
     expect(markup).toContain('aria-label="消息输入"');
+  });
+
+  it("模型列表为空时仍允许展开以触发刷新", () => {
+    const markup = renderToStaticMarkup(
+      <ModelSelect availableModels={[]} model={undefined} onOpen={vi.fn()} onValueChange={vi.fn()} />,
+    );
+
+    expect(markup).toContain('aria-label="选择模型"');
+    expect(markup).not.toContain(' disabled=""');
   });
 });

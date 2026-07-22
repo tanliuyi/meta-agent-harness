@@ -44,6 +44,10 @@ export function SessionProvider({ record, active, children }: SessionProviderPro
     },
     [record, requireCommandsReady],
   );
+  const refreshModels = useCallback(async () => {
+    requireCommandsReady();
+    await window.desktop.sessions.refreshModels(record.identity.projectId, record.identity.threadId);
+  }, [record, requireCommandsReady]);
   const setModel = useCallback(
     async (provider: string, modelId: string) => {
       requireCommandsReady();
@@ -91,12 +95,24 @@ export function SessionProvider({ record, active, children }: SessionProviderPro
       commandsReady,
       clearQueue,
       branch,
+      refreshModels,
       setModel,
       setThinking,
       syncEditorText,
       updateWorkbench,
     }),
-    [active, branch, clearQueue, commandsReady, record, setModel, setThinking, syncEditorText, updateWorkbench],
+    [
+      active,
+      branch,
+      clearQueue,
+      commandsReady,
+      record,
+      refreshModels,
+      setModel,
+      setThinking,
+      syncEditorText,
+      updateWorkbench,
+    ],
   );
   return (
     <AssistantRuntimeProvider runtime={runtime}>

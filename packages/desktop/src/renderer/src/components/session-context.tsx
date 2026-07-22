@@ -8,6 +8,7 @@ interface SessionScope {
   commandsReady: boolean;
   clearQueue(): Promise<void>;
   branch(sourceEntryId: string): Promise<SessionBranchResult>;
+  refreshModels(): Promise<void>;
   setModel(provider: string, modelId: string): Promise<void>;
   setThinking(level: ThinkingLevel): Promise<void>;
   syncEditorText(text: string): Promise<void>;

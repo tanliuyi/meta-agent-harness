@@ -248,6 +248,7 @@ const desktopApi: DesktopApi = {
     cancel: (projectId, threadId) => ipcRenderer.invoke(CHANNELS.sessionsCancel, projectId, threadId),
     clearQueue: (projectId, threadId) => ipcRenderer.invoke(CHANNELS.sessionsClearQueue, projectId, threadId),
     compact: (projectId, threadId) => ipcRenderer.invoke(CHANNELS.sessionsCompact, projectId, threadId),
+    refreshModels: (projectId, threadId) => ipcRenderer.invoke(CHANNELS.sessionsRefreshModels, projectId, threadId),
     setModel: (projectId, threadId, provider, modelId) =>
       ipcRenderer.invoke(CHANNELS.sessionsSetModel, projectId, threadId, provider, modelId),
     setThinking: (projectId, threadId, level) =>

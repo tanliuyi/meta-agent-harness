@@ -204,6 +204,10 @@ export function Composer(props: ComposerProps) {
                       availableModels={props.models}
                       model={props.model}
                       disabled={disabled || props.phase !== "idle"}
+                      onOpen={() => {
+                        setError(null);
+                        void props.onRefreshModels().catch(reportError);
+                      }}
                       onValueChange={(provider, modelId) => {
                         setError(null);
                         void props.onSetModel(provider, modelId).catch(reportError);

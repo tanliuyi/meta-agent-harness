@@ -172,6 +172,10 @@ export class SessionSupervisor {
     return this.workers.compact(projectId, threadId);
   }
 
+  refreshModels(projectId: string, threadId: string): Promise<void> {
+    return this.workers.refreshModels(projectId, threadId);
+  }
+
   setModel(projectId: string, threadId: string, provider: string, modelId: string): Promise<void> {
     return this.workers.setModel(projectId, threadId, provider, modelId);
   }

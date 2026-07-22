@@ -175,6 +175,7 @@ export type ThreadSidecarCommand =
   | { type: "cancel" }
   | { type: "clearQueue" }
   | { type: "compact" }
+  | { type: "refreshModels" }
   | { type: "setModel"; provider: string; modelId: string }
   | { type: "setThinking"; level: SessionControlState["thinkingLevel"] }
   | { type: "setEditorText"; text: string }

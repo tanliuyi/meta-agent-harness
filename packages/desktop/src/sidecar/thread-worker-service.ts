@@ -92,6 +92,9 @@ export class ThreadWorkerService implements SidecarService {
       case "compact":
         await this.runtime.compact();
         return null;
+      case "refreshModels":
+        this.runtime.refreshModels();
+        return null;
       case "setModel":
         await this.runtime.setModel(command.provider, command.modelId);
         return null;

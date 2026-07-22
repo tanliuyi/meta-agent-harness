@@ -217,6 +217,10 @@ export class ThreadWorkerRegistry {
     await this.use(projectId, threadId, (record) => record.client.request({ type: "compact" }, null));
   }
 
+  async refreshModels(projectId: string, threadId: string): Promise<void> {
+    await this.use(projectId, threadId, (record) => record.client.request({ type: "refreshModels" }));
+  }
+
   async setModel(projectId: string, threadId: string, provider: string, modelId: string): Promise<void> {
     await this.use(projectId, threadId, (record) => record.client.request({ type: "setModel", provider, modelId }));
   }

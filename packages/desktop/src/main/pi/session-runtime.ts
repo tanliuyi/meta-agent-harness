@@ -229,6 +229,14 @@ export class SessionRuntime {
     await this.compatibility.compact();
   }
 
+  refreshModels(): void {
+    this.models.authStorage.reload();
+    this.models.refresh();
+    this.publishControl();
+    const error = this.models.getError();
+    if (error) throw new Error(error);
+  }
+
   async setModel(provider: string, modelId: string): Promise<void> {
     const model = this.models.find(provider, modelId);
     if (!model) throw new Error(`模型不存在: ${provider}/${modelId}`);

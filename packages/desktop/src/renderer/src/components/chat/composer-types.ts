@@ -36,6 +36,7 @@ export type ComposerProps =
       editorText: string | undefined;
       commandsReady: boolean;
       onClearQueue(): Promise<void>;
+      onRefreshModels(): Promise<void>;
       onSetModel(provider: string, modelId: string): Promise<void>;
       onSetThinking(level: SessionControlState["thinkingLevel"]): Promise<void>;
       onSyncEditorText(text: string): Promise<void>;
