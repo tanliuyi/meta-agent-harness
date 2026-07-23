@@ -3,7 +3,8 @@ name: Build Binaries
 on:
   push:
     tags:
-      - 'v*'
+      - 'v0.[1-9]*'
+      - 'v[1-9]*'
   workflow_dispatch:
     inputs:
       tag:
