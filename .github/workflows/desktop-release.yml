@@ -34,7 +34,7 @@ jobs:
             update_channel: latest
           - platform: macos
             arch: x64
-            os: macos-latest
+            os: macos-15-intel
             builder_args: --mac --x64
             update_channel: latest
           - platform: macos
