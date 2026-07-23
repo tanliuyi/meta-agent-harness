@@ -1,6 +1,6 @@
 import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
   createGuiSmokeDesktopState,
@@ -29,7 +29,7 @@ describe("packaged Desktop GUI smoke contract", () => {
         "--keep-temp",
       ]),
     ).toEqual({
-      artifact: "/tmp/Meta Agent 安装.app",
+      artifact: resolve("/tmp/Meta Agent 安装.app"),
       help: false,
       keepTemp: true,
       mode: "normal",
@@ -69,7 +69,11 @@ describe("packaged Desktop GUI smoke contract", () => {
       { agentDir: "/tmp/agent", cwd: "/tmp/cwd", root: "/tmp", userDataDir: "/tmp/user-data" },
     );
 
-    expect(environment).toMatchObject({ HOME: "/tmp/home", PI_CODING_AGENT_DIR: "/tmp/agent" });
+    expect(environment).toMatchObject({
+      HOME: "/tmp/home",
+      PI_CODING_AGENT_DIR: "/tmp/agent",
+      PI_DESKTOP_NODE_EXEC_PATH: "/usr/local/bin/node",
+    });
     expect(environment.PATH.startsWith("/usr/local/bin")).toBe(true);
     expect(environment.PATH).not.toContain("/untrusted/user/path");
     expect(environment.ELECTRON_RUN_AS_NODE).toBeUndefined();
@@ -119,10 +123,32 @@ describe("packaged Desktop GUI smoke contract", () => {
     });
   });
 
+  it("recognizes a quoted Windows Node sidecar command", () => {
+    const version = { Browser: "Chrome/1" };
+    const targets = [{ type: "page", url: "file:///C:/Meta%20Agent/resources/app.asar/renderer/index.html" }];
+    const processes = [
+      {
+        pid: 42,
+        ppid: 41,
+        command:
+          '"C:\\Program Files\\nodejs\\node.exe" C:\\Meta Agent\\resources\\app.asar.unpacked\\out\\sidecar\\metadata-worker-main.js',
+      },
+    ];
+
+    expect(inspectGuiSidecarReadiness(version, targets, processes, "C:\\Program Files\\nodejs\\node.exe")).toEqual({
+      status: "ready",
+      result: {
+        processes,
+        sidecarCommand: processes[0]?.command,
+        targetUrl: targets[0]?.url,
+      },
+    });
+  });
+
   it("locates an executable in an unpacked Linux artifact directory", () => {
     const root = mkdtempSync(join(tmpdir(), "desktop-gui-smoke-fixture-"));
     temporaryDirectories.push(root);
-    const executable = join(root, "Meta Agent");
+    const executable = join(root, "Meta Agent.AppImage");
     writeFileSync(executable, "placeholder");
     chmodSync(executable, 0o755);
 

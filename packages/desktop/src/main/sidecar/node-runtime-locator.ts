@@ -189,7 +189,11 @@ function isPositiveIntegerString(value: unknown): value is string {
 
 function findPathCandidates(): string[] {
   try {
-    return execFileSync(process.platform === "win32" ? "where.exe" : "which", ["node"], { encoding: "utf8" })
+    return execFileSync(
+      process.platform === "win32" ? "where.exe" : "which",
+      [process.platform === "win32" ? "node.exe" : "node"],
+      { encoding: "utf8" },
+    )
       .split(/\r?\n/)
       .map((value) => value.trim())
       .filter(Boolean);

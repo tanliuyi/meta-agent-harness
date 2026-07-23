@@ -56,6 +56,27 @@ describe("Desktop Node runtime locator", () => {
     });
   });
 
+  it("uses an explicit executable name when searching PATH", () => {
+    const nodePath = join(resourcesPath, process.platform === "win32" ? "node.exe" : "node");
+    childProcessMock.execFileSync.mockReturnValueOnce(`${nodePath}\n`).mockReturnValueOnce(
+      JSON.stringify({
+        nodeVersion: "v24.15.0",
+        modulesAbi: "137",
+        napi: "10",
+        platform: process.platform,
+        arch: process.arch,
+      }),
+    );
+
+    expect(detectNodeRuntime()).toMatchObject({ state: "ready", path: nodePath });
+    expect(childProcessMock.execFileSync).toHaveBeenNthCalledWith(
+      1,
+      process.platform === "win32" ? "where.exe" : "which",
+      [process.platform === "win32" ? "node.exe" : "node"],
+      { encoding: "utf8" },
+    );
+  });
+
   it("rejects a Node runtime for another architecture", () => {
     const arch = process.arch === "arm64" ? "x64" : "arm64";
     mockNodeRuntime({ arch });

@@ -104,9 +104,11 @@ export function locateDesktopExecutable(input, platform = process.platform) {
 }
 
 export function createMinimalGuiEnvironment(baseEnvironment, nodePath, paths) {
-  return createDesktopSmokeEnvironment(baseEnvironment, nodePath, {
+  const environment = createDesktopSmokeEnvironment(baseEnvironment, nodePath, {
     PI_CODING_AGENT_DIR: paths.agentDir,
   });
+  environment.PI_DESKTOP_NODE_EXEC_PATH = nodePath;
+  return environment;
 }
 
 export function createGuiSmokeDesktopState(cwd, lastOpenedAt = Date.now()) {
@@ -243,7 +245,8 @@ export function inspectGuiSidecarReadiness(version, targets, processes, expected
 
   const sidecar = processes.find(
     (item) =>
-      /(?:^|[\\/])node(?:\.exe)?(?:\s|$)/i.test(item.command) && /metadata-worker-main\.js/.test(item.command),
+      /(?:^|[\\/])node(?:\.exe)?(?:"?\s|$)/i.test(item.command) &&
+      /app\.asar\.unpacked[\\/].*metadata-worker-main\.js/.test(item.command),
   );
   if (!sidecar) {
     return { status: "pending", reason: "GUI became reachable but no Node metadata sidecar was observed" };
@@ -309,6 +312,13 @@ function snapshotProcessTree(rootPid) {
     if (!item) continue;
     descendants.push(item);
     pending.push(...(byParent.get(item.pid) ?? []));
+  }
+  if (process.platform === "win32") {
+    const known = new Set(descendants.map(({ pid }) => pid));
+    for (const item of processes) {
+      if (known.has(item.pid) || !/app\.asar\.unpacked[\\/].*metadata-worker-main\.js/.test(item.command)) continue;
+      descendants.push(item);
+    }
   }
   return descendants;
 }
@@ -422,7 +432,7 @@ function findExecutableUnderDirectory(root, platform) {
   const candidates = entries
     .filter((entry) => entry.isFile() && (expectedExtension ? entry.name.toLowerCase().endsWith(expectedExtension) : true))
     .map((entry) => join(root, entry.name))
-    .filter((path) => expectedExtension || isExecutable(path));
+    .filter((path) => expectedExtension || isExecutable(path) || extname(path).toLowerCase() === ".appimage");
   if (candidates.length > 0) return candidates[0];
   const resources = join(root, "resources");
   if (existsSync(resources)) {
