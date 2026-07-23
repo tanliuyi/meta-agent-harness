@@ -1,4 +1,7 @@
 import { VERSION } from "@earendil-works/pi-coding-agent";
+import { runCli } from "@earendil-works/pi-coding-agent/cli-runtime";
+import { DesktopBuiltinProviderRegistry } from "../main/pi/desktop-builtin-provider.ts";
+import { SIDECAR_MODE_ARGUMENT } from "../shared/sidecar-contracts.ts";
 import { currentRuntimeCompatibility } from "../shared/sidecar-wire.ts";
 import { runSidecarHost } from "./sidecar-host.ts";
 import { ThreadWorkerService } from "./thread-worker-service.ts";
@@ -6,6 +9,16 @@ import { ThreadWorkerService } from "./thread-worker-service.ts";
 const compatibilityId = process.env.PI_DESKTOP_RUNTIME_COMPATIBILITY_ID;
 if (!compatibilityId) throw new Error("PI_DESKTOP_RUNTIME_COMPATIBILITY_ID is required");
 
-runSidecarHost(currentRuntimeCompatibility(VERSION, compatibilityId), (binding, context) =>
-  ThreadWorkerService.create(binding, context),
-);
+if (process.argv[2] === SIDECAR_MODE_ARGUMENT) {
+  runSidecarHost(currentRuntimeCompatibility(VERSION, compatibilityId), (binding, context) =>
+    ThreadWorkerService.create(binding, context),
+  );
+} else {
+  void runCli(process.argv.slice(2), {
+    extensionFactories: DesktopBuiltinProviderRegistry.getExtensionFactories(),
+    runtimeDependencyId: compatibilityId,
+  }).catch((error: unknown) => {
+    process.stderr.write(`${error instanceof Error ? (error.stack ?? error.message) : String(error)}\n`);
+    process.exitCode = 1;
+  });
+}

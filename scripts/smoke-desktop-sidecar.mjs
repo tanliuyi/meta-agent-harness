@@ -1,9 +1,13 @@
+import { execFileSync, fork } from "node:child_process";
 import { createHash } from "node:crypto";
-import { fork, execFileSync } from "node:child_process";
 import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
-import { dirname, join, resolve } from "node:path";
 import { tmpdir } from "node:os";
+import { dirname, join, resolve } from "node:path";
+import {
+  smokeDesktopPiExecutable,
+  smokeDesktopPiExtensionExecution,
+} from "./desktop-pi-smoke.mjs";
 import { createDesktopSmokeEnvironment } from "./desktop-smoke-environment.mjs";
 
 const artifact = parseArtifact(process.argv.slice(2));
@@ -14,9 +18,11 @@ const nodePath = manifest.nodePath === "system"
   ? resolve(process.env.PI_DESKTOP_NODE_EXEC_PATH ?? process.execPath)
   : resolve(root, manifest.nodePath);
 const npmCliPath = manifest.npmCliPath ? resolve(root, manifest.npmCliPath) : undefined;
+const piExecutable = resolve(root, manifest.piExecutable);
 
 assertFile(nodePath, manifest.nodePath === "system" ? "" : manifest.integrity.nodePath, "Node executable");
 if (npmCliPath) assertFile(npmCliPath, manifest.integrity.npmCliPath, "npm CLI");
+assertFile(piExecutable, manifest.integrity.piExecutable, "Pi executable");
 if (/[\\/]app\.asar(?:[\\/]|$)/i.test(nodePath) || (npmCliPath && /[\\/]app\.asar(?:[\\/]|$)/i.test(npmCliPath))) {
   throw new Error("Node and npm must be outside app.asar");
 }
@@ -50,13 +56,24 @@ for (const field of ["nodeVersion", "modulesAbi", "napi", "platform", "arch", "o
   }
 }
 
-const agentDir = process.env.PI_CODING_AGENT_DIR ?? (await mkdtemp(join(tmpdir(), "desktop-sidecar-agent-")));
+const agentDir = await mkdtemp(join(tmpdir(), "desktop-sidecar-agent-"));
 const userDataDir = await mkdtemp(join(tmpdir(), "desktop-sidecar-user-data-"));
 try {
+  const piSmokeOptions = {
+    piExecutable,
+    threadEntry: resolve(root, manifest.entries.thread),
+    nodePath,
+    compatibility: manifest.compatibility,
+    agentDir,
+  };
+  await smokeDesktopPiExecutable(piSmokeOptions);
+  smokeDesktopPiExtensionExecution(piSmokeOptions);
   await smokeMetadataWorker(nodePath, resolve(root, manifest.entries.metadata), manifest.compatibility, agentDir, userDataDir);
 } finally {
-  if (!process.env.PI_CODING_AGENT_DIR) await rm(agentDir, { recursive: true, force: true });
-  await rm(userDataDir, { recursive: true, force: true });
+  await Promise.all([
+    rm(agentDir, { recursive: true, force: true }),
+    rm(userDataDir, { recursive: true, force: true }),
+  ]);
 }
 console.log(`Desktop sidecar smoke passed: ${manifestPath}`);
 

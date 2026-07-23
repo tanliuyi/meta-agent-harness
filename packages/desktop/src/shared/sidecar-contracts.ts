@@ -16,6 +16,7 @@ import type {
 } from "./contracts.ts";
 
 export const SIDECAR_PROTOCOL_VERSION = 1;
+export const SIDECAR_MODE_ARGUMENT = "--pi-desktop-sidecar";
 
 export type SidecarRole = "thread" | "metadata";
 

@@ -1,9 +1,12 @@
-import { type ChildProcess, fork, spawn } from "node:child_process";
+import { type ChildProcess, fork } from "node:child_process";
 import { randomUUID } from "node:crypto";
+import { delimiter, dirname } from "node:path";
 import type { JsonValue } from "../../shared/contracts.ts";
+import { terminateProcessTree, windowsSystemDirectory } from "../../shared/process-tree.ts";
 import {
   type ParentToSidecarMessage,
   type RuntimeCompatibility,
+  SIDECAR_MODE_ARGUMENT,
   SIDECAR_PROTOCOL_VERSION,
   type SidecarBinding,
   type SidecarCommand,
@@ -89,12 +92,15 @@ export class SidecarWorkerClient {
       this.resolveReady = resolve;
       this.rejectReady = reject;
     });
-    this.child = fork(entry, [], {
+    this.child = fork(entry, [SIDECAR_MODE_ARGUMENT], {
       execPath: options.manifest.nodePath,
       cwd: options.binding.role === "thread" ? options.binding.value.cwd : undefined,
       env: createSidecarEnvironment(
         options.manifest.compatibility.runtimeCompatibilityId,
         options.binding.value.agentDir,
+        options.manifest.nodePath,
+        options.manifest.piExecutable,
+        options.manifest.entries.thread,
       ),
       stdio: ["ignore", "ignore", "pipe", "ipc"],
       serialization: "json",
@@ -413,39 +419,51 @@ function unknownOutcomeError(commandType: SidecarCommand["type"], reason: string
 
 function killProcessTree(child: ChildProcess, signal: NodeJS.Signals): void {
   if (!child.pid) return;
-  if (process.platform === "win32") {
-    const killer = spawn("taskkill", ["/pid", String(child.pid), "/T", "/F"], {
-      stdio: "ignore",
-      windowsHide: true,
-    });
-    killer.unref();
-    return;
-  }
-  try {
-    process.kill(-child.pid, signal);
-  } catch {
-    child.kill(signal);
-  }
+  terminateProcessTree(child.pid, signal, () => {
+    try {
+      child.kill(signal);
+    } catch {
+      // The worker already exited.
+    }
+  });
 }
 
-function createSidecarEnvironment(runtimeCompatibilityId: string, agentDir: string): NodeJS.ProcessEnv {
+export function createSidecarEnvironment(
+  runtimeCompatibilityId: string,
+  agentDir: string,
+  nodePath: string,
+  piExecutable: string,
+  piEntry: string,
+): NodeJS.ProcessEnv {
   const allowed = Object.fromEntries(
     Object.entries(process.env).filter(([name]) => isAllowedSidecarEnvironmentVariable(name)),
   );
+  const pathKeys = Object.keys(allowed).filter((name) => name.toLowerCase() === "path");
+  const currentPath = pathKeys.map((name) => allowed[name]).find((value) => value !== undefined);
+  for (const name of pathKeys) delete allowed[name];
+  const systemDirectory = process.platform === "win32" ? windowsSystemDirectory(allowed) : undefined;
   return {
     ...allowed,
+    PATH: [dirname(piExecutable), dirname(nodePath), systemDirectory, currentPath].filter(Boolean).join(delimiter),
     PI_CODING_AGENT_DIR: agentDir,
+    PI_DESKTOP_NODE_EXEC_PATH: nodePath,
+    PI_DESKTOP_PI_ENTRY: piEntry,
     PI_DESKTOP_RUNTIME_COMPATIBILITY_ID: runtimeCompatibilityId,
   };
 }
 
 function isAllowedSidecarEnvironmentVariable(name: string): boolean {
+  const comparedName = process.platform === "win32" ? name.toUpperCase() : name;
+  if (comparedName === "PI_SUBAGENT_PI_BINARY" || comparedName.startsWith("PI_DESKTOP_")) return false;
   if (
     [
       "HOME",
       "USERPROFILE",
       "PATH",
-      "SystemRoot",
+      "PATHEXT",
+      "COMSPEC",
+      "SYSTEMROOT",
+      "WINDIR",
       "TMPDIR",
       "TMP",
       "TEMP",
@@ -457,19 +475,19 @@ function isAllowedSidecarEnvironmentVariable(name: string): boolean {
       "SSL_CERT_FILE",
       "SSL_CERT_DIR",
       "NODE_EXTRA_CA_CERTS",
-    ].includes(name)
+    ].includes(comparedName)
   ) {
     return true;
   }
-  if (name.startsWith("LC_") || name.startsWith("PI_")) return true;
+  if (comparedName.startsWith("LC_") || comparedName.startsWith("PI_")) return true;
   return (
-    name.endsWith("_API_KEY") ||
-    name.endsWith("_ACCESS_TOKEN") ||
-    name.startsWith("AWS_") ||
-    name.startsWith("AZURE_") ||
-    name.startsWith("GOOGLE_") ||
-    name.startsWith("ANTHROPIC_") ||
-    name.startsWith("OPENAI_")
+    comparedName.endsWith("_API_KEY") ||
+    comparedName.endsWith("_ACCESS_TOKEN") ||
+    comparedName.startsWith("AWS_") ||
+    comparedName.startsWith("AZURE_") ||
+    comparedName.startsWith("GOOGLE_") ||
+    comparedName.startsWith("ANTHROPIC_") ||
+    comparedName.startsWith("OPENAI_")
   );
 }
 

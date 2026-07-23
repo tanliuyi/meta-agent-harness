@@ -27,6 +27,7 @@ import type { Readable } from "node:stream";
 import { globSync } from "glob";
 import ignore from "ignore";
 import { minimatch } from "minimatch";
+import lockfile from "proper-lockfile";
 import { maxSatisfying, rcompare, satisfies, valid, validRange } from "semver";
 import { CONFIG_DIR_NAME } from "../config.ts";
 import { spawnProcess, spawnProcessSync } from "../utils/child-process.ts";
@@ -124,6 +125,20 @@ interface PackageManagerOptions {
 	cwd: string;
 	agentDir: string;
 	settingsManager: SettingsManager;
+	runtimeDependencyId?: string;
+}
+
+interface RuntimeDependencyManifest {
+	schemaVersion: 1;
+	runtimeDependencyId: string;
+	nodeVersion: string;
+	modulesAbi: string;
+	platform: NodeJS.Platform;
+	arch: string;
+}
+
+function runtimeDependencyPathSegment(runtimeDependencyId: string): string {
+	return `v1-${createHash("sha256").update(runtimeDependencyId).digest("hex").slice(0, 24)}`;
 }
 
 type SourceScope = "user" | "project" | "temporary";
@@ -800,6 +815,7 @@ export class DefaultPackageManager implements PackageManager {
 	private cwd: string;
 	private agentDir: string;
 	private settingsManager: SettingsManager;
+	private runtimeDependencyId: string | undefined;
 	private globalNpmRoot: string | undefined;
 	private globalNpmRootCommandKey: string | undefined;
 	private progressCallback: ProgressCallback | undefined;
@@ -808,6 +824,7 @@ export class DefaultPackageManager implements PackageManager {
 		this.cwd = resolvePath(options.cwd);
 		this.agentDir = resolvePath(options.agentDir);
 		this.settingsManager = options.settingsManager;
+		this.runtimeDependencyId = options.runtimeDependencyId?.trim() || undefined;
 	}
 
 	setProgressCallback(callback: ProgressCallback | undefined): void {
@@ -1098,7 +1115,10 @@ export class DefaultPackageManager implements PackageManager {
 			// Pinned npm versions are fixed. Pinned git refs are configured checkout targets,
 			// so include them to reconcile an existing clone when the configured ref changes.
 			if (parsed.type === "npm") {
-				if (!parsed.pinned) {
+				const runtimePackageMissing =
+					this.runtimeDependencyId !== undefined &&
+					!existsSync(this.getManagedNpmInstallPath(parsed, entry.scope));
+				if (!parsed.pinned || runtimePackageMissing) {
 					npmCandidates.push({ ...entry, parsed });
 				}
 			} else if (parsed.type === "git") {
@@ -1176,8 +1196,10 @@ export class DefaultPackageManager implements PackageManager {
 
 	private async installNpmBatch(specs: string[], scope: InstalledSourceScope): Promise<void> {
 		const installRoot = this.getNpmInstallRoot(scope, false);
-		this.ensureNpmProject(installRoot);
-		await this.runNpmCommand(this.getNpmInstallArgs(specs, installRoot));
+		await this.withNpmMutationLock(installRoot, async () => {
+			this.ensureNpmProject(installRoot);
+			await this.runNpmCommand(this.getNpmInstallArgs(specs, installRoot));
+		});
 	}
 
 	async checkForAvailableUpdates(): Promise<PackageUpdate[]> {
@@ -1268,12 +1290,15 @@ export class DefaultPackageManager implements PackageManager {
 			const installMissing = async (): Promise<boolean> => {
 				if (isOfflineModeEnabled()) return false;
 				if (!onMissing) {
+					if (this.runtimeDependencyId) {
+						throw new Error(this.missingSourceMessage(resolvedSource, parsed));
+					}
 					await this.installParsedSource(parsed, resolvedScope);
 					return true;
 				}
 				const action = await onMissing(resolvedSource);
 				if (action === "skip") return false;
-				if (action === "error") throw new Error(`Missing source: ${resolvedSource}`);
+				if (action === "error") throw new Error(this.missingSourceMessage(resolvedSource, parsed));
 				await this.installParsedSource(parsed, resolvedScope);
 				return true;
 			};
@@ -1802,10 +1827,25 @@ export class DefaultPackageManager implements PackageManager {
 		return ["install", ...specs, "--prefix", installRoot, "--legacy-peer-deps"];
 	}
 
+	private async withNpmMutationLock<T>(installRoot: string, operation: () => Promise<T>): Promise<T> {
+		mkdirSync(installRoot, { recursive: true });
+		const release = await lockfile.lock(installRoot, {
+			realpath: false,
+			retries: { retries: 20, factor: 1.5, minTimeout: 100, maxTimeout: 1000 },
+		});
+		try {
+			return await operation();
+		} finally {
+			await release();
+		}
+	}
+
 	private async installNpm(source: NpmSource, scope: SourceScope, temporary: boolean): Promise<void> {
 		const installRoot = this.getNpmInstallRoot(scope, temporary);
-		this.ensureNpmProject(installRoot);
-		await this.runNpmCommand(this.getNpmInstallArgs([source.spec], installRoot));
+		await this.withNpmMutationLock(installRoot, async () => {
+			this.ensureNpmProject(installRoot);
+			await this.runNpmCommand(this.getNpmInstallArgs([source.spec], installRoot));
+		});
 	}
 
 	private async uninstallNpm(source: NpmSource, scope: SourceScope): Promise<void> {
@@ -1813,16 +1853,18 @@ export class DefaultPackageManager implements PackageManager {
 		if (!existsSync(installRoot)) {
 			return;
 		}
-		const packageManagerName = this.getPackageManagerName();
-		if (packageManagerName === "bun") {
-			await this.runNpmCommand(["uninstall", source.name, "--cwd", installRoot]);
-			return;
-		}
-		const args = ["uninstall", source.name, "--prefix", installRoot];
-		if (packageManagerName !== "pnpm") {
-			args.push("--legacy-peer-deps");
-		}
-		await this.runNpmCommand(args);
+		await this.withNpmMutationLock(installRoot, async () => {
+			const packageManagerName = this.getPackageManagerName();
+			if (packageManagerName === "bun") {
+				await this.runNpmCommand(["uninstall", source.name, "--cwd", installRoot]);
+				return;
+			}
+			const args = ["uninstall", source.name, "--prefix", installRoot];
+			if (packageManagerName !== "pnpm") {
+				args.push("--legacy-peer-deps");
+			}
+			await this.runNpmCommand(args);
+		});
 	}
 
 	private async installGit(source: GitSource, scope: SourceScope): Promise<void> {
@@ -1938,10 +1980,48 @@ export class DefaultPackageManager implements PackageManager {
 		}
 	}
 
+	private missingSourceMessage(source: string, parsed: ParsedSource): string {
+		if (!this.runtimeDependencyId || parsed.type !== "npm") {
+			return `Missing source: ${source}`;
+		}
+		return `Missing source for runtime ${this.runtimeDependencyId}: ${source}. Run "pi update --extensions" with this runtime to prepare configured packages, or run "pi install ${source}".`;
+	}
+
+	private ensureRuntimeDependencyManifest(installRoot: string): void {
+		if (!this.runtimeDependencyId) return;
+		const runtimeRoot = dirname(installRoot);
+		const manifestPath = join(runtimeRoot, "runtime.json");
+		const expected: RuntimeDependencyManifest = {
+			schemaVersion: 1,
+			runtimeDependencyId: this.runtimeDependencyId,
+			nodeVersion: process.version,
+			modulesAbi: process.versions.modules ?? "unknown",
+			platform: process.platform,
+			arch: process.arch,
+		};
+		if (existsSync(manifestPath)) {
+			let actual: RuntimeDependencyManifest;
+			try {
+				actual = JSON.parse(readFileSync(manifestPath, "utf-8")) as RuntimeDependencyManifest;
+			} catch (error) {
+				throw new Error(`Invalid runtime dependency manifest ${manifestPath}: ${String(error)}`);
+			}
+			for (const key of Object.keys(expected) as Array<keyof RuntimeDependencyManifest>) {
+				if (actual[key] !== expected[key]) {
+					throw new Error(`Runtime dependency manifest mismatch at ${manifestPath}: ${key}`);
+				}
+			}
+			return;
+		}
+		mkdirSync(runtimeRoot, { recursive: true, mode: 0o700 });
+		writeFileSync(manifestPath, `${JSON.stringify(expected, null, 2)}\n`, { encoding: "utf-8", mode: 0o600 });
+	}
+
 	private ensureNpmProject(installRoot: string): void {
 		if (!existsSync(installRoot)) {
 			mkdirSync(installRoot, { recursive: true });
 		}
+		this.ensureRuntimeDependencyManifest(installRoot);
 		markPathIgnoredByCloudSync(installRoot);
 		this.ensureGitIgnore(installRoot);
 		const packageJsonPath = join(installRoot, "package.json");
@@ -1962,14 +2042,21 @@ export class DefaultPackageManager implements PackageManager {
 	}
 
 	private getNpmInstallRoot(scope: SourceScope, temporary: boolean): string {
+		const runtimeSegment = this.runtimeDependencyId
+			? runtimeDependencyPathSegment(this.runtimeDependencyId)
+			: undefined;
 		if (temporary) {
-			return this.getTemporaryDir("npm");
+			return runtimeSegment
+				? this.resolveManagedPath(getExtensionTempFolder(this.agentDir), "runtime-deps", runtimeSegment, "npm")
+				: this.getTemporaryDir("npm");
 		}
 		if (scope === "project") {
 			this.assertProjectTrustedForScope(scope);
-			return join(this.cwd, CONFIG_DIR_NAME, "npm");
+			return runtimeSegment
+				? join(this.cwd, CONFIG_DIR_NAME, "runtime-deps", runtimeSegment, "npm")
+				: join(this.cwd, CONFIG_DIR_NAME, "npm");
 		}
-		return join(this.agentDir, "npm");
+		return runtimeSegment ? join(this.agentDir, "runtime-deps", runtimeSegment, "npm") : join(this.agentDir, "npm");
 	}
 
 	private getGlobalNpmRoot(): string {
@@ -2003,14 +2090,7 @@ export class DefaultPackageManager implements PackageManager {
 	}
 
 	private getManagedNpmInstallPath(source: NpmSource, scope: SourceScope): string {
-		if (scope === "temporary") {
-			return join(this.getTemporaryDir("npm"), "node_modules", source.name);
-		}
-		if (scope === "project") {
-			this.assertProjectTrustedForScope(scope);
-			return join(this.cwd, CONFIG_DIR_NAME, "npm", "node_modules", source.name);
-		}
-		return join(this.agentDir, "npm", "node_modules", source.name);
+		return this.resolveManagedPath(this.getNpmInstallRoot(scope, scope === "temporary"), "node_modules", source.name);
 	}
 
 	private getLegacyGlobalNpmInstallPath(source: NpmSource): string | undefined {
@@ -2023,6 +2103,17 @@ export class DefaultPackageManager implements PackageManager {
 
 	private getNpmInstallPath(source: NpmSource, scope: SourceScope): string {
 		const managedPath = this.getManagedNpmInstallPath(source, scope);
+		if (this.runtimeDependencyId) {
+			if (existsSync(managedPath)) {
+				const installRoot = this.getNpmInstallRoot(scope, scope === "temporary");
+				const manifestPath = join(dirname(installRoot), "runtime.json");
+				if (!existsSync(manifestPath)) {
+					throw new Error(`Missing runtime dependency manifest: ${manifestPath}`);
+				}
+				this.ensureRuntimeDependencyManifest(installRoot);
+			}
+			return managedPath;
+		}
 		if (scope !== "user" || existsSync(managedPath)) {
 			return managedPath;
 		}

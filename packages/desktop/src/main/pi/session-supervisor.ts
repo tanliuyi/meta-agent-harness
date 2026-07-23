@@ -289,7 +289,10 @@ export class SessionSupervisor {
           subscription.pendingEvents >= MAX_ATTACHMENT_PENDING_EVENTS ||
           subscription.pendingBytes + bytes > MAX_ATTACHMENT_PENDING_BYTES
         ) {
-          this.markAttachmentResync(ownerId, subscription, "renderer-delivery-queue-overflow");
+          this.markAttachmentResync(ownerId, subscription, "renderer-delivery-queue-overflow", {
+            bytes,
+            payload: describeDelivery(delivered),
+          });
           continue;
         }
         try {
@@ -468,11 +471,17 @@ export class SessionSupervisor {
     }
   }
 
-  private markAttachmentResync(ownerId: number, subscription: RendererSubscription, reason: string): void {
+  private markAttachmentResync(
+    ownerId: number,
+    subscription: RendererSubscription,
+    reason: string,
+    incoming?: { bytes: number; payload: string },
+  ): void {
     if (subscription.resyncing) return;
+    const incomingDetails = incoming ? `, incomingBytes=${incoming.bytes}, payload=${incoming.payload}` : "";
     this.log?.(
       "renderer",
-      `Attachment recovery: attachment=${subscription.attachmentId}, project=${subscription.projectId}, thread=${subscription.threadId}, reason=${reason}, pendingEvents=${subscription.pendingEvents}, pendingBytes=${subscription.pendingBytes}`,
+      `Attachment recovery: attachment=${subscription.attachmentId}, project=${subscription.projectId}, thread=${subscription.threadId}, reason=${reason}, pendingEvents=${subscription.pendingEvents}, pendingBytes=${subscription.pendingBytes}${incomingDetails}`,
     );
     subscription.resyncing = true;
     this.releaseAttachmentAcks(ownerId, subscription.attachmentId);
@@ -516,4 +525,10 @@ function deliveryKey(workerInstanceId: string, sidecarSequence: number): string 
 
 function estimateDeliveryBytes(update: SessionPush | SessionPushPayload): number {
   return JSON.stringify(update).length * 2;
+}
+
+function describeDelivery(update: SessionPush | SessionPushPayload): string {
+  if (update.type !== "timeline") return update.type;
+  const eventTypes = [...new Set(update.batch.events.map(({ event }) => event.type))];
+  return `timeline:${eventTypes.join("+") || "empty"}`;
 }

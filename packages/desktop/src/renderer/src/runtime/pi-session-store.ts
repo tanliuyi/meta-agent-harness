@@ -117,6 +117,7 @@ function createControlStore(): SessionControlStore {
       return control;
     },
     replace(value: SessionControlState) {
+      if (control === value) return;
       control = value;
       for (const listener of listeners) listener();
     },
@@ -141,6 +142,7 @@ function createWorkbenchStore(): WorkbenchStore {
       return workbench;
     },
     replace(value: WorkbenchState) {
+      if (workbench === value) return;
       workbench = value;
       for (const listener of listeners) listener();
     },
@@ -166,18 +168,24 @@ function createSummaryStore(): SessionSummaryStore {
       return summary;
     },
     setRunning(running: boolean) {
+      if (summary.running === running) return;
       summary = { ...summary, running };
       for (const listener of listeners) listener();
     },
     setConnectionState(state: SessionConnectionState) {
+      if (summary.connectionState === state) return;
       summary = { ...summary, connectionState: state };
       for (const listener of listeners) listener();
     },
     setComposerDirty(dirty: boolean) {
-      summary = { ...summary, composerEmpty: !dirty };
+      const composerEmpty = !dirty;
+      if (summary.composerEmpty === composerEmpty) return;
+      summary = { ...summary, composerEmpty };
       for (const listener of listeners) listener();
     },
     set(value: Partial<CachedSessionSummary>) {
+      const keys = Object.keys(value) as Array<keyof CachedSessionSummary>;
+      if (keys.every((key) => summary[key] === value[key])) return;
       summary = { ...summary, ...value };
       for (const listener of listeners) listener();
     },
@@ -221,6 +229,7 @@ function createConnectionStore(): SessionConnectionStore {
       return state;
     },
     setState(value: SessionConnectionState) {
+      if (state === value) return;
       state = value;
       for (const listener of listeners) listener();
     },

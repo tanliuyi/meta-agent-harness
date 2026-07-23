@@ -18,6 +18,20 @@ class ResizeObserverStub {
   }
 }
 
+function createViewport(clientHeight: number, scrollHeight: number) {
+  const listeners = new Set<EventListener>();
+  return {
+    clientHeight,
+    scrollHeight,
+    scrollTop: 0,
+    addEventListener: vi.fn((_type: "scroll", listener: EventListener) => listeners.add(listener)),
+    removeEventListener: vi.fn((_type: "scroll", listener: EventListener) => listeners.delete(listener)),
+    scroll() {
+      for (const listener of listeners) listener(new Event("scroll"));
+    },
+  };
+}
+
 describe("tool detail bottom follow", () => {
   const frames: FrameRequestCallback[] = [];
 
@@ -37,7 +51,7 @@ describe("tool detail bottom follow", () => {
   });
 
   it("pins overflowing details initially and after a streaming delta", () => {
-    const viewport = { clientHeight: 100, scrollHeight: 240, scrollTop: 0 };
+    const viewport = createViewport(100, 240);
     const content = {} as Element;
     followResizingContentToBottom(viewport, content);
 
@@ -51,9 +65,29 @@ describe("tool detail bottom follow", () => {
     expect(viewport.scrollTop).toBe(420);
   });
 
+  it("pauses after the user scrolls away and resumes when they return to the bottom", () => {
+    const viewport = createViewport(100, 240);
+    followResizingContentToBottom(viewport, {} as Element, { respectUserScroll: true });
+    frames.shift()?.(0);
+
+    viewport.scrollTop = 60;
+    viewport.scroll();
+    viewport.scrollHeight = 420;
+    ResizeObserverStub.instances[0]?.resize();
+    frames.shift()?.(1);
+    expect(viewport.scrollTop).toBe(60);
+
+    viewport.scrollTop = 320;
+    viewport.scroll();
+    viewport.scrollHeight = 500;
+    ResizeObserverStub.instances[0]?.resize();
+    frames.shift()?.(2);
+    expect(viewport.scrollTop).toBe(500);
+  });
+
   it("does not scroll non-overflowing details and cleans up pending work", () => {
-    const viewport = { clientHeight: 100, scrollHeight: 80, scrollTop: 0 };
-    const stop = followResizingContentToBottom(viewport, {} as Element);
+    const viewport = createViewport(100, 80);
+    const stop = followResizingContentToBottom(viewport, {} as Element, { respectUserScroll: true });
 
     frames.shift()?.(0);
     expect(viewport.scrollTop).toBe(0);
@@ -61,6 +95,7 @@ describe("tool detail bottom follow", () => {
     ResizeObserverStub.instances[0]?.resize();
     stop();
     expect(ResizeObserverStub.instances[0]?.disconnect).toHaveBeenCalledOnce();
+    expect(viewport.removeEventListener).toHaveBeenCalledOnce();
     expect(cancelAnimationFrame).toHaveBeenCalledOnce();
   });
 });

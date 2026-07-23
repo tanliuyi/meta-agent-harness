@@ -485,6 +485,7 @@ function prepareWindowsNpmSelfUpdate(): void {
 
 export interface PackageCommandRuntimeOptions {
 	extensionFactories?: InlineExtension[];
+	runtimeDependencyId?: string;
 }
 
 interface CommandSettingsResult {
@@ -508,6 +509,7 @@ async function createCommandSettingsManager(options: {
 	projectTrustOverride?: boolean;
 	useSavedProjectTrustOnly?: boolean;
 	extensionFactories?: InlineExtension[];
+	runtimeDependencyId?: string;
 }): Promise<CommandSettingsResult> {
 	const settingsManager = SettingsManager.create(options.cwd, options.agentDir, { projectTrusted: false });
 	const projectTrustWarnings: string[] = [];
@@ -526,6 +528,7 @@ async function createCommandSettingsManager(options: {
 					agentDir: options.agentDir,
 					settingsManager,
 					extensionFactories: options.extensionFactories,
+					runtimeDependencyId: options.runtimeDependencyId,
 				}).loadProjectTrustExtensions()
 			: undefined;
 	for (const error of extensionsResult?.errors ?? []) {
@@ -543,6 +546,7 @@ async function createCommandSettingsManager(options: {
 			mode: appMode,
 			settingsManager,
 			hasUI: appMode === "interactive",
+			runtimeDependencyId: options.runtimeDependencyId,
 		}),
 		onExtensionError: (message) => projectTrustWarnings.push(message),
 	});
@@ -593,6 +597,7 @@ export async function handleConfigCommand(
 		agentDir,
 		projectTrustOverride,
 		extensionFactories: runtimeOptions.extensionFactories,
+		runtimeDependencyId: runtimeOptions.runtimeDependencyId,
 	});
 	reportProjectTrustWarnings(projectTrustWarnings);
 	if (local && !settingsManager.isProjectTrusted()) {
@@ -606,9 +611,15 @@ export async function handleConfigCommand(
 		cwd,
 		agentDir,
 		settingsManager: globalSettingsManager,
+		runtimeDependencyId: runtimeOptions.runtimeDependencyId,
 	}).resolve();
 	const projectResolvedPaths = settingsManager.isProjectTrusted()
-		? await new DefaultPackageManager({ cwd, agentDir, settingsManager }).resolve()
+		? await new DefaultPackageManager({
+				cwd,
+				agentDir,
+				settingsManager,
+				runtimeDependencyId: runtimeOptions.runtimeDependencyId,
+			}).resolve()
 		: globalResolvedPaths;
 
 	await selectConfig({
@@ -682,6 +693,7 @@ export async function handlePackageCommand(
 		projectTrustOverride: options.projectTrustOverride,
 		useSavedProjectTrustOnly: options.command === "update",
 		extensionFactories: runtimeOptions.extensionFactories,
+		runtimeDependencyId: runtimeOptions.runtimeDependencyId,
 	});
 	reportProjectTrustWarnings(projectTrustWarnings);
 	if (!settingsManager.isProjectTrusted() && writesProjectPackageConfig) {
@@ -692,7 +704,12 @@ export async function handlePackageCommand(
 	reportSettingsErrors(settingsManager, "package command");
 	const selfUpdateNpmCommand = settingsManager.getGlobalSettings().npmCommand;
 
-	const packageManager = new DefaultPackageManager({ cwd, agentDir, settingsManager });
+	const packageManager = new DefaultPackageManager({
+		cwd,
+		agentDir,
+		settingsManager,
+		runtimeDependencyId: runtimeOptions.runtimeDependencyId,
+	});
 
 	packageManager.setProgressCallback((event) => {
 		if (event.type === "start") {

@@ -18,6 +18,21 @@ describe("HostUi", () => {
     expect(changed).toHaveBeenCalledTimes(2);
   });
 
+  it("在请求完成后移除 abort 监听器", async () => {
+    const host = new HostUi(
+      () => undefined,
+      () => [],
+    );
+    const controller = new AbortController();
+    const removeEventListener = vi.spyOn(controller.signal, "removeEventListener");
+    const answer = host.createContext().input("名称", undefined, { signal: controller.signal });
+
+    host.respond({ requestId: host.requests[0]?.id ?? "", value: "alpha" });
+
+    await expect(answer).resolves.toBe("alpha");
+    expect(removeEventListener).toHaveBeenCalledWith("abort", expect.any(Function));
+  });
+
   it("支持 confirm、input 和 editor 的 Desktop 响应", async () => {
     const host = new HostUi(
       () => undefined,

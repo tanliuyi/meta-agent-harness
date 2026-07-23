@@ -49,22 +49,23 @@ describe("ToolView TUI parity", () => {
     expect(markup).toContain("animate-collapsible-up");
   });
 
-  it("bash content 默认完全折叠", () => {
+  it.each(["waiting", "running"] as const)("bash %s 时光标跟随参数且 content 默认完全折叠", (execution) => {
     const partialResult = toolResult(Array.from({ length: 7 }, (_, index) => `line-${index + 1}`).join("\n"));
     const markup = renderToolView(
       toolCall({
         toolName: "bash",
         args: { command: "generate output" },
         status: { type: "running" },
-        artifact: { execution: "running", partialResult },
+        artifact: { execution, partialResult },
       }),
     );
 
     expect(markup).toContain('class="tool-name">$</span>');
     expect(markup).toContain("generate output");
-    expect(markup).toContain('data-cursor-position="end"');
-    expect(markup).toContain("tool-running-cursor-end");
-    expect(markup.indexOf("tool-running-cursor-end")).toBeLessThan(markup.indexOf("tool-expand-trigger"));
+    const commandEnd = markup.indexOf("</span>", markup.indexOf("generate output"));
+    const runningCursor = markup.indexOf("tool-running-cursor");
+    expect(commandEnd).toBeLessThan(runningCursor);
+    expect(runningCursor).toBeLessThan(markup.indexOf("tool-expand-trigger"));
     expect(markup).not.toContain("line-1");
     expect(markup).not.toContain("tool-output");
   });

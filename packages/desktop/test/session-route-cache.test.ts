@@ -121,12 +121,18 @@ describe("SessionConnectionStore", () => {
     expect(record.stores.connection.getSnapshot()).toBe("attaching");
   });
 
-  it("setState 更新 connection state", () => {
+  it("setState 仅在 connection state 变化时通知", () => {
     const record = createSessionRecord({ projectId: "p1", threadId: "t1" });
+    const listener = vi.fn();
+    record.stores.connection.subscribe(listener);
+
+    record.stores.connection.setState("attaching");
+    expect(listener).not.toHaveBeenCalled();
     record.stores.connection.setState("ready");
     expect(record.stores.connection.getSnapshot()).toBe("ready");
-    record.stores.connection.setState("error");
-    expect(record.stores.connection.getSnapshot()).toBe("error");
+    expect(listener).toHaveBeenCalledTimes(1);
+    record.stores.connection.setState("ready");
+    expect(listener).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -141,12 +147,21 @@ describe("SessionSummaryStore", () => {
     expect(summary.connectionState).toBe("attaching");
   });
 
-  it("setRunning 更新 running 状态", () => {
+  it("summary setters 仅在字段变化时通知", () => {
     const record = createSessionRecord({ projectId: "p1", threadId: "t1" });
+    const listener = vi.fn();
+    record.stores.summary.subscribe(listener);
+
+    record.stores.summary.setRunning(false);
+    record.stores.summary.set({ running: false, loading: false });
+    expect(listener).not.toHaveBeenCalled();
+
     record.stores.summary.setRunning(true);
     expect(record.stores.summary.getSnapshot().running).toBe(true);
-    record.stores.summary.setRunning(false);
-    expect(record.stores.summary.getSnapshot().running).toBe(false);
+    expect(listener).toHaveBeenCalledTimes(1);
+    record.stores.summary.set({ running: true, loading: true });
+    expect(record.stores.summary.getSnapshot().loading).toBe(true);
+    expect(listener).toHaveBeenCalledTimes(2);
   });
 });
 

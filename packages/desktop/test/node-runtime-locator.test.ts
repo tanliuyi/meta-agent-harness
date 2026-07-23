@@ -15,13 +15,18 @@ import {
 
 describe("Desktop Node runtime locator", () => {
   let resourcesPath: string;
+  let previousNodeOverride: string | undefined;
 
   beforeEach(() => {
     childProcessMock.execFileSync.mockReset();
+    previousNodeOverride = process.env.PI_DESKTOP_NODE_EXEC_PATH;
+    delete process.env.PI_DESKTOP_NODE_EXEC_PATH;
     resourcesPath = mkdtempSync(join(tmpdir(), "desktop-node-runtime-locator-"));
   });
 
   afterEach(() => {
+    if (previousNodeOverride === undefined) delete process.env.PI_DESKTOP_NODE_EXEC_PATH;
+    else process.env.PI_DESKTOP_NODE_EXEC_PATH = previousNodeOverride;
     rmSync(resourcesPath, { recursive: true, force: true });
   });
 
@@ -120,10 +125,20 @@ describe("Desktop Node runtime locator", () => {
       nodePathOverride: nodePath,
     });
 
-    expect(manifest.compatibility).toMatchObject({
+    const identity = {
+      nodeVersion: "v24.15.0",
+      modulesAbi: "137",
+      napi: "10",
+      platform: process.platform,
+      arch: process.arch,
       osRelease: "windows-10+",
       libc: "ucrt",
       toolchain: "x64:x64:0",
+      piVersion: "test",
+    };
+    expect(manifest.compatibility).toMatchObject({
+      ...identity,
+      runtimeCompatibilityId: hash(JSON.stringify(identity)),
     });
   });
 
@@ -149,6 +164,7 @@ describe("Desktop Node runtime locator", () => {
     mkdirSync(runtimeRoot, { recursive: true });
     const nodePath = writeRuntimeFile(join(runtimeRoot, "node"), "node");
     const npmCliPath = writeRuntimeFile(join(runtimeRoot, "npm-cli.js"), "npm");
+    const piExecutable = writeRuntimeFile(join(runtimeRoot, process.platform === "win32" ? "pi.cmd" : "pi"), "pi");
     const roles = ["thread", "metadata"] as const;
     const entries = Object.fromEntries(
       roles.map((role) => [role, writeRuntimeFile(join(runtimeRoot, `${role}.js`), role)]),
@@ -156,6 +172,7 @@ describe("Desktop Node runtime locator", () => {
     const manifest: NodeRuntimeManifest = {
       nodePath: relative(manifestRoot, nodePath),
       npmCliPath: relative(manifestRoot, npmCliPath),
+      piExecutable: relative(manifestRoot, piExecutable),
       entries: Object.fromEntries(
         Object.entries(entries).map(([role, path]) => [role, relative(manifestRoot, path)]),
       ) as NodeRuntimeManifest["entries"],
@@ -174,6 +191,7 @@ describe("Desktop Node runtime locator", () => {
       integrity: {
         nodePath: hash("node"),
         npmCliPath: hash("npm"),
+        piExecutable: hash("pi"),
         entries: Object.fromEntries(roles.map((role) => [role, hash(role)])) as NodeRuntimeManifest["entries"],
         files: {},
       },

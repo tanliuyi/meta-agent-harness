@@ -213,14 +213,14 @@ export class PiThreadProjector {
         this.replaceTool(event.toolCallId, (part) => ({
           ...part,
           execution: "running",
-          partialResult: toJson(event.partialResult),
+          partialResult: projectToolResult(event.partialResult, event.toolName),
         }));
         return;
       case "tool_execution_end":
         this.replaceTool(event.toolCallId, (part) => ({
           ...part,
           execution: event.isError ? "error" : "complete",
-          result: toJson(event.result),
+          result: projectToolResult(event.result, event.toolName),
           isError: event.isError,
         }));
         return;
@@ -687,11 +687,14 @@ export class PiThreadProjector {
     const update = (part: PiToolCallPart): PiToolCallPart => ({
       ...part,
       execution: message.isError ? "error" : "complete",
-      result: toJson({
-        content: message.content,
-        ...(message.details !== undefined ? { details: message.details } : {}),
-        ...(message.addedToolNames ? { addedToolNames: message.addedToolNames } : {}),
-      }),
+      result: projectToolResult(
+        {
+          content: message.content,
+          ...(message.details !== undefined ? { details: message.details } : {}),
+          ...(message.addedToolNames ? { addedToolNames: message.addedToolNames } : {}),
+        },
+        message.toolName,
+      ),
       isError: message.isError,
     });
     if (emit) {
@@ -1238,6 +1241,27 @@ function sameLiveProjection(left: PiTimelineNode, right: PiTimelineNode): boolea
 function uniqueNodeMatch(candidates: readonly PiTimelineNode[], description: string): PiTimelineNode | undefined {
   if (candidates.length > 1) throw new ProjectionError(`${description} 存在多个 canonical identity 候选`);
   return candidates[0];
+}
+
+function projectToolResult(value: unknown, toolName: string): JsonValue {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return toJson(value);
+  const source = value as Record<string, unknown>;
+  const result: { [key: string]: JsonValue } = {
+    content: Array.isArray(source.content) ? toJson(source.content) : [],
+  };
+  if (Array.isArray(source.addedToolNames)) result.addedToolNames = toJson(source.addedToolNames);
+  if (typeof source.terminate === "boolean") result.terminate = source.terminate;
+  if (
+    toolName === "edit" &&
+    source.details !== null &&
+    typeof source.details === "object" &&
+    !Array.isArray(source.details) &&
+    "diff" in source.details &&
+    typeof source.details.diff === "string"
+  ) {
+    result.details = { diff: source.details.diff };
+  }
+  return result;
 }
 
 /** 将未知数据收窄为可安全传输的 JSON。 */

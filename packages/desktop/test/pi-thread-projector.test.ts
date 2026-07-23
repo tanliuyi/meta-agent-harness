@@ -295,14 +295,16 @@ describe("PiThreadProjector", () => {
       toolCallId: "call-1",
       toolName: "read",
       args: { path: "a" },
-      partialResult: { progress: 1 },
+      partialResult: { content: [{ type: "text", text: "partial" }], details: { progress: 1 } },
     });
     projector.handle({ type: "message_end", message: assistant });
     let node = projector.snapshot().nodes[0];
     expect(node?.kind).toBe("assistant");
     if (node?.kind !== "assistant") throw new Error("assistant node missing");
     expect(node.status).toEqual({ type: "running" });
-    expect(node.content[0]).toMatchObject({ partialResult: { progress: 1 } });
+    expect(node.content[0]).toMatchObject({
+      partialResult: { content: [{ type: "text", text: "partial" }] },
+    });
     expect(node.content[0]).not.toHaveProperty("result");
 
     projector.handle({
@@ -320,6 +322,88 @@ describe("PiThreadProjector", () => {
     if (node?.kind !== "assistant") throw new Error("assistant node missing");
     expect(node.status).toEqual({ type: "complete", reason: "unknown" });
     expect(node.content[0]).toMatchObject({ execution: "complete", isError: false });
+    projector.dispose();
+  });
+
+  it("AgentToolResult 只投影 Desktop 使用的字段且不修改原始 details", () => {
+    const { session } = sessionHarness([]);
+    const projector = new PiThreadProjector({ projectId: "project", session, publish: () => {} });
+    const assistant = assistantMessage("toolUse", 2, [toolCall("call-1")]);
+    const partialResult = {
+      content: [{ type: "text", text: "reviewing" }],
+      details: {
+        mode: "parallel",
+        results: [{ messages: [{ role: "assistant", content: [{ type: "text", text: "full transcript" }] }] }],
+      },
+    };
+
+    projector.handle({ type: "message_start", message: assistant });
+    projector.handle({
+      type: "tool_execution_update",
+      toolCallId: "call-1",
+      toolName: "subagent",
+      args: {},
+      partialResult,
+    });
+
+    const node = projector.snapshot().nodes[0];
+    expect(node?.kind).toBe("assistant");
+    if (node?.kind !== "assistant") throw new Error("assistant node missing");
+    expect(node.content[0]).toMatchObject({
+      partialResult: { content: [{ type: "text", text: "reviewing" }] },
+    });
+    expect(node.content[0]).not.toMatchObject({ partialResult: { details: expect.anything() } });
+    expect(partialResult.details.results[0]?.messages[0]).toMatchObject({ role: "assistant" });
+    projector.dispose();
+  });
+
+  it("无 content 的 JS tool live result 与 persisted normalization 一致", () => {
+    const { session } = sessionHarness([]);
+    const projector = new PiThreadProjector({ projectId: "project", session, publish: () => {} });
+    const assistant = assistantMessage("toolUse", 2, [toolCall("call-1")]);
+    const result = { details: { messages: ["not projected"] } };
+
+    projector.handle({ type: "message_start", message: assistant });
+    projector.handle({
+      type: "tool_execution_end",
+      toolCallId: "call-1",
+      toolName: "extension-tool",
+      result,
+      isError: false,
+    });
+
+    const node = projector.snapshot().nodes[0];
+    expect(node?.kind).toBe("assistant");
+    if (node?.kind !== "assistant") throw new Error("assistant node missing");
+    expect(node.content[0]).toMatchObject({ result: { content: [] } });
+    expect(result.details.messages).toEqual(["not projected"]);
+    projector.dispose();
+  });
+
+  it("edit tool result 保留 Desktop diff renderer 使用的 details.diff", () => {
+    const { session } = sessionHarness([]);
+    const projector = new PiThreadProjector({ projectId: "project", session, publish: () => {} });
+    const assistant = assistantMessage("toolUse", 2, [toolCall("call-1")]);
+
+    projector.handle({ type: "message_start", message: assistant });
+    projector.handle({
+      type: "tool_execution_end",
+      toolCallId: "call-1",
+      toolName: "edit",
+      result: {
+        content: [{ type: "text", text: "updated" }],
+        details: { diff: "+ changed", internal: { messages: ["not projected"] } },
+      },
+      isError: false,
+    });
+
+    const node = projector.snapshot().nodes[0];
+    expect(node?.kind).toBe("assistant");
+    if (node?.kind !== "assistant") throw new Error("assistant node missing");
+    expect(node.content[0]).toMatchObject({
+      result: { content: [{ type: "text", text: "updated" }], details: { diff: "+ changed" } },
+    });
+    expect(node.content[0]).not.toMatchObject({ result: { details: { internal: expect.anything() } } });
     projector.dispose();
   });
 

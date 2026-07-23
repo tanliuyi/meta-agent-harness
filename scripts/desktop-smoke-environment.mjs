@@ -38,9 +38,9 @@ export function createDesktopSmokeEnvironment(baseEnvironment, nodePath, overrid
     ? [join(systemRoot, "System32"), systemRoot]
     : ["/usr/bin", "/bin", "/usr/sbin", "/sbin"];
   environment.PATH = [dirname(nodePath), ...systemPath].join(delimiter);
-  Object.assign(environment, overrides);
   delete environment.ELECTRON_RUN_AS_NODE;
   delete environment.ELECTRON_RENDERER_URL;
   delete environment.PI_DESKTOP_NODE_EXEC_PATH;
+  Object.assign(environment, overrides);
   return environment;
 }

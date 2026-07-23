@@ -142,6 +142,7 @@ export interface DefaultResourceLoaderOptions {
 	systemPrompt?: string;
 	appendSystemPrompt?: string[];
 	extensionsOverride?: (base: LoadExtensionsResult) => LoadExtensionsResult;
+	runtimeDependencyId?: string;
 	packageManagerOnMissing?: (source: string) => Promise<MissingSourceAction>;
 	skillsOverride?: (base: { skills: Skill[]; diagnostics: ResourceDiagnostic[] }) => {
 		skills: Skill[];
@@ -227,6 +228,7 @@ export class DefaultResourceLoader implements ResourceLoader {
 			cwd: this.cwd,
 			agentDir: this.agentDir,
 			settingsManager: this.settingsManager,
+			runtimeDependencyId: options.runtimeDependencyId,
 		});
 		this.additionalExtensionPaths = options.additionalExtensionPaths ?? [];
 		this.additionalSkillPaths = options.additionalSkillPaths ?? [];

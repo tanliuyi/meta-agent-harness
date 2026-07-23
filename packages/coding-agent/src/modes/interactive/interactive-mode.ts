@@ -335,6 +335,8 @@ export interface InteractiveModeOptions {
 	initialMessages?: string[];
 	/** Force verbose startup (overrides quietStartup setting) */
 	verbose?: boolean;
+	/** Selects the host runtime's isolated npm dependency tree. */
+	runtimeDependencyId?: string;
 }
 
 export class InteractiveMode {
@@ -931,6 +933,7 @@ export class InteractiveMode {
 				cwd: this.sessionManager.getCwd(),
 				agentDir: getAgentDir(),
 				settingsManager: this.settingsManager,
+				runtimeDependencyId: this.options.runtimeDependencyId,
 			});
 			const updates = await packageManager.checkForAvailableUpdates();
 			return updates.map((update) => update.displayName);

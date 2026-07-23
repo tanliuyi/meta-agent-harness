@@ -9,6 +9,7 @@ export function createProjectTrustContext(options: {
 	mode: AppMode;
 	settingsManager: SettingsManager;
 	hasUI: boolean;
+	runtimeDependencyId?: string;
 }): ProjectTrustContext {
 	return {
 		cwd: options.cwd,
@@ -26,6 +27,7 @@ export function createProjectTrustContext(options: {
 					options.settingsManager,
 					title,
 					selectOptions.map((option) => ({ label: option, value: option })),
+					options.runtimeDependencyId,
 				);
 			},
 			confirm: async (title, message) => {
@@ -36,10 +38,15 @@ export function createProjectTrustContext(options: {
 					return false;
 				}
 				return (
-					(await showStartupSelector(options.settingsManager, `${title}\n${message}`, [
-						{ label: "Yes", value: true },
-						{ label: "No", value: false },
-					])) ?? false
+					(await showStartupSelector(
+						options.settingsManager,
+						`${title}\n${message}`,
+						[
+							{ label: "Yes", value: true },
+							{ label: "No", value: false },
+						],
+						options.runtimeDependencyId,
+					)) ?? false
 				);
 			},
 			input: async (title, placeholder) => {
@@ -49,7 +56,7 @@ export function createProjectTrustContext(options: {
 				if (options.mode !== "interactive") {
 					return undefined;
 				}
-				return showStartupInput(options.settingsManager, title, placeholder);
+				return showStartupInput(options.settingsManager, title, placeholder, options.runtimeDependencyId);
 			},
 			notify: (message, type = "info") => {
 				if (options.mode !== "interactive") {

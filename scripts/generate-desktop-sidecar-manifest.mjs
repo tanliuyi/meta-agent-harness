@@ -11,6 +11,8 @@ const packagedRoot = join(desktopRoot, "output", "pi-sidecar");
 const codingAgentPackage = JSON.parse(readFileSync(join(repoRoot, "packages", "coding-agent", "package.json"), "utf8"));
 const npmCliPath = process.env.npm_execpath;
 if (!npmCliPath) throw new Error("npm_execpath is required to generate the Desktop sidecar runtime manifest");
+const piLauncherName = process.platform === "win32" ? "pi.cmd" : "pi";
+const piExecutablePath = join(desktopRoot, "output", "pi-sidecar", "bin", piLauncherName);
 
 const packagedNodePath = join(desktopRoot, "output", "node-runtime", process.platform === "win32" ? "node.exe" : "bin/node");
 const hasBundledDevelopmentNode = false;
@@ -20,18 +22,20 @@ const developmentNpmPath = hasBundledDevelopmentNode
   : resolve(npmCliPath);
 writeManifest(outputRoot, {
   nodePath: developmentNodePath,
-      npmCliPath: developmentNpmPath,
+  npmCliPath: developmentNpmPath,
+  piExecutable: relative(outputRoot, piExecutablePath),
   entries: sidecarEntries("sidecar"),
   compatibility: runtimeCompatibility(developmentNodePath),
-  integrity: runtimeIntegrity(developmentNodePath, developmentNpmPath, ""),
+  integrity: runtimeIntegrity(developmentNodePath, developmentNpmPath, piExecutablePath, ""),
 });
 
 writeManifest(packagedRoot, {
   nodePath: "system",
   npmCliPath: "",
+  piExecutable: `bin/${piLauncherName}`,
   entries: sidecarEntries("../app.asar.unpacked/out/sidecar/sidecar"),
   compatibility: runtimeCompatibility(developmentNodePath),
-  integrity: runtimeIntegrity(hasBundledDevelopmentNode ? packagedNodePath : "", "", "../app.asar.unpacked/out/sidecar"),
+  integrity: runtimeIntegrity(hasBundledDevelopmentNode ? packagedNodePath : "", "", piExecutablePath, "../app.asar.unpacked/out/sidecar"),
 });
 
 function sidecarEntries(prefix) {
@@ -41,7 +45,7 @@ function sidecarEntries(prefix) {
   };
 }
 
-function runtimeIntegrity(nodePath, npmPath, packagedPrefix) {
+function runtimeIntegrity(nodePath, npmPath, piExecutablePath, packagedPrefix) {
   const files = {};
   for (const entry of readdirSync(outputRoot, { recursive: true, encoding: "utf8" })) {
     const path = join(outputRoot, entry);
@@ -51,6 +55,7 @@ function runtimeIntegrity(nodePath, npmPath, packagedPrefix) {
   return {
     nodePath: nodePath ? fileHash(nodePath) : "",
     npmCliPath: npmPath ? fileHash(npmPath) : "",
+    piExecutable: fileHash(piExecutablePath),
     entries: Object.fromEntries(
       Object.entries(sidecarEntries("sidecar")).map(([role, path]) => [role, fileHash(join(outputRoot, path))]),
     ),

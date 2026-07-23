@@ -18,11 +18,13 @@ export interface NodeRuntimeStatus {
 export interface NodeRuntimeManifest {
   nodePath: string;
   npmCliPath: string;
+  piExecutable: string;
   entries: Record<SidecarRole, string>;
   compatibility: RuntimeCompatibility;
   integrity: {
     nodePath: string;
     npmCliPath: string;
+    piExecutable: string;
     entries: Record<SidecarRole, string>;
     files: Record<string, string>;
   };
@@ -96,6 +98,7 @@ export function loadNodeRuntimeManifest(options: {
     ...parsed,
     nodePath: override ? resolve(override) : resolve(root, parsed.nodePath),
     npmCliPath: resolve(root, parsed.npmCliPath),
+    piExecutable: resolve(root, parsed.piExecutable),
     entries: Object.fromEntries(
       Object.entries(parsed.entries).map(([role, path]) => [role, resolve(root, path)]),
     ) as Record<SidecarRole, string>,
@@ -105,6 +108,7 @@ export function loadNodeRuntimeManifest(options: {
   if (manifest.npmCliPath && existsFile(manifest.npmCliPath)) {
     assertFile(manifest.npmCliPath, "npm CLI", manifest.integrity.npmCliPath);
   }
+  assertFile(manifest.piExecutable, "Pi executable", manifest.integrity.piExecutable);
   for (const role of Object.keys(manifest.entries) as SidecarRole[]) {
     assertFile(manifest.entries[role], `${role} sidecar entry`, manifest.integrity.entries[role]);
   }
@@ -137,10 +141,11 @@ function compatibilityForNode(base: RuntimeCompatibility, nodePath: string): Run
   const runtime = probeNodeRuntime(nodePath);
   const incompatibility = nodeRuntimeIncompatibility(runtime);
   if (incompatibility) throw new Error(incompatibility);
+  const identity = { ...runtime, piVersion: base.piVersion };
   return {
     ...base,
     ...runtime,
-    runtimeCompatibilityId: `system-node:${runtime.nodeVersion}:${runtime.platform}:${runtime.arch}:${runtime.modulesAbi}`,
+    runtimeCompatibilityId: createHash("sha256").update(JSON.stringify(identity)).digest("hex"),
   };
 }
 

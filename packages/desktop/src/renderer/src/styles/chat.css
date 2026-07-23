@@ -107,10 +107,6 @@
   background: hsl(var(--foreground) / 0.72);
   animation: tool-running-cursor 1s steps(1, end) infinite;
 }
-.tool-running-cursor-end {
-  margin-right: 1px;
-  margin-left: auto;
-}
 .tool-expand-trigger {
   display: grid;
   flex: 0 0 22px;
@@ -124,9 +120,6 @@
   background: transparent;
   color: hsl(var(--muted-foreground));
   cursor: pointer;
-}
-.tool-trigger-row[data-cursor-position="end"] .tool-expand-trigger {
-  margin-left: 0;
 }
 .tool-expand-trigger:hover {
   background: hsl(var(--foreground) / 0.06);

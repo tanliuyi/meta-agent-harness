@@ -266,6 +266,7 @@ async function createSessionManager(
 	cwd: string,
 	sessionDir: string | undefined,
 	settingsManager: SettingsManager,
+	runtimeDependencyId?: string,
 ): Promise<SessionManager> {
 	if (parsed.noSession || parsed.help || parsed.listModels !== undefined) {
 		return SessionManager.inMemory(cwd, parsed.sessionId !== undefined ? { id: parsed.sessionId } : undefined);
@@ -324,6 +325,7 @@ async function createSessionManager(
 				(onProgress) => SessionManager.list(cwd, sessionDir, onProgress),
 				(onProgress) => SessionManager.listAll(sessionDir, onProgress),
 				settingsManager,
+				runtimeDependencyId,
 			);
 			if (!selectedPath) {
 				console.log(chalk.dim("No session selected"));
@@ -459,15 +461,22 @@ function resolveCliPaths(cwd: string, paths: string[] | undefined): string[] | u
 async function promptForMissingSessionCwd(
 	issue: SessionCwdIssue,
 	settingsManager: SettingsManager,
+	runtimeDependencyId?: string,
 ): Promise<string | undefined> {
-	return showStartupSelector(settingsManager, formatMissingSessionCwdPrompt(issue), [
-		{ label: "Continue", value: issue.fallbackCwd },
-		{ label: "Cancel", value: undefined },
-	]);
+	return showStartupSelector(
+		settingsManager,
+		formatMissingSessionCwdPrompt(issue),
+		[
+			{ label: "Continue", value: issue.fallbackCwd },
+			{ label: "Cancel", value: undefined },
+		],
+		runtimeDependencyId,
+	);
 }
 
 export interface MainOptions {
 	extensionFactories?: InlineExtension[];
+	runtimeDependencyId?: string;
 }
 
 export async function main(args: string[], options?: MainOptions) {
@@ -488,7 +497,12 @@ export async function main(args: string[], options?: MainOptions) {
 	applyHttpProxySettings(bootstrapSettingsManager.getGlobalSettings().httpProxy);
 	configureHttpDispatcher();
 
-	if (await handlePackageCommand(args, { extensionFactories: options?.extensionFactories })) {
+	if (
+		await handlePackageCommand(args, {
+			extensionFactories: options?.extensionFactories,
+			runtimeDependencyId: options?.runtimeDependencyId,
+		})
+	) {
 		const exitCode = process.exitCode ?? 0;
 		if (process.platform === "win32" && exitCode === 0 && args[0] === "update") {
 			// We normally prefer process.exit(0) for package commands so bad extensions cannot keep
@@ -501,7 +515,12 @@ export async function main(args: string[], options?: MainOptions) {
 		return;
 	}
 
-	if (await handleConfigCommand(args, { extensionFactories: options?.extensionFactories })) {
+	if (
+		await handleConfigCommand(args, {
+			extensionFactories: options?.extensionFactories,
+			runtimeDependencyId: options?.runtimeDependencyId,
+		})
+	) {
 		return;
 	}
 
@@ -560,7 +579,7 @@ export async function main(args: string[], options?: MainOptions) {
 	// Experimental first-time setup: theme choice and analytics opt-in.
 	// Runs before any runtime services are created so the chosen settings apply everywhere.
 	if (appMode === "interactive" && !parsed.help && parsed.listModels === undefined && shouldRunFirstTimeSetup()) {
-		await showFirstTimeSetup(startupSettingsManager);
+		await showFirstTimeSetup(startupSettingsManager, options?.runtimeDependencyId);
 		time("firstTimeSetup");
 	}
 
@@ -574,11 +593,21 @@ export async function main(args: string[], options?: MainOptions) {
 		(parsed.sessionDir ? normalizePath(parsed.sessionDir) : undefined) ??
 		(envSessionDir ? expandTildePath(envSessionDir) : undefined) ??
 		startupSettingsManager.getSessionDir();
-	let sessionManager = await createSessionManager(parsed, cwd, sessionDir, startupSettingsManager);
+	let sessionManager = await createSessionManager(
+		parsed,
+		cwd,
+		sessionDir,
+		startupSettingsManager,
+		options?.runtimeDependencyId,
+	);
 	const missingSessionCwdIssue = getMissingSessionCwdIssue(sessionManager, cwd);
 	if (missingSessionCwdIssue) {
 		if (appMode === "interactive") {
-			const selectedCwd = await promptForMissingSessionCwd(missingSessionCwdIssue, startupSettingsManager);
+			const selectedCwd = await promptForMissingSessionCwd(
+				missingSessionCwdIssue,
+				startupSettingsManager,
+				options?.runtimeDependencyId,
+			);
 			if (!selectedCwd) {
 				process.exit(0);
 			}
@@ -653,6 +682,7 @@ export async function main(args: string[], options?: MainOptions) {
 										mode: isInitialRuntime ? trustPromptMode : appMode,
 										settingsManager: startupSettingsManager,
 										hasUI: isInitialRuntime && trustPromptMode === "interactive",
+										runtimeDependencyId: options?.runtimeDependencyId,
 									}),
 								onExtensionError: (message) => projectTrustDiagnostics.push({ type: "warning", message }),
 							});
@@ -674,6 +704,7 @@ export async function main(args: string[], options?: MainOptions) {
 				systemPrompt: parsed.systemPrompt,
 				appendSystemPrompt: parsed.appendSystemPrompt,
 				extensionFactories: options?.extensionFactories,
+				runtimeDependencyId: options?.runtimeDependencyId,
 			},
 		});
 		const { settingsManager, modelRegistry, resourceLoader } = services;
@@ -820,6 +851,7 @@ export async function main(args: string[], options?: MainOptions) {
 			initialImages,
 			initialMessages: parsed.messages,
 			verbose: parsed.verbose,
+			runtimeDependencyId: options?.runtimeDependencyId,
 		});
 		if (startupBenchmark) {
 			await interactiveMode.init();

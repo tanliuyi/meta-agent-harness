@@ -16,8 +16,9 @@ export async function selectSession(
 	currentSessionsLoader: SessionsLoader,
 	allSessionsLoader: SessionsLoader,
 	settingsManager: SettingsManager,
+	runtimeDependencyId?: string,
 ): Promise<string | null> {
-	const ui = await createStartupTui(settingsManager);
+	const ui = await createStartupTui(settingsManager, runtimeDependencyId);
 	return new Promise((resolve) => {
 		const keybindings = KeybindingsManager.create();
 		setKeybindings(keybindings);

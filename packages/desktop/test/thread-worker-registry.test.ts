@@ -400,6 +400,7 @@ function manifest(): NodeRuntimeManifest {
   return {
     nodePath: process.execPath,
     npmCliPath: process.execPath,
+    piExecutable: process.execPath,
     entries: { thread: "", metadata: "" },
     compatibility: {
       nodeVersion: process.version,
@@ -416,6 +417,7 @@ function manifest(): NodeRuntimeManifest {
     integrity: {
       nodePath: "",
       npmCliPath: "",
+      piExecutable: "",
       entries: { thread: "", metadata: "" },
       files: {},
     },

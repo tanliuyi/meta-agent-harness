@@ -11,6 +11,7 @@ interface PendingRequest {
   resolve(response: HostResponse): void;
   reject(error: Error): void;
   timer?: ReturnType<typeof setTimeout>;
+  abort?: { signal: AbortSignal; listener: () => void };
 }
 
 const EMPTY_UI: ExtensionUiState = {
@@ -98,7 +99,7 @@ export class HostUi {
     const item = this.pending.get(response.requestId);
     if (!item) throw new Error(`扩展 UI 请求不存在: ${response.requestId}`);
     this.pending.delete(response.requestId);
-    if (item.timer) clearTimeout(item.timer);
+    this.cleanup(item);
     item.resolve(response);
     this.changed();
   }
@@ -106,7 +107,7 @@ export class HostUi {
   /** session 释放时拒绝所有尚未完成的交互。 */
   dispose(): void {
     for (const item of this.pending.values()) {
-      if (item.timer) clearTimeout(item.timer);
+      this.cleanup(item);
       item.reject(new Error("Pi session 已关闭"));
     }
     this.pending.clear();
@@ -142,7 +143,9 @@ export class HostUi {
       }
       if (opts?.signal) {
         if (opts.signal.aborted) return reject(new Error("扩展 UI 请求已取消"));
-        opts.signal.addEventListener("abort", () => this.cancel(id), { once: true });
+        const listener = () => this.cancel(id);
+        item.abort = { signal: opts.signal, listener };
+        opts.signal.addEventListener("abort", listener, { once: true });
       }
       this.pending.set(id, item);
       this.changed();
@@ -157,9 +160,14 @@ export class HostUi {
     const item = this.pending.get(id);
     if (!item) return;
     this.pending.delete(id);
-    if (item.timer) clearTimeout(item.timer);
+    this.cleanup(item);
     item.resolve({ requestId: id, dismissed: true });
     this.changed();
+  }
+
+  private cleanup(item: PendingRequest): void {
+    if (item.timer) clearTimeout(item.timer);
+    if (item.abort) item.abort.signal.removeEventListener("abort", item.abort.listener);
   }
 
   private setStatus(key: string, text: string | undefined): void {

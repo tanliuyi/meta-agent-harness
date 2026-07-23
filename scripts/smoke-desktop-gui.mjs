@@ -161,6 +161,7 @@ async function runScenario(executable, mode, options) {
   let child;
   let stderr = "";
   try {
+    const preexistingProcessIds = new Set(snapshotAllProcessIds());
     const port = await reservePort();
     const nodePath = process.env.PI_DESKTOP_NODE_EXEC_PATH ?? process.execPath;
     const environment = createMinimalGuiEnvironment(process.env, nodePath, paths);
@@ -179,7 +180,14 @@ async function runScenario(executable, mode, options) {
       stderr = `${stderr}${chunk}`.slice(-16_384);
     });
     child.stdout?.resume();
-    const initialChildren = await waitForSidecar(child, port, options.timeoutMs, () => stderr, nodePath);
+    const initialChildren = await waitForSidecar(
+      child,
+      port,
+      options.timeoutMs,
+      () => stderr,
+      nodePath,
+      preexistingProcessIds,
+    );
     const targetUrl = initialChildren.targetUrl;
     const sidecarCommand = initialChildren.sidecarCommand;
     if (mode === "normal") {
@@ -202,7 +210,7 @@ async function runScenario(executable, mode, options) {
   }
 }
 
-async function waitForSidecar(child, port, timeoutMs, readStderr, expectedNodePath) {
+async function waitForSidecar(child, port, timeoutMs, readStderr, expectedNodePath, preexistingProcessIds) {
   const deadline = Date.now() + timeoutMs;
   let lastError = "";
   while (Date.now() < deadline) {
@@ -225,7 +233,7 @@ async function waitForSidecar(child, port, timeoutMs, readStderr, expectedNodePa
     const readiness = inspectGuiSidecarReadiness(
       version,
       targets,
-      snapshotProcessTree(child.pid),
+      snapshotProcessTree(child.pid, preexistingProcessIds),
       expectedNodePath,
     );
     if (readiness.status === "ready") return readiness.result;
@@ -296,7 +304,7 @@ function terminateProcessTree(child, signal) {
   }
 }
 
-function snapshotProcessTree(rootPid) {
+function snapshotProcessTree(rootPid, preexistingProcessIds = new Set()) {
   if (!rootPid) return [];
   const processes = snapshotProcesses();
   const byParent = new Map();
@@ -313,14 +321,22 @@ function snapshotProcessTree(rootPid) {
     descendants.push(item);
     pending.push(...(byParent.get(item.pid) ?? []));
   }
-  if (process.platform === "win32") {
-    const known = new Set(descendants.map(({ pid }) => pid));
-    for (const item of processes) {
-      if (known.has(item.pid) || !/app\.asar\.unpacked[\\/].*metadata-worker-main\.js/.test(item.command)) continue;
-      descendants.push(item);
-    }
-  }
-  return descendants;
+  return process.platform === "win32"
+    ? includeDetachedMetadataWorkers(descendants, processes, preexistingProcessIds)
+    : descendants;
+}
+
+export function includeDetachedMetadataWorkers(descendants, processes, preexistingProcessIds = new Set()) {
+  const known = new Set(descendants.map(({ pid }) => pid));
+  return [
+    ...descendants,
+    ...processes.filter(
+      (item) =>
+        !known.has(item.pid) &&
+        !preexistingProcessIds.has(item.pid) &&
+        /app\.asar\.unpacked[\\/].*metadata-worker-main\.js/.test(item.command),
+    ),
+  ];
 }
 
 function parseProcessLine(line) {

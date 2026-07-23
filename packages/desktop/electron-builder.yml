@@ -13,6 +13,8 @@ asarUnpack:
 extraResources:
   - from: output/pi-sidecar/runtime-manifest.json
     to: pi-sidecar/runtime-manifest.json
+  - from: output/pi-sidecar/bin
+    to: pi-sidecar/bin
 afterPack: ../../scripts/validate-desktop-package.mjs
 afterSign: ../../scripts/validate-desktop-signing.mjs
 mac:

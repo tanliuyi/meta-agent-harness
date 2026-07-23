@@ -97,6 +97,7 @@ export class SessionRuntime {
       agentDir: options.agentDir,
       resourceLoaderOptions: {
         extensionFactories: DesktopBuiltinProviderRegistry.getExtensionFactories(),
+        runtimeDependencyId: process.env.PI_DESKTOP_RUNTIME_COMPATIBILITY_ID,
         packageManagerOnMissing: async () => "error",
       },
     });

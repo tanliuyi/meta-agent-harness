@@ -61,7 +61,7 @@ function loadThemes(resources: ResolvedResource[]): Theme[] {
 	return themes;
 }
 
-async function loadStartupThemes(settingsManager: SettingsManager): Promise<Theme[]> {
+async function loadStartupThemes(settingsManager: SettingsManager, runtimeDependencyId?: string): Promise<Theme[]> {
 	const globalSettingsManager = SettingsManager.inMemory(settingsManager.getGlobalSettings(), {
 		projectTrusted: false,
 	});
@@ -69,13 +69,14 @@ async function loadStartupThemes(settingsManager: SettingsManager): Promise<Them
 		cwd: process.cwd(),
 		agentDir: getAgentDir(),
 		settingsManager: globalSettingsManager,
+		runtimeDependencyId,
 	});
 	const resolvedPaths = await packageManager.resolve(async () => "skip");
 	return loadThemes(resolvedPaths.themes);
 }
 
-export async function createStartupTui(settingsManager: SettingsManager): Promise<TUI> {
-	setRegisteredThemes(await loadStartupThemes(settingsManager));
+export async function createStartupTui(settingsManager: SettingsManager, runtimeDependencyId?: string): Promise<TUI> {
+	setRegisteredThemes(await loadStartupThemes(settingsManager, runtimeDependencyId));
 	const terminalTheme = detectTerminalBackgroundFromEnv().theme;
 	initTheme(resolveThemeSetting(settingsManager.getThemeSetting(), terminalTheme) ?? terminalTheme);
 	setKeybindings(KeybindingsManager.create());
@@ -135,8 +136,9 @@ export async function showStartupSelector<T>(
 	settingsManager: SettingsManager,
 	title: string,
 	options: Array<{ label: string; value: T }>,
+	runtimeDependencyId?: string,
 ): Promise<T | undefined> {
-	const ui = await createStartupTui(settingsManager);
+	const ui = await createStartupTui(settingsManager, runtimeDependencyId);
 	return new Promise((resolve) => {
 		let settled = false;
 		const finish = async (result: T | undefined) => {
@@ -163,8 +165,11 @@ export async function showStartupSelector<T>(
 }
 
 /** Show the first-time setup dialog and persist the result */
-export async function showFirstTimeSetup(settingsManager: SettingsManager): Promise<void> {
-	const ui = await createStartupTui(settingsManager);
+export async function showFirstTimeSetup(
+	settingsManager: SettingsManager,
+	runtimeDependencyId?: string,
+): Promise<void> {
+	const ui = await createStartupTui(settingsManager, runtimeDependencyId);
 	return new Promise((resolve) => {
 		let settled = false;
 		const finish = async (result: FirstTimeSetupResult | undefined) => {
@@ -208,8 +213,9 @@ export async function showStartupInput(
 	settingsManager: SettingsManager,
 	title: string,
 	placeholder?: string,
+	runtimeDependencyId?: string,
 ): Promise<string | undefined> {
-	const ui = await createStartupTui(settingsManager);
+	const ui = await createStartupTui(settingsManager, runtimeDependencyId);
 	return new Promise((resolve) => {
 		let settled = false;
 		const finish = async (result: string | undefined) => {

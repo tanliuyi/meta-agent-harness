@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
   createGuiSmokeDesktopState,
   createMinimalGuiEnvironment,
+  includeDetachedMetadataWorkers,
   inspectGuiSidecarReadiness,
   locateDesktopExecutable,
   parseArguments,
@@ -121,6 +122,23 @@ describe("packaged Desktop GUI smoke contract", () => {
         targetUrl: targets[0]?.url,
       },
     });
+  });
+
+  it("ignores metadata workers that existed before the Windows smoke scenario", () => {
+    const existing = {
+      pid: 42,
+      ppid: 1,
+      command:
+        '"C:\\Program Files\\nodejs\\node.exe" C:\\Installed\\resources\\app.asar.unpacked\\out\\sidecar\\metadata-worker-main.js',
+    };
+    const launched = {
+      pid: 84,
+      ppid: 1,
+      command:
+        '"C:\\Program Files\\nodejs\\node.exe" C:\\Artifact\\resources\\app.asar.unpacked\\out\\sidecar\\metadata-worker-main.js',
+    };
+
+    expect(includeDetachedMetadataWorkers([], [existing, launched], new Set([existing.pid]))).toEqual([launched]);
   });
 
   it("recognizes a quoted Windows Node sidecar command", () => {

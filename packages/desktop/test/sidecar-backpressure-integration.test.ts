@@ -52,6 +52,7 @@ function manifest(): NodeRuntimeManifest {
   return {
     nodePath: process.execPath,
     npmCliPath: process.execPath,
+    piExecutable: process.execPath,
     entries: {
       thread: "",
       metadata: resolve(import.meta.dirname, "fixtures/overflow-sidecar.mjs"),
@@ -60,6 +61,7 @@ function manifest(): NodeRuntimeManifest {
     integrity: {
       nodePath: "",
       npmCliPath: "",
+      piExecutable: "",
       entries: { thread: "", metadata: "" },
       files: {},
     },

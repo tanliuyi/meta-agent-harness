@@ -1,4 +1,4 @@
-import { spawn } from "node:child_process";
+import { terminateProcessTree } from "../shared/process-tree.ts";
 import {
   type ParentToSidecarMessage,
   type RuntimeCompatibility,
@@ -224,12 +224,10 @@ export function runSidecarHost(runtime: RuntimeCompatibility, createService: Sid
       await service?.dispose();
     } finally {
       if (process.platform === "win32") {
-        const killer = spawn("taskkill", ["/pid", String(process.pid), "/T", "/F"], {
-          stdio: "ignore",
-          windowsHide: true,
-          detached: true,
+        terminateProcessTree(process.pid, "SIGKILL", () => {
+          process.disconnect?.();
+          process.exit(0);
         });
-        killer.unref();
       } else {
         process.disconnect?.();
         process.exitCode = 0;

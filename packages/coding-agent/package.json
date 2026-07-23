@@ -20,6 +20,10 @@
 			"types": "./dist/core/models-config.d.ts",
 			"import": "./dist/core/models-config.js"
 		},
+		"./cli-runtime": {
+			"types": "./dist/cli-runtime.d.ts",
+			"import": "./dist/cli-runtime.js"
+		},
 		"./rpc-entry": {
 			"import": "./dist/rpc-entry.js"
 		}

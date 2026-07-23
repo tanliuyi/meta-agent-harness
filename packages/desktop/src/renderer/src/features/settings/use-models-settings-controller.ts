@@ -6,7 +6,9 @@ import type {
   ModelsProviderDraft,
   SaveModelsConfigResult,
 } from "../../../../shared/models-config-contracts.ts";
+import { errorMessage } from "../../shared/lib/error-message.ts";
 import { cloneModelsProviders, modelsDraftsEqual, validateModelsDraft } from "./models-settings-model.ts";
+import { useDocumentRevisionPolling } from "./use-document-revision-polling.ts";
 
 export type ModelsSettingsStatus =
   | "loading"
@@ -64,7 +66,6 @@ export function useModelsSettingsController(): ModelsSettingsController {
   const dirtyRef = useRef(false);
   const pageGeneration = useRef(0);
   const draftGeneration = useRef(0);
-  const revisionRequest = useRef<Promise<string> | undefined>(undefined);
   const saving = useRef(false);
   const mounted = useRef(true);
 
@@ -129,66 +130,45 @@ export function useModelsSettingsController(): ModelsSettingsController {
     };
   }, [load]);
 
-  useEffect(() => {
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    let stopped = false;
-    const check = async () => {
-      if (stopped || isDocumentHidden() || !snapshotRef.current) return;
-      const capturedPage = pageGeneration.current;
-      const capturedDraft = draftGeneration.current;
-      const capturedRevision = snapshotRef.current.revision;
-      revisionRequest.current ??= window.desktop.models.getConfigRevision().finally(() => {
-        revisionRequest.current = undefined;
-      });
-      try {
-        const revision = await revisionRequest.current;
-        if (
-          stopped ||
-          !mounted.current ||
-          isDocumentHidden() ||
-          capturedPage !== pageGeneration.current ||
-          capturedDraft !== draftGeneration.current ||
-          capturedRevision !== snapshotRef.current?.revision ||
-          revision === capturedRevision
-        ) {
-          return;
-        }
-        if (dirtyRef.current) {
-          setExternallyChanged(true);
-          setStatus("conflict");
-          return;
-        }
-        const next = await window.desktop.models.getConfig();
-        if (
-          stopped ||
-          capturedPage !== pageGeneration.current ||
-          capturedDraft !== draftGeneration.current ||
-          capturedRevision !== snapshotRef.current?.revision
-        ) {
-          return;
-        }
-        replaceSnapshot(next);
-      } catch {
-        // Save and explicit reload surface I/O failures; polling remains non-disruptive.
-      } finally {
-        if (!stopped && !isDocumentHidden()) timer = setTimeout(check, 5_000);
+  const checkForExternalChanges = useCallback(async () => {
+    const currentSnapshot = snapshotRef.current;
+    if (!currentSnapshot) return;
+    const capturedPage = pageGeneration.current;
+    const capturedDraft = draftGeneration.current;
+    const capturedRevision = currentSnapshot.revision;
+    try {
+      const revision = await window.desktop.models.getConfigRevision();
+      if (
+        !mounted.current ||
+        isDocumentHidden() ||
+        capturedPage !== pageGeneration.current ||
+        capturedDraft !== draftGeneration.current ||
+        capturedRevision !== snapshotRef.current?.revision ||
+        revision === capturedRevision
+      ) {
+        return;
       }
-    };
-    const onFocus = () => void check();
-    const onVisibility = () => {
-      pageGeneration.current += 1;
-      if (!isDocumentHidden()) void check();
-    };
-    timer = setTimeout(check, 5_000);
-    window.addEventListener("focus", onFocus);
-    document.addEventListener("visibilitychange", onVisibility);
-    return () => {
-      stopped = true;
-      if (timer) clearTimeout(timer);
-      window.removeEventListener("focus", onFocus);
-      document.removeEventListener("visibilitychange", onVisibility);
-    };
+      if (dirtyRef.current) {
+        setExternallyChanged(true);
+        setStatus("conflict");
+        return;
+      }
+      const next = await window.desktop.models.getConfig();
+      if (
+        !mounted.current ||
+        capturedPage !== pageGeneration.current ||
+        capturedDraft !== draftGeneration.current ||
+        capturedRevision !== snapshotRef.current?.revision
+      ) {
+        return;
+      }
+      replaceSnapshot(next);
+    } catch {
+      // Save and explicit reload surface I/O failures; polling remains non-disruptive.
+    }
   }, [replaceSnapshot]);
+
+  useDocumentRevisionPolling(checkForExternalChanges);
 
   const mutate = useCallback((mutator: (providers: ModelsProviderDraft[]) => void) => {
     if (saving.current) return;
@@ -319,8 +299,4 @@ export function useModelsSettingsController(): ModelsSettingsController {
 
 function isDocumentHidden(): boolean {
   return document.visibilityState === "hidden";
-}
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
 }

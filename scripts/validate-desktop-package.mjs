@@ -4,6 +4,10 @@ import { existsSync, readFileSync, statSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { tmpdir } from "node:os";
+import {
+  smokeDesktopPiExecutable,
+  smokeDesktopPiExtensionExecution,
+} from "./desktop-pi-smoke.mjs";
 import { createDesktopSmokeEnvironment } from "./desktop-smoke-environment.mjs";
 
 export default async function validateDesktopPackage(context) {
@@ -16,6 +20,7 @@ export default async function validateDesktopPackage(context) {
   const usesSystemNode = manifest.nodePath === "system";
   const nodePath = usesSystemNode ? resolve(process.env.PI_DESKTOP_NODE_EXEC_PATH ?? process.execPath) : resolve(root, manifest.nodePath);
   const npmCliPath = manifest.npmCliPath ? resolve(root, manifest.npmCliPath) : undefined;
+  const piExecutable = resolve(root, manifest.piExecutable);
   const entries = Object.fromEntries(
     Object.entries(manifest.entries).map(([role, entry]) => [role, resolve(root, entry)]),
   );
@@ -42,6 +47,7 @@ export default async function validateDesktopPackage(context) {
 
   for (const [description, path, expectedHash] of [
     ["Node executable", nodePath, usesSystemNode ? "" : manifest.integrity.nodePath],
+    ["Pi executable", piExecutable, manifest.integrity.piExecutable],
     ...(npmCliPath ? [["npm CLI", npmCliPath, manifest.integrity.npmCliPath]] : []),
   ]) {
     if (!existsSync(path) || !statSync(path).isFile()) throw new Error(`${description} is missing from package: ${path}`);
@@ -85,6 +91,15 @@ export default async function validateDesktopPackage(context) {
   const agentDir = await mkdtemp(join(tmpdir(), "desktop-package-agent-"));
   const userDataDir = await mkdtemp(join(tmpdir(), "desktop-package-user-data-"));
   try {
+    const piSmokeOptions = {
+      piExecutable,
+      threadEntry: entries.thread,
+      nodePath,
+      compatibility: manifest.compatibility,
+      agentDir,
+    };
+    await smokeDesktopPiExecutable(piSmokeOptions);
+    smokeDesktopPiExtensionExecution(piSmokeOptions);
     await smokeMetadataWorker(nodePath, entries.metadata, manifest.compatibility, agentDir, userDataDir);
   } finally {
     await Promise.all([
