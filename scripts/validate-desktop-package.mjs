@@ -5,6 +5,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import {
+  resolveNpmCliPathForNode,
   smokeDesktopPiExecutable,
   smokeDesktopPiExtensionExecution,
 } from "./desktop-pi-smoke.mjs";
@@ -19,7 +20,10 @@ export default async function validateDesktopPackage(context) {
   const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
   const usesSystemNode = manifest.nodePath === "system";
   const nodePath = usesSystemNode ? resolve(process.env.PI_DESKTOP_NODE_EXEC_PATH ?? process.execPath) : resolve(root, manifest.nodePath);
-  const npmCliPath = manifest.npmCliPath ? resolve(root, manifest.npmCliPath) : undefined;
+  const npmCliPath = manifest.npmCliPath
+    ? resolve(root, manifest.npmCliPath)
+    : resolveNpmCliPathForNode(nodePath);
+  if (!npmCliPath) throw new Error(`npm CLI is unavailable for packaged Node: ${nodePath}`);
   const piExecutable = resolve(root, manifest.piExecutable);
   const entries = Object.fromEntries(
     Object.entries(manifest.entries).map(([role, entry]) => [role, resolve(root, entry)]),
@@ -48,7 +52,7 @@ export default async function validateDesktopPackage(context) {
   for (const [description, path, expectedHash] of [
     ["Node executable", nodePath, usesSystemNode ? "" : manifest.integrity.nodePath],
     ["Pi executable", piExecutable, manifest.integrity.piExecutable],
-    ...(npmCliPath ? [["npm CLI", npmCliPath, manifest.integrity.npmCliPath]] : []),
+    ["npm CLI", npmCliPath, manifest.integrity.npmCliPath],
   ]) {
     if (!existsSync(path) || !statSync(path).isFile()) throw new Error(`${description} is missing from package: ${path}`);
     if (/[\\/]app\.asar(?:[\\/]|$)/i.test(path)) throw new Error(`${description} is inside app.asar`);
@@ -95,6 +99,7 @@ export default async function validateDesktopPackage(context) {
       piExecutable,
       threadEntry: entries.thread,
       nodePath,
+      npmCliPath,
       compatibility: manifest.compatibility,
       agentDir,
     };

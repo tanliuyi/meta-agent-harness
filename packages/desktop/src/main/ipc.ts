@@ -17,6 +17,10 @@ import type {
   WorkbenchState,
 } from "../shared/contracts.ts";
 import type { NodeRuntimeProgress, NodeRuntimeStatus } from "../shared/desktop-api.ts";
+import type {
+  ExtensionDependencyProgress,
+  PrepareExtensionDependenciesInput,
+} from "../shared/extension-dependency-contracts.ts";
 import type { SaveModelsConfigInput } from "../shared/models-config-contracts.ts";
 import type { SaveSettingsConfigInput } from "../shared/settings-config-contracts.ts";
 import type { AuthConfigService } from "./auth/auth-config-service.ts";
@@ -45,6 +49,10 @@ export function registerIpc(
     getStatus(): NodeRuntimeStatus;
     install(): Promise<NodeRuntimeStatus>;
     onProgress(listener: (progress: NodeRuntimeProgress) => void): () => void;
+  },
+  extensionDependencies: {
+    prepare(input: PrepareExtensionDependenciesInput): Promise<void>;
+    onProgress(listener: (progress: ExtensionDependencyProgress) => void): () => void;
   },
   updater?: AutoUpdateService,
 ): void {
@@ -234,6 +242,9 @@ export function registerIpc(
   ipcMain.handle(CHANNELS.workbenchUpdate, (_event, state: WorkbenchState) => projects.setWorkbench(state));
   ipcMain.handle(CHANNELS.nodeRuntimeStatus, () => nodeRuntime.getStatus());
   ipcMain.handle(CHANNELS.nodeRuntimeInstall, () => nodeRuntime.install());
+  ipcMain.handle(CHANNELS.extensionDependenciesPrepare, (_event, input: PrepareExtensionDependenciesInput) =>
+    extensionDependencies.prepare(input),
+  );
   if (updater) {
     ipcMain.handle(CHANNELS.updaterGetState, () => updater.getState());
     ipcMain.handle(CHANNELS.updaterCheck, () => updater.check());
@@ -252,7 +263,16 @@ export function registerIpc(
   }
   nodeRuntime.onProgress((progress) => {
     for (const window of BrowserWindow.getAllWindows()) {
-      if (!window.isDestroyed()) window.webContents.send(CHANNELS.nodeRuntimeProgress, progress);
+      if (!window.isDestroyed() && !window.webContents.isDestroyed()) {
+        window.webContents.send(CHANNELS.nodeRuntimeProgress, progress);
+      }
+    }
+  });
+  extensionDependencies.onProgress((progress) => {
+    for (const window of BrowserWindow.getAllWindows()) {
+      if (!window.isDestroyed() && !window.webContents.isDestroyed()) {
+        window.webContents.send(CHANNELS.extensionDependenciesProgress, progress);
+      }
     }
   });
 }
@@ -304,6 +324,8 @@ async function openPath(path: string): Promise<void> {
 /** 向所有 renderer 广播 PTY 增量事件。 */
 export function broadcastTerminalEvent(event: TerminalEvent): void {
   for (const window of BrowserWindow.getAllWindows()) {
-    if (!window.isDestroyed()) window.webContents.send(CHANNELS.terminalsEvent, event);
+    if (!window.isDestroyed() && !window.webContents.isDestroyed()) {
+      window.webContents.send(CHANNELS.terminalsEvent, event);
+    }
   }
 }

@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, relative } from "node:path";
+import { dirname, join, relative } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const childProcessMock = vi.hoisted(() => ({ execFileSync: vi.fn() }));
@@ -111,6 +111,37 @@ describe("Desktop Node runtime locator", () => {
     mockNodeRuntime(metadata);
 
     expect(detectNodeRuntime(join(resourcesPath, "node"))).toMatchObject({ state: "missing" });
+  });
+
+  it("derives the npm CLI from a selected packaged Node runtime", () => {
+    const manifestPath = writeManifest("app.asar.unpacked");
+    const parsed = JSON.parse(readFileSync(manifestPath, "utf8")) as NodeRuntimeManifest;
+    parsed.npmCliPath = "";
+    parsed.integrity.npmCliPath = "";
+    writeFileSync(manifestPath, JSON.stringify(parsed));
+
+    const runtimeRoot = join(resourcesPath, "selected-node");
+    const nodePath = join(runtimeRoot, process.platform === "win32" ? "node.exe" : "bin/node");
+    const npmCliPath = join(
+      runtimeRoot,
+      ...(process.platform === "win32"
+        ? ["node_modules", "npm", "bin", "npm-cli.js"]
+        : ["lib", "node_modules", "npm", "bin", "npm-cli.js"]),
+    );
+    mkdirSync(dirname(nodePath), { recursive: true });
+    mkdirSync(dirname(npmCliPath), { recursive: true });
+    writeRuntimeFile(nodePath, "node");
+    writeRuntimeFile(npmCliPath, "npm");
+    mockNodeRuntime();
+
+    const manifest = loadNodeRuntimeManifest({
+      isPackaged: true,
+      resourcesPath,
+      appDir: join(resourcesPath, "unused"),
+      nodePathOverride: nodePath,
+    });
+
+    expect(manifest.npmCliPath).toBe(npmCliPath);
   });
 
   it("recomputes build-specific compatibility for the selected Node runtime", () => {

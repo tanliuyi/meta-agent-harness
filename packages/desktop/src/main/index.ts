@@ -11,6 +11,7 @@ import { broadcastTerminalEvent, registerIpc } from "./ipc.ts";
 import { ModelsConfigService } from "./models/models-config-service.ts";
 import { SessionSupervisor } from "./pi/session-supervisor.ts";
 import { SettingsConfigService } from "./settings/settings-config-service.ts";
+import { ExtensionDependencyInstaller } from "./sidecar/extension-dependency-installer.ts";
 import { MetadataWorkerClient } from "./sidecar/metadata-worker-client.ts";
 import { NodeRuntimeInstaller } from "./sidecar/node-runtime-installer.ts";
 import {
@@ -27,6 +28,7 @@ import { WindowDirtyGuard } from "./window-dirty-guard.ts";
 
 let sessions: SessionSupervisor | undefined;
 let metadata: MetadataWorkerClient | undefined;
+let extensionDependencies: ExtensionDependencyInstaller | undefined;
 let sidecarLog: SidecarLog | undefined;
 let terminals: TerminalSupervisor | undefined;
 let stopAutoUpdateChecks: (() => void) | undefined;
@@ -51,7 +53,7 @@ app.on("second-instance", () => {
 });
 
 if (!app.isPackaged) {
-  app.commandLine.appendSwitch("remote-debugging-port", process.env.ELECTRON_REMOTE_DEBUGGING_PORT ?? "9222");
+  app.commandLine.appendSwitch("remote-debugging-port", process.env.ELECTRON_REMOTE_DEBUGGING_PORT ?? "0");
 }
 
 /** 在开发环境加载 React DevTools，生产构建不下载开发扩展。 */
@@ -169,6 +171,10 @@ app.whenReady().then(async () => {
   metadata = new MetadataWorkerClient(runtimeManifest, agentDir, userDataDir, (scope, text) =>
     sidecarLog?.write(scope, text),
   );
+  const dependencyInstaller = new ExtensionDependencyInstaller(runtimeManifest, agentDir, (text) =>
+    sidecarLog?.write("extension-dependencies", text),
+  );
+  extensionDependencies = dependencyInstaller;
   let supervisor: SessionSupervisor;
   const workers = new ThreadWorkerRegistry({
     manifest: runtimeManifest,
@@ -212,6 +218,16 @@ app.whenReady().then(async () => {
       },
       onProgress: (listener) => installer.onProgress(listener),
     },
+    {
+      prepare: async (input) => {
+        await dependencyInstaller.prepare(input.projectId ? projects.getCwd(input.projectId) : homedir(), input.source);
+        setTimeout(() => {
+          app.relaunch();
+          app.exit(0);
+        }, 250);
+      },
+      onProgress: (listener) => dependencyInstaller.onProgress(listener),
+    },
     updater,
   );
   await installReactDevTools();
@@ -241,18 +257,21 @@ app.on("before-quit", (event) => {
   }
   stopAutoUpdateChecks?.();
   stopAutoUpdateChecks = undefined;
-  if (!sessions && !metadata && !sidecarLog && !terminals) return;
+  if (!sessions && !metadata && !extensionDependencies && !sidecarLog && !terminals) return;
   sidecarLog?.write("main", "Desktop shutdown started");
   event.preventDefault();
   const currentSessions = sessions;
   const currentMetadata = metadata;
+  const currentExtensionDependencies = extensionDependencies;
   const currentSidecarLog = sidecarLog;
   const currentTerminals = terminals;
   sessions = undefined;
   metadata = undefined;
+  extensionDependencies = undefined;
   sidecarLog = undefined;
   terminals = undefined;
   currentTerminals?.dispose();
+  currentExtensionDependencies?.dispose();
   void (async () => {
     await currentSessions
       ?.dispose()

@@ -722,6 +722,45 @@ Content`,
 			);
 		});
 
+		it("should prefer a host-provided npm command for runtime-isolated installs", async () => {
+			settingsManager = SettingsManager.inMemory({
+				npmCommand: ["system-npm"],
+			});
+			packageManager = new DefaultPackageManager({
+				cwd: tempDir,
+				agentDir,
+				settingsManager,
+				runtimeDependencyId: "desktop-runtime",
+				npmCommand: ["/runtime/node", "/runtime/npm-cli.js"],
+			});
+			const managerInternals = packageManager as unknown as {
+				runCommand(command: string, args: string[], options?: { cwd?: string }): Promise<void>;
+			};
+			const runCommandSpy = vi.spyOn(managerInternals, "runCommand").mockResolvedValue(undefined);
+
+			await packageManager.install("npm:@scope/pkg");
+
+			expect(runCommandSpy).toHaveBeenCalledWith(
+				"/runtime/node",
+				expect.arrayContaining(["/runtime/npm-cli.js", "install", "@scope/pkg"]),
+				undefined,
+			);
+		});
+
+		it("should not fall back to a PATH npm when the host runtime has no npm CLI", async () => {
+			packageManager = new DefaultPackageManager({
+				cwd: tempDir,
+				agentDir,
+				settingsManager,
+				runtimeDependencyId: "desktop-runtime",
+				npmCommand: [],
+			});
+
+			await expect(packageManager.install("npm:@scope/pkg")).rejects.toThrow(
+				"npm CLI is unavailable for the selected runtime",
+			);
+		});
+
 		it("should pass legacy peer deps when uninstalling npm packages", async () => {
 			mkdirSync(join(agentDir, "npm"), { recursive: true });
 			const runCommandSpy = vi.spyOn(packageManager as any, "runCommand").mockResolvedValue(undefined);

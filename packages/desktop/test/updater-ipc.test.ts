@@ -8,6 +8,8 @@ const electron = vi.hoisted(() => ({
   listeners: new Map<string, (...args: unknown[]) => unknown>(),
   send: vi.fn(),
   windows: [] as Array<{ isDestroyed(): boolean; webContents: { isDestroyed(): boolean; send: typeof vi.fn } }>,
+  nodeProgress: undefined as ((progress: unknown) => void) | undefined,
+  extensionProgress: undefined as ((progress: unknown) => void) | undefined,
 }));
 
 vi.mock("electron", () => ({
@@ -43,6 +45,8 @@ describe("updater IPC", () => {
     electron.handles.clear();
     electron.listeners.clear();
     electron.send.mockReset();
+    electron.nodeProgress = undefined;
+    electron.extensionProgress = undefined;
     electron.windows = [{ isDestroyed: () => false, webContents: { isDestroyed: () => false, send: electron.send } }];
     vi.clearAllMocks();
     registerIpc(
@@ -54,7 +58,21 @@ describe("updater IPC", () => {
       {} as never,
       { getConfig: vi.fn(), saveConfig: vi.fn() } as never,
       dirtyGuard as never,
-      { getStatus: vi.fn(), install: vi.fn(), onProgress: vi.fn() },
+      {
+        getStatus: vi.fn(),
+        install: vi.fn(),
+        onProgress: vi.fn((listener) => {
+          electron.nodeProgress = listener;
+          return vi.fn();
+        }),
+      },
+      {
+        prepare: vi.fn(),
+        onProgress: vi.fn((listener) => {
+          electron.extensionProgress = listener;
+          return vi.fn();
+        }),
+      },
       updater as never,
     );
   });
@@ -73,6 +91,15 @@ describe("updater IPC", () => {
       currentVersion: "1.0.0",
       availableVersion: "1.1.0",
     });
+  });
+
+  test("销毁中的 renderer 不接收运行时进度", () => {
+    electron.windows = [{ isDestroyed: () => false, webContents: { isDestroyed: () => true, send: electron.send } }];
+
+    electron.nodeProgress?.({ phase: "ready" });
+    electron.extensionProgress?.({ phase: "ready" });
+
+    expect(electron.send).not.toHaveBeenCalled();
   });
 
   test("安装前复用应用退出确认", async () => {

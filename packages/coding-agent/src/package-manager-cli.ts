@@ -486,6 +486,7 @@ function prepareWindowsNpmSelfUpdate(): void {
 export interface PackageCommandRuntimeOptions {
 	extensionFactories?: InlineExtension[];
 	runtimeDependencyId?: string;
+	npmCommand?: string[];
 }
 
 interface CommandSettingsResult {
@@ -709,6 +710,7 @@ export async function handlePackageCommand(
 		agentDir,
 		settingsManager,
 		runtimeDependencyId: runtimeOptions.runtimeDependencyId,
+		npmCommand: runtimeOptions.npmCommand,
 	});
 
 	packageManager.setProgressCallback((event) => {

@@ -94,10 +94,12 @@ export function loadNodeRuntimeManifest(options: {
   const root = dirname(manifestPath);
   const parsed = JSON.parse(readFileSync(manifestPath, "utf8")) as NodeRuntimeManifest;
   const override = options.nodePathOverride ?? process.env.PI_DESKTOP_NODE_EXEC_PATH;
+  const nodePath = override ? resolve(override) : resolve(root, parsed.nodePath);
+  const configuredNpmCliPath = parsed.npmCliPath ? resolve(root, parsed.npmCliPath) : undefined;
   const manifest: NodeRuntimeManifest = {
     ...parsed,
-    nodePath: override ? resolve(override) : resolve(root, parsed.nodePath),
-    npmCliPath: resolve(root, parsed.npmCliPath),
+    nodePath,
+    npmCliPath: (override ? findNpmCliPathForNode(nodePath) : undefined) ?? configuredNpmCliPath ?? "",
     piExecutable: resolve(root, parsed.piExecutable),
     entries: Object.fromEntries(
       Object.entries(parsed.entries).map(([role, path]) => [role, resolve(root, path)]),
@@ -105,9 +107,7 @@ export function loadNodeRuntimeManifest(options: {
   };
   if (!options.allowUnavailable)
     assertFile(manifest.nodePath, "Node executable", override ? "" : manifest.integrity.nodePath);
-  if (manifest.npmCliPath && existsFile(manifest.npmCliPath)) {
-    assertFile(manifest.npmCliPath, "npm CLI", manifest.integrity.npmCliPath);
-  }
+  if (!options.allowUnavailable) assertFile(manifest.npmCliPath, "npm CLI", manifest.integrity.npmCliPath);
   assertFile(manifest.piExecutable, "Pi executable", manifest.integrity.piExecutable);
   for (const role of Object.keys(manifest.entries) as SidecarRole[]) {
     assertFile(manifest.entries[role], `${role} sidecar entry`, manifest.integrity.entries[role]);
@@ -127,6 +127,15 @@ function assertFile(path: string, description: string, expectedHash: string): vo
   if (expectedHash && actualHash !== expectedHash) {
     throw new Error(`${description} integrity mismatch: expected ${expectedHash}, got ${actualHash}`);
   }
+}
+
+export function findNpmCliPathForNode(nodePath: string): string | undefined {
+  const runtimeRoot = process.platform === "win32" ? dirname(nodePath) : dirname(dirname(nodePath));
+  const candidates =
+    process.platform === "win32"
+      ? [join(runtimeRoot, "node_modules", "npm", "bin", "npm-cli.js")]
+      : [join(runtimeRoot, "lib", "node_modules", "npm", "bin", "npm-cli.js")];
+  return candidates.find(existsFile);
 }
 
 function existsFile(path: string): boolean {

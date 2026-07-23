@@ -142,3 +142,101 @@
 .node-runtime-actions progress {
   width: 120px;
 }
+
+.extension-dependency-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: calc(var(--stack-blocker) - 1);
+  background: hsl(var(--overlay) / 0.42);
+}
+
+.extension-dependency-blocker {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  z-index: var(--stack-blocker);
+  width: min(440px, calc(100vw - 32px));
+  transform: translate(-50%, -50%);
+  padding: 20px;
+  border: 1px solid hsl(var(--border));
+  border-radius: var(--radius);
+  background: hsl(var(--background));
+  box-shadow: 0 16px 48px hsl(var(--overlay) / 0.22);
+}
+
+.extension-dependency-blocker:focus-visible {
+  outline: none;
+}
+
+.extension-dependency-title {
+  margin: 0;
+  font-size: var(--type-size-body);
+  font-weight: 650;
+}
+
+.extension-dependency-copy p,
+.extension-dependency-copy small {
+  display: block;
+  margin: 8px 0 0;
+}
+
+.extension-dependency-copy small,
+.extension-dependency-status {
+  color: hsl(var(--muted-foreground));
+}
+
+.extension-dependency-error {
+  color: hsl(var(--destructive));
+}
+
+.extension-dependency-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 20px;
+}
+
+.extension-dependency-actions button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  min-width: 88px;
+  min-height: 34px;
+  padding: 0 12px;
+  border: 1px solid hsl(var(--border));
+  border-radius: var(--radius);
+  cursor: pointer;
+}
+
+.extension-dependency-actions button svg {
+  width: 15px;
+  height: 15px;
+  flex: 0 0 15px;
+}
+
+.extension-dependency-actions .secondary-button {
+  background: hsl(var(--background));
+  color: hsl(var(--foreground));
+}
+
+.extension-dependency-actions .primary-button {
+  border-color: hsl(var(--foreground));
+  background: hsl(var(--foreground));
+  color: hsl(var(--background));
+}
+
+.extension-dependency-actions button:disabled {
+  cursor: default;
+  opacity: 0.62;
+}
+
+.extension-dependency-spinner {
+  animation: extension-dependency-spin 0.8s linear infinite;
+}
+
+@keyframes extension-dependency-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}

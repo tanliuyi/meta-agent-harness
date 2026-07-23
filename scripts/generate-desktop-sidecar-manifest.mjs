@@ -20,6 +20,20 @@ const developmentNodePath = process.env.PI_DESKTOP_NODE_EXEC_PATH ? resolve(proc
 const developmentNpmPath = hasBundledDevelopmentNode
   ? join(desktopRoot, "output", "node-runtime", process.platform === "win32" ? "node_modules/npm/bin/npm-cli.js" : "lib/node_modules/npm/bin/npm-cli.js")
   : resolve(npmCliPath);
+writeFileSync(
+  join(outputRoot, "package.json"),
+  `${JSON.stringify(
+    {
+      name: codingAgentPackage.name,
+      version: codingAgentPackage.version,
+      private: true,
+      type: "module",
+      bin: { pi: "./sidecar/thread-worker-main.js" },
+    },
+    null,
+    2,
+  )}\n`,
+);
 writeManifest(outputRoot, {
   nodePath: developmentNodePath,
   npmCliPath: developmentNpmPath,

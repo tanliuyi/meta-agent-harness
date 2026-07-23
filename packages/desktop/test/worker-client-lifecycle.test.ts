@@ -1,7 +1,8 @@
 import { delimiter, dirname, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import type { NodeRuntimeManifest } from "../src/main/sidecar/node-runtime-locator.ts";
-import { createSidecarEnvironment, SidecarWorkerClient } from "../src/main/sidecar/worker-client.ts";
+import { createSidecarEnvironment } from "../src/main/sidecar/sidecar-environment.ts";
+import { SidecarWorkerClient } from "../src/main/sidecar/worker-client.ts";
 
 describe("SidecarWorkerClient lifecycle", () => {
   it("locks Pi child routing to the selected Desktop runtime", () => {
@@ -14,12 +15,14 @@ describe("SidecarWorkerClient lifecycle", () => {
         "runtime-id",
         "/agent",
         "/runtime/node",
+        "/runtime/npm-cli.js",
         "/resources/bin/pi",
         "/resources/thread.js",
       );
 
       expect(Object.keys(environment).some((name) => name.toUpperCase() === "PI_SUBAGENT_PI_BINARY")).toBe(false);
       expect(environment.PI_DESKTOP_NODE_EXEC_PATH).toBe("/runtime/node");
+      expect(environment.PI_DESKTOP_NPM_CLI_PATH).toBe("/runtime/npm-cli.js");
       expect(environment.PI_DESKTOP_PI_ENTRY).toBe("/resources/thread.js");
       expect(environment.PI_DESKTOP_RUNTIME_COMPATIBILITY_ID).toBe("runtime-id");
       expect(environment.PATH?.split(delimiter).slice(0, 2)).toEqual([

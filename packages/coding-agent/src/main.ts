@@ -477,6 +477,7 @@ async function promptForMissingSessionCwd(
 export interface MainOptions {
 	extensionFactories?: InlineExtension[];
 	runtimeDependencyId?: string;
+	packageManagerNpmCommand?: string[];
 }
 
 export async function main(args: string[], options?: MainOptions) {
@@ -501,6 +502,7 @@ export async function main(args: string[], options?: MainOptions) {
 		await handlePackageCommand(args, {
 			extensionFactories: options?.extensionFactories,
 			runtimeDependencyId: options?.runtimeDependencyId,
+			npmCommand: options?.packageManagerNpmCommand,
 		})
 	) {
 		const exitCode = process.exitCode ?? 0;

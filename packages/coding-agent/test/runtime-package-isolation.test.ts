@@ -50,8 +50,23 @@ describe("runtime-specific package dependencies", () => {
 		const manager = createManager(runtimeId);
 		const install = vi.spyOn(manager as unknown as PackageManagerInternals, "runNpmCommand").mockResolvedValue();
 
-		await expect(manager.resolve()).rejects.toThrow(`Missing source for runtime ${runtimeId}: npm:runtime-probe`);
+		await expect(manager.resolve()).rejects.toMatchObject({
+			name: "MissingRuntimeDependencyError",
+			message: expect.stringContaining(`Missing source for runtime ${runtimeId}: npm:runtime-probe`),
+			code: "PI_RUNTIME_DEPENDENCY_MISSING",
+			details: { runtimeDependencyId: runtimeId, source: "npm:runtime-probe" },
+		});
 		expect(install).not.toHaveBeenCalled();
+	});
+
+	it("requires bundled host dependencies for detached extension processes", async () => {
+		const runtimeId = "system-node:v24.14.0:win32:x64:137";
+		writeRuntimeExtensionPackage(agentDir, runtimeId, "runtime-a", false);
+
+		await expect(createManager(runtimeId).resolve()).rejects.toMatchObject({
+			code: "PI_RUNTIME_DEPENDENCY_MISSING",
+			details: { runtimeDependencyId: runtimeId, source: "npm:runtime-probe" },
+		});
 	});
 
 	it("rejects a populated runtime tree without its identity manifest", async () => {
@@ -66,9 +81,11 @@ describe("runtime-specific package dependencies", () => {
 	it("writes and validates the runtime manifest before installing", async () => {
 		const runtimeId = "system-node:v24.14.0:win32:x64:137";
 		const manager = createManager(runtimeId);
-		vi.spyOn(manager as unknown as PackageManagerInternals, "runNpmCommand").mockResolvedValue();
+		const install = vi.spyOn(manager as unknown as PackageManagerInternals, "runNpmCommand").mockResolvedValue();
 
 		await manager.install("npm:runtime-probe");
+
+		expect(install.mock.calls[0]?.[0]).toEqual(expect.arrayContaining(["runtime-probe", "typebox@1.1.38"]));
 
 		const installRoot = dirname(dirname(runtimePackagePath(agentDir, runtimeId)));
 		const manifestPath = join(dirname(installRoot), "runtime.json");
@@ -119,6 +136,19 @@ describe("runtime-specific package dependencies", () => {
 		expect(install.mock.calls[0]?.[0]).toContain("runtime-probe@1.0.0");
 	});
 
+	it("repairs host dependencies even when a pinned extension is already installed", async () => {
+		const runtimeId = "system-node:v24.14.0:win32:x64:137";
+		settings.setPackages(["npm:runtime-probe@1.0.0"]);
+		writeRuntimeExtensionPackage(agentDir, runtimeId, "runtime-a", false);
+		const manager = createManager(runtimeId);
+		const install = vi.spyOn(manager as unknown as PackageManagerInternals, "runNpmCommand").mockResolvedValue();
+
+		await manager.update();
+
+		expect(install).toHaveBeenCalledOnce();
+		expect(install.mock.calls[0]?.[0]).toEqual(expect.arrayContaining(["runtime-probe@1.0.0", "typebox@1.1.38"]));
+	});
+
 	it("keeps local extension sources shared across runtimes", async () => {
 		const extensionPath = join(agentDir, "extensions", "shared.ts");
 		mkdirSync(dirname(extensionPath), { recursive: true });
@@ -157,7 +187,12 @@ function runtimePackagePath(agentDir: string, runtimeDependencyId: string): stri
 	);
 }
 
-function writeRuntimeExtensionPackage(agentDir: string, runtimeDependencyId: string, marker: string): string {
+function writeRuntimeExtensionPackage(
+	agentDir: string,
+	runtimeDependencyId: string,
+	marker: string,
+	includeHostDependencies = true,
+): string {
 	const packagePath = runtimePackagePath(agentDir, runtimeDependencyId);
 	const runtimeRoot = dirname(dirname(dirname(packagePath)));
 	mkdirSync(runtimeRoot, { recursive: true });
@@ -173,6 +208,12 @@ function writeRuntimeExtensionPackage(agentDir: string, runtimeDependencyId: str
 		}),
 	);
 	writeExtensionPackage(packagePath, marker);
+	if (includeHostDependencies) {
+		const typeboxRoot = join(dirname(packagePath), "typebox");
+		mkdirSync(join(typeboxRoot, "build", "compile"), { recursive: true });
+		writeFileSync(join(typeboxRoot, "package.json"), JSON.stringify({ name: "typebox", version: "1.1.38" }));
+		writeFileSync(join(typeboxRoot, "build", "compile", "index.mjs"), "export const Compile = () => ({});\n");
+	}
 	return packagePath;
 }
 

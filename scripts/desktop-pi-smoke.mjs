@@ -1,17 +1,26 @@
 import { execFileSync, fork, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { mkdirSync, writeFileSync } from "node:fs";
-import { delimiter, dirname, join } from "node:path";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { delimiter, dirname, join, resolve } from "node:path";
 import { createDesktopSmokeEnvironment } from "./desktop-smoke-environment.mjs";
 
 export async function smokeDesktopPiExecutable(options) {
+  assertDesktopPiEntryPackage(options.threadEntry);
   const environment = createPiSmokeEnvironment(options);
+  environment.META_AGENT_API_KEY = "desktop-smoke";
   const output = execFileSync(options.nodePath, [options.threadEntry, "--version"], {
     encoding: "utf8",
     env: environment,
   }).trim();
   if (output !== options.compatibility.piVersion) {
     throw new Error(`Desktop Pi entry version mismatch: ${output} != ${options.compatibility.piVersion}`);
+  }
+  const models = execFileSync(options.nodePath, [options.threadEntry, "--list-models"], {
+    encoding: "utf8",
+    env: environment,
+  });
+  if (!/meta-agent\s+gpt-5\.6-sol/.test(models)) {
+    throw new Error("Desktop Pi child entry did not register meta-agent/gpt-5.6-sol");
   }
 
   const ipcOutput = (await runForkedCli(options, environment)).trim();
@@ -27,7 +36,9 @@ export function smokeDesktopPiExtensionExecution(options) {
     runtimeDependencyPathSegment(options.compatibility.runtimeCompatibilityId),
   );
   const packageRoot = join(runtimeRoot, "npm", "node_modules", "desktop-runtime-smoke");
+  const typeboxRoot = join(runtimeRoot, "npm", "node_modules", "typebox");
   mkdirSync(packageRoot, { recursive: true });
+  mkdirSync(join(typeboxRoot, "build", "compile"), { recursive: true });
   writeFileSync(
     join(runtimeRoot, "runtime.json"),
     `${JSON.stringify(
@@ -43,6 +54,8 @@ export function smokeDesktopPiExtensionExecution(options) {
       2,
     )}\n`,
   );
+  writeFileSync(join(typeboxRoot, "package.json"), `${JSON.stringify({ name: "typebox", version: "1.1.38" })}\n`);
+  writeFileSync(join(typeboxRoot, "build", "compile", "index.mjs"), "export const Compile = () => ({});\n");
   writeFileSync(
     join(packageRoot, "package.json"),
     `${JSON.stringify({ name: "desktop-runtime-smoke", version: "1.0.0", pi: { extensions: ["./index.ts"] } }, null, 2)}\n`,
@@ -78,6 +91,37 @@ export function smokeDesktopPiExtensionExecution(options) {
   }
 }
 
+export function resolveNpmCliPathForNode(nodePath) {
+  const runtimeRoot = process.platform === "win32" ? dirname(nodePath) : dirname(dirname(nodePath));
+  const candidate = join(
+    runtimeRoot,
+    ...(process.platform === "win32"
+      ? ["node_modules", "npm", "bin", "npm-cli.js"]
+      : ["lib", "node_modules", "npm", "bin", "npm-cli.js"]),
+  );
+  return existsSync(candidate) ? candidate : undefined;
+}
+
+function assertDesktopPiEntryPackage(entry) {
+  let directory = dirname(entry);
+  while (directory !== dirname(directory)) {
+    const packageJsonPath = join(directory, "package.json");
+    if (existsSync(packageJsonPath)) {
+      const packageJson = JSON.parse(readFileSync(packageJsonPath, "utf8"));
+      const bin = typeof packageJson.bin === "string" ? packageJson.bin : packageJson.bin?.pi;
+      if (
+        packageJson.name === "@earendil-works/pi-coding-agent" &&
+        typeof bin === "string" &&
+        resolve(directory, bin) === resolve(entry)
+      ) {
+        return;
+      }
+    }
+    directory = dirname(directory);
+  }
+  throw new Error(`Desktop Pi entry is not inside a coding-agent package boundary: ${entry}`);
+}
+
 function runtimeDependencyPathSegment(runtimeDependencyId) {
   return `v1-${createHash("sha256").update(runtimeDependencyId).digest("hex").slice(0, 24)}`;
 }
@@ -86,6 +130,7 @@ function createPiSmokeEnvironment(options) {
   const environment = createDesktopSmokeEnvironment(process.env, options.nodePath, {
     PI_CODING_AGENT_DIR: options.agentDir,
     PI_DESKTOP_NODE_EXEC_PATH: options.nodePath,
+    PI_DESKTOP_NPM_CLI_PATH: options.npmCliPath,
     PI_DESKTOP_PI_ENTRY: options.threadEntry,
     PI_DESKTOP_RUNTIME_COMPATIBILITY_ID: options.compatibility.runtimeCompatibilityId,
   });

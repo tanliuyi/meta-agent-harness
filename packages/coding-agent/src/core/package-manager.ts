@@ -39,6 +39,13 @@ import type { PackageSource, SettingsManager } from "./settings-manager.ts";
 const NETWORK_TIMEOUT_MS = 10000;
 const UPDATE_CHECK_CONCURRENCY = 4;
 const GIT_UPDATE_CONCURRENCY = 4;
+const RUNTIME_HOST_DEPENDENCIES = [
+	{
+		name: "typebox",
+		spec: "typebox@1.1.38",
+		requiredPaths: ["package.json", "build/compile/index.mjs"],
+	},
+] as const;
 
 function isOfflineModeEnabled(): boolean {
 	const value = process.env.PI_OFFLINE;
@@ -126,6 +133,20 @@ interface PackageManagerOptions {
 	agentDir: string;
 	settingsManager: SettingsManager;
 	runtimeDependencyId?: string;
+	npmCommand?: string[];
+}
+
+class MissingRuntimeDependencyError extends Error {
+	readonly code = "PI_RUNTIME_DEPENDENCY_MISSING";
+	readonly details: { runtimeDependencyId: string; source: string };
+
+	constructor(runtimeDependencyId: string, source: string) {
+		super(
+			`Missing source for runtime ${runtimeDependencyId}: ${source}. Run "pi update --extensions" with this runtime to prepare configured packages, or run "pi install ${source}".`,
+		);
+		this.name = "MissingRuntimeDependencyError";
+		this.details = { runtimeDependencyId, source };
+	}
 }
 
 interface RuntimeDependencyManifest {
@@ -816,6 +837,7 @@ export class DefaultPackageManager implements PackageManager {
 	private agentDir: string;
 	private settingsManager: SettingsManager;
 	private runtimeDependencyId: string | undefined;
+	private npmCommand: string[] | undefined;
 	private globalNpmRoot: string | undefined;
 	private globalNpmRootCommandKey: string | undefined;
 	private progressCallback: ProgressCallback | undefined;
@@ -825,6 +847,7 @@ export class DefaultPackageManager implements PackageManager {
 		this.agentDir = resolvePath(options.agentDir);
 		this.settingsManager = options.settingsManager;
 		this.runtimeDependencyId = options.runtimeDependencyId?.trim() || undefined;
+		this.npmCommand = options.npmCommand;
 	}
 
 	setProgressCallback(callback: ProgressCallback | undefined): void {
@@ -1115,10 +1138,11 @@ export class DefaultPackageManager implements PackageManager {
 			// Pinned npm versions are fixed. Pinned git refs are configured checkout targets,
 			// so include them to reconcile an existing clone when the configured ref changes.
 			if (parsed.type === "npm") {
-				const runtimePackageMissing =
+				const runtimePackageIncomplete =
 					this.runtimeDependencyId !== undefined &&
-					!existsSync(this.getManagedNpmInstallPath(parsed, entry.scope));
-				if (!parsed.pinned || runtimePackageMissing) {
+					(!existsSync(this.getManagedNpmInstallPath(parsed, entry.scope)) ||
+						!this.hasRuntimeHostDependencies(entry.scope, false));
+				if (!parsed.pinned || runtimePackageIncomplete) {
 					npmCandidates.push({ ...entry, parsed });
 				}
 			} else if (parsed.type === "git") {
@@ -1165,6 +1189,7 @@ export class DefaultPackageManager implements PackageManager {
 	}
 
 	private async shouldUpdateNpmSource(source: NpmSource, scope: InstalledSourceScope): Promise<boolean> {
+		if (!this.hasRuntimeHostDependencies(scope, false)) return true;
 		const installedPath = this.getManagedNpmInstallPath(source, scope);
 		const installedVersion = existsSync(installedPath) ? this.getInstalledNpmVersion(installedPath) : undefined;
 		if (!installedVersion) {
@@ -1291,14 +1316,14 @@ export class DefaultPackageManager implements PackageManager {
 				if (isOfflineModeEnabled()) return false;
 				if (!onMissing) {
 					if (this.runtimeDependencyId) {
-						throw new Error(this.missingSourceMessage(resolvedSource, parsed));
+						throw this.missingSourceError(resolvedSource, parsed);
 					}
 					await this.installParsedSource(parsed, resolvedScope);
 					return true;
 				}
 				const action = await onMissing(resolvedSource);
 				if (action === "skip") return false;
-				if (action === "error") throw new Error(this.missingSourceMessage(resolvedSource, parsed));
+				if (action === "error") throw this.missingSourceError(resolvedSource, parsed);
 				await this.installParsedSource(parsed, resolvedScope);
 				return true;
 			};
@@ -1306,7 +1331,9 @@ export class DefaultPackageManager implements PackageManager {
 			if (parsed.type === "npm") {
 				let installedPath = this.getNpmInstallPath(parsed, resolvedScope);
 				const needsInstall =
-					!existsSync(installedPath) || !(await this.installedNpmMatchesConfiguredVersion(parsed, installedPath));
+					!existsSync(installedPath) ||
+					!this.hasRuntimeHostDependencies(resolvedScope, resolvedScope === "temporary") ||
+					!(await this.installedNpmMatchesConfiguredVersion(parsed, installedPath));
 				if (needsInstall) {
 					const installed = await installMissing();
 					if (!installed) continue;
@@ -1767,7 +1794,10 @@ export class DefaultPackageManager implements PackageManager {
 	}
 
 	private getNpmCommand(): { command: string; args: string[] } {
-		const configuredCommand = this.settingsManager.getNpmCommand();
+		if (this.npmCommand?.length === 0) {
+			throw new Error("npm CLI is unavailable for the selected runtime");
+		}
+		const configuredCommand = this.npmCommand ?? this.settingsManager.getNpmCommand();
 		if (!configuredCommand || configuredCommand.length === 0) {
 			return { command: "npm", args: [] };
 		}
@@ -1805,18 +1835,19 @@ export class DefaultPackageManager implements PackageManager {
 	}
 
 	private getNpmInstallArgs(specs: string[], installRoot: string): string[] {
+		const installSpecs = this.runtimeDependencyId ? this.withRuntimeHostDependencies(specs) : specs;
 		const packageManagerName = this.getPackageManagerName();
 		// Extension packages run inside pi and resolve pi APIs through loader aliases/virtual modules.
 		// Disable peer dependency resolution for managed installs (npm's --legacy-peer-deps, and
 		// equivalent bun/pnpm settings) so package managers do not install or solve host-provided
 		// @earendil-works/pi-* peers. Stale auto-installed pi peers can otherwise block updates.
 		if (packageManagerName === "bun") {
-			return ["install", ...specs, "--cwd", installRoot, "--omit=peer"];
+			return ["install", ...installSpecs, "--cwd", installRoot, "--omit=peer"];
 		}
 		if (packageManagerName === "pnpm") {
 			return [
 				"install",
-				...specs,
+				...installSpecs,
 				"--prefix",
 				installRoot,
 				"--config.auto-install-peers=false",
@@ -1824,7 +1855,27 @@ export class DefaultPackageManager implements PackageManager {
 				"--config.strict-dep-builds=false",
 			];
 		}
-		return ["install", ...specs, "--prefix", installRoot, "--legacy-peer-deps"];
+		return ["install", ...installSpecs, "--prefix", installRoot, "--legacy-peer-deps"];
+	}
+
+	private withRuntimeHostDependencies(specs: string[]): string[] {
+		const packageNames = new Set(specs.map((spec) => this.parseNpmSpec(spec).name));
+		return [
+			...specs,
+			...RUNTIME_HOST_DEPENDENCIES.filter((dependency) => !packageNames.has(dependency.name)).map(
+				(dependency) => dependency.spec,
+			),
+		];
+	}
+
+	private hasRuntimeHostDependencies(scope: SourceScope, temporary: boolean): boolean {
+		if (!this.runtimeDependencyId) return true;
+		const installRoot = this.getNpmInstallRoot(scope, temporary);
+		return RUNTIME_HOST_DEPENDENCIES.every((dependency) =>
+			dependency.requiredPaths.every((requiredPath) =>
+				existsSync(this.resolveManagedPath(installRoot, "node_modules", dependency.name, requiredPath)),
+			),
+		);
 	}
 
 	private async withNpmMutationLock<T>(installRoot: string, operation: () => Promise<T>): Promise<T> {
@@ -1980,11 +2031,11 @@ export class DefaultPackageManager implements PackageManager {
 		}
 	}
 
-	private missingSourceMessage(source: string, parsed: ParsedSource): string {
+	private missingSourceError(source: string, parsed: ParsedSource): Error {
 		if (!this.runtimeDependencyId || parsed.type !== "npm") {
-			return `Missing source: ${source}`;
+			return new Error(`Missing source: ${source}`);
 		}
-		return `Missing source for runtime ${this.runtimeDependencyId}: ${source}. Run "pi update --extensions" with this runtime to prepare configured packages, or run "pi install ${source}".`;
+		return new MissingRuntimeDependencyError(this.runtimeDependencyId, source);
 	}
 
 	private ensureRuntimeDependencyManifest(installRoot: string): void {

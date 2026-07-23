@@ -53,6 +53,7 @@ describe("models IPC", () => {
       {} as never,
       dirtyGuard as never,
       { getStatus: vi.fn(), install: vi.fn(), onProgress: vi.fn() },
+      { prepare: vi.fn(), onProgress: vi.fn() },
     );
   });
 

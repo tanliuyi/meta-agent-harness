@@ -118,12 +118,13 @@ Desktop 不得复制、投影或维护一套语义不同的用户配置。npm ex
 - 以完整 runtime identity 选择独立 npm root，磁盘目录使用稳定 hash；
 - 在 runtime manifest 中记录 schema、runtime identity、Node version、modules ABI、platform 和 arch；
 - 缺少当前 runtime tree 时 fail closed，不回退 legacy/global `node_modules`；
-- Desktop 不自动联网、install、rebuild 或执行 lifecycle scripts；
-- 只有用户显式执行的 Pi package 命令可以准备当前 runtime tree；
+- Desktop 不在 session 启动时自动联网、install、rebuild 或执行 lifecycle scripts；
+- 只有用户在 Desktop 中明确确认“更新扩展”，或显式执行 Pi package 命令，才可以准备当前 runtime tree；
+- Desktop 的恢复操作只安装错误中标识的缺失 npm package，不顺带升级其他 npm/git/local extensions；
 - 保留 legacy tree 供旧 Pi 使用，不移动、覆盖或删除；
 - 一个 worker 生命周期内固定使用同一个 runtime tree。
 
-首期仅保证 Pi-managed npm packages。git package 和本地 extension 仍由用户管理；如果它们包含 ABI-bound native dependencies，必须返回可诊断的不兼容错误，不能宣称已隔离。
+首期仅保证 Pi-managed npm packages。git package 和本地 extension 仍由用户管理；如果它们包含 ABI-bound native dependencies，必须返回可诊断的不兼容错误，不能宣称已隔离。客户界面只说明“需要更新扩展”及联网/安装脚本风险；Node、ABI、runtime fingerprint 和 entry path 仅进入日志与诊断。
 
 ### 7.3 兼容要求
 

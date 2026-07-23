@@ -24,6 +24,11 @@ import type {
   Thread,
   WorkbenchState,
 } from "./contracts.ts";
+import type {
+  ExtensionDependencyProgress,
+  ExtensionDependencyRequirement,
+  PrepareExtensionDependenciesInput,
+} from "./extension-dependency-contracts.ts";
 import type { ModelsConfigSnapshot, SaveModelsConfigInput, SaveModelsConfigResult } from "./models-config-contracts.ts";
 import type {
   SaveSettingsConfigInput,
@@ -62,6 +67,11 @@ export interface DesktopApi {
     getStatus(): Promise<NodeRuntimeStatus>;
     install(): Promise<NodeRuntimeStatus>;
     onProgress(listener: (progress: NodeRuntimeProgress) => void): () => void;
+  };
+  extensionDependencies: {
+    prepare(input: PrepareExtensionDependenciesInput): Promise<void>;
+    onRequired(listener: (requirement: ExtensionDependencyRequirement) => void): () => void;
+    onProgress(listener: (progress: ExtensionDependencyProgress) => void): () => void;
   };
   links: {
     open(projectId: string, url: string): Promise<void>;

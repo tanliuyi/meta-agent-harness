@@ -52,6 +52,8 @@ export const CHANNELS = {
   nodeRuntimeStatus: "desktop:node-runtime:status",
   nodeRuntimeInstall: "desktop:node-runtime:install",
   nodeRuntimeProgress: "desktop:node-runtime:progress",
+  extensionDependenciesPrepare: "desktop:extension-dependencies:prepare",
+  extensionDependenciesProgress: "desktop:extension-dependencies:progress",
   authGetConfig: "desktop:auth:get-config",
   authGetConfigRevision: "desktop:auth:get-config-revision",
   authSaveConfig: "desktop:auth:save-config",

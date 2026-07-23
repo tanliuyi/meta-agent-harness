@@ -9,6 +9,11 @@ import type {
   TerminalEvent,
 } from "../shared/contracts.ts";
 import type { DesktopApi, DesktopPlatform, NodeRuntimeProgress } from "../shared/desktop-api.ts";
+import {
+  type ExtensionDependencyProgress,
+  type ExtensionDependencyRequirement,
+  parseExtensionDependencyRequirement,
+} from "../shared/extension-dependency-contracts.ts";
 import type { UpdaterState } from "../shared/updater-contracts.ts";
 
 interface ActiveSessionAttachment {
@@ -36,6 +41,22 @@ const DETACHED_ATTACHMENT_TTL_MS = 30_000;
 const attachments = new Map<string, ActiveSessionAttachment>();
 const unclaimedPushes = new Map<string, UnclaimedSessionPushes>();
 const detachedAttachments = new Map<string, ReturnType<typeof setTimeout>>();
+const extensionDependencyListeners = new Set<(requirement: ExtensionDependencyRequirement) => void>();
+let pendingExtensionDependencyRequirement: ExtensionDependencyRequirement | undefined;
+
+async function invokeSession<T>(channel: string, projectId: string | undefined, ...args: unknown[]): Promise<T> {
+  try {
+    return (await ipcRenderer.invoke(channel, ...args)) as T;
+  } catch (error) {
+    const requirement = parseExtensionDependencyRequirement(error, projectId);
+    if (requirement) {
+      pendingExtensionDependencyRequirement = requirement;
+      for (const listener of extensionDependencyListeners) listener(requirement);
+      throw new Error("需要更新扩展后才能继续。");
+    }
+    throw error;
+  }
+}
 
 ipcRenderer.on(CHANNELS.sessionsPush, (_event, update: SessionPush) => {
   const attachment = attachments.get(update.attachmentId);
@@ -190,6 +211,19 @@ const desktopApi: DesktopApi = {
       return () => ipcRenderer.removeListener(CHANNELS.nodeRuntimeProgress, handler);
     },
   },
+  extensionDependencies: {
+    prepare: (input) => ipcRenderer.invoke(CHANNELS.extensionDependenciesPrepare, input),
+    onRequired(listener) {
+      extensionDependencyListeners.add(listener);
+      if (pendingExtensionDependencyRequirement) listener(pendingExtensionDependencyRequirement);
+      return () => extensionDependencyListeners.delete(listener);
+    },
+    onProgress(listener) {
+      const handler = (_event: Electron.IpcRendererEvent, progress: ExtensionDependencyProgress) => listener(progress);
+      ipcRenderer.on(CHANNELS.extensionDependenciesProgress, handler);
+      return () => ipcRenderer.removeListener(CHANNELS.extensionDependenciesProgress, handler);
+    },
+  },
   windowControls: {
     minimize: () => ipcRenderer.send(CHANNELS.windowMinimize),
     toggleMaximize: () => ipcRenderer.send(CHANNELS.windowToggleMaximize),
@@ -208,11 +242,11 @@ const desktopApi: DesktopApi = {
     getActive: () => ipcRenderer.invoke(CHANNELS.projectsActive),
   },
   sessions: {
-    list: (projectId, includeArchived) => ipcRenderer.invoke(CHANNELS.sessionsList, projectId, includeArchived),
-    getDraftConfig: (projectId) => ipcRenderer.invoke(CHANNELS.sessionsDraftConfig, projectId),
-    create: (input) => ipcRenderer.invoke(CHANNELS.sessionsCreate, input),
+    list: (projectId, includeArchived) => invokeSession(CHANNELS.sessionsList, projectId, projectId, includeArchived),
+    getDraftConfig: (projectId) => invokeSession(CHANNELS.sessionsDraftConfig, projectId, projectId),
+    create: (input) => invokeSession(CHANNELS.sessionsCreate, input.projectId, input),
     async attach(input: SessionAttachInput, listener): Promise<SessionAttachment> {
-      const attachment = (await ipcRenderer.invoke(CHANNELS.sessionsAttach, input)) as SessionAttachment;
+      const attachment = await invokeSession<SessionAttachment>(CHANNELS.sessionsAttach, input.projectId, input);
       const active: ActiveSessionAttachment = {
         attachmentId: attachment.attachmentId,
         identity: { projectId: input.projectId, threadId: input.threadId },
@@ -248,27 +282,29 @@ const desktopApi: DesktopApi = {
       tombstoneAttachment(attachmentId);
       ipcRenderer.send(CHANNELS.sessionsDetach, attachmentId);
     },
-    prewarm: (projectId, threadId) => ipcRenderer.invoke(CHANNELS.sessionsPrewarm, projectId, threadId),
-    rename: (projectId, threadId, title) => ipcRenderer.invoke(CHANNELS.sessionsRename, projectId, threadId, title),
+    prewarm: (projectId, threadId) => invokeSession(CHANNELS.sessionsPrewarm, projectId, projectId, threadId),
+    rename: (projectId, threadId, title) =>
+      invokeSession(CHANNELS.sessionsRename, projectId, projectId, threadId, title),
     archive: (projectId, threadId, archived) =>
-      ipcRenderer.invoke(CHANNELS.sessionsArchive, projectId, threadId, archived),
-    remove: (projectId, threadId) => ipcRenderer.invoke(CHANNELS.sessionsRemove, projectId, threadId),
-    prompt: (input) => ipcRenderer.invoke(CHANNELS.sessionsPrompt, input),
-    edit: (input) => ipcRenderer.invoke(CHANNELS.sessionsEdit, input),
-    reload: (input) => ipcRenderer.invoke(CHANNELS.sessionsReload, input),
-    branch: (input) => ipcRenderer.invoke(CHANNELS.sessionsBranch, input),
-    cancel: (projectId, threadId) => ipcRenderer.invoke(CHANNELS.sessionsCancel, projectId, threadId),
-    clearQueue: (projectId, threadId) => ipcRenderer.invoke(CHANNELS.sessionsClearQueue, projectId, threadId),
-    compact: (projectId, threadId) => ipcRenderer.invoke(CHANNELS.sessionsCompact, projectId, threadId),
-    refreshModels: (projectId, threadId) => ipcRenderer.invoke(CHANNELS.sessionsRefreshModels, projectId, threadId),
+      invokeSession(CHANNELS.sessionsArchive, projectId, projectId, threadId, archived),
+    remove: (projectId, threadId) => invokeSession(CHANNELS.sessionsRemove, projectId, projectId, threadId),
+    prompt: (input) => invokeSession(CHANNELS.sessionsPrompt, input.projectId, input),
+    edit: (input) => invokeSession(CHANNELS.sessionsEdit, input.projectId, input),
+    reload: (input) => invokeSession(CHANNELS.sessionsReload, input.projectId, input),
+    branch: (input) => invokeSession(CHANNELS.sessionsBranch, input.projectId, input),
+    cancel: (projectId, threadId) => invokeSession(CHANNELS.sessionsCancel, projectId, projectId, threadId),
+    clearQueue: (projectId, threadId) => invokeSession(CHANNELS.sessionsClearQueue, projectId, projectId, threadId),
+    compact: (projectId, threadId) => invokeSession(CHANNELS.sessionsCompact, projectId, projectId, threadId),
+    refreshModels: (projectId, threadId) =>
+      invokeSession(CHANNELS.sessionsRefreshModels, projectId, projectId, threadId),
     setModel: (projectId, threadId, provider, modelId) =>
-      ipcRenderer.invoke(CHANNELS.sessionsSetModel, projectId, threadId, provider, modelId),
+      invokeSession(CHANNELS.sessionsSetModel, projectId, projectId, threadId, provider, modelId),
     setThinking: (projectId, threadId, level) =>
-      ipcRenderer.invoke(CHANNELS.sessionsSetThinking, projectId, threadId, level),
+      invokeSession(CHANNELS.sessionsSetThinking, projectId, projectId, threadId, level),
     setEditorText: (projectId, threadId, text) =>
-      ipcRenderer.invoke(CHANNELS.sessionsSetEditorText, projectId, threadId, text),
+      invokeSession(CHANNELS.sessionsSetEditorText, projectId, projectId, threadId, text),
     respond: (projectId, threadId, response) =>
-      ipcRenderer.invoke(CHANNELS.sessionsRespond, projectId, threadId, response),
+      invokeSession(CHANNELS.sessionsRespond, projectId, projectId, threadId, response),
   },
   files: {
     list: (projectId, path, query) => ipcRenderer.invoke(CHANNELS.filesList, projectId, path, query),

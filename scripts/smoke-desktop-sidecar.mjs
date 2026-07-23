@@ -5,6 +5,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import {
+  resolveNpmCliPathForNode,
   smokeDesktopPiExecutable,
   smokeDesktopPiExtensionExecution,
 } from "./desktop-pi-smoke.mjs";
@@ -17,11 +18,14 @@ const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
 const nodePath = manifest.nodePath === "system"
   ? resolve(process.env.PI_DESKTOP_NODE_EXEC_PATH ?? process.execPath)
   : resolve(root, manifest.nodePath);
-const npmCliPath = manifest.npmCliPath ? resolve(root, manifest.npmCliPath) : undefined;
+const npmCliPath = manifest.npmCliPath
+  ? resolve(root, manifest.npmCliPath)
+  : resolveNpmCliPathForNode(nodePath);
+if (!npmCliPath) throw new Error(`npm CLI is unavailable for Desktop Node: ${nodePath}`);
 const piExecutable = resolve(root, manifest.piExecutable);
 
 assertFile(nodePath, manifest.nodePath === "system" ? "" : manifest.integrity.nodePath, "Node executable");
-if (npmCliPath) assertFile(npmCliPath, manifest.integrity.npmCliPath, "npm CLI");
+assertFile(npmCliPath, manifest.integrity.npmCliPath, "npm CLI");
 assertFile(piExecutable, manifest.integrity.piExecutable, "Pi executable");
 if (/[\\/]app\.asar(?:[\\/]|$)/i.test(nodePath) || (npmCliPath && /[\\/]app\.asar(?:[\\/]|$)/i.test(npmCliPath))) {
   throw new Error("Node and npm must be outside app.asar");
@@ -63,6 +67,7 @@ try {
     piExecutable,
     threadEntry: resolve(root, manifest.entries.thread),
     nodePath,
+    npmCliPath,
     compatibility: manifest.compatibility,
     agentDir,
   };
