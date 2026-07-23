@@ -21,6 +21,7 @@ import {
   type SessionReloadInput,
   type Thread,
 } from "../../shared/contracts.ts";
+import { DesktopBuiltinProviderRegistry } from "./desktop-builtin-provider.ts";
 import { HostUi } from "./host-ui.ts";
 import { PiCompatibilityAdapter } from "./pi-compatibility-adapter.ts";
 import { PiThreadProjector } from "./pi-thread-projector.ts";
@@ -95,6 +96,7 @@ export class SessionRuntime {
       cwd: options.cwd,
       agentDir: options.agentDir,
       resourceLoaderOptions: {
+        extensionFactories: DesktopBuiltinProviderRegistry.getExtensionFactories(),
         packageManagerOnMissing: async () => "error",
       },
     });

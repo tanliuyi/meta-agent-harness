@@ -8,6 +8,7 @@ import {
   type SettingsManager,
 } from "@earendil-works/pi-coding-agent";
 import type { DraftSessionConfig, Readiness, SessionCreateInput, ThinkingLevel } from "../../shared/contracts.ts";
+import { DesktopBuiltinProviderRegistry } from "./desktop-builtin-provider.ts";
 import { getDraftCommands } from "./session-commands.ts";
 
 export interface SessionConfigurationServices {
@@ -32,6 +33,7 @@ export async function loadDraftSessionConfig(
       cwd,
       agentDir,
       resourceLoaderOptions: {
+        extensionFactories: DesktopBuiltinProviderRegistry.getExtensionFactories(),
         packageManagerOnMissing: async () => "error",
       },
     });

@@ -16,6 +16,7 @@ import type {
   SaveAuthConfigInput,
   SaveAuthConfigResult,
 } from "../../shared/auth-config-contracts.ts";
+import { DesktopBuiltinProviderRegistry } from "../pi/desktop-builtin-provider.ts";
 
 export const MISSING_AUTH_CONFIG_REVISION = "missing:auth-config-v1";
 const VALID_ENV_KEY = /^[A-Z_][A-Z0-9_]*$/i;
@@ -456,7 +457,7 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
 function knownProviders(): AuthProviderInfo[] {
   try {
     const metadata = getModelsConfigMetadata();
-    return metadata.builtInProviders.map((provider) => {
+    const providers = metadata.builtInProviders.map((provider) => {
       const envKeys = findEnvKeys(provider.id) ?? [];
       return {
         id: provider.id,
@@ -464,8 +465,15 @@ function knownProviders(): AuthProviderInfo[] {
         envKeys,
       };
     });
+    // Append desktop built-in providers
+    for (const desktop of DesktopBuiltinProviderRegistry.getKnownProviderInfos()) {
+      if (!providers.some((p) => p.id === desktop.id)) {
+        providers.push(desktop);
+      }
+    }
+    return providers;
   } catch {
-    return [];
+    return DesktopBuiltinProviderRegistry.getKnownProviderInfos();
   }
 }
 
