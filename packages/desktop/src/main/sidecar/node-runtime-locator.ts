@@ -28,7 +28,10 @@ export interface NodeRuntimeManifest {
   };
 }
 
-type NodeRuntimeProbe = Pick<RuntimeCompatibility, "nodeVersion" | "modulesAbi" | "napi" | "platform" | "arch">;
+type NodeRuntimeProbe = Pick<
+  RuntimeCompatibility,
+  "nodeVersion" | "modulesAbi" | "napi" | "platform" | "arch" | "osRelease" | "libc" | "toolchain"
+>;
 
 export function detectNodeRuntime(pathOverride?: string): NodeRuntimeStatus {
   const configured = pathOverride ?? process.env.PI_DESKTOP_NODE_EXEC_PATH;
@@ -147,7 +150,7 @@ function probeNodeRuntime(nodePath: string): NodeRuntimeProbe {
       nodePath,
       [
         "-p",
-        "JSON.stringify({nodeVersion:process.version,modulesAbi:process.versions.modules,napi:process.versions.napi,platform:process.platform,arch:process.arch})",
+        '(() => { const variables = process.config.variables; const osRelease = process.platform === "darwin" ? "darwin-23+" : process.platform === "win32" ? "windows-10+" : process.platform === "linux" ? "linux-kernel-4.18+" : "unsupported"; const libc = process.platform === "darwin" ? "libSystem" : process.platform === "win32" ? "ucrt" : process.platform === "linux" ? "glibc-2.28+" : "unknown"; return JSON.stringify({ nodeVersion: process.version, modulesAbi: process.versions.modules, napi: process.versions.napi, platform: process.platform, arch: process.arch, osRelease, libc, toolchain: [variables.host_arch, variables.target_arch, variables.v8_target_arch, variables.clang].filter((value) => value !== undefined).join(":") }); })()',
       ],
       { encoding: "utf8" },
     ),
@@ -155,7 +158,10 @@ function probeNodeRuntime(nodePath: string): NodeRuntimeProbe {
   if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
     throw new Error(`Invalid Node.js runtime metadata from ${nodePath}`);
   }
-  const { nodeVersion, modulesAbi, napi, platform, arch } = parsed as Record<string, unknown>;
+  const { nodeVersion, modulesAbi, napi, platform, arch, osRelease, libc, toolchain } = parsed as Record<
+    string,
+    unknown
+  >;
   if (
     typeof nodeVersion !== "string" ||
     !/^v\d+\.\d+\.\d+$/.test(nodeVersion) ||
@@ -164,11 +170,17 @@ function probeNodeRuntime(nodePath: string): NodeRuntimeProbe {
     typeof platform !== "string" ||
     platform.length === 0 ||
     typeof arch !== "string" ||
-    arch.length === 0
+    arch.length === 0 ||
+    typeof osRelease !== "string" ||
+    osRelease.length === 0 ||
+    typeof libc !== "string" ||
+    libc.length === 0 ||
+    typeof toolchain !== "string" ||
+    toolchain.length === 0
   ) {
     throw new Error(`Invalid Node.js runtime metadata from ${nodePath}`);
   }
-  return { nodeVersion, modulesAbi, napi, platform, arch };
+  return { nodeVersion, modulesAbi, napi, platform, arch, osRelease, libc, toolchain };
 }
 
 function nodeRuntimeIncompatibility(runtime: NodeRuntimeProbe): string | undefined {

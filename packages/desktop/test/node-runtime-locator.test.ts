@@ -65,6 +65,9 @@ describe("Desktop Node runtime locator", () => {
         napi: "10",
         platform: process.platform,
         arch: process.arch,
+        osRelease: "test-os",
+        libc: "test-libc",
+        toolchain: "test-toolchain",
       }),
     );
 
@@ -103,6 +106,25 @@ describe("Desktop Node runtime locator", () => {
     mockNodeRuntime(metadata);
 
     expect(detectNodeRuntime(join(resourcesPath, "node"))).toMatchObject({ state: "missing" });
+  });
+
+  it("recomputes build-specific compatibility for the selected Node runtime", () => {
+    writeManifest("app.asar.unpacked");
+    const nodePath = writeRuntimeFile(join(resourcesPath, "node"), "node");
+    mockNodeRuntime({ osRelease: "windows-10+", libc: "ucrt", toolchain: "x64:x64:0" });
+
+    const manifest = loadNodeRuntimeManifest({
+      isPackaged: true,
+      resourcesPath,
+      appDir: join(resourcesPath, "unused"),
+      nodePathOverride: nodePath,
+    });
+
+    expect(manifest.compatibility).toMatchObject({
+      osRelease: "windows-10+",
+      libc: "ucrt",
+      toolchain: "x64:x64:0",
+    });
   });
 
   it("rejects an incompatible manifest Node override", () => {
@@ -169,6 +191,9 @@ function mockNodeRuntime(
     napi: string;
     platform: string;
     arch: string;
+    osRelease: string;
+    libc: string;
+    toolchain: string;
   }> = {},
 ): void {
   childProcessMock.execFileSync.mockReturnValue(
@@ -178,6 +203,9 @@ function mockNodeRuntime(
       napi: "10",
       platform: process.platform,
       arch: process.arch,
+      osRelease: "test-os",
+      libc: "test-libc",
+      toolchain: "test-toolchain",
       ...overrides,
     }),
   );
