@@ -119,9 +119,10 @@ jobs:
         run: npm --prefix packages/desktop run build
 
       - name: Package Desktop
+        working-directory: packages/desktop
         shell: bash
         run: >-
-          npm --prefix packages/desktop exec -- electron-builder
+          npm exec -- electron-builder
           --config electron-builder.yml
           ${{ matrix.builder_args }}
           --publish never
