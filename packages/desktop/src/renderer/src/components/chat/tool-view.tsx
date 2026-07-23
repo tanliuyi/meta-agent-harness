@@ -1,10 +1,11 @@
 import type { ToolCallMessagePartProps } from "@assistant-ui/react";
+import { followResizingContentToBottom } from "@renderer/shared/lib/follow-resizing-content-to-bottom";
 import { Collapsible } from "@renderer/shared/ui/collapsible";
 import { CollapsibleContent } from "@renderer/shared/ui/collapsible-content";
 import { CollapsibleTrigger } from "@renderer/shared/ui/collapsible-trigger";
 import { ScrollArea } from "@renderer/shared/ui/scroll-area";
 import ChevronRight from "lucide-react/dist/esm/icons/chevron-right.mjs";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ToolFileTarget } from "./tool-file-target.tsx";
 import { ToolContent } from "./tools/tool-content.tsx";
 import { readToolStringArgument } from "./tools/tool-format.ts";
@@ -21,6 +22,8 @@ interface ToolHeader {
 /** 按 pi-coding-agent TUI 的标题、状态底色与折叠预览渲染工具。 */
 export function ToolView({ toolName, args, result, status, artifact, isError }: ToolCallMessagePartProps) {
   const [expanded, setExpanded] = useState(false);
+  const viewportRef = useRef<HTMLDivElement>(null);
+  const bodyRef = useRef<HTMLDivElement>(null);
   const artifactState = toolArtifact(artifact);
   const execution = artifactState?.execution;
   const running =
@@ -32,6 +35,14 @@ export function ToolView({ toolName, args, result, status, artifact, isError }: 
   const cursorFollowsArgs = running && execution === "streaming-args";
   const cursorAtEnd = running && execution !== "streaming-args";
   const stateLabel = toolState === "running" ? "运行中" : toolState === "error" ? "失败" : "已完成";
+
+  useEffect(() => {
+    if (!expanded || !running) return;
+    const viewport = viewportRef.current;
+    const body = bodyRef.current;
+    if (!viewport || !body) return;
+    return followResizingContentToBottom(viewport, body);
+  }, [expanded, running]);
 
   return (
     <Collapsible
@@ -78,8 +89,8 @@ export function ToolView({ toolName, args, result, status, artifact, isError }: 
         </CollapsibleTrigger>
       </div>
       <CollapsibleContent className="data-closed:animate-collapsible-up data-open:animate-collapsible-down overflow-hidden data-closed:pointer-events-none data-closed:fill-mode-forwards motion-reduce:animate-none">
-        <ScrollArea className="tool-scroll-area">
-          <div className="tool-body">
+        <ScrollArea className="tool-scroll-area" viewportRef={viewportRef}>
+          <div ref={bodyRef} className="tool-body">
             <ToolContent
               name={toolName}
               args={args}

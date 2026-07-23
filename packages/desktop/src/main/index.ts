@@ -22,12 +22,14 @@ import { SidecarLog } from "./sidecar/sidecar-log.ts";
 import { ThreadWorkerRegistry } from "./sidecar/thread-worker-registry.ts";
 import { ProjectStore } from "./store/project-store.ts";
 import { TerminalSupervisor } from "./terminal/terminal-supervisor.ts";
+import { AutoUpdateService, scheduleAutoUpdateChecks } from "./updater.ts";
 import { WindowDirtyGuard } from "./window-dirty-guard.ts";
 
 let sessions: SessionSupervisor | undefined;
 let metadata: MetadataWorkerClient | undefined;
 let sidecarLog: SidecarLog | undefined;
 let terminals: TerminalSupervisor | undefined;
+let stopAutoUpdateChecks: (() => void) | undefined;
 let quitGuardPending = false;
 const dirtyGuard = new WindowDirtyGuard({
   beforeReload: (window) => sessions?.detachAll(window.webContents.id),
@@ -141,6 +143,7 @@ app.whenReady().then(async () => {
     log: (text) => sidecarLog?.write("auth", text),
   });
   const settings = new SettingsConfigService(userDataDir);
+  const updater = new AutoUpdateService({ app });
   const installer = new NodeRuntimeInstaller(userDataDir, () => undefined);
   const configuredNode = detectNodeRuntime();
   const installedNode =
@@ -187,21 +190,33 @@ app.whenReady().then(async () => {
   });
   sessions = supervisor;
   terminals = new TerminalSupervisor(projects, broadcastTerminalEvent);
-  registerIpc(projects, sessions, new FileService(projects), terminals, models, auth, settings, dirtyGuard, {
-    getStatus: () => {
-      const system = detectNodeRuntime();
-      return system.state === "ready" ? system : detectNodeRuntime(installer.activeNodePath());
+  registerIpc(
+    projects,
+    sessions,
+    new FileService(projects),
+    terminals,
+    models,
+    auth,
+    settings,
+    dirtyGuard,
+    {
+      getStatus: () => {
+        const system = detectNodeRuntime();
+        return system.state === "ready" ? system : detectNodeRuntime(installer.activeNodePath());
+      },
+      install: async () => {
+        const status = await installer.install();
+        app.relaunch();
+        app.exit(0);
+        return status;
+      },
+      onProgress: (listener) => installer.onProgress(listener),
     },
-    install: async () => {
-      const status = await installer.install();
-      app.relaunch();
-      app.exit(0);
-      return status;
-    },
-    onProgress: (listener) => installer.onProgress(listener),
-  });
+    updater,
+  );
   await installReactDevTools();
   createWindow();
+  stopAutoUpdateChecks = scheduleAutoUpdateChecks(updater);
 
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
@@ -224,6 +239,8 @@ app.on("before-quit", (event) => {
     }
     return;
   }
+  stopAutoUpdateChecks?.();
+  stopAutoUpdateChecks = undefined;
   if (!sessions && !metadata && !sidecarLog && !terminals) return;
   sidecarLog?.write("main", "Desktop shutdown started");
   event.preventDefault();

@@ -14,6 +14,7 @@ import { draftSearch } from "../../state/session-navigation.ts";
 import { runControlledThreadAction } from "../../state/thread-list-commands.ts";
 import { TooltipIconButton } from "../assistant-ui/tooltip-icon-button.tsx";
 import { ProjectList } from "./project-list.tsx";
+import { UpdateBanner } from "./update-banner.tsx";
 
 /** Codex Desktop 风格的 Project 与 session 主导航。 */
 export const Sidebar = memo(function Sidebar() {
@@ -23,10 +24,16 @@ export const Sidebar = memo(function Sidebar() {
   const { sidebarWidth, setSidebarWidth } = useLayout();
   const matchRoute = useMatchRoute();
   const navigate = useNavigate();
-  const sessionRoute = matchRoute({ to: "/projects/$projectId/session/$threadId", fuzzy: false });
+  const sessionRoute = matchRoute({
+    to: "/projects/$projectId/session/$threadId",
+    fuzzy: false,
+  });
   const activeProjectId = sessionRoute ? sessionRoute.projectId : null;
   const settingsSearch = sessionRoute
-    ? { returnProjectId: sessionRoute.projectId, returnThreadId: sessionRoute.threadId }
+    ? {
+        returnProjectId: sessionRoute.projectId,
+        returnThreadId: sessionRoute.threadId,
+      }
     : {};
   const resize = useResizableRegion<HTMLElement>({
     value: sidebarWidth,
@@ -52,7 +59,11 @@ export const Sidebar = memo(function Sidebar() {
     <aside
       ref={resize.regionRef}
       className="sidebar"
-      style={{ "--resizable-region-size": `${resize.initialSize}px` } as CSSProperties}
+      style={
+        {
+          "--resizable-region-size": `${resize.initialSize}px`,
+        } as CSSProperties
+      }
     >
       <div
         ref={resize.separatorRef}
@@ -103,6 +114,7 @@ export const Sidebar = memo(function Sidebar() {
         <ScrollArea className="sidebar-projects">
           <ProjectList activeProjectId={activeProjectId} newTaskDisabled={draftMaterializing} onNewTask={startDraft} />
         </ScrollArea>
+        <UpdateBanner />
         <div className="sidebar-footer">
           <Link to="/settings/personalization" search={settingsSearch} className="sidebar-settings-link">
             <Settings size={15} />

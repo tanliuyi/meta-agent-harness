@@ -1,4 +1,5 @@
 import { cn } from "@renderer/shared/lib/cn";
+import { followResizingContentToBottom } from "@renderer/shared/lib/follow-resizing-content-to-bottom";
 import type { ComponentProps } from "react";
 import { useContext, useEffect, useRef } from "react";
 import { ReasoningPreviewContext } from "./reasoning-context.ts";
@@ -13,22 +14,7 @@ export function ReasoningText({ className, children, ...props }: ComponentProps<
     const scrollElement = scrollRef.current;
     const contentElement = contentRef.current;
     if (!scrollElement || !contentElement) return;
-    let frame: number | undefined;
-    const pin = () => {
-      if (frame !== undefined) return;
-      frame = requestAnimationFrame(() => {
-        frame = undefined;
-        if (scrollElement.scrollHeight <= scrollElement.clientHeight) return;
-        scrollElement.scrollTop = scrollElement.scrollHeight;
-      });
-    };
-    pin();
-    const observer = new ResizeObserver(pin);
-    observer.observe(contentElement);
-    return () => {
-      observer.disconnect();
-      if (frame !== undefined) cancelAnimationFrame(frame);
-    };
+    return followResizingContentToBottom(scrollElement, contentElement);
   }, [isPreview]);
 
   return (

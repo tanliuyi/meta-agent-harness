@@ -33,6 +33,7 @@ Renderer 仍由 `src/main.tsx` 导入根 `styles.css`。根文件是兼容入口
 | `utilities.css` | 少量跨组件且语义稳定的工具契约 | 页面和功能块样式 |
 | `components.css` | App 级通知、阻断层等尚未组件化的公共表面 | 新增页面布局 |
 | `layout.css` | 主框架、侧栏、标题栏和设置页的领域样式 | Chat、Panel 内部样式 |
+| `updater.css` | 应用更新提示、进度与关于页更新区域的领域样式 | Chat 消息、Panel 与通用控件样式 |
 | `chat.css` | Chat、Composer、Tool 和 Notice 的领域样式 | App Shell 与设置页样式 |
 | `panel.css` | Workbench、File、Task、Terminal 的领域样式 | Chat 与设置页样式 |
 | `markdown.css` | Streamdown 根契约 | 通用排版 reset |

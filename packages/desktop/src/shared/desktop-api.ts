@@ -30,6 +30,7 @@ import type {
   SaveSettingsConfigResult,
   SettingsConfigSnapshot,
 } from "./settings-config-contracts.ts";
+import type { UpdaterApi } from "./updater-contracts.ts";
 
 export type DesktopPlatform = "win32" | "darwin" | "linux";
 
@@ -83,6 +84,7 @@ export interface DesktopApi {
     getConfig(): Promise<SettingsConfigSnapshot>;
     saveConfig(input: SaveSettingsConfigInput): Promise<SaveSettingsConfigResult>;
   };
+  updater: UpdaterApi;
   windowControls: {
     minimize(): void;
     toggleMaximize(): void;

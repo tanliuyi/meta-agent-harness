@@ -26,6 +26,7 @@ import type { SessionSupervisor } from "./pi/session-supervisor.ts";
 import type { SettingsConfigService } from "./settings/settings-config-service.ts";
 import type { ProjectStore } from "./store/project-store.ts";
 import type { TerminalSupervisor } from "./terminal/terminal-supervisor.ts";
+import type { AutoUpdateService } from "./updater.ts";
 import type { WindowDirtyGuard } from "./window-dirty-guard.ts";
 
 /** 注册 Desktop 的 Project、Pi session、文件和 Workbench IPC。 */
@@ -45,6 +46,7 @@ export function registerIpc(
     install(): Promise<NodeRuntimeStatus>;
     onProgress(listener: (progress: NodeRuntimeProgress) => void): () => void;
   },
+  updater?: AutoUpdateService,
 ): void {
   const subscribedWebContents = new Set<number>();
   const modelEditorWebContents = new Set<number>();
@@ -110,8 +112,12 @@ export function registerIpc(
   ipcMain.handle(CHANNELS.projectsChoose, async (event) => {
     const owner = BrowserWindow.fromWebContents(event.sender) ?? undefined;
     const result = owner
-      ? await dialog.showOpenDialog(owner, { properties: ["openDirectory", "createDirectory"] })
-      : await dialog.showOpenDialog({ properties: ["openDirectory", "createDirectory"] });
+      ? await dialog.showOpenDialog(owner, {
+          properties: ["openDirectory", "createDirectory"],
+        })
+      : await dialog.showOpenDialog({
+          properties: ["openDirectory", "createDirectory"],
+        });
     return result.canceled || !result.filePaths[0] ? null : projects.add(result.filePaths[0]);
   });
   ipcMain.handle(CHANNELS.projectsOpen, (_event, projectId: string) => projects.open(projectId));
@@ -228,6 +234,22 @@ export function registerIpc(
   ipcMain.handle(CHANNELS.workbenchUpdate, (_event, state: WorkbenchState) => projects.setWorkbench(state));
   ipcMain.handle(CHANNELS.nodeRuntimeStatus, () => nodeRuntime.getStatus());
   ipcMain.handle(CHANNELS.nodeRuntimeInstall, () => nodeRuntime.install());
+  if (updater) {
+    ipcMain.handle(CHANNELS.updaterGetState, () => updater.getState());
+    ipcMain.handle(CHANNELS.updaterCheck, () => updater.check());
+    ipcMain.handle(CHANNELS.updaterDownload, () => updater.download());
+    ipcMain.handle(CHANNELS.updaterInstall, async () => {
+      const confirmed = await dirtyGuard.confirmApplicationQuit(BrowserWindow.getAllWindows());
+      if (confirmed) updater.install();
+    });
+    updater.subscribe((state) => {
+      for (const window of BrowserWindow.getAllWindows()) {
+        if (!window.isDestroyed() && !window.webContents.isDestroyed()) {
+          window.webContents.send(CHANNELS.updaterStateChanged, state);
+        }
+      }
+    });
+  }
   nodeRuntime.onProgress((progress) => {
     for (const window of BrowserWindow.getAllWindows()) {
       if (!window.isDestroyed()) window.webContents.send(CHANNELS.nodeRuntimeProgress, progress);

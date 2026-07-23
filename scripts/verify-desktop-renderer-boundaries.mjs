@@ -16,6 +16,7 @@ const LOCAL_STYLE_IMPORTS = new Map([
 	["base.css", '@import "./base.css";'],
 	["components.css", '@import "./components.css" layer(components);'],
 	["layout.css", '@import "./layout.css" layer(components);'],
+	["updater.css", '@import "./updater.css" layer(components);'],
 	["models-settings.css", '@import "./models-settings.css" layer(components);'],
 	["auth-settings.css", '@import "./auth-settings.css" layer(components);'],
 	["chat.css", '@import "./chat.css" layer(components);'],

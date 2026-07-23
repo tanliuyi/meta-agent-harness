@@ -6,6 +6,9 @@ import { defineConfig, externalizeDepsPlugin } from "electron-vite";
 
 export default defineConfig({
   main: {
+    define: {
+      __DESKTOP_UPDATE_URLS__: JSON.stringify(process.env.PI_DESKTOP_UPDATE_URLS ?? ""),
+    },
     build: {
       rollupOptions: {
         external: [

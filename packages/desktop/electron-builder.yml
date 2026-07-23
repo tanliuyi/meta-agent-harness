@@ -17,6 +17,7 @@ afterPack: ../../scripts/validate-desktop-package.mjs
 afterSign: ../../scripts/validate-desktop-signing.mjs
 mac:
   icon: build/icon.png
+  artifactName: meta-agent-desktop-${version}-${arch}.${ext}
   category: public.app-category.developer-tools
   hardenedRuntime: true
   entitlements: build/entitlements.mac.plist
@@ -30,6 +31,7 @@ win:
   target:
     - nsis
 nsis:
+  artifactName: meta-agent-desktop-${version}-setup.${ext}
   oneClick: false
   allowToChangeInstallationDirectory: true
   shortcutName: ${productName}
@@ -37,10 +39,14 @@ nsis:
   createDesktopShortcut: always
 linux:
   icon: build/icon.png
+  executableName: meta-agent-desktop
+  artifactName: meta-agent-desktop-${version}-${arch}.${ext}
   category: Development
   target:
     - AppImage
     - deb
+appImage:
+  artifactName: meta-agent-desktop-${version}.${ext}
 npmRebuild: false
 buildDependenciesFromSource: false
 publish:

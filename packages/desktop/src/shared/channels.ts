@@ -59,4 +59,9 @@ export const CHANNELS = {
   authSetEditorDirty: "desktop:auth:set-editor-dirty",
   settingsGetConfig: "desktop:settings:get-config",
   settingsSaveConfig: "desktop:settings:save-config",
+  updaterGetState: "desktop:updater:get-state",
+  updaterCheck: "desktop:updater:check",
+  updaterDownload: "desktop:updater:download",
+  updaterInstall: "desktop:updater:install",
+  updaterStateChanged: "desktop:updater:state-changed",
 } as const;

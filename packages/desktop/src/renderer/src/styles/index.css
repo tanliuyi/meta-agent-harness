@@ -9,6 +9,7 @@
 @import "./base.css";
 @import "./components.css" layer(components);
 @import "./layout.css" layer(components);
+@import "./updater.css" layer(components);
 @import "./models-settings.css" layer(components);
 @import "./auth-settings.css" layer(components);
 @import "./chat.css" layer(components);

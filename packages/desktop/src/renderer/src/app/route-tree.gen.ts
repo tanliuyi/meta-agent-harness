@@ -14,6 +14,7 @@ import { Route as SettingsRouteImport } from './routes/settings'
 import { Route as ChatIndexRouteImport } from './routes/_chat.index'
 import { Route as ChatNewRouteImport } from './routes/_chat.new'
 import { Route as SettingsIndexRouteImport } from './routes/settings.index'
+import { Route as SettingsAboutRouteImport } from './routes/settings.about'
 import { Route as SettingsAuthRouteImport } from './routes/settings.auth'
 import { Route as SettingsModelsRouteImport } from './routes/settings.models'
 import { Route as SettingsPersonalizationRouteImport } from './routes/settings.personalization'
@@ -43,6 +44,11 @@ const SettingsIndexRoute = SettingsIndexRouteImport.update({
   path: '/',
   getParentRoute: () => SettingsRoute,
 } as any)
+const SettingsAboutRoute = SettingsAboutRouteImport.update({
+  id: '/about',
+  path: '/about',
+  getParentRoute: () => SettingsRoute,
+} as any)
 const SettingsAuthRoute = SettingsAuthRouteImport.update({
   id: '/auth',
   path: '/auth',
@@ -69,6 +75,7 @@ export interface FileRoutesByFullPath {
   '/': typeof ChatIndexRoute
   '/settings': typeof SettingsRouteWithChildren
   '/new': typeof ChatNewRoute
+  '/settings/about': typeof SettingsAboutRoute
   '/settings/auth': typeof SettingsAuthRoute
   '/settings/models': typeof SettingsModelsRoute
   '/settings/personalization': typeof SettingsPersonalizationRoute
@@ -77,6 +84,7 @@ export interface FileRoutesByFullPath {
 }
 export interface FileRoutesByTo {
   '/new': typeof ChatNewRoute
+  '/settings/about': typeof SettingsAboutRoute
   '/settings/auth': typeof SettingsAuthRoute
   '/settings/models': typeof SettingsModelsRoute
   '/settings/personalization': typeof SettingsPersonalizationRoute
@@ -89,6 +97,7 @@ export interface FileRoutesById {
   '/_chat': typeof ChatRouteWithChildren
   '/settings': typeof SettingsRouteWithChildren
   '/_chat/new': typeof ChatNewRoute
+  '/settings/about': typeof SettingsAboutRoute
   '/settings/auth': typeof SettingsAuthRoute
   '/settings/models': typeof SettingsModelsRoute
   '/settings/personalization': typeof SettingsPersonalizationRoute
@@ -102,6 +111,7 @@ export interface FileRouteTypes {
     | '/'
     | '/settings'
     | '/new'
+    | '/settings/about'
     | '/settings/auth'
     | '/settings/models'
     | '/settings/personalization'
@@ -110,6 +120,7 @@ export interface FileRouteTypes {
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/new'
+    | '/settings/about'
     | '/settings/auth'
     | '/settings/models'
     | '/settings/personalization'
@@ -121,6 +132,7 @@ export interface FileRouteTypes {
     | '/_chat'
     | '/settings'
     | '/_chat/new'
+    | '/settings/about'
     | '/settings/auth'
     | '/settings/models'
     | '/settings/personalization'
@@ -171,6 +183,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SettingsIndexRouteImport
       parentRoute: typeof SettingsRoute
     }
+    '/settings/about': {
+      id: '/settings/about'
+      path: '/about'
+      fullPath: '/settings/about'
+      preLoaderRoute: typeof SettingsAboutRouteImport
+      parentRoute: typeof SettingsRoute
+    }
     '/settings/auth': {
       id: '/settings/auth'
       path: '/auth'
@@ -218,6 +237,7 @@ const ChatRouteChildren: ChatRouteChildren = {
 const ChatRouteWithChildren = ChatRoute._addFileChildren(ChatRouteChildren)
 
 interface SettingsRouteChildren {
+  SettingsAboutRoute: typeof SettingsAboutRoute
   SettingsAuthRoute: typeof SettingsAuthRoute
   SettingsModelsRoute: typeof SettingsModelsRoute
   SettingsPersonalizationRoute: typeof SettingsPersonalizationRoute
@@ -225,6 +245,7 @@ interface SettingsRouteChildren {
 }
 
 const SettingsRouteChildren: SettingsRouteChildren = {
+  SettingsAboutRoute: SettingsAboutRoute,
   SettingsAuthRoute: SettingsAuthRoute,
   SettingsModelsRoute: SettingsModelsRoute,
   SettingsPersonalizationRoute: SettingsPersonalizationRoute,

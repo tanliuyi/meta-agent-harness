@@ -5,6 +5,7 @@ import { settingsReturnSession } from "@renderer/state/settings-navigation";
 import { Link, Outlet, useSearch } from "@tanstack/react-router";
 import ArrowLeft from "lucide-react/dist/esm/icons/arrow-left.mjs";
 import Boxes from "lucide-react/dist/esm/icons/boxes.mjs";
+import Info from "lucide-react/dist/esm/icons/info.mjs";
 import Key from "lucide-react/dist/esm/icons/key.mjs";
 import Palette from "lucide-react/dist/esm/icons/palette.mjs";
 import type { CSSProperties } from "react";
@@ -30,7 +31,11 @@ export function SettingsPage() {
       <aside
         ref={resize.regionRef}
         className="settings-menu"
-        style={{ "--resizable-region-size": `${resize.initialSize}px` } as CSSProperties}
+        style={
+          {
+            "--resizable-region-size": `${resize.initialSize}px`,
+          } as CSSProperties
+        }
       >
         <div
           ref={resize.separatorRef}
@@ -53,7 +58,10 @@ export function SettingsPage() {
             {returnSession ? (
               <Link
                 to="/projects/$projectId/session/$threadId"
-                params={{ projectId: returnSession.projectId, threadId: returnSession.threadId }}
+                params={{
+                  projectId: returnSession.projectId,
+                  threadId: returnSession.threadId,
+                }}
                 className="settings-menu-item settings-back-link"
               >
                 <ArrowLeft />
@@ -81,6 +89,10 @@ export function SettingsPage() {
             <Link to="/settings/auth" search={search} className="settings-menu-item" activeOptions={{ exact: true }}>
               <Key />
               <span>凭据</span>
+            </Link>
+            <Link to="/settings/about" search={search} className="settings-menu-item" activeOptions={{ exact: true }}>
+              <Info />
+              <span>关于</span>
             </Link>
           </nav>
         </div>

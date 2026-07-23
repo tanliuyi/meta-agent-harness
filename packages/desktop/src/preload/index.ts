@@ -9,6 +9,7 @@ import type {
   TerminalEvent,
 } from "../shared/contracts.ts";
 import type { DesktopApi, DesktopPlatform, NodeRuntimeProgress } from "../shared/desktop-api.ts";
+import type { UpdaterState } from "../shared/updater-contracts.ts";
 
 interface ActiveSessionAttachment {
   attachmentId: string;
@@ -168,6 +169,17 @@ const desktopApi: DesktopApi = {
   settings: {
     getConfig: () => ipcRenderer.invoke(CHANNELS.settingsGetConfig),
     saveConfig: (input) => ipcRenderer.invoke(CHANNELS.settingsSaveConfig, input),
+  },
+  updater: {
+    getState: () => ipcRenderer.invoke(CHANNELS.updaterGetState),
+    check: () => ipcRenderer.invoke(CHANNELS.updaterCheck),
+    download: () => ipcRenderer.invoke(CHANNELS.updaterDownload),
+    install: () => ipcRenderer.invoke(CHANNELS.updaterInstall),
+    onStateChanged(listener) {
+      const handler = (_event: Electron.IpcRendererEvent, state: UpdaterState) => listener(state);
+      ipcRenderer.on(CHANNELS.updaterStateChanged, handler);
+      return () => ipcRenderer.removeListener(CHANNELS.updaterStateChanged, handler);
+    },
   },
   nodeRuntime: {
     getStatus: () => ipcRenderer.invoke(CHANNELS.nodeRuntimeStatus),

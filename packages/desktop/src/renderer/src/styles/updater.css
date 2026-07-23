@@ -1,0 +1,153 @@
+.update-banner {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.375rem 0.5rem;
+  margin: 0 0.5rem 0.25rem;
+  padding: 0.5rem;
+  border: 0.0625rem solid hsl(var(--border));
+  border-radius: var(--shape-radius-md);
+  background: hsl(var(--card));
+  box-shadow: var(--settings-group-shadow);
+}
+
+.update-banner-copy {
+  min-width: 0;
+}
+
+.update-banner-copy strong {
+  display: block;
+  overflow: hidden;
+  color: hsl(var(--foreground));
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.update-banner-progress {
+  width: 100%;
+  height: 0.25rem;
+  grid-column: 1 / -1;
+  accent-color: hsl(var(--primary));
+}
+
+.update-banner > button {
+  width: 1.75rem;
+  height: 1.75rem;
+}
+
+.about-settings {
+  display: grid;
+  gap: 1.5rem;
+}
+
+.about-product {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding-bottom: 1.5rem;
+  border-bottom: 0.0625rem solid hsl(var(--border) / 0.8);
+}
+
+.about-product-mark {
+  display: grid;
+  width: 3rem;
+  height: 3rem;
+  flex: 0 0 3rem;
+  place-items: center;
+  border-radius: var(--shape-radius-lg);
+  background: hsl(var(--foreground));
+  color: hsl(var(--background));
+  font-size: 0.875rem;
+  font-weight: 700;
+  letter-spacing: 0;
+}
+
+.about-product h2,
+.about-product p,
+.about-update-heading p {
+  margin: 0;
+}
+
+.about-product h2 {
+  font-size: 1.25rem;
+  font-weight: 650;
+  letter-spacing: 0;
+}
+
+.about-product p,
+.about-update-heading p {
+  margin-top: 0.25rem;
+  color: hsl(var(--muted-foreground));
+  font-size: 0.75rem;
+}
+
+.about-update-heading {
+  min-height: 3.5rem;
+  gap: 1rem;
+}
+
+.about-update-status {
+  display: grid;
+  gap: 0.625rem;
+  padding: 0.75rem 1rem;
+  border-top: 0.0625rem solid hsl(var(--border) / 0.8);
+  color: hsl(var(--muted-foreground));
+  font-size: 0.8125rem;
+}
+
+.about-update-status[data-error="true"] {
+  color: hsl(var(--destructive));
+}
+
+.about-update-status > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  min-width: 0;
+}
+
+.about-update-status span {
+  overflow-wrap: anywhere;
+}
+
+.about-update-status progress {
+  width: 100%;
+  height: 0.25rem;
+  accent-color: hsl(var(--primary));
+}
+
+.about-release-notes {
+  max-height: 10rem;
+  margin: 0;
+  padding: 0.75rem 1rem;
+  overflow: auto;
+  border-top: 0.0625rem solid hsl(var(--border) / 0.8);
+  color: hsl(var(--muted-foreground));
+  font-family: inherit;
+  font-size: 0.75rem;
+  line-height: 1.6;
+  white-space: pre-wrap;
+}
+
+.about-footer {
+  display: flex;
+  gap: 1rem;
+  color: hsl(var(--muted-foreground));
+  font-size: 0.6875rem;
+}
+
+.update-spin {
+  animation: spin var(--motion-duration-spinner) var(--motion-ease-linear) infinite;
+}
+
+@media (max-width: 51.25rem) {
+  .about-update-heading,
+  .about-update-status > div,
+  .about-footer {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+}
