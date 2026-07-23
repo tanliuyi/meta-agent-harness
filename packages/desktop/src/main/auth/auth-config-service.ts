@@ -5,7 +5,15 @@ import { dirname, join } from "node:path";
 import { isDeepStrictEqual } from "node:util";
 import { findEnvKeys } from "@earendil-works/pi-ai/compat";
 import { getModelsConfigMetadata } from "@earendil-works/pi-coding-agent/models-config";
-import { applyEdits, type FormattingOptions, modify, type ParseError, parse } from "jsonc-parser";
+import {
+  applyEdits,
+  type FormattingOptions,
+  getLocation,
+  modify,
+  type ParseError,
+  parse,
+  printParseErrorCode,
+} from "jsonc-parser";
 import lockfile from "proper-lockfile";
 import type {
   AuthConfigDiagnostic,
@@ -172,21 +180,36 @@ export class AuthConfigService {
     const bytes = await readFile(this.path);
     const source = bytes.toString("utf8");
     const revision = hashBytes(bytes);
+    const parseSource = source.startsWith("\uFEFF") ? source.slice(1) : source;
     const parseErrors: ParseError[] = [];
-    const parsedValue = parse(source, parseErrors, { allowTrailingComma: true });
+    const parsedValue = parse(parseSource, parseErrors, { allowTrailingComma: true });
     if (parseErrors.length > 0 || !isPlainObject(parsedValue)) {
       return {
         exists: true,
         revision,
         source,
-        diagnostics: [
-          {
-            severity: "error",
-            code: "syntax.invalid",
-            path: [],
-            message: parseErrors.length > 0 ? "auth.json JSONC 语法无效" : "auth.json must be a JSON object",
-          },
-        ],
+        diagnostics:
+          parseErrors.length > 0
+            ? parseErrors.map((error) => {
+                const prefix = parseSource.slice(0, error.offset);
+                const line = prefix.split("\n").length;
+                const column = error.offset - prefix.lastIndexOf("\n");
+                const errorName = printParseErrorCode(error.error);
+                return {
+                  severity: "error" as const,
+                  code: `syntax.${errorName}`,
+                  path: getLocation(parseSource, error.offset).path,
+                  message: `auth.json JSONC 语法无效（第 ${line} 行，第 ${column} 列：${errorName}）`,
+                };
+              })
+            : [
+                {
+                  severity: "error" as const,
+                  code: "schema.root",
+                  path: [],
+                  message: "auth.json 必须是 JSON 对象",
+                },
+              ],
         sourceState: "invalid",
         stats,
       };

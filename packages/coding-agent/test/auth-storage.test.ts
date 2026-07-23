@@ -47,6 +47,19 @@ describe("AuthStorage", () => {
 			expect(apiKey).toBe("sk-ant-literal-key");
 		});
 
+		test("loads auth.json with an UTF-8 BOM", async () => {
+			writeFileSync(
+				authJsonPath,
+				`\uFEFF${JSON.stringify({ anthropic: { type: "api_key", key: "sk-ant-bom-key" } })}`,
+				"utf-8",
+			);
+
+			authStorage = AuthStorage.create(authJsonPath);
+
+			expect(await authStorage.getApiKey("anthropic")).toBe("sk-ant-bom-key");
+			expect(authStorage.drainErrors()).toEqual([]);
+		});
+
 		test("apiKey with ! prefix executes command and uses stdout", async () => {
 			writeAuthJson({
 				anthropic: { type: "api_key", key: "!echo test-api-key-from-command" },

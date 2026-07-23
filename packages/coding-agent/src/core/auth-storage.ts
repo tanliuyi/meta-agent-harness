@@ -250,7 +250,8 @@ export class AuthStorage {
 		if (!content) {
 			return {};
 		}
-		return JSON.parse(content) as AuthStorageData;
+		const source = content.startsWith("\uFEFF") ? content.slice(1) : content;
+		return JSON.parse(source) as AuthStorageData;
 	}
 
 	/**

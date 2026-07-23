@@ -64,6 +64,22 @@ describe("AuthConfigService", () => {
     expect(openai!.apiKey!.env![0]).toEqual({ key: "OPENAI_API_KEY", value: "sk-real-secret" });
   });
 
+  test("accepts an UTF-8 BOM and preserves it when editing", async () => {
+    await mkdir(directory, { recursive: true });
+    await writeFile(configPath, `\uFEFF${SOURCE_VALID}`, "utf8");
+
+    const snapshot = await service.getConfig();
+    expect(snapshot.sourceState).toBe("valid");
+    const anthropic = snapshot.providers.find((provider) => provider.key === "anthropic")!;
+    anthropic.apiKey!.key = "sk-ant-updated";
+
+    const result = await service.saveConfig({ expectedRevision: snapshot.revision, providers: snapshot.providers });
+    expect(result.status).toBe("saved");
+    const saved = await readFile(configPath, "utf8");
+    expect(saved.startsWith("\uFEFF")).toBe(true);
+    expect(saved).toContain('"key": "sk-ant-updated"');
+  });
+
   test("loads OAuth credential as read-only summary", async () => {
     await mkdir(directory, { recursive: true });
     await writeFile(configPath, SOURCE_VALID, "utf8");
@@ -278,13 +294,19 @@ describe("AuthConfigService", () => {
     await rm(targetDirectory, { recursive: true, force: true });
   });
 
-  test("returns invalid snapshot for unparseable JSON", async () => {
+  test("returns invalid snapshot with a precise location for unparseable JSON", async () => {
     await mkdir(directory, { recursive: true });
-    await writeFile(configPath, "{ invalid json }", "utf8");
+    await writeFile(configPath, '{\n  "anthropic": {\n    "type": "api_key",\n    "key":\n  }\n}', "utf8");
     const snapshot = await service.getConfig();
     expect(snapshot.sourceState).toBe("invalid");
     expect(snapshot.providers).toEqual([]);
-    expect(snapshot.diagnostics.length).toBeGreaterThan(0);
+    expect(snapshot.diagnostics[0]).toEqual(
+      expect.objectContaining({
+        code: "syntax.ValueExpected",
+        path: ["anthropic", "key"],
+        message: expect.stringContaining("第 5 行，第 3 列"),
+      }),
+    );
 
     // Saving should fail on invalid source
     const result = await service.saveConfig({ expectedRevision: snapshot.revision, providers: [] });
