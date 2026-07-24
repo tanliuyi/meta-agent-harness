@@ -1,6 +1,6 @@
 {
   "name": "@earendil-works/pi-desktop",
-  "version": "0.0.26",
+  "version": "0.0.29",
   "private": true,
   "description": "Meta Agent desktop application",
   "type": "module",
