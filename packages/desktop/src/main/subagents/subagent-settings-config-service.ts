@@ -23,6 +23,7 @@ import { DesktopBuiltinProviderRegistry } from "../pi/desktop-builtin-provider.t
 import { handleManagementAction } from "../pi/extensions/pi-subagents/src/agents/agent-management.ts";
 import {
   type AgentConfig,
+  type AgentScope,
   type ChainConfig,
   discoverAgentSnapshot,
   discoverAgentsAll,
@@ -348,7 +349,12 @@ export class SubagentSettingsConfigService {
   }
 
   private discover(context: ResolvedContext): ReturnType<typeof discoverAgentsAll> {
-    const scope = context.settingsScope === "system" ? "project" : context.discoveryScope;
+    const scope: AgentScope =
+      context.settingsScope === "system"
+        ? "project"
+        : context.discoveryScope === "system"
+          ? "both"
+          : context.discoveryScope;
     const all = discoverAgentSnapshot(context.cwd, scope, undefined, {
       builtinAgentsDir: this.options.builtinAgentsDir,
     }).all;

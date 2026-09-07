@@ -18,7 +18,7 @@ import {
   useState,
 } from "react";
 
-import type { WorkbenchState } from "../../../shared/contracts.ts";
+import type { WorkbenchState } from "../../../../shared/contracts.ts";
 
 import { useSessionScope, useSessionWorkbenchSelector } from "../session-context.tsx";
 import { FilePanel } from "./files/file-panel.tsx";
@@ -402,7 +402,7 @@ export function ProjectPanel() {
       };
 
       if (tab.kind === "file") {
-        const nextFiles = closeWorkbenchFile(openFiles, activeFile, tab.path);
+        const nextFiles = closeWorkbenchFile(openFiles, activeFile ?? null, tab.path);
         if (!nextFiles) return;
         Object.assign(patch, nextFiles);
         if (previewFile === tab.path) patch.previewFile = undefined;

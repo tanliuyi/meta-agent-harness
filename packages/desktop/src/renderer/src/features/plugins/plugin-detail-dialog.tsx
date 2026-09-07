@@ -87,13 +87,7 @@ export function PluginDetailDialog({
           onUpdate={onUpdate}
           onUninstall={onUninstall}
         />
-        <PluginDetailContent
-          plugin={plugin}
-          installed={installed}
-          marketplaceId={marketplaceId}
-          mutationPending={mutationPending}
-          onSetEnabled={onSetEnabled}
-        />
+        <PluginDetailContent plugin={plugin} installed={installed} marketplaceId={marketplaceId} />
       </DialogContent>
     </Dialog>
   );
