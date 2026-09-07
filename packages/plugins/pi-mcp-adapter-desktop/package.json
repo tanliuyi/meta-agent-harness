@@ -1,0 +1,30 @@
+{
+  "name": "pi-mcp-adapter-desktop",
+  "version": "0.1.0",
+  "private": true,
+  "description": "为桌面端提供 MCP(Model Context Protocol)服务器接入能力的插件:直接工具、mcp 代理工具、OAuth 授权与 MCP UI 会话",
+  "type": "module",
+  "scripts": {
+    "test": "node --import tsx --test test/*.test.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "pi-mcp-adapter": "file:vendor/pi-mcp-adapter"
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-agent-core": "*",
+    "@earendil-works/pi-ai": "*",
+    "@earendil-works/pi-coding-agent": "*",
+    "@earendil-works/pi-tui": "*",
+    "typebox": "*"
+  },
+  "devDependencies": {
+    "tsx": "4.22.1",
+    "typescript": "5.9.3"
+  },
+  "pi": {
+    "extensions": [
+      "./index.ts"
+    ]
+  }
+}
