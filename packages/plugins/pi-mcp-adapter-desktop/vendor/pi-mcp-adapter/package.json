@@ -163,16 +163,16 @@
   "dependencies": {
     "@modelcontextprotocol/client": "2.0.0",
     "@modelcontextprotocol/core": "2.0.0",
-    "@modelcontextprotocol/ext-apps": "^1.2.2",
-    "@napi-rs/keyring": "^1.3.0",
-    "ajv": "^8.17.1",
-    "ajv-formats": "^3.0.1",
-    "cross-spawn": "^7.0.6",
-    "open": "^10.2.0",
-    "recheck": "^4.5.0",
-    "smol-toml": "^1.6.1",
-    "strip-json-comments": "^5.0.3",
-    "zod": "^3.25.0 || ^4.0.0"
+    "@modelcontextprotocol/ext-apps": "1.2.2",
+    "@napi-rs/keyring": "1.3.0",
+    "ajv": "8.17.1",
+    "ajv-formats": "3.0.1",
+    "cross-spawn": "7.0.6",
+    "open": "10.2.0",
+    "recheck": "4.5.0",
+    "smol-toml": "1.6.1",
+    "strip-json-comments": "5.0.3",
+    "zod": "3.25.76"
   },
   "peerDependencies": {
     "@earendil-works/pi-ai": "*",

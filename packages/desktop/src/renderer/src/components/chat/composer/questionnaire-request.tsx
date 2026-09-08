@@ -1,4 +1,5 @@
 import { Button } from "@renderer/shared/ui/button";
+import TriangleAlert from "lucide-react/dist/esm/icons/triangle-alert.mjs";
 import { useState } from "react";
 import type { HostRequest } from "../../../../../shared/contracts.ts";
 import { useHostRequestResponder } from "../host-request-response.ts";
@@ -61,27 +62,28 @@ export function QuestionnaireRequest({ request, projectId, threadId }: Props) {
 
   return (
     <section
-      className="composer-surface flex w-full flex-col gap-2 rounded-(--composer-radius) border border-border/60 bg-(--composer-background) p-3 shadow-(--elevation-composer)"
+      className="composer-surface flex w-full flex-col gap-3 rounded-(--composer-radius) border border-border/60 bg-(--composer-background) p-4 shadow-(--elevation-composer)"
       aria-label="扩展询问"
     >
-      <div className="flex min-w-0 items-center justify-between gap-2 text-[11px] text-muted-foreground">
-        {request.toolCallId ? (
-          <span className="min-w-0 truncate font-mono" title={request.toolCallId}>
-            工具 {request.toolCallId}
+      <div className="flex items-start justify-between gap-3 px-1 pb-1">
+        <div className="flex min-w-0 items-start gap-3">
+          <span
+            className="inline-flex shrink-0 items-center gap-1.5 rounded-md bg-warning px-2 py-1 text-xs font-semibold text-white shadow-sm"
+            title={request.toolCallId ? `工具 ${request.toolCallId}` : undefined}
+          >
+            <TriangleAlert className="size-3.5" aria-hidden="true" />
+            {question.header}
           </span>
-        ) : (
-          <span>扩展询问</span>
-        )}
-        <span className="shrink-0">
+          <h2 className="min-w-0 whitespace-pre-wrap break-words pt-0.5 text-sm font-semibold leading-relaxed">
+            {question.question}
+          </h2>
+        </div>
+        <span className="shrink-0 pt-1 text-[11px] text-muted-foreground">
           {current + 1} / {input.questions.length} · 已完成 {answered}
         </span>
       </div>
-      <div key={current} className="flex flex-col gap-2">
-        <div className="flex items-baseline gap-2">
-          <span className="text-xs font-medium text-muted-foreground">{question.header}</span>
-          <h2 className="whitespace-pre-wrap break-words text-sm font-semibold">{question.question}</h2>
-        </div>
-        <div className="grid gap-1" role="group" aria-label={question.question}>
+      <div key={current} className="flex flex-col gap-3">
+        <div className="grid gap-2" role="group" aria-label={question.question}>
           {question.options.map((option, index) => {
             const selected = draft.selected.includes(index);
             return (
@@ -90,13 +92,23 @@ export function QuestionnaireRequest({ request, projectId, threadId }: Props) {
                 key={option.label}
                 type="button"
                 aria-pressed={selected}
-                className={`rounded-lg border px-2.5 py-1.5 text-left text-xs ${selected ? "border-primary bg-accent" : "hover:bg-accent"}`}
+                className={`rounded-xl border px-3 py-2.5 text-left outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring/50 ${selected ? "border-primary bg-accent" : "hover:bg-accent/70"}`}
                 disabled={responding}
                 onClick={() => toggle(index)}
               >
-                {question.multiSelect ? (selected ? "☑ " : "☐ ") : ""}
-                {option.label}
-                <span className="ml-2 text-muted-foreground">{option.description}</span>
+                <span className="flex items-start gap-2">
+                  {question.multiSelect ? (
+                    <span className="mt-0.5 shrink-0 text-sm" aria-hidden="true">
+                      {selected ? "☑" : "☐"}
+                    </span>
+                  ) : null}
+                  <span className="min-w-0">
+                    <span className="block text-sm font-medium leading-5">{option.label}</span>
+                    <span className="mt-0.5 block text-xs leading-relaxed text-muted-foreground">
+                      {option.description}
+                    </span>
+                  </span>
+                </span>
               </button>
             );
           })}
@@ -109,7 +121,7 @@ export function QuestionnaireRequest({ request, projectId, threadId }: Props) {
       ) : null}
       <input
         aria-label="自定义回答"
-        className="h-8 rounded-lg border bg-transparent px-2 text-xs"
+        className="h-10 rounded-xl border bg-transparent px-3 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
         value={draft.text}
         disabled={responding}
         placeholder="Type something."
@@ -118,7 +130,7 @@ export function QuestionnaireRequest({ request, projectId, threadId }: Props) {
           update({ text, custom: Boolean(text), selected: [], confirmed: false });
         }}
       />
-      <div className="flex justify-between gap-2">
+      <div className="flex justify-between gap-3 border-t border-border/60 pt-3">
         <Button variant="ghost" disabled={responding} onClick={() => submit(true)}>
           取消
         </Button>

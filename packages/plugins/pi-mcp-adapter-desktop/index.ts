@@ -3,6 +3,10 @@ import { createMcpAdapter } from "pi-mcp-adapter";
 import { applyDesktopConfig, getExplicitConfigPath, type DesktopMcpAdapterConfig } from "./src/configuration.ts";
 import { createDesktopApi, resolveOpenBrowser } from "./desktop-api.ts";
 
+interface DesktopExtensionAPI extends ExtensionAPI {
+  getConfig<T = DesktopMcpAdapterConfig>(): Readonly<T>;
+}
+
 /**
  * pi-mcp-adapter Desktop 插件入口。
  *
@@ -11,7 +15,8 @@ import { createDesktopApi, resolveOpenBrowser } from "./desktop-api.ts";
  * 并通过 createDesktopApi 将扩展 surface 约束在 Desktop Host Profile v1 内。
  */
 export default function piMcpAdapterDesktop(pi: ExtensionAPI): void {
-  const config = pi.getConfig<DesktopMcpAdapterConfig>();
+  const hostApi = pi as Partial<DesktopExtensionAPI>;
+  const config = typeof hostApi.getConfig === "function" ? hostApi.getConfig<DesktopMcpAdapterConfig>() : {};
   applyDesktopConfig(config);
   const configPath = getExplicitConfigPath(config);
   const adapter = createMcpAdapter(configPath ? { configPath } : {});

@@ -72,6 +72,8 @@ describe("Host request components", () => {
 
     expect(markup.match(/<input\b/g)).toHaveLength(1);
     expect(markup).toContain('placeholder="Type something."');
+    expect(markup).toContain("bg-warning px-2 py-1");
+    expect(markup).not.toContain("border-warning/30 bg-warning/10");
     expect(markup).not.toContain("<textarea");
     expect(markup).not.toContain("备注");
   });
