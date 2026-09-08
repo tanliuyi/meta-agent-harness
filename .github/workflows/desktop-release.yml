@@ -33,11 +33,6 @@ jobs:
             builder_args: --win --x64
             update_channel: latest
           - platform: macos
-            arch: x64
-            os: macos-15-intel
-            builder_args: --mac --x64
-            update_channel: latest
-          - platform: macos
             arch: arm64
             os: macos-latest
             builder_args: --mac --arm64
