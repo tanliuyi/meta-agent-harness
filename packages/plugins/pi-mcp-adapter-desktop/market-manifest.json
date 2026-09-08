@@ -6,7 +6,7 @@
     "id": "pi.mcp-adapter",
     "name": "MCP Adapter",
     "version": "0.0.0-local",
-    "publisherId": "meta-agent"
+    "publisherId": "admin"
   },
   "pi": {
     "entry": "index.ts",

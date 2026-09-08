@@ -26,6 +26,7 @@ import { getModelsConfigMetadata } from "../models/models-config-metadata.ts";
 import type { ModelsModelDefinition } from "../models/models-config-schema.ts";
 import piAutoTitleExtension from "./extensions/pi-auto-title/index.ts";
 import piBrowserExtension, { runCodeCatalog as piBrowserCatalog } from "./extensions/pi-browser/index.ts";
+import piGoalExtension from "./extensions/pi-goal/src/index.ts";
 import hermesMemoryExtension from "./extensions/pi-hermes-memory/index.ts";
 import piRewindExtension from "./extensions/pi-rewind/src/index.ts";
 import subagentsExtension from "./extensions/pi-subagents/index.ts";
@@ -75,6 +76,28 @@ const builtinExtensions: Array<{ definition: DesktopExtensionDefinition; factory
       capabilities: ["events.subscribe", "messages.custom", "session.read", "ui.notify"],
     },
     factory: { name: "desktop:pi-rewind", factory: piRewindExtension },
+  },
+  {
+    definition: {
+      id: "pi-goal",
+      displayName: "Goal",
+      source: "builtin",
+      hostProfileVersion: DESKTOP_EXTENSION_HOST_PROFILE_VERSION,
+      capabilities: [
+        "tools.register",
+        "events.subscribe",
+        "commands.register",
+        "messages.enqueue",
+        "messages.custom",
+        "session.read",
+        "session.abort",
+        "session.compact",
+        "ui.notify",
+        "ui.dialog",
+        "ui.status",
+      ],
+    },
+    factory: { name: "desktop:pi-goal", factory: piGoalExtension },
   },
   {
     definition: {

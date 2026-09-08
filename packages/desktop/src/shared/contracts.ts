@@ -5,6 +5,7 @@ import type {
   StaleDraftExtensionSetErrorDetails,
 } from "./desktop-extension-contracts.ts";
 
+import type { PiGoalSnapshot } from "./pi-goal-contracts.ts";
 import type { QuestionnaireInput, QuestionnaireResult } from "./questionnaire-contracts.ts";
 
 export type { DesktopExtensionHostState } from "./desktop-extension-contracts.ts";
@@ -456,6 +457,8 @@ export interface SessionControlState {
     reloadRequired: boolean;
   };
   extensionHost: DesktopExtensionHostState;
+  /** Native state projected by the built-in pi-goal extension. */
+  goal?: PiGoalSnapshot;
 }
 
 /** renderer attach 所需的权威 Pi timeline 与低频控制基线。 */

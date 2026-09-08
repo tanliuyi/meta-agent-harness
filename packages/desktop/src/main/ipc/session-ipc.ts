@@ -16,6 +16,7 @@ import type {
   SessionResourceReloadInput,
 } from "../../shared/contracts.ts";
 import type { DesktopWidgetViewport } from "../../shared/desktop-extension-contracts.ts";
+import type { PiGoalSnapshot, SessionGoalActionInput } from "../../shared/pi-goal-contracts.ts";
 import type {
   SessionCheckpointDiffInput,
   SessionCheckpointDiffResult,
@@ -53,6 +54,7 @@ export const SESSION_IPC_CHANNELS = [
   CHANNELS.sessionsEdit,
   CHANNELS.sessionsReload,
   CHANNELS.sessionsReloadResources,
+  CHANNELS.sessionsRunGoalAction,
   CHANNELS.sessionsOpenRunCodeArtifact,
   CHANNELS.sessionsGetCheckpointDiff,
   CHANNELS.sessionsRestoreCheckpoint,
@@ -138,6 +140,10 @@ export function registerSessionIpc({ sessions, terminals }: SessionIpcDependenci
   ipcMain.handle(CHANNELS.sessionsReload, (_event, input: SessionReloadInput) => sessions.reload(input));
   ipcMain.handle(CHANNELS.sessionsReloadResources, (_event, input: SessionResourceReloadInput) =>
     sessions.reloadResources(input),
+  );
+  ipcMain.handle(
+    CHANNELS.sessionsRunGoalAction,
+    (_event, input: SessionGoalActionInput): Promise<PiGoalSnapshot> => sessions.runGoalAction(input),
   );
   ipcMain.handle(CHANNELS.sessionsOpenRunCodeArtifact, async (event, input: OpenRunCodeArtifactInput) => {
     await openPath(await sessions.resolveRunCodeArtifact(event.sender.id, input));

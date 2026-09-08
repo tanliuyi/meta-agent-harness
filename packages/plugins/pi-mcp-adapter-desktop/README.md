@@ -4,7 +4,7 @@
 
 ## Marketplace 描述
 
-发布到插件市场时使用的描述（marketplace ID `meta-agent-development`，publisher `meta-agent`，插件 `pi.mcp-adapter`）：
+发布到插件市场时使用的描述（marketplace ID `meta-agent-development`，publisher `admin`，插件 `pi.mcp-adapter`）：
 
 > 为桌面端提供 MCP（Model Context Protocol）服务器接入能力：直接工具注册、`mcp` 代理工具、`mcpScript` 脚本、`/mcp`、`/mcp-auth` 命令、OAuth 授权（内置浏览器打开授权页）与 MCP UI 会话。支持从 `~/.config/mcp/mcp.json`、`.mcp.json`、Claude/Codex 等宿主配置导入服务器。
 

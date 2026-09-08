@@ -25,6 +25,7 @@ import type {
   Thread,
 } from "../../shared/contracts.ts";
 import type { DesktopWidgetViewport } from "../../shared/desktop-extension-contracts.ts";
+import type { PiGoalSnapshot, SessionGoalActionInput } from "../../shared/pi-goal-contracts.ts";
 import type {
   SessionCheckpointDiffInput,
   SessionCheckpointDiffResult,
@@ -203,6 +204,10 @@ export class SessionSupervisor {
 
   reloadResources(input: SessionResourceReloadInput): Promise<SessionCommandResult> {
     return this.workers.reloadResources(input);
+  }
+
+  runGoalAction(input: SessionGoalActionInput): Promise<PiGoalSnapshot> {
+    return this.workers.runGoalAction(input);
   }
 
   getCheckpointDiff(input: SessionCheckpointDiffInput): Promise<SessionCheckpointDiffResult> {

@@ -35,6 +35,7 @@ import type {
   DesktopWidgetViewport,
   ResolvedExtensionSet,
 } from "../../shared/desktop-extension-contracts.ts";
+import type { PiGoalSnapshot, SessionGoalActionInput } from "../../shared/pi-goal-contracts.ts";
 import type { SessionCheckpointDiffResult, SessionCheckpointRestoreResult } from "../../shared/pi-rewind-contracts.ts";
 import { FileCredentialStore } from "../models/credential-store.ts";
 import { DesktopBuiltinProviderRegistry } from "./desktop-builtin-provider.ts";
@@ -47,6 +48,11 @@ import {
   sanitizeExtensionMessage,
   validatePluginSkills,
 } from "./desktop-extension-runtime-policy.ts";
+import {
+  getDesktopGoalSnapshot,
+  runDesktopGoalAction,
+  subscribeDesktopGoal,
+} from "./extensions/pi-goal/src/service.ts";
 import { getDesktopCheckpointDiff, restoreDesktopCheckpoint } from "./extensions/pi-rewind/src/index.ts";
 import { PiCompatibilityAdapter } from "./pi-compatibility-adapter.ts";
 import { PiThreadProjector } from "./pi-thread-projector.ts";
@@ -89,6 +95,7 @@ export class SessionRuntime {
   private lastError?: string;
   private timelineError?: PiTimelineUnavailableError;
   private unsubscribe?: () => void;
+  private unsubscribeGoal?: () => void;
   private summaryState: Omit<Thread, "projectId" | "archived" | "running">;
   readonly projectId: string;
   readonly cwd: string;
@@ -145,6 +152,7 @@ export class SessionRuntime {
     );
     this.compatibility = new PiCompatibilityAdapter({ session, projector: this.projector });
     this.summaryState = createSummary(session, initialUpdatedAt);
+    this.unsubscribeGoal = subscribeDesktopGoal(cwd, session.sessionId, () => this.publishControl());
   }
 
   /** 创建新会话或从指定 SessionManager 恢复会话。 */
@@ -333,6 +341,8 @@ export class SessionRuntime {
       isBlockingExtensionDiagnostic,
     );
     if (blockingExtensionDiagnostics.length > 0) {
+      runtime.unsubscribeGoal?.();
+      runtime.unsubscribeGoal = undefined;
       runtime.extensionHost.dispose();
       result.session.dispose();
       throw new DesktopExtensionStartupError(extensionSet.generation, blockingExtensionDiagnostics);
@@ -341,6 +351,8 @@ export class SessionRuntime {
       (diagnostic) => diagnostic.phase === "start" && isBlockingExtensionDiagnostic(diagnostic),
     );
     if (bindingFailure || startupDiagnostics.length > 0) {
+      runtime.unsubscribeGoal?.();
+      runtime.unsubscribeGoal = undefined;
       runtime.extensionHost.dispose();
       result.session.dispose();
       throw new DesktopExtensionStartupError(extensionSet.generation, startupDiagnostics);
@@ -410,6 +422,11 @@ export class SessionRuntime {
     this.assertTimelineAvailable();
     if (input.threadId !== this.id || input.projectId !== this.projectId) throw new Error("Pi reload session 不匹配");
     return this.runCommand(input.requestId, () => this.compatibility.reload(input));
+  }
+
+  async runGoalAction(action: SessionGoalActionInput["action"]): Promise<PiGoalSnapshot> {
+    this.assertTimelineAvailable();
+    return runDesktopGoalAction(this.cwd, this.id, action);
   }
 
   getCheckpointDiff(
@@ -575,6 +592,8 @@ export class SessionRuntime {
       }
     }
     this.unsubscribe?.();
+    this.unsubscribeGoal?.();
+    this.unsubscribeGoal = undefined;
     this.projector.dispose();
     this.extensionHost.dispose();
     for (const timer of this.commandExpiryTimers) clearTimeout(timer);
@@ -622,6 +641,7 @@ export class SessionRuntime {
         reloadRequired: false,
       },
       extensionHost: this.extensionHost.hostState,
+      goal: getDesktopGoalSnapshot(this.cwd, this.id),
     };
   }
 

@@ -28,6 +28,7 @@ export function SessionComposer() {
   const widgets = useSessionControlSelector((control) => control?.extensionHost.widgets ?? EMPTY_WIDGETS);
   const composerCommand = useSessionControlSelector((control) => control?.extensionHost.composerCommand);
   const working = useSessionControlSelector((control) => control?.extensionHost.working);
+  const goal = useSessionControlSelector((control) => control?.goal);
   const hostRequest = useSessionControlSelector((control) => control?.hostRequests[0]);
   const phase = useSessionTimelineSelector((timeline) => timeline.phase);
   const queue = useSessionTimelineSelector((timeline) => timeline.queue);
@@ -80,6 +81,7 @@ export function SessionComposer() {
         widgets={widgets}
         composerCommand={composerCommand}
         working={working}
+        goal={goal}
         commandsReady={commandsReady}
         modelsLoading={modelsRefreshing}
         onClearQueue={clearQueue}

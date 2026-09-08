@@ -122,7 +122,25 @@ describe("DesktopExtensionHost", () => {
 
     ui.setStatus("lint", "ready");
     ui.setTitle("Extension title");
-    ui.setWidget("summary", ["A", "B"], { placement: "aboveEditor" });
+    const widgetOptions = {
+      placement: "aboveEditor" as const,
+      nativeContent: {
+        type: "todo" as const,
+        version: 1 as const,
+        summary: { total: 2, completed: 1, pending: 1, inProgress: 0 },
+        labels: {
+          heading: "Todos",
+          more: "more",
+          statuses: { pending: "Pending", inProgress: "In progress", completed: "Completed" },
+        },
+        tasks: [
+          { id: 1, subject: "A", status: "completed" as const },
+          { id: 2, subject: "B", status: "pending" as const },
+        ],
+        hiddenTaskCount: 0,
+      },
+    };
+    ui.setWidget("summary", ["A", "B"], widgetOptions);
     ui.setEditorText("draft");
     ui.pasteToEditor(" + more");
 
@@ -130,11 +148,50 @@ describe("DesktopExtensionHost", () => {
       statuses: { lint: "ready" },
       windowTitle: "Extension title",
       composerCommand: expect.objectContaining({ revision: 2, mode: "append", text: " + more" }),
-      widgets: [{ key: "summary", lines: ["A", "B"], placement: "aboveEditor" }],
+      widgets: [
+        {
+          key: "summary",
+          lines: ["A", "B"],
+          placement: "aboveEditor",
+          nativeContent: widgetOptions.nativeContent,
+        },
+      ],
     });
     ui.setStatus("lint", undefined);
     ui.setWidget("summary", undefined);
     expect(host.hostState).toMatchObject({ statuses: {}, widgets: [] });
+  });
+
+  it("keeps text fallback and rejects malformed native todo content", () => {
+    const warnings: string[] = [];
+    const host = new DesktopExtensionHost(
+      () => undefined,
+      () => [],
+      () => undefined,
+      (message) => warnings.push(message),
+    );
+    const ui = host.createContext();
+
+    ui.setWidget("summary", ["Todos (0/1)", "○ Ship"], {
+      placement: "aboveEditor",
+      nativeContent: {
+        type: "todo",
+        version: 1,
+        summary: { total: 1, completed: 1, pending: 0, inProgress: 0 },
+        labels: {
+          heading: "Todos",
+          more: "more",
+          statuses: { pending: "Pending", inProgress: "In progress", completed: "Completed" },
+        },
+        tasks: [{ id: 1, subject: "Ship", status: "pending" }],
+        hiddenTaskCount: 0,
+      },
+    } as never);
+
+    expect(host.hostState.widgets).toEqual([
+      { key: "summary", lines: ["Todos (0/1)", "○ Ship"], placement: "aboveEditor" },
+    ]);
+    expect(warnings).toContain("Desktop extension native widget content is invalid; rendering text fallback");
   });
 
   it("uses a fresh composer command identity after host replacement", () => {

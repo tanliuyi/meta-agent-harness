@@ -126,6 +126,8 @@ export class ThreadWorkerService implements SidecarService {
         return this.runtime.reload(command.input);
       case "reloadResources":
         return this.runtime.reloadResources();
+      case "runGoalAction":
+        return this.runtime.runGoalAction(command.action);
       case "getCheckpointDiff":
         return this.runtime.getCheckpointDiff(command.fromCheckpointId, command.toCheckpointId, command.path);
       case "restoreCheckpoint":

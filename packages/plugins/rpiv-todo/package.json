@@ -1,0 +1,51 @@
+{
+  "name": "@juicesharp/rpiv-todo",
+  "version": "2.9.0",
+  "private": true,
+  "description": "Meta Agent Desktop adaptation of rpiv-todo with a persistent hover-expand task panel",
+  "type": "module",
+  "license": "MIT",
+  "author": "juicesharp",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/juicesharp/rpiv-mono.git",
+    "directory": "packages/rpiv-todo"
+  },
+  "scripts": {
+    "test": "node --import tsx --test test/*.test.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "files": [
+    "config.ts",
+    "index.ts",
+    "todo.ts",
+    "todo-overlay.ts",
+    "state/",
+    "tool/",
+    "view/",
+    "locales/",
+    "docs/",
+    "assets/icon.png",
+    "DESKTOP-ADAPTATION.md",
+    "README.md",
+    "LICENSE"
+  ],
+  "dependencies": {
+    "@juicesharp/rpiv-i18n": "2.9.0",
+    "typebox": "1.1.24"
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-ai": "*",
+    "@earendil-works/pi-coding-agent": "*",
+    "@earendil-works/pi-tui": "*"
+  },
+  "devDependencies": {
+    "tsx": "4.22.1",
+    "typescript": "5.9.3"
+  },
+  "pi": {
+    "extensions": [
+      "./index.ts"
+    ]
+  }
+}

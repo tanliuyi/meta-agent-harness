@@ -39,6 +39,7 @@ import { ComposerSubmitControl } from "./composer-submit-control.tsx";
 import { slashCommandDisplayName } from "./composer-suggestion-model.ts";
 import type { ComposerProps } from "./composer-types.ts";
 import { ComposerWidgets } from "./composer-widgets.tsx";
+import { GoalToolbar } from "./goal-control.tsx";
 
 const EMPTY_COMMANDS: SessionControlState["commands"] = [];
 const EMPTY_MODELS: SessionControlState["models"] = [];
@@ -308,6 +309,15 @@ export function Composer(props: ComposerProps) {
       ) : null}
 
       <ComposerWidgets widgets={aboveWidgets} onViewportChange={configureWidget} />
+      {props.mode === "session" ? (
+        <GoalToolbar
+          projectId={props.projectId}
+          threadId={props.threadId}
+          snapshot={props.goal}
+          phase={props.phase}
+          readOnly={false}
+        />
+      ) : null}
       <ComposerPrimitive.Unstable_TriggerPopoverRoot>
         <ComposerPrimitive.Root className="relative flex w-full flex-col" onSubmit={handleSubmit}>
           <ComposerPrimitive.AttachmentDropzone asChild disabled={attachmentsDisabled}>

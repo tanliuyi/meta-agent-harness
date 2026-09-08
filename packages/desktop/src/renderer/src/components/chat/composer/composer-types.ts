@@ -44,6 +44,7 @@ export type ComposerProps =
       widgets: SessionControlState["extensionHost"]["widgets"];
       composerCommand: SessionControlState["extensionHost"]["composerCommand"];
       working?: SessionControlState["extensionHost"]["working"];
+      goal?: SessionControlState["goal"];
       commandsReady: boolean;
       modelsLoading: boolean;
       /** 会话级可选插件（含项目作用域外）；null 表示不可用。 */

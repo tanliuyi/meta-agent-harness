@@ -23,6 +23,7 @@ import type {
   ResolvedExtensionEntry,
   ResolvedExtensionSet,
 } from "./desktop-extension-contracts.ts";
+import type { PiGoalSnapshot, SessionGoalActionInput } from "./pi-goal-contracts.ts";
 import type { SessionCheckpointDiffResult, SessionCheckpointRestoreResult } from "./pi-rewind-contracts.ts";
 import type {
   SubagentHostRequest,
@@ -243,6 +244,7 @@ export type ThreadSidecarCommand =
   | { type: "edit"; input: SessionEditInput }
   | { type: "reload"; input: SessionReloadInput }
   | { type: "reloadResources"; input: SessionResourceReloadInput }
+  | { type: "runGoalAction"; action: SessionGoalActionInput["action"] }
   | { type: "getCheckpointDiff"; fromCheckpointId: string; toCheckpointId: string; path: string }
   | { type: "restoreCheckpoint"; checkpointId: string; expectedCheckpointId: string }
   | { type: "cancel" }
@@ -336,6 +338,7 @@ export type SidecarCommandResult =
   | Thread
   | Thread[]
   | SessionRemoveResult
+  | PiGoalSnapshot
   | SessionCheckpointDiffResult
   | SessionCheckpointRestoreResult
   | SessionImageResource

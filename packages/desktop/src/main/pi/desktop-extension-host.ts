@@ -6,13 +6,124 @@ import type {
   ExtensionWidgetOptions,
 } from "@earendil-works/pi-coding-agent";
 import type { DesktopExtensionHostState, HostRequest, HostResponse } from "../../shared/contracts.ts";
-import type { DesktopWidgetViewport } from "../../shared/desktop-extension-contracts.ts";
+import type { DesktopTodoWidgetContent, DesktopWidgetViewport } from "../../shared/desktop-extension-contracts.ts";
 import {
   type QuestionnaireUI,
   readQuestionnaireResult,
   validateQuestionnaireInput,
 } from "../../shared/questionnaire-contracts.ts";
 import { DesktopWidgetAdapter } from "./desktop-widget-adapter.ts";
+
+interface DesktopWidgetOptions extends ExtensionWidgetOptions {
+  nativeContent?: unknown;
+}
+
+const TODO_WIDGET_TASK_LIMIT = 40;
+const TODO_WIDGET_TEXT_LIMIT = 500;
+const TODO_WIDGET_COUNT_LIMIT = 10_000;
+
+function normalizeTodoWidgetContent(value: unknown): DesktopTodoWidgetContent | undefined {
+  if (!isRecord(value) || value.type !== "todo" || value.version !== 1) return undefined;
+  const summary = value.summary;
+  if (
+    !isRecord(summary) ||
+    !isTodoWidgetCount(summary.total) ||
+    !isTodoWidgetCount(summary.completed) ||
+    !isTodoWidgetCount(summary.pending) ||
+    !isTodoWidgetCount(summary.inProgress) ||
+    summary.total !== summary.completed + summary.pending + summary.inProgress
+  ) {
+    return undefined;
+  }
+  const labels = value.labels;
+  if (
+    !isRecord(labels) ||
+    !isTodoWidgetLabel(labels.heading) ||
+    !isTodoWidgetLabel(labels.more) ||
+    !isRecord(labels.statuses) ||
+    !isTodoWidgetLabel(labels.statuses.pending) ||
+    !isTodoWidgetLabel(labels.statuses.inProgress) ||
+    !isTodoWidgetLabel(labels.statuses.completed)
+  ) {
+    return undefined;
+  }
+  if (!Array.isArray(value.tasks) || value.tasks.length > TODO_WIDGET_TASK_LIMIT) return undefined;
+  const ids = new Set<number>();
+  const visibleCounts = { completed: 0, pending: 0, inProgress: 0 };
+  const tasks: DesktopTodoWidgetContent["tasks"] = [];
+  for (const task of value.tasks) {
+    if (
+      !isRecord(task) ||
+      !Number.isSafeInteger(task.id) ||
+      (task.id as number) < 1 ||
+      ids.has(task.id as number) ||
+      typeof task.subject !== "string" ||
+      !task.subject.trim() ||
+      task.subject.length > TODO_WIDGET_TEXT_LIMIT ||
+      (task.status !== "pending" && task.status !== "in_progress" && task.status !== "completed") ||
+      (task.activeForm !== undefined &&
+        (typeof task.activeForm !== "string" || task.activeForm.length > TODO_WIDGET_TEXT_LIMIT)) ||
+      (task.blockedBy !== undefined &&
+        (!Array.isArray(task.blockedBy) ||
+          task.blockedBy.length > TODO_WIDGET_TASK_LIMIT ||
+          !task.blockedBy.every((id) => Number.isSafeInteger(id) && id >= 1)))
+    ) {
+      return undefined;
+    }
+    ids.add(task.id as number);
+    if (task.status === "in_progress") visibleCounts.inProgress++;
+    else visibleCounts[task.status]++;
+    tasks.push({
+      id: task.id as number,
+      subject: task.subject,
+      status: task.status,
+      ...(task.activeForm ? { activeForm: task.activeForm } : {}),
+      ...(task.blockedBy?.length ? { blockedBy: [...task.blockedBy] as number[] } : {}),
+    });
+  }
+  if (
+    !isTodoWidgetCount(value.hiddenTaskCount) ||
+    tasks.length + value.hiddenTaskCount !== summary.total ||
+    visibleCounts.completed > summary.completed ||
+    visibleCounts.pending > summary.pending ||
+    visibleCounts.inProgress > summary.inProgress
+  ) {
+    return undefined;
+  }
+  return {
+    type: "todo",
+    version: 1,
+    summary: {
+      total: summary.total,
+      completed: summary.completed,
+      pending: summary.pending,
+      inProgress: summary.inProgress,
+    },
+    labels: {
+      heading: labels.heading,
+      more: labels.more,
+      statuses: {
+        pending: labels.statuses.pending,
+        inProgress: labels.statuses.inProgress,
+        completed: labels.statuses.completed,
+      },
+    },
+    tasks,
+    hiddenTaskCount: value.hiddenTaskCount,
+  };
+}
+
+function isTodoWidgetCount(value: unknown): value is number {
+  return Number.isSafeInteger(value) && (value as number) >= 0 && (value as number) <= TODO_WIDGET_COUNT_LIMIT;
+}
+
+function isTodoWidgetLabel(value: unknown): value is string {
+  return typeof value === "string" && value.trim().length > 0 && value.length <= 100;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
 
 interface PendingRequest {
   request: HostRequest;
@@ -137,7 +248,7 @@ export class DesktopExtensionHost {
       setWorkingIndicator: () => this.degrade("ui.working", "working indicator frames are not supported"),
       setHiddenThinkingLabel: () => this.degrade("ui.working", "hidden thinking labels are not supported"),
       setWidget: (key: string, content: unknown, options?: ExtensionWidgetOptions) =>
-        this.setWidget(key, content, options),
+        this.setWidget(key, content, options as DesktopWidgetOptions | undefined),
       setFooter: () => this.degrade("ui.tui.chrome", "custom footer components are not supported"),
       setHeader: () => this.degrade("ui.tui.chrome", "custom header components are not supported"),
       setTitle: (title: string) => this.patch("ui.title", { windowTitle: title }),
@@ -299,7 +410,7 @@ export class DesktopExtensionHost {
     this.widgetAdapter.configure(viewport);
   }
 
-  private setWidget(key: string, content: unknown, options?: ExtensionWidgetOptions): void {
+  private setWidget(key: string, content: unknown, options?: DesktopWidgetOptions): void {
     this.assertActive("ui.widget.text");
     if (typeof content === "function") {
       this.widgetAdapter.set(
@@ -316,10 +427,15 @@ export class DesktopExtensionHost {
     this.widgetAdapter.remove(key);
     const widgets = this.state.widgets.filter((widget) => widget.key !== key);
     if (content) {
+      const nativeContent = normalizeTodoWidgetContent(options?.nativeContent);
+      if (options?.nativeContent !== undefined && !nativeContent) {
+        this.warn("Desktop extension native widget content is invalid; rendering text fallback");
+      }
       widgets.push({
         key,
         lines: content as string[],
         placement: options?.placement === "aboveEditor" ? "aboveEditor" : "belowEditor",
+        ...(nativeContent ? { nativeContent } : {}),
       });
     }
     this.patch("ui.widget.text", { widgets });

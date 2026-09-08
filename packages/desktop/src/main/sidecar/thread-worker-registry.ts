@@ -37,6 +37,7 @@ import type {
   SessionPluginOptions,
   StaleDraftExtensionSetErrorDetails,
 } from "../../shared/desktop-extension-contracts.ts";
+import type { PiGoalSnapshot, SessionGoalActionInput } from "../../shared/pi-goal-contracts.ts";
 import type {
   SessionCheckpointDiffInput,
   SessionCheckpointDiffResult,
@@ -737,6 +738,12 @@ export class ThreadWorkerRegistry {
       }
       throw error;
     }
+  }
+
+  async runGoalAction(input: SessionGoalActionInput): Promise<PiGoalSnapshot> {
+    return this.use(input.projectId, input.threadId, (record) =>
+      record.client.request<PiGoalSnapshot>({ type: "runGoalAction", action: input.action }, null),
+    );
   }
 
   async getCheckpointDiff(input: SessionCheckpointDiffInput): Promise<SessionCheckpointDiffResult> {

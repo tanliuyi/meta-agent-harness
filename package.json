@@ -10,7 +10,8 @@
 		"packages/coding-agent/examples/extensions/custom-provider-gitlab-duo",
 		"packages/coding-agent/examples/extensions/sandbox",
 		"packages/coding-agent/examples/extensions/gondolin",
-		"packages/plugins/rpiv-ask-user-question"
+		"packages/plugins/rpiv-ask-user-question",
+		"packages/plugins/rpiv-todo"
 	],
 	"scripts": {
 		"clean": "npm run clean --workspaces",

@@ -104,6 +104,7 @@ import type {
   SaveMemorySettingsResult,
 } from "./memory-settings-contracts.ts";
 import type { ModelsConfigSnapshot, SaveModelsConfigInput, SaveModelsConfigResult } from "./models-config-contracts.ts";
+import type { PiGoalSnapshot, SessionGoalActionInput } from "./pi-goal-contracts.ts";
 import type {
   SessionCheckpointDiffInput,
   SessionCheckpointDiffResult,
@@ -304,6 +305,7 @@ export interface DesktopApi {
     edit(input: SessionEditInput): Promise<SessionCommandResult>;
     reload(input: SessionReloadInput): Promise<SessionCommandResult>;
     reloadResources(input: SessionResourceReloadInput): Promise<SessionCommandResult>;
+    runGoalAction(input: SessionGoalActionInput): Promise<PiGoalSnapshot>;
     getCheckpointDiff(input: SessionCheckpointDiffInput): Promise<SessionCheckpointDiffResult>;
     restoreCheckpoint(input: SessionCheckpointRestoreInput): Promise<SessionCheckpointRestoreResult>;
     branch(input: SessionBranchInput): Promise<SessionBranchResult>;

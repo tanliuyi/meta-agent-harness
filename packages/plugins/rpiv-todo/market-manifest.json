@@ -1,0 +1,57 @@
+{
+  "schemaVersion": 1,
+  "marketplaceId": "meta-agent-development",
+  "artifactId": "rpiv-todo-local",
+  "plugin": {
+    "id": "rpiv.todo",
+    "name": "Todo",
+    "version": "0.0.0-local",
+    "publisherId": "admin"
+  },
+  "pi": {
+    "entry": "index.ts",
+    "extensionApi": "v1"
+  },
+  "desktop": {
+    "hostProfileVersion": 1
+  },
+  "target": {
+    "platform": "universal",
+    "arch": "universal"
+  },
+  "configuration": {
+    "version": 1,
+    "fields": [
+      {
+        "key": "maxWidgetLines",
+        "label": "最大面板行数",
+        "description": "鼠标悬停或键盘聚焦后，任务面板最多显示的总行数。",
+        "type": "number",
+        "minimum": 4,
+        "maximum": 40,
+        "step": 1,
+        "group": "界面",
+        "order": 1
+      }
+    ]
+  },
+  "capabilities": [
+    "configuration.read",
+    "events.subscribe",
+    "tools.register",
+    "commands.register",
+    "session.read",
+    "ui.notify",
+    "ui.widget.text"
+  ],
+  "nativeModules": [],
+  "executables": [],
+  "files": {
+    "index.ts": {
+      "mode": "0644"
+    },
+    "assets/icon.png": {
+      "mode": "0644"
+    }
+  }
+}

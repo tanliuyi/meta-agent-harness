@@ -5,6 +5,7 @@ import type {
   SessionControlState,
   SlashCommand,
 } from "../../../shared/contracts.ts";
+import type { PiGoalSnapshot } from "../../../shared/pi-goal-contracts.ts";
 
 /**
  * 合并 structured-clone 后的 control，并复用语义未变化的嵌套引用。
@@ -34,7 +35,40 @@ export function mergeSessionControl(
         ? previous.extensionSet
         : incoming.extensionSet,
     extensionHost: mergeExtensionHost(previous.extensionHost, incoming.extensionHost),
+    ...(equalGoalSnapshot(previous.goal, incoming.goal) ? { goal: previous.goal } : {}),
   };
+}
+
+function equalGoalSnapshot(left: PiGoalSnapshot | undefined, right: PiGoalSnapshot | undefined): boolean {
+  if (!left || !right) return left === right;
+  if (
+    left.settings.rpcEnabled !== right.settings.rpcEnabled ||
+    left.settings.automaticTurnLimit !== right.settings.automaticTurnLimit ||
+    left.settings.noProgressTurnLimit !== right.settings.noProgressTurnLimit
+  ) {
+    return false;
+  }
+  const leftGoal = left.goal;
+  const rightGoal = right.goal;
+  if (!leftGoal || !rightGoal) return leftGoal === rightGoal;
+  return (
+    leftGoal.id === rightGoal.id &&
+    leftGoal.objective === rightGoal.objective &&
+    leftGoal.status === rightGoal.status &&
+    leftGoal.startedAt === rightGoal.startedAt &&
+    leftGoal.updatedAt === rightGoal.updatedAt &&
+    leftGoal.iteration === rightGoal.iteration &&
+    leftGoal.tokenBudget === rightGoal.tokenBudget &&
+    leftGoal.tokensUsed === rightGoal.tokensUsed &&
+    leftGoal.timeUsedSeconds === rightGoal.timeUsedSeconds &&
+    leftGoal.automaticModelTurns === rightGoal.automaticModelTurns &&
+    leftGoal.automaticTurnLimit === rightGoal.automaticTurnLimit &&
+    leftGoal.noProgressTurns === rightGoal.noProgressTurns &&
+    leftGoal.noProgressTurnLimit === rightGoal.noProgressTurnLimit &&
+    leftGoal.safetyPauseCause === rightGoal.safetyPauseCause &&
+    leftGoal.terminalReason === rightGoal.terminalReason &&
+    equalOptionalRecord(leftGoal.waiting, rightGoal.waiting)
+  );
 }
 
 function mergeExtensionHost(
@@ -42,12 +76,7 @@ function mergeExtensionHost(
   incoming: DesktopExtensionHostState,
 ): DesktopExtensionHostState {
   const statuses = equalRecord(previous.statuses, incoming.statuses) ? previous.statuses : incoming.statuses;
-  const widgets = reuseArray(
-    previous.widgets,
-    incoming.widgets,
-    (left, right) =>
-      left.key === right.key && left.placement === right.placement && equalArray(left.lines, right.lines, Object.is),
-  );
+  const widgets = reuseArray(previous.widgets, incoming.widgets, equalWidget);
   if (
     statuses === previous.statuses &&
     widgets === previous.widgets &&
@@ -57,6 +86,47 @@ function mergeExtensionHost(
   )
     return previous;
   return { ...incoming, statuses, widgets };
+}
+
+function equalWidget(
+  left: DesktopExtensionHostState["widgets"][number],
+  right: DesktopExtensionHostState["widgets"][number],
+): boolean {
+  return (
+    left.key === right.key &&
+    left.placement === right.placement &&
+    left.hostId === right.hostId &&
+    left.columns === right.columns &&
+    left.truncated === right.truncated &&
+    equalNativeWidgetContent(left.nativeContent, right.nativeContent) &&
+    equalArray(left.lines, right.lines, Object.is)
+  );
+}
+
+function equalNativeWidgetContent(
+  left: DesktopExtensionHostState["widgets"][number]["nativeContent"],
+  right: DesktopExtensionHostState["widgets"][number]["nativeContent"],
+): boolean {
+  if (!left || !right) return left === right;
+  return (
+    left.type === right.type &&
+    left.version === right.version &&
+    equalRecord(left.summary, right.summary) &&
+    left.labels.heading === right.labels.heading &&
+    left.labels.more === right.labels.more &&
+    equalRecord(left.labels.statuses, right.labels.statuses) &&
+    left.hiddenTaskCount === right.hiddenTaskCount &&
+    equalArray(
+      left.tasks,
+      right.tasks,
+      (leftTask, rightTask) =>
+        leftTask.id === rightTask.id &&
+        leftTask.subject === rightTask.subject &&
+        leftTask.status === rightTask.status &&
+        leftTask.activeForm === rightTask.activeForm &&
+        equalOptionalArray(leftTask.blockedBy, rightTask.blockedBy, Object.is),
+    )
+  );
 }
 
 function equalModel(left: ModelOption, right: ModelOption): boolean {

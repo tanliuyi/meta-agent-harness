@@ -355,6 +355,7 @@ const desktopApi: DesktopApi = {
     edit: (input) => ipcRenderer.invoke(CHANNELS.sessionsEdit, input),
     reload: (input) => ipcRenderer.invoke(CHANNELS.sessionsReload, input),
     reloadResources: (input) => ipcRenderer.invoke(CHANNELS.sessionsReloadResources, input),
+    runGoalAction: (input) => ipcRenderer.invoke(CHANNELS.sessionsRunGoalAction, input),
     getCheckpointDiff: (input) => ipcRenderer.invoke(CHANNELS.sessionsGetCheckpointDiff, input),
     restoreCheckpoint: (input) => ipcRenderer.invoke(CHANNELS.sessionsRestoreCheckpoint, input),
     branch: (input) => ipcRenderer.invoke(CHANNELS.sessionsBranch, input),

@@ -142,6 +142,36 @@ export interface DesktopWidgetViewport {
   theme: "light" | "dark";
 }
 
+export type DesktopTodoTaskStatus = "pending" | "in_progress" | "completed";
+
+export interface DesktopTodoWidgetContent {
+  type: "todo";
+  version: 1;
+  summary: {
+    total: number;
+    completed: number;
+    pending: number;
+    inProgress: number;
+  };
+  labels: {
+    heading: string;
+    more: string;
+    statuses: {
+      pending: string;
+      inProgress: string;
+      completed: string;
+    };
+  };
+  tasks: Array<{
+    id: number;
+    subject: string;
+    status: DesktopTodoTaskStatus;
+    activeForm?: string;
+    blockedBy?: number[];
+  }>;
+  hiddenTaskCount: number;
+}
+
 export interface DesktopExtensionHostState {
   statuses: Record<string, string>;
   windowTitle?: string;
@@ -159,6 +189,7 @@ export interface DesktopExtensionHostState {
     hostId?: string;
     columns?: number;
     truncated?: boolean;
+    nativeContent?: DesktopTodoWidgetContent;
   }>;
   working?: {
     message?: string;
