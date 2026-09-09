@@ -276,7 +276,7 @@ body.is-resizing-column .workbench-panel {
   align-items: center;
   gap: 4px;
   /* Windows/Linux 的 workspace 右侧内缩 8px：52px 控制组 + 4px 组间距 + 18px 窗口留白 - 8px 内缩。 */
-  padding: 0 66px 0 8px;
+  padding: 0 70px 0 8px;
 }
 /* topbar-actions 悬浮于右侧留白上方，需从 drag 矩形中挖洞保持可交互。 */
 .panel-tabs-safe-area {
