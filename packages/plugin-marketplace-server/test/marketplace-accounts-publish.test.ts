@@ -23,6 +23,7 @@ const config: MarketplaceServerConfig = {
 };
 
 const PLUGIN_ID = "com.acme.tools";
+const METHOD_PLUGIN_ID = "com.acme.methods";
 const ARTIFACT_ID = "tools-universal";
 const ENTRY_SOURCE = "export default function acmeTools(): void {\n\t// marketplace upload fixture\n}\n";
 const HELPER_SOURCE = "export const helper = true;\n";
@@ -497,6 +498,83 @@ describe("publishing", () => {
 		});
 	});
 
+	it("publishes run_code skill and catalog metadata into the signed artifact manifest", async () => {
+		await request(app.getHttpServer())
+			.put(`/v1/publish/plugins/${METHOD_PLUGIN_ID}`)
+			.set("authorization", `Bearer ${aliceToken}`)
+			.send({
+				name: "Acme Methods",
+				description: "Composable run_code methods.",
+				publisherId: "acme",
+				categories: ["productivity"],
+			})
+			.expect(200);
+
+		const missingMetadata = runCodeVersionDeclaration("1.0.0");
+		delete (missingMetadata as { pi?: unknown }).pi;
+		const rejectedMetadata = await request(app.getHttpServer())
+			.post(`/v1/publish/plugins/${METHOD_PLUGIN_ID}/versions`)
+			.set("authorization", `Bearer ${aliceToken}`)
+			.send(missingMetadata)
+			.expect(400);
+		expect(rejectedMetadata.body).toMatchObject({
+			error: { code: "BODY_INVALID", message: "plugin-methods.provide requires pi.skills and pi.runCode" },
+		});
+
+		await request(app.getHttpServer())
+			.post(`/v1/publish/plugins/${METHOD_PLUGIN_ID}/versions`)
+			.set("authorization", `Bearer ${aliceToken}`)
+			.send(runCodeVersionDeclaration("1.0.1"))
+			.expect(201);
+
+		const missingResource = await request(app.getHttpServer())
+			.put(`/v1/publish/plugins/${METHOD_PLUGIN_ID}/versions/1.0.1/artifacts/${ARTIFACT_ID}`)
+			.set("authorization", `Bearer ${aliceToken}`)
+			.set("content-type", "application/zip")
+			.send(Buffer.from(payloadArchive()))
+			.expect(400);
+		expect(missingResource.body).toMatchObject({ error: { code: "PAYLOAD_RUN_CODE_RESOURCE_MISSING" } });
+
+		await request(app.getHttpServer())
+			.put(`/v1/publish/plugins/${METHOD_PLUGIN_ID}/versions/1.0.1/artifacts/${ARTIFACT_ID}`)
+			.set("authorization", `Bearer ${aliceToken}`)
+			.set("content-type", "application/zip")
+			.send(Buffer.from(runCodePayloadArchive()))
+			.expect(200);
+		await request(app.getHttpServer())
+			.post(`/v1/publish/plugins/${METHOD_PLUGIN_ID}/versions/1.0.1/publish`)
+			.set("authorization", `Bearer ${aliceToken}`)
+			.expect(200);
+
+		const bytesResponse = await request(app.getHttpServer())
+			.get(`/v1/artifacts/${METHOD_PLUGIN_ID}/1.0.1/${ARTIFACT_ID}`)
+			.buffer(true)
+			.parse((response, callback) => {
+				const chunks: Buffer[] = [];
+				response.on("data", (chunk: Buffer | Uint8Array) => chunks.push(Buffer.from(chunk)));
+				response.on("end", () => callback(null, Buffer.concat(chunks)));
+				response.on("error", (error: Error) => callback(error, Buffer.alloc(0)));
+			})
+			.expect(200);
+		const archive = unzipSync(bytesResponse.body as Buffer);
+		const manifest = JSON.parse(strFromU8(archive["market-manifest.json"]!)) as Record<string, unknown>;
+		expect(manifest).toMatchObject({
+			plugin: { id: METHOD_PLUGIN_ID, version: "1.0.1" },
+			pi: {
+				entry: "payload/index.ts",
+				skills: ["payload/skills/acme-methods/SKILL.md"],
+				runCode: { skill: "acme-methods", catalog: "payload/plugin-api.json" },
+			},
+		});
+		expect(Object.keys(archive).sort()).toEqual([
+			"market-manifest.json",
+			"payload/assets/icon.png",
+			"payload/index.ts",
+			"payload/plugin-api.json",
+			"payload/skills/acme-methods/SKILL.md",
+		]);
+	});
+
 	it("serves uploaded artifacts and tracks download counts", async () => {
 		const download = await request(app.getHttpServer())
 			.get(`/v1/plugins/${PLUGIN_ID}/versions/1.0.0/artifacts/${ARTIFACT_ID}/download`)
@@ -829,6 +907,37 @@ function versionDeclaration(version: string) {
 			},
 		],
 	};
+}
+
+function runCodeVersionDeclaration(version: string) {
+	return {
+		version,
+		changelog: "Run code release",
+		desktop: { hostProfileVersion: 1 },
+		capabilities: ["plugin-methods.provide"],
+		pi: {
+			skills: ["skills/acme-methods/SKILL.md"],
+			runCode: { skill: "acme-methods", catalog: "plugin-api.json" },
+		},
+		artifacts: [
+			{
+				id: ARTIFACT_ID,
+				target: { platform: "universal", arch: "universal" },
+				entry: "index.ts",
+				containsNativeCode: false,
+				preferred: true,
+			},
+		],
+	};
+}
+
+function runCodePayloadArchive(): Uint8Array {
+	return zipSync({
+		"index.ts": strToU8(ENTRY_SOURCE),
+		"assets/icon.png": ICON_BYTES,
+		"plugin-api.json": strToU8('{"schemaVersion":1,"pluginId":"com.acme.methods","methods":[]}'),
+		"skills/acme-methods/SKILL.md": strToU8("---\nname: acme-methods\ndescription: Test methods\n---\n"),
+	});
 }
 
 function payloadArchive(): Uint8Array {

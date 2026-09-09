@@ -150,6 +150,7 @@ export function createPublishControllers(runtime: MarketplaceHttpRuntime): Type<
 					target: context.artifact.target,
 					configuration: context.configuration,
 					capabilities: context.capabilities,
+					pi: context.pi,
 					files,
 				});
 			});
@@ -316,6 +317,13 @@ function parsePublishVersionRequest(body: unknown): PublishVersionRequest {
 	if (configuration && !capabilities.includes("configuration.read")) {
 		throw badRequest("BODY_INVALID", "configuration requires the configuration.read capability");
 	}
+	const pi = parsePublishPiMetadata(record.pi);
+	if (capabilities.includes("plugin-methods.provide") && !pi) {
+		throw badRequest("BODY_INVALID", "plugin-methods.provide requires pi.skills and pi.runCode");
+	}
+	if (pi && !capabilities.includes("plugin-methods.provide")) {
+		throw badRequest("BODY_INVALID", "pi runCode metadata requires the plugin-methods.provide capability");
+	}
 	return {
 		version,
 		changelog: bodyString(record, "changelog", 4000),
@@ -326,8 +334,42 @@ function parsePublishVersionRequest(body: unknown): PublishVersionRequest {
 		},
 		...(configuration ? { configuration } : {}),
 		capabilities,
+		...(pi ? { pi } : {}),
 		artifacts,
 	};
+}
+
+function parsePublishPiMetadata(value: unknown): PublishVersionRequest["pi"] {
+	if (value === undefined) return undefined;
+	const record = bodyObject(value);
+	const skills = bodyStringArray(record, "skills", 16, 256);
+	if (skills.length === 0 || new Set(skills).size !== skills.length) {
+		throw badRequest("BODY_INVALID", "pi.skills must contain unique skill paths");
+	}
+	for (const [index, path] of skills.entries()) {
+		try {
+			validatePayloadPath(path);
+			if (path.startsWith("payload/")) throw new Error("PAYLOAD_PREFIX_RESERVED");
+		} catch {
+			throw badRequest("BODY_INVALID", `pi.skills[${index}] must be a safe payload-relative path`);
+		}
+		if (!path.endsWith("/SKILL.md") && path !== "SKILL.md") {
+			throw badRequest("BODY_INVALID", `pi.skills[${index}] must name SKILL.md`);
+		}
+	}
+	const runCode = bodyObject(record.runCode);
+	const skill = bodyString(runCode, "skill", 128);
+	if (!/^[a-z0-9][a-z0-9-]*$/.test(skill)) {
+		throw badRequest("BODY_INVALID", "pi.runCode.skill must be a lowercase skill name");
+	}
+	const catalog = bodyString(runCode, "catalog", 256);
+	try {
+		validatePayloadPath(catalog);
+		if (catalog.startsWith("payload/")) throw new Error("PAYLOAD_PREFIX_RESERVED");
+	} catch {
+		throw badRequest("BODY_INVALID", "pi.runCode.catalog must be a safe payload-relative path");
+	}
+	return { skills, runCode: { skill, catalog } };
 }
 
 function parsePublishArtifact(value: unknown, path: string): PublishVersionArtifactRequest {

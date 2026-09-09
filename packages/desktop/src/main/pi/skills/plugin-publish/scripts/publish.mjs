@@ -76,6 +76,7 @@ async function main() {
     artifacts,
   };
   if (spec.configuration) draftBody.configuration = spec.configuration;
+  if (spec.pi) draftBody.pi = spec.pi;
   const draft = await req("POST", `/publish/plugins/${pluginId}/versions`, JSON.stringify(draftBody));
   console.log("draft created:", JSON.stringify({ version: draft.version ?? version, status: draft.status }));
 

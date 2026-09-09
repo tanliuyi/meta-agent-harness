@@ -49,6 +49,7 @@ interface VersionRow {
 	desktop: string;
 	configuration: string | null;
 	capabilities: string;
+	pi: string | null;
 }
 
 interface ArtifactRow {
@@ -256,7 +257,7 @@ export class PluginStore {
 			await client.query("BEGIN");
 
 			await client.query(
-				"INSERT INTO plugin_versions (plugin_id, version, status, draft, changelog, published_at, desktop, configuration, capabilities) VALUES ($1, $2, 'available', $3, $4, $5, $6, $7, $8)",
+				"INSERT INTO plugin_versions (plugin_id, version, status, draft, changelog, published_at, desktop, configuration, capabilities, pi) VALUES ($1, $2, 'available', $3, $4, $5, $6, $7, $8, $9)",
 				[
 					pluginId,
 					request.version,
@@ -266,6 +267,7 @@ export class PluginStore {
 					JSON.stringify(request.desktop),
 					request.configuration ? JSON.stringify(request.configuration) : null,
 					JSON.stringify(request.capabilities),
+					request.pi ? JSON.stringify(request.pi) : null,
 				],
 			);
 
@@ -318,6 +320,7 @@ export class PluginStore {
 				? { configuration: JSON.parse(versionRow.configuration) as StoredPluginVersion["configuration"] }
 				: {}),
 			capabilities: JSON.parse(versionRow.capabilities) as string[],
+			...(versionRow.pi ? { pi: JSON.parse(versionRow.pi) as NonNullable<ArtifactUploadContext["pi"]> } : {}),
 			artifact: {
 				id: artifactId,
 				target: JSON.parse(artifactRow.target) as ArtifactTarget,
@@ -479,7 +482,7 @@ export class PluginStore {
 		lock = false,
 	): Promise<VersionRow> {
 		const result = await db.query(
-			`SELECT plugin_id, version, status, draft, changelog, published_at, desktop, configuration, capabilities
+			`SELECT plugin_id, version, status, draft, changelog, published_at, desktop, configuration, capabilities, pi
 			 FROM plugin_versions WHERE plugin_id = $1 AND version = $2${lock ? " FOR UPDATE" : ""}`,
 			[pluginId, version],
 		);
@@ -508,7 +511,7 @@ export class PluginStore {
 		for (const row of pluginRows) {
 			const draftClause = includeDrafts ? "" : " AND draft = FALSE";
 			const versionResult = await this.pool.query(
-				`SELECT plugin_id, version, status, draft, changelog, published_at, desktop, configuration, capabilities FROM plugin_versions WHERE plugin_id = $1${draftClause} ORDER BY version`,
+				`SELECT plugin_id, version, status, draft, changelog, published_at, desktop, configuration, capabilities, pi FROM plugin_versions WHERE plugin_id = $1${draftClause} ORDER BY version`,
 				[row.id],
 			);
 			const versionRows = versionResult.rows as VersionRow[];

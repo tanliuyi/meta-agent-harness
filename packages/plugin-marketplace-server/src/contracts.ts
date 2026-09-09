@@ -71,6 +71,14 @@ export interface PluginConfigurationSchema {
 	fields: PluginConfigurationField[];
 }
 
+export interface PublishPiMetadata {
+	skills: string[];
+	runCode: {
+		skill: string;
+		catalog: string;
+	};
+}
+
 export interface MarketplaceArtifactManifest {
 	schemaVersion: 1;
 	marketplaceId: string;
@@ -84,6 +92,8 @@ export interface MarketplaceArtifactManifest {
 	pi: {
 		entry: string;
 		extensionApi: string;
+		skills?: string[];
+		runCode?: PublishPiMetadata["runCode"];
 	};
 	desktop: {
 		hostProfileVersion: number;
@@ -283,6 +293,7 @@ export interface ArtifactUploadContext {
 	desktop: CatalogPluginVersion["desktop"];
 	configuration?: PluginConfigurationSchema;
 	capabilities: string[];
+	pi?: PublishPiMetadata;
 	artifact: { id: string; target: ArtifactTarget; entry: string };
 }
 
@@ -345,6 +356,7 @@ export interface PublishVersionRequest {
 	desktop: CatalogPluginVersion["desktop"];
 	configuration?: PluginConfigurationSchema;
 	capabilities: string[];
+	pi?: PublishPiMetadata;
 	artifacts: PublishVersionArtifactRequest[];
 }
 

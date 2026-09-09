@@ -48,7 +48,7 @@ async function seedCatalog(client: PoolClient, catalog: CatalogDocument, marketp
 		);
 		for (const version of plugin.versions) {
 			await client.query(
-				"INSERT INTO plugin_versions (plugin_id, version, status, draft, changelog, published_at, desktop, configuration, capabilities) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)",
+				"INSERT INTO plugin_versions (plugin_id, version, status, draft, changelog, published_at, desktop, configuration, capabilities, pi) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)",
 				[
 					plugin.id,
 					version.version,
@@ -59,6 +59,7 @@ async function seedCatalog(client: PoolClient, catalog: CatalogDocument, marketp
 					JSON.stringify(version.desktop),
 					version.configuration ? JSON.stringify(version.configuration) : null,
 					JSON.stringify(version.capabilities),
+					null,
 				],
 			);
 			for (const artifact of version.artifacts) {

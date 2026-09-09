@@ -121,7 +121,14 @@ The public `GET {apiRoot}/plugins/:pluginId/icon` route serves the standalone ic
     "minVersion": "0.0.31",
     "maxVersionExclusive": "0.1.0"
   },
-  "capabilities": ["tools.register", "events.subscribe", "configuration.read"],
+  "capabilities": ["plugin-methods.provide", "events.subscribe", "configuration.read"],
+  "pi": {
+    "skills": ["skills/acme-tools/SKILL.md"],
+    "runCode": {
+      "skill": "acme-tools",
+      "catalog": "plugin-api.json"
+    }
+  },
   "configuration": {
     "version": 1,
     "fields": [
@@ -156,6 +163,8 @@ The public `GET {apiRoot}/plugins/:pluginId/icon` route serves the standalone ic
 ```
 
 `version` and optional Desktop bounds must be valid semver. Artifact IDs must be unique. `entry` is relative to the uploaded payload ZIP root; the server repacks the ZIP under a `payload/` prefix, so never write `payload/index.js` as the entry.
+
+`pi` is required when capabilities include `plugin-methods.provide` and is rejected otherwise. `pi.skills` must contain unique payload-relative `SKILL.md` paths. `pi.runCode.skill` is the lowercase primary skill name and `pi.runCode.catalog` is the payload-relative `plugin-api.json` path. Every declared skill and catalog file must exist in each uploaded payload. The signed artifact manifest rewrites these paths beneath `payload/`.
 
 `configuration` is optional signed metadata for Desktop's host-rendered plugin settings form. It must use schema `version: 1`, contain at most 64 unique fields, and may use `text`, `textarea`, `path`, `number`, `boolean`, `select`, or `secret`. Each field requires a stable `key` and user-facing `label`; type-specific defaults and constraints are validated by the marketplace before the draft is created. Fields may additionally declare `widget: "model-selector"` and, only together with that widget, `modelFormat: "model-id" | "provider-model"`; invalid metadata is rejected. Plugins read the immutable runtime values through `pi.getConfig()`. Declare `configuration.read` when configuration is used. Secret values are supplied by users after installation and must never be included in the schema as defaults.
 

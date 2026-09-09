@@ -63,6 +63,7 @@ CREATE TABLE IF NOT EXISTS plugin_versions (
 	desktop TEXT NOT NULL,
 	configuration TEXT,
 	capabilities TEXT NOT NULL,
+	pi TEXT,
 	PRIMARY KEY (plugin_id, version)
 );
 
@@ -105,4 +106,5 @@ export const SCHEMA_MIGRATIONS = [
 	"ALTER TABLE users ADD COLUMN IF NOT EXISTS role TEXT NOT NULL DEFAULT 'user'",
 	"ALTER TABLE plugin_artifacts ADD COLUMN IF NOT EXISTS bytes BYTEA",
 	"ALTER TABLE plugin_artifacts ADD COLUMN IF NOT EXISTS object_key TEXT",
+	"ALTER TABLE plugin_versions ADD COLUMN IF NOT EXISTS pi TEXT",
 ] as const;

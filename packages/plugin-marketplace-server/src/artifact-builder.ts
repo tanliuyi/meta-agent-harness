@@ -5,6 +5,7 @@ import type {
 	CatalogPluginVersion,
 	MarketplaceArtifactManifest,
 	PluginConfigurationSchema,
+	PublishPiMetadata,
 } from "./contracts.ts";
 
 export interface BuiltMarketplaceArtifact {
@@ -28,6 +29,7 @@ export interface ArtifactBuildInput {
 	target: ArtifactTarget;
 	configuration?: PluginConfigurationSchema;
 	capabilities: string[];
+	pi?: PublishPiMetadata;
 	files: Map<string, Uint8Array>;
 }
 
@@ -56,6 +58,11 @@ export function referencePayloadFiles(): Map<string, Uint8Array> {
 export function buildArtifact(input: ArtifactBuildInput): BuiltMarketplaceArtifact {
 	if (input.files.size === 0) throw new Error("PAYLOAD_EMPTY");
 	if (!input.files.has(input.entry)) throw new Error("PAYLOAD_ENTRY_MISSING");
+	if (input.pi) {
+		for (const path of [...input.pi.skills, input.pi.runCode.catalog]) {
+			if (!input.files.has(path)) throw new Error("PAYLOAD_RUN_CODE_RESOURCE_MISSING");
+		}
+	}
 	assertNoNativePayload(input.files);
 	const files: MarketplaceArtifactManifest["files"] = {};
 	for (const path of [...input.files.keys()].sort()) {
@@ -71,6 +78,15 @@ export function buildArtifact(input: ArtifactBuildInput): BuiltMarketplaceArtifa
 		pi: {
 			entry: `payload/${input.entry}`,
 			extensionApi: "1",
+			...(input.pi
+				? {
+						skills: input.pi.skills.map(toPayloadPath),
+						runCode: {
+							skill: input.pi.runCode.skill,
+							catalog: toPayloadPath(input.pi.runCode.catalog),
+						},
+					}
+				: {}),
 		},
 		desktop: { ...input.desktop },
 		target: { ...input.target },
@@ -129,6 +145,10 @@ export function extractPayloadArchive(bytes: Uint8Array, maxTotalBytes: number):
 	if (files.size === 0) throw new Error("PAYLOAD_EMPTY");
 	assertNoNativePayload(files);
 	return files;
+}
+
+function toPayloadPath(path: string): string {
+	return `payload/${path}`;
 }
 
 export function validatePayloadPath(path: string): void {

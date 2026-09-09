@@ -49,6 +49,10 @@ const STORE_ERRORS: Record<
 	},
 	PAYLOAD_EMPTY: { status: "bad-request", message: "Artifact payload archive is empty" },
 	PAYLOAD_ENTRY_MISSING: { status: "bad-request", message: "Declared entry file is missing from the payload archive" },
+	PAYLOAD_RUN_CODE_RESOURCE_MISSING: {
+		status: "bad-request",
+		message: "Declared run_code skill or catalog is missing from the payload archive",
+	},
 	PAYLOAD_INVALID_ARCHIVE: { status: "bad-request", message: "Artifact payload is not a valid zip archive" },
 	PAYLOAD_INVALID_PATH: { status: "bad-request", message: "Artifact payload contains an unsafe file path" },
 	PAYLOAD_DUPLICATE_PATH: { status: "bad-request", message: "Artifact payload contains duplicate file paths" },
