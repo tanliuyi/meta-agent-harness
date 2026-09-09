@@ -23,7 +23,7 @@ return {
 };
 ```
 
-插件同时携带 Pi skill。初始 system prompt 只包含 skill 的 `name`、`description` 和文件位置；完整方法签名、约束、示例和工作流保留在 `SKILL.md` 及其 references 中，由模型在需要时使用现有 `read` 工具加载。
+插件可以携带 Pi Skill。存在 primary Skill 时，初始 system prompt 只包含 Skill 的 `name`、`description` 和文件位置；完整方法签名、约束、示例和工作流保留在 `SKILL.md` 及其 references 中，由模型在需要时使用现有 `read` 工具加载。未声明 primary Skill 时，Desktop 从实际捕获的 `pi.registerTool()` 定义生成 bounded API context 并注入 system prompt。
 
 核心定位：
 
@@ -40,8 +40,11 @@ run_code
 plugin.<pluginId>.<toolName>(args)
     = run_code worker 中的动态异步 API
 
-Plugin SKILL.md
+Plugin SKILL.md（可选）
     = 按需披露的方法签名、语义和工作流
+
+Generated API context（无 primary Skill 时）
+    = 从捕获定义生成的 bounded 方法说明
 ```
 
 这不是 PTC（Programmatic Tool Calling）模式。Desktop 不把 `read`、`bash`、`edit`、`subagent` 等 Pi 工具折叠到代码执行器，也不增加统一 `run_code`。聚合边界覆盖 Desktop 托管插件通过 `pi.registerTool()` 注册的工具。插件的 commands、events、providers、messages 和 Host UI 能力继续通过同一个真实 `ExtensionAPI` 使用；只有 `registerTool` 在 per-entry wrapper 中被捕获。Pi 内建工具不进入该 registry。
@@ -55,9 +58,9 @@ Plugin SKILL.md
 - [`node-sidecar-per-thread-spec.md`](./node-sidecar-per-thread-spec.md) 继续负责 Electron embedded Node、thread single writer、worker replacement、sidecar protocol 和进程生命周期；
 - [`pi-native-assistant-ui-runtime-spec.md`](./pi-native-assistant-ui-runtime-spec.md) 继续负责 Pi message/tool lifecycle 到 Desktop timeline 和 assistant-ui 的投影；
 - Pi `AgentSession`、extension API、extension runner、agent loop、tool validation、session JSONL 和 compaction 语义保持权威且不作任何修改；
-- 本规范只新增 hidden plugin methods、插件 skill admission、`run_code` runtime 和对应 UI details。
+- 本规范只新增 hidden plugin methods、可选插件 Skill admission、generated API context、`run_code` runtime 和对应 UI details。
 
-`tools.register` 保持标准 Pi direct tool 语义。只有声明 `plugin-methods.provide` 并携带 primary skill/catalog metadata 的插件才由 Desktop 捕获。
+`tools.register` 保持标准 Pi direct tool 语义。只有声明 `plugin-methods.provide` 且具有 canonical `plugin.id` 的插件才由 Desktop 捕获。Primary Skill/catalog 是可选 guidance metadata，不是准入条件。
 
 本规范同时对 sidecar no-orphan 条款作一个窄化：host-owned descendants、插件经 Host API 启动的 descendants，以及生成代码通过受支持 `node:child_process` wrapper 启动的 descendants 仍必须在 outer run/dispose 时清理；拥有完整 Node authority 并故意绕过 wrapper、daemonize 或重新脱离进程组的代码不在可强制保证范围。该例外必须在产品全信任说明中明确，不能把 worker thread 描述成安全边界。
 
@@ -67,7 +70,7 @@ Plugin SKILL.md
 
 1. 无论启用多少个 Desktop 插件、每个插件注册多少工具，模型最多新增一个 `run_code` tool schema。
 2. 单个插件工具的名称、参数 schema 和结果不进入初始模型 tool list。
-3. 模型根据任务选择并读取相关 plugin skill，不预加载所有插件 API 文档。
+3. 有 primary Skill 的插件通过现有 progressive disclosure 读取文档；无 primary Skill 的插件使用从捕获定义生成的 bounded API context。
 4. Pi 内建工具继续直接可见、直接执行，不改变现有提示词和交互习惯。
 5. 插件调用在 Desktop tool row 中保持可观察，包括程序描述、子调用、耗时、失败和附件。
 6. Desktop 为被捕获工具提供原始 `ExtensionContext`、abort、`onUpdate`、配置及已批准 Host API 能力，不以聚合为由降级插件能力。
@@ -75,7 +78,7 @@ Plugin SKILL.md
 ### 3.2 工程目标
 
 1. plugin registry 与 `ResolvedExtensionSet.generation`、project 和 thread 绑定。
-2. 只有 main 批准，且 Desktop wrapper 成功导入、校验并加载的插件可以贡献 methods 和 skills。
+2. 只有 main 批准，且 Desktop wrapper 成功导入、校验并加载的插件可以贡献 methods、可选 Skills 和 generated API context。
 3. 参数和结果分别经过 TypeBox schema 校验及 lossless JSON 校验。
 4. abort、wall/compute timeout、worker termination、heap cap、调用数限制和输出限制有明确语义。
 5. 中间 method result 只在 code worker 与 sidecar dispatcher 之间流动，不追加为 Pi tool result 或 conversation message。
@@ -106,8 +109,8 @@ Plugin SKILL.md
 
 1. `run_code` 之外的 Pi active tool set 与本功能启用前一致。
 2. method-based 插件数量从 1 增加到 N 时，模型 tool schema 数量不随 N 增加。
-3. `DesktopPluginMethodDefinition.parameters`、`result`、method description 和 generated catalog 不进入初始 system prompt。
-4. 初始 prompt 对每个 admitted skill 只使用 Pi 现有 skill metadata 格式。
+3. 有 primary Skill 时，`DesktopPluginMethodDefinition.parameters`、result、method description 和 catalog 不进入初始 system prompt；无 primary Skill 时只注入从实际捕获定义生成的 bounded method name、description、parameters 和 concurrency，不注入 handler 或 result。
+4. 初始 prompt 对每个 admitted Skill 只使用 Pi 现有 Skill metadata 格式。
 5. registry key 使用 Desktop 批准的 canonical plugin ID；插件代码不能自报或覆盖 plugin ID。
 6. `run_code` 是 Desktop 保留 tool name。Desktop 只向现有 Pi loader 注入一个同名 inline factory；不修改 Pi 去追踪 tool owner。若现有 Pi loader 因同名 tool 冲突返回 load error，Desktop 将其作为 blocking startup diagnostic，不覆盖、first-win 或静默替换其他 tool。
 7. 相同 canonical plugin ID 下的 method name 唯一；冲突是 Desktop admission failure，不使用 first-wins。
@@ -138,11 +141,11 @@ Development override 与被覆盖 Marketplace 插件共享 canonical plugin ID�
 
 ### 6.3 Plugin skill
 
-由 approved plugin manifest 明确列出的 Pi skill。skill 是 API 和工作流的知识入口，不参与 runtime dispatch。
+由 approved plugin manifest 明确列出的可选 Pi Skill。Skill 是 API 和工作流的知识入口，不参与 runtime dispatch；没有 primary Skill 时由 generated API context 提供基础调用发现。
 
 ### 6.4 Plugin API catalog
 
-插件制品中的机器生成 `plugin-api.json`。它记录预期工具及 schemas，用于文档、skill reference 和增强 admission 检查，但不作为 executable source，也不进入模型上下文。旧 `tools.register` 制品可以没有 catalog。
+插件制品中的可选机器生成 `plugin-api.json`。它记录预期工具及 schemas，用于文档、Skill reference 和 legacy enhanced admission 检查，但不作为 executable source，也不进入模型上下文。没有 catalog 时，runtime method set 直接来自捕获的标准 tool registrations。
 
 ### 6.5 Outer run
 
@@ -186,7 +189,7 @@ const RunCodeParameters = Type.Object(
   label: "Run code",
   description:
     "Execute an erasable TypeScript program using enabled Desktop plugin APIs. " +
-    "Read the relevant plugin skill before use. Return only the final value needed by the model.",
+    "Read the relevant plugin skill or generated API context before use. Return only the final value needed by the model.",
   parameters: RunCodeParameters,
   executionMode: "parallel",
 }
@@ -207,15 +210,15 @@ Desktop 托管插件调用 `registerTool()` 表示声明完整原生工具能力
 
 ### 7.3 Progressive disclosure
 
-Pi 现有 `formatSkillsForPrompt()` 继续只投影每个 skill 的 name、description 和 location。Desktop 不增加 method catalog、generated SDK declaration 或 method schema system section。
+Pi 现有 `formatSkillsForPrompt()` 继续只投影每个 skill 的 name、description 和 location。Desktop 不增加静态 method catalog 或 generated SDK declaration。对于没有 primary Skill 的插件，Desktop 增加一个 bounded `<desktop_plugin_apis>` system section，其中只包含从捕获定义生成的 method name、description、parameters 和 concurrency。
 
 推荐流程：
 
 ```text
 user task
-  -> model sees plugin skill summary
-  -> model reads the matching SKILL.md
-  -> skill optionally points to references/api.md
+  -> model sees plugin Skill summary or generated API context
+  -> model reads the matching SKILL.md when present
+  -> Skill optionally points to references/api.md
   -> model writes one run_code program
   -> intermediate method values stay in the program
   -> outer return becomes the model-facing result
@@ -244,13 +247,13 @@ user task
 
 规则：
 
-1. `pi.skills` 可省略；存在时是无重复、非空的相对路径数组。
-2. Marketplace skill/catalog path 必须以 `payload/` 开头并存在于 archive file table。
-3. 每个 skill path 必须指向名为 `SKILL.md` 的 regular non-symlink file；catalog 必须是 regular non-symlink JSON file；canonical paths 必须位于 immutable version root 内。
-4. `pi.runCode.skill` 是 enhanced run-code 制品的 primary skill name；它必须与一个 admitted `SKILL.md` frontmatter `name` 精确相等。
-5. 新制品声明 `plugin-methods.provide` 时，`skills`、`runCode.skill` 和 `runCode.catalog` 必填；default factory 必须实际调用 `registerTool()`。
+1. `pi.skills` 和 `pi.runCode` 可省略；存在时属于 legacy enhanced guidance metadata。
+2. 声明 guidance metadata 时，Marketplace Skill/catalog path 必须以 `payload/` 开头并存在于 archive file table。
+3. 每个 Skill path 必须指向名为 `SKILL.md` 的 regular non-symlink file；catalog 必须是 regular non-symlink JSON file；canonical paths 必须位于 immutable version root 内。
+4. `pi.runCode.skill` 必须与一个 admitted `SKILL.md` frontmatter `name` 精确相等；`pi.skills`、`pi.runCode.skill` 和 `pi.runCode.catalog` 必须成组声明。
+5. 新制品声明 `plugin-methods.provide` 时只要求 canonical `plugin.id`；default factory 必须实际调用 `registerTool()`。没有 primary Skill 时，Desktop 从捕获定义生成 bounded API context。
 6. 声明 `tools.register` 的插件继续作为 native direct tools，不进入 `run_code` registry。
-7. manifest parser 校验 bounded catalog，返回 canonical skill/catalog paths、catalog digest 和 parsed catalog。catalog 是文档/admission metadata，不承载 execute closure。
+7. guidance metadata 存在时，manifest parser 校验 bounded catalog，返回 canonical Skill/catalog paths、catalog digest 和 parsed catalog。catalog 是文档/admission metadata，不承载 execute closure。
 8. artifact 的现有全信任模型不因这些文件改变；路径校验是版本一致性和运行稳定性要求。
 
 ### 8.2 `plugin-api.json`
@@ -269,7 +272,7 @@ interface PluginApiCatalogV1 {
 }
 ```
 
-catalog 和 `references/api.md` 由生成命令从标准 tool registrations 生成，methods 按 name 排序。runtime 不从 catalog 构造 handler；每个 captured tool 的名称、参数、结果及并发模式必须匹配 catalog。catalog 可以包含因运行时配置未注册的可选方法，运行时描述也可以包含配置化内容。插件 ID、实际注册的方法名或调用 schema 不一致时 admission 失败。参数 runtime validation 使用实际 ToolDefinition schema。
+当插件提供 legacy enhanced guidance metadata 时，catalog 和 `references/api.md` 由生成命令从标准 tool registrations 生成，methods 按 name 排序。runtime 不从 catalog 构造 handler；实际 method set 始终来自 captured registrations。已声明 catalog 时，每个 captured tool 的名称、参数、结果及并发模式必须匹配 catalog；catalog 可以包含因运行时配置未注册的可选方法。插件 ID、实际注册的方法名或调用 schema 不一致时 admission 失败。未声明 catalog 时跳过 catalog equality，参数 runtime validation 仍使用实际 ToolDefinition schema。
 
 Plugin method schema 是 closed profile，不接受任意 TypeBox runtime feature：
 
@@ -283,7 +286,7 @@ Plugin method schema 是 closed profile，不接受任意 TypeBox runtime featur
 
 runtime validation 只检查，不填 default、不 coerce、不删除 unknown fields。
 
-catalog 不代表授权，不发送给 provider，也不要求模型读取。`SKILL.md` 的解释性 prose 无法完全机器验证；生成的 `references/api.md` 应来自同一 catalog，Marketplace verifier 至少检查 primary skill 引用了该 generated reference。
+catalog 不代表授权，不发送给 provider，也不要求模型读取。已声明 primary Skill/catalog 时，`SKILL.md` 的解释性 prose 无法完全机器验证；生成的 `references/api.md` 应来自同一 catalog，Marketplace verifier 至少检查 primary Skill 引用了该 generated reference。
 
 ### 8.3 Development plugin
 
@@ -293,7 +296,7 @@ catalog 不代表授权，不发送给 provider，也不要求模型读取。`SK
 
 ### 8.4 Curated 和 builtin plugin
 
-`DesktopExtensionDefinition` 增加可选的 `skillPaths`、`runCodeSkill`、`runCodeCatalogPath` 和 `runCodeCatalogSha256`。curated resources 必须位于 `curatedRoot`；builtin resources 必须是随 Desktop sidecar 打包的静态路径。main source policy 读取 path、核对或生成 digest，并产出与 Marketplace 相同的 parsed `runCodeCatalog`。两者仍经过相同的 catalog、frontmatter 和 name collision 校验。
+`DesktopExtensionDefinition` 增加可选的 `skillPaths`、`runCodeSkill`、`runCodeCatalogPath` 和 `runCodeCatalogSha256`。声明这些 guidance resources 时，curated resources 必须位于 `curatedRoot`，builtin resources 必须是随 Desktop sidecar 打包的静态路径。main source policy 读取 path、核对或生成 digest，并产出与 Marketplace 相同的 parsed `runCodeCatalog`。已声明的 resources 仍经过相同的 catalog、frontmatter 和 name collision 校验。
 
 不是所有 inline factory 都是 plugin namespace。Desktop provider 等没有 run-code metadata 的 builtin inline extension 不得贡献 methods。
 
@@ -318,7 +321,7 @@ interface InstalledMarketplacePluginRecord {
 }
 ```
 
-这些 paths 必须已经 canonicalize，catalog 必须是 main 按第 8.2 节解析的 bounded detached JSON，digest 是原始 catalog file 的 SHA-256。clone、fingerprint、registry persistence、ownership marker、generation comparison 和 sidecar binding 都必须包含相应字段；fingerprint 至少包含 digest，不拼接整个 catalog。更新插件版本后，运行中的旧 worker 继续引用旧 version root 中的 entry、catalog 和 skill；garbage collector 必须把 active worker generation 的所有 paths 一起视为版本引用。
+存在时，这些 paths 必须已经 canonicalize，catalog 必须是 main 按第 8.2 节解析的 bounded detached JSON，digest 是原始 catalog file 的 SHA-256。clone、fingerprint、registry persistence、ownership marker、generation comparison 和 sidecar binding 都必须保留已声明字段；fingerprint 至少包含 digest，不拼接整个 catalog。更新到未声明 legacy guidance metadata 的版本时必须显式清除旧字段。运行中的旧 worker 继续引用旧 version root 中的 entry、catalog 和 Skill；garbage collector 必须把 active worker generation 的所有 paths 一起视为版本引用。
 
 ### 8.6 Desktop-owned atomic admission
 
@@ -329,22 +332,22 @@ interface InstalledMarketplacePluginRecord {
 3. 对每个 path-backed entry，Desktop 继续生成 identity-bound inline wrapper，并用 `jiti` 导入 module namespace；
 4. wrapper 调用 standard default factory，并代理 `registerTool()`：每个 ToolDefinition 进入 entry-local staging，其他 Host API 原样转发；factory throw 时 rollback；
 5. factory 返回后再次调用 `registerTool()` 是 registration error；
-6. `ResourceLoader` 按现有行为加载普通 skills、Desktop builtin skills 和 approved plugin skills；
-7. services 创建完成后，Desktop 检查 extension diagnostics、captured definitions、catalog compatibility 和 primary skill；
+6. `ResourceLoader` 按现有行为加载普通 Skills、Desktop builtin Skills 和已声明的 approved plugin Skills；
+7. services 创建完成后，Desktop 检查 extension diagnostics、captured definitions，以及已声明的 catalog compatibility 和 primary Skill；
 8. 所有检查成功后 builder finalize 为本代 registry snapshot，再创建 AgentSession；
 9. metadata/draft worker执行相同 factory capture/admission，但不注入 executable `run_code`，验证后丢弃 registry。
 
 `SessionRuntime.create()` 的顺序必须可直接实现为：先创建 holder/builder；用它构造 `controlledResourceLoaderOptions()`；await `createAgentSessionServices()` 完成 extension/resource loading；执行 Desktop finalization；把 registry snapshot bind 到 holder；最后调用现有的 `createAgentSessionFromServices()`。Pi services 对象在此阶段已完成 loader work，但尚未创建 `AgentSession`；finalization 失败时先 `builder.discard()`，dispose 已创建的 services resources，再抛出 `DesktopExtensionStartupError`。不得先创建 AgentSession 再补 registry。reload 成功后重新 finalize 并 bind 当前 snapshot。
 
-`controlledResourceLoaderOptions()` 只在 resolved set 至少包含一个已批准、catalog 非空的 method-based plugin 时加入 Desktop `run_code` inline factory。该 factory 只调用现有 `pi.registerTool()` 一次，tool 的 `execute` closure 捕获 generation-local registry holder；holder 未绑定、startup 已失败或 generation stale 时拒绝执行。因为 AgentSession 在 registry 绑定后才创建，正常 provider 路径永远看不到未就绪 tool。
+`controlledResourceLoaderOptions()` 只在 resolved set 至少包含一个已批准的 method-based plugin 时加入 Desktop `run_code` inline factory。该 factory 只调用现有 `pi.registerTool()` 一次，tool 的 `execute` closure 捕获 generation-local registry holder；holder 未绑定、startup 已失败或 generation stale 时拒绝执行。因为 AgentSession 在 registry 绑定后才创建，正常 provider 路径永远看不到未就绪 tool。
 
-plugin primary skill 必须满足：frontmatter 显式包含合法 `name` 和非空 `description`；name/description 通过 Pi Agent Skills validation；`disable-model-invocation` 必须不存在或为 `false`；loaded `filePath` 等于 approved canonical path；name 未与任何 earlier ordinary/plugin skill 冲突；该 path 没有任何 read/frontmatter/name/description diagnostic。对 plugin-owned primary skill，Desktop 把 Pi 原本 lenient 的这些 warnings 提升为 blocking startup error；unknown frontmatter fields 和非 primary supplemental skill warnings仍沿用 Pi 行为。
+如果插件声明 primary Skill，则必须满足：frontmatter 显式包含合法 `name` 和非空 `description`；name/description 通过 Pi Agent Skills validation；`disable-model-invocation` 必须不存在或为 `false`；loaded `filePath` 等于 approved canonical path；name 未与任何 earlier ordinary/plugin Skill 冲突；该 path 没有任何 read/frontmatter/name/description diagnostic。对 plugin-owned primary Skill，Desktop 把 Pi 原本 lenient 的这些 warnings 提升为 blocking startup error；unknown frontmatter fields 和非 primary supplemental Skill warnings仍沿用 Pi 行为。
 
-不能启动只有 skill 没有 registry、或只有 registry 没有 model-visible primary skill 的 live session。普通 global/project/builtin skills 和 `skillsOverride` 的既有结果不被 Desktop 修改；冲突时整个新 generation 启动失败，旧 live generation 按 replacement rollback 规则继续运行。
+不能启动只有 Skill metadata 但没有捕获 registry 的 live session。只有 registry、没有 primary Skill 的插件可以启动，但必须成功生成 bounded API context；生成内容超过总预算时 startup 失败。普通 global/project/builtin Skills 和 `skillsOverride` 的既有结果不被 Desktop 修改；冲突时整个新 generation 启动失败，旧 live generation按 replacement rollback 规则继续运行。
 
-### 8.7 SKILL.md 内容要求
+### 8.7 可选 SKILL.md 内容要求
 
-primary `SKILL.md` 至少包含：
+声明 primary `SKILL.md` 时至少包含：
 
 - 何时使用和何时不使用该插件；
 - canonical plugin ID 和准确调用语法；
@@ -412,9 +415,9 @@ dispatcher 调用 captured tool 时必须按 Pi `ToolDefinition` 语义提供：
 
 ### 9.4 Catalog and skill
 
-catalog 和 skill 是制品文档/admission metadata，不是第二份 executable source。runtime method set 来自实际 captured registrations。对于 `plugin-methods.provide` 制品，每个捕获定义必须属于 catalog 并匹配调用 schema；catalog 可保留因配置未启用的方法。参数验证使用实际 ToolDefinition schema。`tools.register` 制品继续作为 native direct tools。
+可选 catalog 和 Skill 是制品文档/admission metadata，不是第二份 executable source。runtime method set 来自实际 captured registrations。已声明 catalog 时，每个捕获定义必须属于 catalog 并匹配调用 schema；catalog 可保留因配置未启用的方法。未声明 catalog 时直接使用经 schema profile 校验的捕获定义。参数验证始终使用实际 ToolDefinition schema。`tools.register` 制品继续作为 native direct tools。
 
-primary skill 继续提供语义、工作流、副作用和 canonical namespace。generated API reference 可以从捕获定义或 packaging 时的标准 tool registration fixture 生成，但插件作者不维护另一套 handler。
+可选 primary Skill 提供语义、工作流、副作用和 canonical namespace。没有 primary Skill 时生成 API context。generated API reference 可以从捕获定义或 packaging 时的标准 tool registration fixture 生成，但插件作者不维护另一套 handler。
 
 ## 10. Session-scoped registry
 
@@ -423,7 +426,7 @@ primary skill 继续提供语义、工作流、副作用和 canonical namespace�
 ```ts
 interface RegisteredDesktopPluginMethod {
   pluginId: string;
-  primarySkill: string;
+  primarySkill?: string;
   entryId: string;
   source: DesktopExtensionSource;
   version?: string;
@@ -445,7 +448,7 @@ registry owner 是 `SessionRuntime`，生命周期等于一个 thread worker gen
 
 ### 10.2 Build order
 
-registry 按 `ResolvedExtensionSet.entries` 的 approved order 构建，但 plugin/tool identity 不使用 first-wins。任何重复 canonical plugin ID 或 tool name 都产生 blocking diagnostic。只有 factory、capture 以及已声明的 catalog/primary skill checks 成功后，registry snapshot 才交给 `run_code`。
+registry 按 `ResolvedExtensionSet.entries` 的 approved order 构建，但 plugin/tool identity 不使用 first-wins。任何重复 canonical plugin ID 或 tool name 都产生 blocking diagnostic。只有 factory、capture、schema profile、generated context budget，以及已声明的 catalog/primary Skill checks 成功后，registry snapshot 才交给 `run_code`。
 
 ### 10.3 Identity syntax
 
@@ -462,7 +465,7 @@ await plugin["com.acme.web-tools"].get({ url });
 await plugin.browser.get({ url });
 ```
 
-bracket form 是所有合法 ID 的无歧义 canonical syntax，plugin skill 必须至少展示一次。运行时用 null-prototype objects 和 own-property lookup 构建 namespace，不沿原型链解析。点分层级与完整 bracket key 指向同一个稳定 plugin namespace。
+bracket form 是所有合法 ID 的无歧义 canonical syntax。存在 plugin Skill 时必须至少展示一次；否则 generated API context 提供该形式。运行时用 null-prototype objects 和 own-property lookup 构建 namespace，不沿原型链解析。点分层级与完整 bracket key 指向同一个稳定 plugin namespace。
 
 ## 11. `run_code` code runtime
 
@@ -897,15 +900,15 @@ type DesktopExtensionCapability =
 
 Desktop per-entry wrapper 必须 gate tool capture：
 
-- `plugin-methods.provide` entry 必须有 canonical plugin ID、primary skill 和 parsed catalog；
+- `plugin-methods.provide` entry 必须有 canonical plugin ID；primary Skill 和 parsed catalog 可选；
 - factory 的所有同步 `registerTool()` 调用按 approved entry attribution 并进入 staging；
-- capture、factory 或 catalog equality 失败时 rollback 整个 entry；
+- capture、factory、schema profile、generated context budget，或已声明的 catalog equality 失败时 rollback 整个 entry；
 - tool execution 不逐次向 main/renderer 请求授权；
 - capability 只表示工具可由模型生成程序调用，不表示 OS 权限限制。
 
 这里不依赖 Pi shared Host UI context 的 caller attribution。Desktop wrapper 由 `ResolvedExtensionEntry` 创建并闭包绑定 identity，在调用 factory 时代理 `registerTool()`。Host Profile 中“共享 Pi host 无 per-caller isolation”的限制保持不变，也无需修改 Pi。
 
-`tools.register` 表示 native direct model exposure。需要组合调用的插件使用 `plugin-methods.provide` 并携带 skill/catalog；host-owned native infrastructure 继续按明确内建路径注册。
+`tools.register` 表示 native direct model exposure。需要组合调用的插件使用 `plugin-methods.provide`；Skill/catalog 是可选 guidance metadata。host-owned native infrastructure 继续按明确内建路径注册。
 
 ## 20. Session、draft、reload 和 persistence
 
@@ -913,13 +916,13 @@ Desktop per-entry wrapper 必须 gate tool capture：
 
 thread worker bootstrap 中的 `ResolvedExtensionSet` 决定 methods、catalog 和 skills。open existing session 时使用当前批准 generation 和该 session 的 `enabledPluginIds` 选择结果；session JSONL 不保存 method definitions 或 schemas。
 
-new-session draft 和 live thread 必须从同一 main-owned source policy 解析 plugin metadata。metadata worker 可以验证/display manifests 和 skill summaries，但不创建 executable method registry，不暴露 `run_code`，也不运行模型代码。
+new-session draft 和 live thread 必须从同一 main-owned source policy 解析 plugin metadata。metadata worker 可以验证/display manifests 和已声明的 Skill summaries，但不创建 executable method registry，不暴露 `run_code`，也不运行模型代码。
 
 ### 20.2 Reload
 
-插件启用状态、版本、配置、entry、skill、catalog 或 capability 变化都会改变 extension-set fingerprint，并通过现有 replacement worker 生效。不能在当前 registry 中 mutate。
+插件启用状态、版本、配置、entry、可选 Skill/catalog 或 capability 变化都会改变 extension-set fingerprint，并通过现有 replacement worker 生效。不能在当前 registry 中 mutate。
 
-资源-only reload 如果可能改变 plugin skill，也必须走 generation replacement；不能让同一 live registry 配上新 API 文档。
+资源-only reload 如果可能改变 plugin Skill 或 generated API context，也必须走 generation replacement；不能让同一 live registry 配上新 API 文档。
 
 ### 20.3 Replay
 
@@ -927,7 +930,7 @@ new-session draft 和 live thread 必须从同一 main-owned source policy 解�
 
 ### 20.4 Child/subagent policy
 
-首期 `run_code` 只注册在 Desktop live thread `SessionRuntime`。metadata workers、subagent workers和 standalone Pi CLI 不继承 parent registry。skill 可以按现有 subagent skill policy作为知识传入，但没有 matching `run_code` 时必须明确视为不可执行；默认不向 subagent 注入 plugin skills，避免广告不可用 API。
+首期 `run_code` 只注册在 Desktop live thread `SessionRuntime`。metadata workers、subagent workers和 standalone Pi CLI 不继承 parent registry。Skill 可以按现有 subagent Skill policy 作为知识传入，但没有 matching `run_code` 时必须明确视为不可执行；默认不向 subagent 注入 plugin Skills 或 generated API context，避免广告不可用 API。
 
 未来若 subagent 需要插件能力，必须把 approved extension generation、registry ownership、worker lifecycle 和 audit 回传作为独立设计，不能通过访问 parent thread singleton 绕过 single-writer/generation 边界。
 
@@ -996,9 +999,9 @@ main 只接受当前 attachment lease 对应 thread 的请求，并向 owning th
 
 1. 保持现有 default factory 和 `pi.registerTool()` definitions；
 2. 确认每个工具正确使用 `prepareArguments`、AbortSignal、`onUpdate` 和 `ExtensionContext`；
-3. manifest 从 `tools.register` 迁到 `plugin-methods.provide`；
-4. 增加 primary `SKILL.md`，说明 canonical namespace、参数、结果、副作用和工作流；
-5. 从标准 tool registrations 生成 catalog 与 API reference；
+3. manifest 从 `tools.register` 迁到 `plugin-methods.provide` 并提供 stable `plugin.id`；
+4. 需要丰富工作流指导时，增加 primary `SKILL.md`，说明 canonical namespace、参数、结果、副作用和工作流；
+5. 使用 primary Skill 时，从标准 tool registrations 生成 catalog 与 API reference；否则验证 generated API context；
 6. 验证 Desktop provider request 只包含一个 `run_code` schema。
 
 迁移前后的 executable source 都是同一份 ToolDefinition，不存在双注册兼容层。
@@ -1025,7 +1028,7 @@ method rename、参数变化和 result shape 变化由插件版本、catalog 及
 
 修改：
 
-- `src/main/plugins/marketplace-artifact-manifest.ts`：manifest skills/catalog、primary skill、capability 和 path validation；
+- `src/main/plugins/marketplace-artifact-manifest.ts`：manifest 可选 Skills/catalog、primary Skill、capability 和 path validation；
 - `src/main/plugins/marketplace-plugin-installer.ts`、registry、reconciler、garbage collector：persist/clone/version reference；
 - `src/main/extensions/desktop-extension-directory.ts`：Development plugin resources resolution；
 - `src/main/extensions/desktop-extension-source-policy.ts`：resolved paths、fingerprint、override identity；
@@ -1071,7 +1074,7 @@ packages/desktop/src/main/pi/run-code/
 - module import + default factory + capture 都成功才 commit staged tools；任一步失败都 discard；
 - duplicate method、invalid name、missing parameters/execute、unsupported execution mode 和 reserved `run_code` name；
 - `prepareArguments`、actual TypeBox validation、AbortSignal、onUpdate 和 real ExtensionContext 均被保留；
-- `tools.register` entry 保持 direct exposure，`plugin-methods.provide` entry 检查 catalog compatibility；
+- `tools.register` entry 保持 direct exposure，`plugin-methods.provide` entry 在 legacy catalog 存在时检查 compatibility；
 - two plugins can use same method name；
 - Development override 使用 manifest plugin ID；
 - zero candidate 不注入 tool factory；candidate startup 成功后 provider request 保持 native tools 并只新增一个 `run_code`；
@@ -1082,13 +1085,13 @@ packages/desktop/src/main/pi/run-code/
 
 - Marketplace/Development valid resources；
 - absolute path、`..` escape、symlink、missing file、wrong filename、duplicate path、oversized metadata；
-- primary skill missing/name mismatch/name collision/source mismatch/`disable-model-invocation: true`；
-- primary skill 的 read/frontmatter/name/description warnings 全部 blocking，supplemental warnings 保持 lenient；
-- Desktop finalizer 对 exact plugin skill path 做 blocking startup gate，但不修改 ordinary skills 或既有 `skillsOverride` 结果；
-- catalog parse、stable order、captured-definition compatibility；
+- optional primary Skill 的 missing/name mismatch/name collision/source mismatch/`disable-model-invocation: true`；
+- 已声明 primary Skill 的 read/frontmatter/name/description warnings 全部 blocking，supplemental warnings 保持 lenient；
+- Desktop finalizer 对已声明的 exact plugin Skill path 做 blocking startup gate，但不修改 ordinary Skills 或既有 `skillsOverride` 结果；
+- legacy catalog parse、stable order、captured-definition compatibility；无 catalog 时 generated API context 正确且受总预算限制；
 - extension load failure 阻止 live AgentSession 创建，不能暴露 methods 或 skills 给 provider；
 - disabled/out-of-scope plugin 不贡献 skill；
-- global/project skill precedence不 shadow plugin primary skill；
+- global/project Skill precedence 不 shadow 已声明的 plugin primary Skill；
 - version update 中旧 generation 保留旧 resource paths；
 - garbage collection 不删除 active generation referenced version。
 
@@ -1172,7 +1175,7 @@ packages/desktop/src/main/pi/run-code/
 - cancel、reload、branch、compaction 和 session reopen；
 - model context contains outer value but not logs/audit/intermediate results；
 - renderer never executes backend plugin method；
-- subagent 没有 registry 时不注入 plugin skill。
+- subagent 没有 registry 时不注入 plugin Skill 或 generated API context。
 
 ## 25. Delivery phases
 
@@ -1186,11 +1189,11 @@ Exit：methods 可被 Desktop registry 枚举，模型 tool list 完全不变，
 
 ### Phase 2: Packaging and progressive disclosure
 
-- manifest、catalog parser/generator、installer、registry、source policy 和 Desktop atomic skill admission；
+- manifest、可选 catalog parser/generator、installer、registry、source policy、Desktop atomic Skill admission 和 generated API context；
 - update plugin-create/plugin-publish validation for standard captured tool registrations；
 - add one method-based example plugin。
 
-Exit：enabled plugin 的 skill summary 可见，disabled/failed/drifted plugin 的 skill 不可见，API schema 未进入 initial prompt。
+Exit：有 primary Skill 的 enabled plugin summary 可见；无 primary Skill 的 enabled plugin generated API context 可见；disabled/failed/drifted plugin 的两类 metadata 都不可见；plugin schemas 不进入 provider tool list。
 
 ### Phase 3: Runtime and dispatcher
 
@@ -1220,15 +1223,15 @@ Exit：image、file、progress、error 和 replay 行为通过 integration tests
 本规范实现完成必须同时满足：
 
 1. 启用至少一个 method-based plugin 时，provider request 中只新增 `run_code` 一个 tool schema。
-2. 任意 plugin method schema、description 和 catalog 均不在初始 provider request/system prompt 中。
-3. 相关 plugin skill 的 name/description 在初始 skill metadata 中，完整正文只在模型读取后进入上下文。
+2. 任意 plugin method schema、description 和 catalog 均不进入 provider tool list；有 primary Skill 时不进入初始 system prompt，无 primary Skill 时只进入 bounded generated API context。
+3. 已声明 plugin Skill 的 name/description 在初始 Skill metadata 中，完整正文只在模型读取后进入上下文；未声明 Skill 的插件提供 generated API context。
 4. `run_code` 可使用真实 canonical plugin ID 调用方法，并支持 Marketplace dotted/hyphenated ID。
-5. 参数验证使用 captured ToolDefinition schema，结果/附件经过 Desktop adapter 和 lossless JSON 边界；captured definitions 是 catalog 中与当前配置对应的合法子集。
+5. 参数验证使用 captured ToolDefinition schema，结果/附件经过 Desktop adapter 和 lossless JSON 边界；声明 legacy catalog 时 captured definitions 是其中与当前配置对应的合法子集，未声明时直接使用经 profile 校验的 captured definitions。
 6. 中间 method values、logs 和 audit records 不进入 model transcript。
 7. outer return、stable errors 和允许的 images 按本规范进入一个 Pi tool result。
 8. timeout、abort、heap、depth、call、response、output 和 attachment limits 有 focused tests。
 9. generation replacement 后旧 registry、worker、handler completion 和 attachment 不能污染新 session runtime。
 10. Pi built-in tools、host-owned native infrastructure、agent loop、session JSONL 和 assistant-ui backend-tool non-execution 行为无回归。
-11. Marketplace install/update/rollback/garbage collection 同时正确管理 entry、catalog 与 skill version paths。
+11. Marketplace install/update/rollback/garbage collection 正确管理 entry 与已声明的 catalog/Skill version paths，并在新版省略 legacy metadata 时清除旧路径。
 12. nested methods 的有意语义差异有测试，不能被误认为经过 Pi tool hooks。
 13. `npm run check` 以及所有新增 focused tests 通过。

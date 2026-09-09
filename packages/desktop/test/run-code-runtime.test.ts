@@ -12,6 +12,7 @@ import {
 import { normalizePluginError } from "../src/main/pi/run-code/run-code-errors.ts";
 import { DEFAULT_RUN_CODE_LIMITS } from "../src/main/pi/run-code/run-code-limits.ts";
 import { executePluginProgram, RunCodeRunManager } from "../src/main/pi/run-code/run-code-runtime.ts";
+import { RunCodeRegistryHolder } from "../src/main/pi/run-code/run-code-tool.ts";
 import type { PluginMethodExecutionContext } from "../src/shared/desktop-extension-contracts.ts";
 
 describe("run_code runtime", () => {
@@ -19,50 +20,65 @@ describe("run_code runtime", () => {
     expect(() => new DesktopPluginRegistryBuilder().commit("empty-plugin")).toThrow("PLUGIN_DECLARATION_INVALID");
   });
 
-  test("accepts a configured catalog subset and rejects methods outside the catalog", () => {
+  test("generates plugin metadata from captured tools without a catalog or skill", async () => {
     const parameters = Type.Object({}, { additionalProperties: false });
-    const result = Type.Object({ text: Type.String() }, { additionalProperties: false });
     const entry = {
-      id: "development:configurable",
-      displayName: "Configurable",
+      id: "development:generated",
+      displayName: "Generated",
       source: "development" as const,
       hostProfileVersion: 1 as const,
       capabilities: ["plugin-methods.provide" as const],
-      pluginId: "com.example.configurable",
-      runCodeSkill: "plugin-configurable",
-      runCodeCatalog: {
-        schemaVersion: 1 as const,
-        pluginId: "com.example.configurable",
-        methods: [
-          { name: "active", description: "Static description", parameters, result, concurrency: "serial" as const },
-          { name: "optional", description: "Optional method", parameters, result, concurrency: "serial" as const },
-        ],
-      },
+      pluginId: "com.example.generated",
     };
     const builder = new DesktopPluginRegistryBuilder();
-    builder.stageTool(entry, {
-      name: "active",
-      label: "Active",
-      description: "Description adjusted by runtime configuration",
-      parameters,
-      async execute() {
-        return { content: [{ type: "text", text: "ok" }] };
-      },
-    });
+    for (const name of ["active", "optional"]) {
+      builder.stageTool(entry, {
+        name,
+        label: name,
+        description: `${name} method`,
+        parameters,
+        async execute() {
+          return { content: [{ type: "text" as const, text: "ok" }] };
+        },
+      });
+    }
     builder.commit(entry.id);
-    expect([...builder.finalize().get(entry.pluginId)!.keys()]).toEqual(["active"]);
+    const registry = builder.finalize();
+    expect([...registry.get(entry.pluginId)!.keys()]).toEqual(["active", "optional"]);
 
-    const invalid = new DesktopPluginRegistryBuilder();
-    invalid.stageTool(entry, {
-      name: "unknown",
-      label: "Unknown",
-      description: "Unknown method",
-      parameters,
-      async execute() {
-        return { content: [{ type: "text", text: "no" }] };
-      },
-    });
-    expect(() => invalid.commit(entry.id)).toThrow("PLUGIN_CATALOG_DRIFT");
+    const holder = new RunCodeRegistryHolder("generated-catalog");
+    holder.bind(registry, "/tmp");
+    expect(holder.generatedApiInstructions()).toContain('"pluginId":"com.example.generated"');
+    expect(holder.generatedApiInstructions()).toContain('"name":"active"');
+    expect(holder.generatedApiInstructions()).toContain('"parameters":{"type":"object"');
+    await holder.dispose();
+  });
+
+  test("rejects generated API context that exceeds the aggregate prompt budget", () => {
+    const parameters = Type.Object({}, { additionalProperties: false });
+    const builder = new DesktopPluginRegistryBuilder();
+    for (let index = 0; index < 64; index++) {
+      const entry = {
+        id: `development:generated-${index}`,
+        displayName: `Generated ${index}`,
+        source: "development" as const,
+        hostProfileVersion: 1 as const,
+        capabilities: ["plugin-methods.provide" as const],
+        pluginId: `com.example.generated${index}`,
+      };
+      builder.stageTool(entry, {
+        name: "run",
+        label: "Run",
+        description: "D".repeat(4_096),
+        parameters,
+        async execute() {
+          return { content: [{ type: "text" as const, text: "ok" }] };
+        },
+      });
+      builder.commit(entry.id);
+    }
+
+    expect(() => builder.finalize()).toThrow("PLUGIN_GENERATED_CONTEXT_TOO_LARGE");
   });
 
   test("clears committed methods before a new capture batch", () => {
@@ -525,7 +541,10 @@ describe("run_code runtime", () => {
   });
 
   test("rejects schemas outside the closed profile", () => {
-    const parameters = Type.Object({ value: Type.String({ default: "unsafe" }) }, { additionalProperties: false });
+    const parameters = Type.Object(
+      { value: Type.Unsafe({ $ref: "#/definitions/unsafe" }) },
+      { additionalProperties: false },
+    );
     const builder = new DesktopPluginRegistryBuilder();
     expect(() =>
       builder.stageTool(

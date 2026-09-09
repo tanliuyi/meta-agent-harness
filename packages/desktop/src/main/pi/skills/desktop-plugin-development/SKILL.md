@@ -73,12 +73,7 @@ A directory selected through Developer Mode may include `market-manifest.json`. 
   },
   "pi": {
     "entry": "index.ts",
-    "extensionApi": "v1",
-    "skills": ["skills/plugin-example/SKILL.md"],
-    "runCode": {
-      "skill": "plugin-example",
-      "catalog": "plugin-api.json"
-    }
+    "extensionApi": "v1"
   },
   "desktop": {
     "hostProfileVersion": 1
@@ -91,15 +86,12 @@ A directory selected through Developer Mode may include `market-manifest.json`. 
   "nativeModules": [],
   "executables": [],
   "files": {
-    "index.ts": { "mode": "0644" },
-    "plugin-api.json": { "mode": "0644" },
-    "skills/plugin-example/SKILL.md": { "mode": "0644" },
-    "skills/plugin-example/references/api.md": { "mode": "0644" }
+    "index.ts": { "mode": "0644" }
   }
 }
 ```
 
-For a local development directory, Desktop reads `plugin.name`, `plugin.id`, `pi.entry`, `pi.skills`, `pi.runCode`, `desktop.hostProfileVersion`, `capabilities`, and the optional `configuration`. `plugin-api.json` documents the standard tools captured for `run_code`. The primary skill name must match `pi.runCode.skill`, document `plugin["canonical.id"].method(...)`, and reference generated `references/api.md`. Marketplace artifacts additionally require the complete identity, target, native/executable declarations, and payload file metadata described in [loading-and-packaging.md](references/loading-and-packaging.md).
+For a local development directory, Desktop reads `plugin.name`, `plugin.id`, `pi.entry`, optional `pi.skills`/`pi.runCode` guidance metadata, `desktop.hostProfileVersion`, `capabilities`, and the optional `configuration`. For `plugin-methods.provide`, `plugin.id` and the standard tools captured from `pi.registerTool()` are sufficient; Desktop generates API context when no primary skill is declared. Add a Skill and `plugin-api.json` when the plugin needs richer workflow guidance. If legacy guidance metadata is present, the primary skill name must match `pi.runCode.skill`, document `plugin["canonical.id"].method(...)`, and reference generated `references/api.md`. Marketplace artifacts additionally require the complete identity, target, native/executable declarations, and payload file metadata described in [loading-and-packaging.md](references/loading-and-packaging.md).
 
 ## Configuration Quick Start
 
@@ -156,7 +148,7 @@ Desktop configuration is scoped to the approved extension entry. Values are immu
 
 Before declaring a plugin ready:
 
-1. A programmatic plugin uses a manifest-backed directory with a stable `plugin.id`, standard `pi.registerTool()` definitions, a catalog, and a primary skill; direct-only plugins can expose native Pi tools without this metadata.
+1. A programmatic plugin uses a manifest-backed directory with a stable `plugin.id` and standard `pi.registerTool()` definitions. A catalog and primary skill are optional guidance metadata; direct-only plugins can expose native Pi tools without them.
 2. The manifest uses `desktop.hostProfileVersion: 1` and declares only supported capabilities.
 3. Every schema field passes the v1 configuration parser and every required field has a valid value before runtime use.
 4. Every tool, command, provider, and event path has deterministic focused coverage.

@@ -29,6 +29,12 @@ export interface MarketplaceHttpRuntime extends AuthRuntime {
 export const USERNAME_PATTERN = /^[a-z0-9][a-z0-9._-]{2,63}$/;
 export const PUBLISHER_ID_PATTERN = /^[a-z0-9][a-z0-9._-]{1,63}$/;
 
+export function validatePublisherId(publisherId: string): void {
+	if (!PUBLISHER_ID_PATTERN.test(publisherId)) {
+		throw badRequest("PUBLISHER_ID_INVALID", "Publisher ID must be a lowercase identifier");
+	}
+}
+
 const STORE_ERRORS: Record<
 	string,
 	{ status: "not-found" | "conflict" | "bad-request" | "payload-too-large"; message: string }

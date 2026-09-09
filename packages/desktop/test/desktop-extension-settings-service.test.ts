@@ -152,6 +152,47 @@ describe("DesktopExtensionSettingsService", () => {
     });
   });
 
+  it("approves plugin methods without a hand-written catalog or skill", async () => {
+    const pluginDirectory = join(directory, "generated-methods-plugin");
+    await mkdir(pluginDirectory, { recursive: true });
+    await writeFile(join(pluginDirectory, "index.ts"), "export default function () {}\n", "utf8");
+    await writeFile(
+      join(pluginDirectory, "market-manifest.json"),
+      JSON.stringify({
+        schemaVersion: 1,
+        plugin: { id: "dev.generated-methods", name: "Generated Methods" },
+        pi: { entry: "index.ts" },
+        desktop: { hostProfileVersion: DESKTOP_EXTENSION_HOST_PROFILE_VERSION },
+        capabilities: ["plugin-methods.provide"],
+      }),
+      "utf8",
+    );
+
+    const approved = await service.approveDevelopmentEntry(
+      { requestId: "approve-generated-methods", expectedRevision: (await service.getConfig()).revision },
+      pluginDirectory,
+    );
+
+    expect(approved).toMatchObject({
+      status: "saved",
+      snapshot: {
+        entries: [
+          { id: "builtin" },
+          { id: "curated" },
+          {
+            id: "development:entry-id",
+            pluginId: "dev.generated-methods",
+            capabilities: ["plugin-methods.provide"],
+          },
+        ],
+      },
+    });
+    if (approved.status !== "saved") throw new Error("approval failed");
+    const entry = approved.snapshot.entries.find((candidate) => candidate.id === "development:entry-id");
+    expect(entry?.runCodeSkill).toBeUndefined();
+    expect(entry?.runCodeCatalog).toBeUndefined();
+  });
+
   it("rejects a manifest plugin.id that is not a non-empty bounded string", async () => {
     const pluginDirectory = join(directory, "bad-id-plugin");
     await mkdir(pluginDirectory, { recursive: true });

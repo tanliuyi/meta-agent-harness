@@ -2,7 +2,7 @@
 // Verify a published version through the public read API.
 //
 // Usage:
-//   node verify.mjs <apiRoot> <pluginId> <version> [--out <dir>] [--key <publicKeyFile>]
+//   node verify.mjs <apiRoot> <pluginId> <version> [--out <dir>]
 //
 // Checks, in order:
 //   1. Public plugin detail reports the version as available.
@@ -10,32 +10,27 @@
 //   3. The download endpoint (metadata JSON with a `url` field — the metadata
 //      response itself is NOT the artifact) yields real bytes; the archive's
 //      SHA-256 and byte length match the catalog values.
-//   4. The .meta-plugin archive unpacks to market-manifest.json +
-//      signature.json + payload/; the manifest names the expected plugin,
-//      version, entry, target, capabilities and the full payload file set.
-//   5. When --key is given, verify signature.json over canonical JSON of
-//      market-manifest.json with the Ed25519 public key from discovery
-//      (raw 32-byte, PKIX DER, or JWK formats are accepted).
+//   4. The .meta-plugin archive unpacks to market-manifest.json + payload/;
+//      the manifest names the expected plugin, version, entry, target,
+//      capabilities and the full payload file set.
+//   5. Legacy Skill/catalog metadata is validated when present.
 //
 // Fetched archives are saved under --out (default: current directory).
-import { createPublicKey, verify } from "node:crypto";
-import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
+import { writeFileSync, mkdirSync } from "node:fs";
 import path from "node:path";
-import { canonicalJson, sha256, zipEntries } from "./lib/zip.mjs";
+import { sha256, zipEntries } from "./lib/zip.mjs";
 
 async function main() {
   const args = process.argv.slice(2);
   let outDir = ".";
-  let keyFile = null;
   const positional = [];
   for (let i = 0; i < args.length; i++) {
     if (args[i] === "--out" && args[i + 1]) outDir = args[++i];
-    else if (args[i] === "--key" && args[i + 1]) keyFile = args[++i];
     else positional.push(args[i]);
   }
   const [apiRoot, pluginId, version] = positional;
   if (!apiRoot || !pluginId || !version) {
-    console.error("usage: node verify.mjs <apiRoot> <pluginId> <version> [--out <dir>] [--key <publicKeyFile>]");
+    console.error("usage: node verify.mjs <apiRoot> <pluginId> <version> [--out <dir>]");
     process.exitCode = 2;
     return;
   }
@@ -79,7 +74,7 @@ async function main() {
     writeFileSync(outFile, buf);
     console.log(`saved ${outFile}`);
 
-    // 4. Unpack and inspect the signed archive.
+    // 4. Unpack and inspect the archive.
     let entries;
     try {
       entries = zipEntries(buf);
@@ -111,9 +106,9 @@ async function main() {
     if (mPluginId !== pluginId) throw new Error(`manifest pluginId ${mPluginId} != ${pluginId}`);
     if (mVersion !== version) throw new Error(`manifest version ${mVersion} != ${version}`);
     const runCode = m.pi?.runCode;
-    if (m.capabilities?.includes("plugin-methods.provide")) {
+    if (runCode || (Array.isArray(m.pi?.skills) && m.pi.skills.length > 0)) {
       if (!runCode || !Array.isArray(m.pi?.skills) || m.pi.skills.length === 0) {
-        throw new Error("method plugin manifest is missing pi.skills or pi.runCode");
+        throw new Error("legacy pi metadata must declare both pi.skills and pi.runCode");
       }
       if (!m.pi.skills.every((name) => typeof name === "string" && name.startsWith("payload/") && get(name))) {
         throw new Error("method plugin manifest contains a missing skill");
@@ -147,34 +142,6 @@ async function main() {
     for (const f of listed) {
       const p = f.path ?? f;
       if (!expected.has(p)) throw new Error(`manifest lists ${p} but archive does not contain it`);
-    }
-
-    // 5. Optional Ed25519 signature verification.
-    if (keyFile) {
-      const sigEntry = get("signature.json");
-      if (!sigEntry) throw new Error("archive missing signature.json");
-      const sigJson = JSON.parse(sigEntry.toString("utf8"));
-      const sig = Buffer.from(sigJson.signature ?? sigJson.sig ?? sigJson, "base64");
-      const payload = Buffer.from(canonicalJson(m), "utf8");
-      let ok = false;
-      const raw = readFileSync(keyFile);
-      const attempts = [
-        () => ({ key: raw }),
-        () => ({ key: raw, format: "der", type: "spki" }),
-        () => ({ key: JSON.parse(raw.toString("utf8")), format: "jwk" }),
-      ];
-      for (const make of attempts) {
-        try {
-          if (verify(null, payload, createPublicKey(make()), sig)) {
-            ok = true;
-            break;
-          }
-        } catch {
-          // try next format
-        }
-      }
-      if (!ok) throw new Error("Ed25519 signature verification failed");
-      console.log("signature: OK");
     }
   }
 

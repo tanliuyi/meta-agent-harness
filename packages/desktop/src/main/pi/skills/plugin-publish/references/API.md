@@ -1,6 +1,6 @@
 # Marketplace Publish API v1
 
-Fetch `GET /.well-known/meta-agent-marketplace.json` from the marketplace public base URL. The response is a signed `{ data, signature }` envelope. Trust and verify the Ed25519 signing identity before using `data.apiRoot`; that value already ends in `/v1`. Every route below is relative to the exact `{apiRoot}` value, so never insert a second `/v1`. All authenticated requests use `Authorization: Bearer <token>`. JSON requests use `Content-Type: application/json`; artifact uploads use a raw `application/zip` or `application/octet-stream` body.
+Fetch `GET /.well-known/meta-agent-marketplace.json` from the marketplace public base URL and read `apiRoot` and `marketplaceId`. `apiRoot` already ends in `/v1`; never insert a second `/v1`. The configured base URL is the trust boundary; discovery and artifacts are not cryptographically authenticated. All authenticated requests use `Authorization: Bearer <token>`. JSON requests use `Content-Type: application/json`; artifact uploads use a raw `application/zip` or `application/octet-stream` body.
 
 ## Discovery and Accounts
 
@@ -49,6 +49,20 @@ The static server admin token returns `admin: true`; the username `admin` has no
 ### Logout
 
 `POST {apiRoot}/auth/logout` returns `204` and invalidates the supplied user session token. Remove the corresponding local session JSON after logout or when the user explicitly signs out.
+
+## Publisher Setup
+
+Authenticated users can claim an unused publisher namespace:
+
+`POST {apiRoot}/publish/publishers/:publisherId`
+
+```json
+{
+  "displayName": "Acme"
+}
+```
+
+The caller becomes the first member and the publisher starts with `verified: false`. Publisher IDs use lowercase letters, numbers, `-`, and `_`. Repeating the claim as an existing member is idempotent; another user receives `409` and cannot take the namespace.
 
 ## Publisher Administration
 
@@ -164,9 +178,9 @@ The public `GET {apiRoot}/plugins/:pluginId/icon` route serves the standalone ic
 
 `version` and optional Desktop bounds must be valid semver. Artifact IDs must be unique. `entry` is relative to the uploaded payload ZIP root; the server repacks the ZIP under a `payload/` prefix, so never write `payload/index.js` as the entry.
 
-`pi` is required when capabilities include `plugin-methods.provide` and is rejected otherwise. `pi.skills` must contain unique payload-relative `SKILL.md` paths. `pi.runCode.skill` is the lowercase primary skill name and `pi.runCode.catalog` is the payload-relative `plugin-api.json` path. Every declared skill and catalog file must exist in each uploaded payload. The signed artifact manifest rewrites these paths beneath `payload/`.
+`pi` is optional guidance metadata. Plugins with `plugin-methods.provide` only require `plugin.id` in the extension manifest and standard `pi.registerTool()` declarations at runtime; Desktop generates the callable method catalog from those registrations. When legacy `pi` metadata is provided, `pi.skills` must contain unique payload-relative `SKILL.md` paths, `pi.runCode.skill` must name the primary skill, and `pi.runCode.catalog` must point to a payload-relative `plugin-api.json`. Every declared legacy file must exist in each uploaded payload, and the artifact manifest rewrites the paths beneath `payload/`.
 
-`configuration` is optional signed metadata for Desktop's host-rendered plugin settings form. It must use schema `version: 1`, contain at most 64 unique fields, and may use `text`, `textarea`, `path`, `number`, `boolean`, `select`, or `secret`. Each field requires a stable `key` and user-facing `label`; type-specific defaults and constraints are validated by the marketplace before the draft is created. Fields may additionally declare `widget: "model-selector"` and, only together with that widget, `modelFormat: "model-id" | "provider-model"`; invalid metadata is rejected. Plugins read the immutable runtime values through `pi.getConfig()`. Declare `configuration.read` when configuration is used. Secret values are supplied by users after installation and must never be included in the schema as defaults.
+`configuration` is optional metadata for Desktop's host-rendered plugin settings form. It must use schema `version: 1`, contain at most 64 unique fields, and may use `text`, `textarea`, `path`, `number`, `boolean`, `select`, or `secret`. Each field requires a stable `key` and user-facing `label`; type-specific defaults and constraints are validated by the marketplace before the draft is created. Fields may additionally declare `widget: "model-selector"` and, only together with that widget, `modelFormat: "model-id" | "provider-model"`; invalid metadata is rejected. Plugins read the immutable runtime values through `pi.getConfig()`. Declare `configuration.read` when configuration is used. Secret values are supplied by users after installation and must never be included in the schema as defaults.
 
 Target fields supported by protocol v1:
 
@@ -187,11 +201,10 @@ Current server limitation: artifact construction always emits `nativeModules: []
 
 `PUT {apiRoot}/publish/plugins/:pluginId/versions/:version/artifacts/:artifactId`
 
-Send the payload ZIP as the raw request body. The ZIP contains payload files only. The server validates and repacks it as a signed `.meta-plugin` with:
+Send the payload ZIP as the raw request body. The ZIP contains payload files only. The server validates and repacks it as a `.meta-plugin` with:
 
 ```text
 market-manifest.json
-signature.json
 payload/<entry and support files>
 ```
 
@@ -207,7 +220,7 @@ Successful upload returns:
 }
 ```
 
-The hash and size describe the final signed archive, not the uploaded payload ZIP.
+The hash and size describe the final archive, not the uploaded payload ZIP.
 
 ## Publish and Lifecycle
 
@@ -255,13 +268,14 @@ After publication, verify:
 - download URL returned by the previous endpoint
 - `GET {apiRoot}/revocations`
 
-Recompute the downloaded archive SHA-256 and compare its byte length with catalog metadata. Verify `signature.json` over canonical JSON for `market-manifest.json` using the Ed25519 public key from discovery. Canonical JSON recursively sorts object keys while preserving array order.
+Recompute the downloaded archive SHA-256 and compare its byte length with catalog metadata. Inspect `market-manifest.json` and verify the plugin ID, version, entry, target, capabilities, and payload file list. SHA-256 detects corruption; it does not authenticate the publisher or endpoint.
 
 ## Important Error Semantics
 
 - `401`: missing, invalid, expired, or logged-out token.
 - `403 PUBLISHER_MEMBERSHIP_REQUIRED`: authenticated user is not authorized for that publisher/plugin.
 - `404`: plugin/version/artifact does not exist for that route.
+- `409 PUBLISHER_ID_TAKEN`: the requested self-service publisher namespace already exists.
 - `409`: state conflict such as duplicate draft/version, incomplete version, already published/deprecated, or publisher mismatch.
 - `410`: artifact listing, download metadata, or artifact bytes were requested for a withdrawn or blocked version. Version detail remains readable and reports the revoked status.
 - `413`: artifact or standalone icon upload exceeds server size limits.

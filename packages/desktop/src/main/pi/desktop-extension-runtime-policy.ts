@@ -291,6 +291,7 @@ export function validatePluginSkills(
   for (const entry of set.entries) {
     if (!entry.capabilities.includes("plugin-methods.provide")) continue;
     const primaryName = entry.runCodeSkill;
+    if (!primaryName) continue;
     const approvedPaths = new Set(
       (entry.skillPaths ?? [])
         .filter((path): path is string => typeof path === "string" && path.length > 0)

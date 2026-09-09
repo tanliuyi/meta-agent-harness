@@ -194,6 +194,14 @@ export class MarketplaceStore {
 
 	// --- publishers ---
 
+	async createPublisherForUser(
+		publisherId: string,
+		displayName: string,
+		userId: number,
+	): Promise<PublisherAdminView | undefined> {
+		return this.publisherStore.createPublisherForUser(publisherId, displayName, userId);
+	}
+
 	async upsertPublisher(publisherId: string, displayName: string, verified: boolean): Promise<PublisherAdminView> {
 		return this.publisherStore.upsertPublisher(publisherId, displayName, verified);
 	}

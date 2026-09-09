@@ -9,6 +9,41 @@ export class PublisherStore {
 		this.pool = pool;
 	}
 
+	async createPublisherForUser(
+		publisherId: string,
+		displayName: string,
+		userId: number,
+	): Promise<PublisherAdminView | undefined> {
+		const client = await this.pool.connect();
+		try {
+			await client.query("BEGIN");
+			const result = await client.query(
+				"INSERT INTO publishers (id, display_name, verified) VALUES ($1, $2, FALSE) ON CONFLICT DO NOTHING RETURNING id",
+				[publisherId, displayName],
+			);
+			if (result.rows.length === 0) {
+				await client.query("ROLLBACK");
+				const membership = await client.query(
+					"SELECT 1 FROM publisher_members WHERE publisher_id = $1 AND user_id = $2",
+					[publisherId, userId],
+				);
+				if (membership.rows.length === 0) return undefined;
+				return await this.publisherView(publisherId);
+			}
+			await client.query("INSERT INTO publisher_members (publisher_id, user_id) VALUES ($1, $2)", [
+				publisherId,
+				userId,
+			]);
+			await client.query("COMMIT");
+		} catch (error) {
+			await client.query("ROLLBACK");
+			throw error;
+		} finally {
+			client.release();
+		}
+		return this.publisherView(publisherId);
+	}
+
 	async upsertPublisher(publisherId: string, displayName: string, verified: boolean): Promise<PublisherAdminView> {
 		await this.upsertPublisherRow(this.pool, publisherId, displayName, verified);
 		return (await this.publisherView(publisherId))!;

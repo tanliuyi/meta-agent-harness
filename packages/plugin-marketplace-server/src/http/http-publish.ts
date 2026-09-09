@@ -6,6 +6,7 @@ import { ARTIFACT_ID, PLUGIN_ID, parseTarget } from "../catalog-validation.ts";
 import { parsePluginConfigurationSchema } from "../configuration-schema.ts";
 import type {
 	MarketplacePluginVersionDetail,
+	PublisherAdminView,
 	PublishPluginRequest,
 	PublishPluginState,
 	PublishVersionArtifactRequest,
@@ -23,6 +24,7 @@ import {
 	bodyOptionalString,
 	bodyString,
 	bodyStringArray,
+	conflict,
 	forbidden,
 	type MarketplaceHttpRuntime,
 	mapStoreErrors,
@@ -32,6 +34,8 @@ import {
 	readPluginIconBody,
 	readUploadBody,
 	requirePrincipal,
+	requireUser,
+	validatePublisherId,
 } from "./http-util.ts";
 
 export interface ArtifactUploadResponse {
@@ -51,6 +55,21 @@ export interface PluginIconUploadResponse {
 }
 
 export function createPublishControllers(runtime: MarketplaceHttpRuntime): Type<unknown>[] {
+	class PublisherSelfServiceController {
+		async create(
+			publisherId: string,
+			body: unknown,
+			authorization: string | undefined,
+		): Promise<{ publisher: PublisherAdminView }> {
+			validatePublisherId(publisherId);
+			const principal = await requireUser(runtime, authorization);
+			const displayName = bodyString(bodyObject(body), "displayName", 120);
+			const publisher = await runtime.store.createPublisherForUser(publisherId, displayName, principal.userId);
+			if (!publisher) throw conflict("PUBLISHER_ID_TAKEN", "Publisher ID is already registered");
+			return { publisher };
+		}
+	}
+
 	class PublishController {
 		async list(authorization: string | undefined): Promise<{ plugins: PublishPluginState[] }> {
 			const principal = await requirePrincipal(runtime, authorization);
@@ -200,6 +219,12 @@ export function createPublishControllers(runtime: MarketplaceHttpRuntime): Type<
 		}
 	}
 
+	applyController(PublisherSelfServiceController, "v1/publish/publishers");
+	applyRoute(PublisherSelfServiceController.prototype, "create", "post", ":publisherId");
+	applyParameter(PublisherSelfServiceController.prototype, "create", 0, Param("publisherId"));
+	applyParameter(PublisherSelfServiceController.prototype, "create", 1, Body());
+	applyParameter(PublisherSelfServiceController.prototype, "create", 2, Headers("authorization"));
+
 	applyController(PublishController, "v1/publish/plugins");
 	applyRoute(PublishController.prototype, "list", "get", "");
 	applyParameter(PublishController.prototype, "list", 0, Headers("authorization"));
@@ -245,7 +270,7 @@ export function createPublishControllers(runtime: MarketplaceHttpRuntime): Type<
 	applyParameter(PublishController.prototype, "deleteDraft", 1, Param("version"));
 	applyParameter(PublishController.prototype, "deleteDraft", 2, Headers("authorization"));
 
-	return [PublishController];
+	return [PublisherSelfServiceController, PublishController];
 }
 
 async function requirePluginMember(
@@ -318,9 +343,6 @@ function parsePublishVersionRequest(body: unknown): PublishVersionRequest {
 		throw badRequest("BODY_INVALID", "configuration requires the configuration.read capability");
 	}
 	const pi = parsePublishPiMetadata(record.pi);
-	if (capabilities.includes("plugin-methods.provide") && !pi) {
-		throw badRequest("BODY_INVALID", "plugin-methods.provide requires pi.skills and pi.runCode");
-	}
 	if (pi && !capabilities.includes("plugin-methods.provide")) {
 		throw badRequest("BODY_INVALID", "pi runCode metadata requires the plugin-methods.provide capability");
 	}

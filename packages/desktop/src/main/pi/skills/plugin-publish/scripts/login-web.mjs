@@ -11,8 +11,8 @@
 // reused until the marketplace-provided expiresAt. Pass --force to authenticate
 // again and replace the cached session.
 //
-// Modes: login (default) or register (--register). When publisherId is given,
-// membership is checked via /auth/me; a new session is not written on failure.
+// Modes: login (default) or register (--register). A publisherId only scopes
+// the cached session filename; publish.mjs claims an absent namespace.
 // The server binds 127.0.0.1 on a random port, serves one page, and exits
 // after a successful login/registration or the timeout (default 300 s).
 //
@@ -267,21 +267,6 @@ function run() {
           res.writeHead(502, { "Content-Type": "application/json" });
           res.end(JSON.stringify({ ok: false, error: "认证响应缺少有效的令牌有效期" }));
           return;
-        }
-        // Verify publisher membership when requested; drop the token on failure.
-        if (publisherId) {
-          const meRes = await fetch(`${apiRoot}/auth/me`, {
-            headers: { Authorization: `Bearer ${token}` },
-          });
-          const me = await meRes.json().catch(() => ({}));
-          if (!meRes.ok || !me.publisherIds?.includes(publisherId)) {
-            res.writeHead(403, { "Content-Type": "application/json" });
-            res.end(
-              JSON.stringify({ ok: false, error: `账号不是发布者 ${publisherId} 的成员，请先联系市场管理员` }),
-            );
-            setTimeout(() => finish(1, `AUTH_FAILED: user ${username} is not a member of publisher ${publisherId}`), 1200);
-            return;
-          }
         }
         writeSession(tokenOut, { token, expiresAt });
         console.log(`AUTH_OK session written to ${tokenOut} (user: ${username}, expires: ${new Date(expiresAt).toISOString()})`);

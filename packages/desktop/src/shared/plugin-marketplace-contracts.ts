@@ -134,7 +134,6 @@ export interface UpdateMarketplacePluginInput {
   expectedRevision: string;
   pluginId: string;
   version: string;
-  confirmFullTrust: true;
   applyToCurrentSession?: ApplyMarketplaceMutationTarget;
 }
 

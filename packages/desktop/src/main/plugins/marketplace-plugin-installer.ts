@@ -273,7 +273,6 @@ export class MarketplacePluginInstaller {
       input.pluginId.length > 200 ||
       !PLUGIN_ID.test(input.pluginId) ||
       !valid(input.version) ||
-      input.confirmFullTrust !== true ||
       !isApplyTarget(input.applyToCurrentSession)
     ) {
       throw new Error("Marketplace update input is invalid");
@@ -340,12 +339,10 @@ export class MarketplacePluginInstaller {
         containsNativeCode: verified.containsNativeCode || artifact.containsNativeCode,
         configurationSchema: verified.configurationSchema,
         skillPaths: verified.skillPaths.map((path) => path.replace(stagingPath, versionPath)),
-        ...(verified.runCodeSkill ? { runCodeSkill: verified.runCodeSkill } : {}),
-        ...(verified.runCodeCatalogPath
-          ? { runCodeCatalogPath: verified.runCodeCatalogPath.replace(stagingPath, versionPath) }
-          : {}),
-        ...(verified.runCodeCatalogSha256 ? { runCodeCatalogSha256: verified.runCodeCatalogSha256 } : {}),
-        ...(verified.runCodeCatalog ? { runCodeCatalog: verified.runCodeCatalog } : {}),
+        runCodeSkill: verified.runCodeSkill,
+        runCodeCatalogPath: verified.runCodeCatalogPath?.replace(stagingPath, versionPath),
+        runCodeCatalogSha256: verified.runCodeCatalogSha256,
+        runCodeCatalog: verified.runCodeCatalog,
         state: "installed",
         enabled: true,
         installedAt: this.now(),

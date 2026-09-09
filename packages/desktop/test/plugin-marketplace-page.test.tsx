@@ -4,6 +4,7 @@ import { describe, expect, it, vi } from "vitest";
 import { PluginConfigurationForm } from "../src/renderer/src/features/plugins/plugin-configuration-form.tsx";
 import { pluginActionConfirmation } from "../src/renderer/src/features/plugins/plugin-detail-dialog.tsx";
 import { MarketplacePluginCard } from "../src/renderer/src/features/plugins/plugin-marketplace-card.tsx";
+import { localPluginIdOverrides } from "../src/renderer/src/features/plugins/plugin-marketplace-utils.ts";
 import { PluginScopeSettings } from "../src/renderer/src/features/plugins/plugin-scope-settings.tsx";
 import { ToastProvider } from "../src/renderer/src/shared/ui/toast-provider.tsx";
 import { GENERAL_WORKSPACE_ID, type Project } from "../src/shared/contracts.ts";
@@ -106,6 +107,8 @@ describe("plugin detail confirmation", () => {
     expect(pluginActionConfirmation("install", plugin.name, plugin)).toEqual({
       title: "安装 Example Tools？",
       confirmLabel: "确认安装",
+      description:
+        "此插件包含原生代码，并将以当前账户权限运行，可读写文件、访问网络、读取环境变量并执行程序。仅安装你信任的插件。",
     });
     expect(pluginActionConfirmation("uninstall", plugin.name, plugin)).toEqual({
       title: "卸载 Example Tools？",
@@ -163,6 +166,27 @@ describe("plugin marketplace cards", () => {
 
     expect(markup).not.toContain("指定项目");
     expect(markup).not.toContain("仅以下项目的会话可加载此插件：project-a、project-b");
+  });
+});
+
+describe("local plugin override state", () => {
+  const localPlugin = {
+    pluginId: "example.tools",
+    displayName: "Local Example",
+    enabled: true,
+    scope: "project" as const,
+    projectIds: ["project-one"],
+  };
+
+  it("only reports enabled local overrides visible in the current project", () => {
+    expect(localPluginIdOverrides([localPlugin], "project-one").get("example.tools")).toBe("Local Example");
+    expect(localPluginIdOverrides([localPlugin], "project-two")).toEqual(new Map());
+    expect(localPluginIdOverrides([localPlugin])).toEqual(new Map());
+    expect(localPluginIdOverrides([{ ...localPlugin, enabled: false }], "project-one")).toEqual(new Map());
+  });
+
+  it("reports an enabled global local override without project context", () => {
+    expect(localPluginIdOverrides([{ ...localPlugin, scope: "global" }]).get("example.tools")).toBe("Local Example");
   });
 });
 

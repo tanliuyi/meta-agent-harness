@@ -58,6 +58,7 @@ export function PluginMarketplacePage({
   }, [controller.error, controller.clearError, toast]);
   const localOverrides = localPluginIdOverrides(
     (localController.snapshot?.entries ?? []).filter((entry) => entry.source === "development"),
+    returnSession?.projectId,
   );
   const orphanedInstalled = controller.installed?.plugins.filter(
     (installed) => !controller.page?.plugins.some((plugin) => plugin.id === installed.id),

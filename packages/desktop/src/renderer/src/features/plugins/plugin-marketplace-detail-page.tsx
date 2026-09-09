@@ -8,6 +8,8 @@ import Settings2 from "lucide-react/dist/esm/icons/settings-2.mjs";
 import { useEffect, useState } from "react";
 import { PluginIcon } from "../../components/chat/plugin-icon.tsx";
 import { SidebarToggle } from "../../components/layout/sidebar-toggle.tsx";
+import { useDesktopSelector } from "../../state/desktop-context.tsx";
+import { selectProjects } from "../../state/desktop-selectors.ts";
 import { MarketplaceSettingsDialog } from "./marketplace-settings-dialog.tsx";
 import { PluginDetailActions } from "./plugin-detail-actions.tsx";
 import { PluginDetailBackLink } from "./plugin-detail-back-link.tsx";
@@ -26,15 +28,19 @@ import {
 export function PluginMarketplaceDetailPage({
   pluginId,
   initialQuery = "",
+  returnSession,
 }: {
   pluginId: string;
   initialQuery?: string;
+  returnSession?: { projectId: string; threadId: string };
 }) {
   const navigate = useNavigate();
   const controller = usePluginMarketplace(true, initialQuery);
-  const localController = useLocalPlugins();
+  const localController = useLocalPlugins(returnSession?.projectId, returnSession?.threadId);
+  const projects = useDesktopSelector(selectProjects);
   const localOverrides = localPluginIdOverrides(
     (localController.snapshot?.entries ?? []).filter((entry) => entry.source === "development"),
+    returnSession?.projectId,
   );
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [removingOrphaned, setRemovingOrphaned] = useState(false);
@@ -50,7 +56,8 @@ export function PluginMarketplaceDetailPage({
     controller.installingId !== undefined ||
     controller.updatingId !== undefined ||
     controller.uninstallingId !== undefined ||
-    controller.settingEnabledId !== undefined;
+    controller.settingEnabledId !== undefined ||
+    controller.settingScopeId !== undefined;
 
   const refreshDetail = () => {
     setDetailLookup({ pluginId, status: "loading" });
@@ -213,6 +220,11 @@ export function PluginMarketplaceDetailPage({
                 plugin={plugin}
                 installed={installed}
                 marketplaceId={controller.page?.marketplaceId}
+                projects={projects}
+                mutationPending={mutationPending}
+                onSetScope={(scope, projectIds) => {
+                  if (installed) void controller.setScope(installed.id, scope, projectIds);
+                }}
               />
             </div>
           ) : detailStatus === "loading" || controller.loading ? (

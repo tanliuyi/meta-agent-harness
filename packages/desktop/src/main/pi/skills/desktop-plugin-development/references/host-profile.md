@@ -23,7 +23,7 @@ Supported registrations and their capability metadata:
 | Compaction requests/hooks | `session.compact` |
 | Supported Desktop UI calls | The matching `ui.*` capability |
 
-Programmatic methods are captured from standard `pi.registerTool()` calls by the Desktop wrapper while the approved factory runs. Only entries declaring `plugin-methods.provide` use this path; entries declaring `tools.register` remain native Pi tools. Captured methods are exposed through the fixed `run_code` tool and do not run through nested Pi tool hooks. Desktop preserves `prepareArguments`, the TypeBox validator, execution mode, abort, updates, and the real `ExtensionContext`. The manifest catalog and primary skill document the captured API but do not define a second executable implementation.
+Programmatic methods are captured from standard `pi.registerTool()` calls by the Desktop wrapper while the approved factory runs. Only entries declaring `plugin-methods.provide` use this path; entries declaring `tools.register` remain native Pi tools. Captured methods are exposed through the fixed `run_code` tool and do not run through nested Pi tool hooks. Desktop preserves `prepareArguments`, the TypeBox validator, execution mode, abort, updates, and the real `ExtensionContext`. A manifest catalog and primary Skill are optional guidance that document the captured API without defining a second executable implementation; when absent, Desktop generates bounded API context from the captured registrations.
 
 ## Supported UI
 
@@ -42,13 +42,13 @@ Keep UI calls optional. Extensions must continue to return useful plain text and
 
 ## Widget Rendering
 
-Desktop exposes `ctx.ui.widgetCapabilities = { components: true, input: false }` as an additional runtime capability. Check this property with `in` (it is not part of upstream Pi types) when selecting a component factory instead of an RPC-specific data payload. `ctx.mode` remains `"rpc"`; this does not enable terminal-only dialogs or editors.
+Desktop exposes `ctx.ui.widgetCapabilities = { components: true, input: false, nativeContent: true }` as an additional runtime capability. Check this property with `in` (it is not part of upstream Pi types) when selecting a component factory or a host-recognized native payload. `ctx.mode` remains `"rpc"`; this does not enable terminal-only dialogs or editors.
 
 The host calls `Component.render(width)` with the measured Desktop character width, forwards ANSI text to a read-only terminal surface, and refreshes at most every 250 ms. It calls `invalidate()` after width/theme changes and `dispose()` when replacing, clearing, resetting or disposing a widget. Use the injected `tui.terminal.columns` and `theme`, not process stdout dimensions or global Pi theme state. `tui.requestRender()` is coalesced into the refresh loop. Desktop's ANSI palette follows its theme.
 
 Widgets are display-only: keyboard handlers, overlays, focus, direct terminal writes, and image protocols are not supported. Keep cleanup in `dispose()` for any timers or subscriptions owned by a factory. Host limits are 32 component widgets, 40 lines each, 300 columns, and 4096 source characters per line; oversized output is marked as truncated. Synchronous plugin render code is full-trust and cannot be preempted by these output limits.
 
-Plain strings remain text, including JSON. Desktop does not infer plugin-specific schemas. Plugins that send an RPC protocol string must select their component factory using the capability above to obtain readable presentation.
+Plain strings remain text, including JSON. Desktop does not infer plugin-specific schemas. A built-in plugin may attach a versioned `nativeContent` value to string widget options only when `widgetCapabilities.nativeContent === true`; the host validates known payloads before forwarding them to a native renderer and preserves the string lines as fallback. Plugins that send an RPC protocol string must select their component factory using the capability above to obtain readable presentation.
 
 ## Unsupported TUI and Session Surfaces
 

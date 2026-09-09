@@ -219,7 +219,6 @@ describe("plugin marketplace IPC", () => {
       expectedRevision: "two",
       pluginId: "dev.meta-agent.plugin",
       version: "2.0.0",
-      confirmFullTrust: true,
     };
     installer.update.mockResolvedValue({
       status: "updated",
@@ -244,7 +243,6 @@ describe("plugin marketplace IPC", () => {
       expectedRevision: "two",
       pluginId: "dev.meta-agent.plugin",
       version: "2.0.0",
-      confirmFullTrust: true,
     };
     installer.update.mockResolvedValue({
       status: "conflict",

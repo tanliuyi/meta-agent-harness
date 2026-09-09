@@ -9,6 +9,7 @@ import type {
   ResolvedExtensionSet,
 } from "../../shared/desktop-extension-contracts.ts";
 import { DESKTOP_EXTENSION_HOST_PROFILE_VERSION } from "../../shared/desktop-extension-contracts.ts";
+import { isExtensionInScope } from "../../shared/desktop-extension-scope.ts";
 import { parsePluginApiCatalog } from "../pi/run-code/plugin-method-registry.ts";
 import { validateInstalledMarketplacePlugin } from "../plugins/marketplace-installed-plugin.ts";
 import type { InstalledMarketplacePluginRecord } from "../plugins/marketplace-plugin-registry.ts";
@@ -58,7 +59,7 @@ export class DesktopExtensionSourcePolicy {
     return (await this.resolveInternal(projectId)).set;
   }
 
-  /** 全局启用的插件中心扩展集 + 全部可构建条目，供 direct-tool 会话级选择。 */
+  /** 当前项目可见的插件中心扩展集 + 可构建条目，供 direct-tool 会话级选择。 */
   async resolveWithAll(projectId: string): Promise<ResolveResult> {
     return this.resolveInternal(projectId);
   }
@@ -69,7 +70,7 @@ export class DesktopExtensionSourcePolicy {
     const diagnostics: DesktopExtensionDiagnostic[] = [];
     const pathEntries: ResolvedExtensionEntry[] = [];
     const allEntries: ResolvedExtensionEntry[] = [];
-    const fingerprintParts = [extensionSettingsFingerprint(settings)];
+    const fingerprintParts = [extensionSettingsFingerprint(settings, projectId)];
     const curatedDefinitions = this.options.getCuratedDefinitions();
     for (const definition of curatedDefinitions) {
       assertDefinition(definition, "curated");
@@ -81,24 +82,24 @@ export class DesktopExtensionSourcePolicy {
     }
     if (this.options.getMarketplaceExtensions) {
       const marketplace = await this.options.getMarketplaceExtensions();
-      fingerprintParts.push(marketplace.revision);
-      const localPluginIds = collectLocalPluginIds(settings.developmentEntries);
+      const localPluginIds = settings.developerMode
+        ? collectLocalPluginIds(settings.developmentEntries, projectId)
+        : new Map<string, string>();
       for (const plugin of marketplace.plugins) {
         if (!plugin.enabled || plugin.state !== "installed") continue;
-        // 插件中心状态是全局状态；插件不再按项目作用域筛选。
-        const inScope = true;
+        const inScope = isExtensionInScope(plugin.scope, plugin.projectIds, projectId);
+        if (!inScope) continue;
+        fingerprintParts.push(`${plugin.id}:scope:${plugin.scope ?? "global"}`);
         const localPlugin = localPluginIds.get(plugin.id);
         if (localPlugin) {
           fingerprintParts.push(`${plugin.id}:superseded-by-local`);
-          if (inScope) {
-            diagnostics.push({
-              extensionId: plugin.id,
-              source: "marketplace",
-              phase: "resolve",
-              code: "DESKTOP_EXTENSION_SUPERSEDED_BY_DEVELOPMENT",
-              message: `本地插件“${localPlugin}”已覆盖市场插件“${plugin.displayName}”，当前使用本地版本。`,
-            });
-          }
+          diagnostics.push({
+            extensionId: plugin.id,
+            source: "marketplace",
+            phase: "resolve",
+            code: "DESKTOP_EXTENSION_SUPERSEDED_BY_DEVELOPMENT",
+            message: `本地插件“${localPlugin}”已覆盖市场插件“${plugin.displayName}”，当前使用本地版本。`,
+          });
           continue;
         }
         try {
@@ -128,26 +129,24 @@ export class DesktopExtensionSourcePolicy {
             ...(configuration ? { configuration: { ...configuration.values } } : {}),
           };
           allEntries.push(entry);
-          if (inScope) pathEntries.push(entry);
+          pathEntries.push(entry);
         } catch {
           fingerprintParts.push(`${plugin.id}:broken`);
-          if (inScope) {
-            diagnostics.push({
-              extensionId: plugin.id,
-              source: "marketplace",
-              phase: "resolve",
-              code: "DESKTOP_EXTENSION_ENTRY_UNAVAILABLE",
-              message: `市场插件“${plugin.displayName}”暂不可用，本次会话不会加载该插件。`,
-            });
-          }
+          diagnostics.push({
+            extensionId: plugin.id,
+            source: "marketplace",
+            phase: "resolve",
+            code: "DESKTOP_EXTENSION_ENTRY_UNAVAILABLE",
+            message: `市场插件“${plugin.displayName}”暂不可用，本次会话不会加载该插件。`,
+          });
         }
       }
     }
     if (settings.developerMode) {
       for (const entry of settings.developmentEntries) {
         if (!entry.enabled) continue;
-        // 插件中心状态是全局状态；插件不再按项目作用域筛选。
-        const inScope = true;
+        const inScope = isExtensionInScope(entry.scope, entry.projectIds, projectId);
+        if (!inScope) continue;
         try {
           const info = await lstat(entry.entryPath);
           if (!info.isFile() || info.isSymbolicLink()) throw new Error("entry is not a regular non-symlink file");
@@ -182,18 +181,16 @@ export class DesktopExtensionSourcePolicy {
             ...(configuration ? { configuration: { ...configuration.values } } : {}),
           };
           allEntries.push(resolved);
-          if (inScope) pathEntries.push(resolved);
+          pathEntries.push(resolved);
         } catch {
           fingerprintParts.push(`${entry.id}:missing`);
-          if (inScope) {
-            diagnostics.push({
-              extensionId: entry.id,
-              source: "development",
-              phase: "resolve",
-              code: "DESKTOP_EXTENSION_ENTRY_UNAVAILABLE",
-              message: `本地插件“${entry.displayName}”暂不可用，本次会话不会加载该插件。`,
-            });
-          }
+          diagnostics.push({
+            extensionId: entry.id,
+            source: "development",
+            phase: "resolve",
+            code: "DESKTOP_EXTENSION_ENTRY_UNAVAILABLE",
+            message: `本地插件“${entry.displayName}”暂不可用，本次会话不会加载该插件。`,
+          });
         }
       }
     }
@@ -257,6 +254,12 @@ async function validatePluginMetadata(entry: {
     if (!info.isFile() || info.isSymbolicLink()) throw new Error("Plugin skill is not a regular non-symlink file");
   }
   if (!entry.capabilities.includes("plugin-methods.provide")) return skillPaths ? { skillPaths } : {};
+  const canonicalPluginId = entry.source === "development" ? entry.pluginId : entry.id;
+  if (!canonicalPluginId) throw new Error("Plugin ID is missing");
+  const hasLegacyCatalogMetadata = Boolean(
+    entry.runCodeSkill || entry.runCodeCatalogPath || entry.runCodeCatalogSha256,
+  );
+  if (!hasLegacyCatalogMetadata) return skillPaths ? { skillPaths } : {};
   if (!skillPaths?.length || !entry.runCodeSkill || !entry.runCodeCatalogPath || !entry.runCodeCatalogSha256) {
     throw new Error("Plugin method metadata is incomplete");
   }
@@ -281,8 +284,7 @@ async function validatePluginMetadata(entry: {
     JSON.parse(bytes.toString("utf8")),
   ) as unknown as ResolvedExtensionEntry["runCodeCatalog"];
   if (!runCodeCatalog) throw new Error("Plugin catalog is missing");
-  const canonicalPluginId = entry.source === "development" ? entry.pluginId : entry.id;
-  if (!canonicalPluginId || runCodeCatalog.pluginId !== canonicalPluginId) {
+  if (runCodeCatalog.pluginId !== canonicalPluginId) {
     throw new Error("Plugin catalog identity mismatch");
   }
   return {
@@ -294,21 +296,23 @@ async function validatePluginMetadata(entry: {
   };
 }
 
-function extensionSettingsFingerprint(settings: {
-  developerMode: boolean;
-  curatedEnabled: Record<string, boolean>;
-  developmentEntries: StoredDevelopmentExtension[];
-}): string {
-  const developmentEntries = settings.developmentEntries.map((entry) => {
-    const scopeIndependentEntry = { ...entry };
-    delete scopeIndependentEntry.scope;
-    delete scopeIndependentEntry.projectIds;
-    return scopeIndependentEntry;
-  });
+function extensionSettingsFingerprint(
+  settings: {
+    developerMode: boolean;
+    curatedEnabled: Record<string, boolean>;
+    developmentEntries: StoredDevelopmentExtension[];
+  },
+  projectId: string,
+): string {
   return JSON.stringify({
     developerMode: settings.developerMode,
     curatedEnabled: settings.curatedEnabled,
-    developmentEntries,
+    developmentEntries: settings.developmentEntries
+      .filter((entry) => entry.enabled && isExtensionInScope(entry.scope, entry.projectIds, projectId))
+      .map((entry) => ({
+        ...entry,
+        ...(entry.scope === "project" ? { projectIds: [projectId] } : { projectIds: undefined }),
+      })),
   });
 }
 
@@ -325,10 +329,13 @@ async function pluginMetadataFingerprint(
   return `plugin-metadata:${metadata.runCodeCatalogSha256 ?? "none"}:${skillHashes.join(",")}`;
 }
 
-function collectLocalPluginIds(developmentEntries: StoredDevelopmentExtension[]): Map<string, string> {
+function collectLocalPluginIds(
+  developmentEntries: StoredDevelopmentExtension[],
+  projectId: string,
+): Map<string, string> {
   const pluginIds = new Map<string, string>();
   for (const entry of developmentEntries) {
-    if (!entry.pluginId) continue;
+    if (!entry.enabled || !entry.pluginId || !isExtensionInScope(entry.scope, entry.projectIds, projectId)) continue;
     pluginIds.set(entry.pluginId, entry.displayName);
   }
   return pluginIds;

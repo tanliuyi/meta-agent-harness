@@ -213,6 +213,48 @@ describe("publisher administration", () => {
 			.expect(200);
 		expect((me.body as { publisherIds: string[] }).publisherIds).toEqual(["acme"]);
 	});
+	it("lets a user claim a new unverified publisher namespace", async () => {
+		await request(app.getHttpServer())
+			.post("/v1/publish/publishers/bob-tools")
+			.send({ displayName: "Bob Tools" })
+			.expect(401);
+		await request(app.getHttpServer())
+			.post("/v1/publish/publishers/bob-tools")
+			.set("authorization", `Bearer ${ADMIN_TOKEN}`)
+			.send({ displayName: "Bob Tools" })
+			.expect(403);
+
+		const created = await request(app.getHttpServer())
+			.post("/v1/publish/publishers/bob-tools")
+			.set("authorization", `Bearer ${bobToken}`)
+			.send({ displayName: "Bob Tools" })
+			.expect(201);
+		expect(created.body).toEqual({
+			publisher: { id: "bob-tools", displayName: "Bob Tools", verified: false, members: ["bob"] },
+		});
+
+		const repeated = await request(app.getHttpServer())
+			.post("/v1/publish/publishers/bob-tools")
+			.set("authorization", `Bearer ${bobToken}`)
+			.send({ displayName: "Ignored" })
+			.expect(201);
+		expect(repeated.body).toEqual(created.body);
+
+		const duplicate = await request(app.getHttpServer())
+			.post("/v1/publish/publishers/bob-tools")
+			.set("authorization", `Bearer ${aliceToken}`)
+			.send({ displayName: "Stolen" })
+			.expect(409);
+		expect(duplicate.body).toEqual({
+			error: { code: "PUBLISHER_ID_TAKEN", message: "Publisher ID is already registered" },
+		});
+
+		const me = await request(app.getHttpServer())
+			.get("/v1/auth/me")
+			.set("authorization", `Bearer ${bobToken}`)
+			.expect(200);
+		expect((me.body as { publisherIds: string[] }).publisherIds).toContain("bob-tools");
+	});
 });
 
 describe("publishing", () => {
@@ -498,7 +540,7 @@ describe("publishing", () => {
 		});
 	});
 
-	it("publishes run_code skill and catalog metadata into the signed artifact manifest", async () => {
+	it("accepts generated run_code metadata and preserves legacy skill/catalog metadata", async () => {
 		await request(app.getHttpServer())
 			.put(`/v1/publish/plugins/${METHOD_PLUGIN_ID}`)
 			.set("authorization", `Bearer ${aliceToken}`)
@@ -510,16 +552,24 @@ describe("publishing", () => {
 			})
 			.expect(200);
 
-		const missingMetadata = runCodeVersionDeclaration("1.0.0");
-		delete (missingMetadata as { pi?: unknown }).pi;
-		const rejectedMetadata = await request(app.getHttpServer())
+		const generatedMetadata = runCodeVersionDeclaration("1.0.0");
+		delete (generatedMetadata as { pi?: unknown }).pi;
+		await request(app.getHttpServer())
 			.post(`/v1/publish/plugins/${METHOD_PLUGIN_ID}/versions`)
 			.set("authorization", `Bearer ${aliceToken}`)
-			.send(missingMetadata)
-			.expect(400);
-		expect(rejectedMetadata.body).toMatchObject({
-			error: { code: "BODY_INVALID", message: "plugin-methods.provide requires pi.skills and pi.runCode" },
-		});
+			.send(generatedMetadata)
+			.expect(201);
+
+		await request(app.getHttpServer())
+			.put(`/v1/publish/plugins/${METHOD_PLUGIN_ID}/versions/1.0.0/artifacts/${ARTIFACT_ID}`)
+			.set("authorization", `Bearer ${aliceToken}`)
+			.set("content-type", "application/zip")
+			.send(Buffer.from(payloadArchive()))
+			.expect(200);
+		await request(app.getHttpServer())
+			.post(`/v1/publish/plugins/${METHOD_PLUGIN_ID}/versions/1.0.0/publish`)
+			.set("authorization", `Bearer ${aliceToken}`)
+			.expect(200);
 
 		await request(app.getHttpServer())
 			.post(`/v1/publish/plugins/${METHOD_PLUGIN_ID}/versions`)

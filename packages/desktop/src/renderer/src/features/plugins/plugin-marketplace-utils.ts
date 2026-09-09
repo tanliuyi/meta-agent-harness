@@ -1,3 +1,5 @@
+import type { DesktopExtensionListEntry } from "../../../../shared/desktop-extension-contracts.ts";
+import { isExtensionInScope } from "../../../../shared/desktop-extension-scope.ts";
 import type {
   InstalledMarketplacePluginSummary,
   MarketplacePluginSummary,
@@ -38,11 +40,19 @@ export function statusLabel(status: MarketplacePluginSummary["status"]): string 
 }
 
 export function localPluginIdOverrides(
-  localPlugins: Array<{ pluginId?: string; displayName: string }>,
+  localPlugins: Array<Pick<DesktopExtensionListEntry, "pluginId" | "displayName" | "enabled" | "scope" | "projectIds">>,
+  projectId?: string,
 ): Map<string, string> {
   const overrides = new Map<string, string>();
   for (const plugin of localPlugins) {
-    if (plugin.pluginId && !overrides.has(plugin.pluginId)) overrides.set(plugin.pluginId, plugin.displayName);
+    if (
+      plugin.enabled &&
+      plugin.pluginId &&
+      isExtensionInScope(plugin.scope, plugin.projectIds, projectId) &&
+      !overrides.has(plugin.pluginId)
+    ) {
+      overrides.set(plugin.pluginId, plugin.displayName);
+    }
   }
   return overrides;
 }

@@ -1,12 +1,12 @@
 # Meta Agent Desktop 联网插件市场产品规范
 
 状态：Accepted
-最后更新：2026-07-26
+最后更新：2026-09-09
 适用范围：`packages/desktop`、Desktop 市场服务与标准 Pi Extension 集成
 
-> 实现简化决策一：Desktop 插件市场按受信任远端版本源处理，不再提供 artifact/manifest 签名验证、payload 文件 hash、endpoint fingerprint confirmation、signed revocation、artifact origin allowlist、运行时文件 hash、managed-directory ownership 深校验或 durable apply journal。后文与这些机制冲突的条款、测试要求和验收项均由本决策取代。
+> 实现简化决策一：Desktop 插件市场按受信任远端版本源处理，不再提供 artifact/manifest 签名验证、payload 逐文件 hash、endpoint fingerprint confirmation、signed revocation、artifact origin allowlist、运行时逐文件 hash、managed-directory ownership 深校验或 durable apply journal。后文与这些机制冲突的条款、测试要求和验收项均由本决策取代。下载归档的 SHA-256 与精确字节数仍用于损坏检测和不可变版本标识，但不证明 publisher 或 endpoint 身份。
 >
-> 当前客户端只保留版本分发所需链路：endpoint 与 catalog、runtime target 选择、受大小限制且不能逃逸 staging 的 ZIP 解包、manifest 入口/兼容信息、registry/projection 原子切换、旧 generation 版本引用和失败时的进程内 worker rollback。`artifactHash` 字段仅作为 immutable version 目录的服务端 artifact key 使用，客户端不校验下载内容 hash。
+> 当前客户端只保留版本分发所需链路：endpoint 与 catalog、runtime target 选择、下载大小与 SHA-256 校验、受大小限制且不能逃逸 staging 的 ZIP 解包、manifest 入口/兼容信息、registry/projection 原子切换、旧 generation 版本引用和失败时的进程内 worker rollback。`artifactHash` 同时作为下载损坏检测值和 immutable version 目录的服务端 artifact key，不提供来源认证。
 >
 > 实现简化决策二（安全模型减负）：
 >
@@ -32,13 +32,13 @@ Meta Agent Desktop 新增联网插件市场，为用户提供插件发现、详�
 - Desktop main 独立负责目录请求、制品下载、安全解包、可恢复安装、更新、卸载和回滚；
 - 市场后端不绑定到 Desktop 内置 URL，用户可以在 Settings 配置当前 Marketplace API Base URL。
 
-插件采用全信任模型。安装后的 extension 在普通 Node sidecar 中运行，具有 sidecar 用户权限，可以访问文件、网络、环境变量和子进程，也可以加载预构建 `.node` 模块和平台二进制。Desktop 不把 capability disclosure、publisher 签名或 worker 进程描述为安全 sandbox。
+插件采用全信任模型。安装后的 extension 在普通 Node sidecar 中运行，具有 sidecar 用户权限，可以访问文件、网络、环境变量和子进程，也可以加载预构建 `.node` 模块和平台二进制。Desktop 不把 capability disclosure、publisher identity 或 worker 进程描述为安全 sandbox。
 
 核心定位：
 
 ```text
 Marketplace
-    = 发现、分发、来源证明、完整性和版本治理
+    = 发现、分发、损坏检测和版本治理
 
 Pi Extension
     = 插件代码格式、安装布局和执行语义
@@ -101,7 +101,7 @@ Desktop Host Profile
 - 不修改 Pi extension registration、runner、events、tools 或 command semantics。
 - 不复用 Pi npm/git package manager 和 package persistence。
 - 不在用户机器上执行 package lifecycle、dependency install 或源码编译。
-- 下载、安装和更新具备完整性校验、持久事务日志、幂等恢复和故障回滚。
+- 下载、安装和更新具备归档损坏检测、幂等恢复和故障回滚。
 - 市场 endpoint 和连接状态由独立 Desktop settings 管理，不编译绑定后端域名。
 - Renderer 不接触任意文件路径、下载 URL 或可执行插件代码。
 - Desktop source policy 仍是 live/draft extension entry 的唯一权威来源。
@@ -122,7 +122,7 @@ Desktop Host Profile
 - 自动修复不兼容、缺依赖或损坏的第三方插件代码；
 - 静默删除用户修改过的市场插件目录；
 - 首期支持插件付费、订阅、退款、评分、评论或站内社交；
-- 首期提供第三方自助审核后台和公开 publisher onboarding；
+- 首期不提供复杂的人工审核工作台；publisher 自助创建 namespace 并直接发布，`verified` 仅表示市场运营方额外确认。
 - 首期允许插件注入任意 React renderer bundle 或修改 Desktop 导航结构。
 
 ## 5. 术语
@@ -173,7 +173,7 @@ Desktop Host Profile
 - 在 Developer Mode 中本地验证；
 - 生成包含全部 runtime dependencies 的市场制品；
 - 为需要 native code 的版本上传多个 target artifacts；
-- 发布后由市场完成签名、目录展示和撤回治理。
+- 发布后由市场完成目录展示、不可变版本管理和撤回治理。
 
 ### 6.4 故障恢复用户
 
@@ -247,7 +247,7 @@ Desktop Host Profile
 
 ### 7.3 安装确认
 
-首次安装和新增高风险内容的更新必须显示确认对话框。固定风险文案必须明确：
+首次安装必须显示确认对话框。固定风险文案必须明确：
 
 > 此插件将在你的账户权限下运行，可以读取和修改文件、访问网络、读取环境变量及执行程序。仅安装你信任的插件。
 
@@ -255,7 +255,7 @@ Desktop Host Profile
 
 > 此版本包含原生代码或可执行程序。它们将在插件运行时由普通 Node sidecar 加载或启动。
 
-确认对话框必须显示精确 publisher、版本、scope 和新增 capability/native content。更新没有新增 disclosure 时可以使用普通更新确认；不得因版本升级静默扩大用户已确认的风险范围。
+确认对话框显示插件名和精确版本；详情页在安装前展示 publisher、scope、capability 与 native content。普通更新直接执行，不重复要求全信任确认，更新后的 capability/native 差异继续在详情与版本信息中可见。
 
 ## 8. 市场服务合同
 
@@ -368,7 +368,6 @@ interface MarketplacePluginSummary {
 ```text
 plugin.meta-plugin
 ├── market-manifest.json
-├── signature.json
 └── payload/
     ├── index.ts
     ├── package.json
@@ -515,17 +514,16 @@ plugin ID 到目录名使用单一可逆或 registry-backed 映射。不得直�
 - 卸载先移除 active projection并从新 generation 排除插件，仍被 worker 引用的 version 延迟删除；
 - 同一 scope 下一个 plugin ID 只能有一个 active projection。
 
-### 10.4 Global/project 同 ID
+### 10.4 Global/project scope
 
-同一 plugin ID 可以同时存在于 global 和 project scope。解析遵循 Pi 的 project-over-global 直觉：
+每个 plugin ID 只有一条安装记录和一份 active projection。用户可将其设为 global，或选择一个或多个 trusted project ID；scope 只控制哪些 project generation 加载该插件，不复制 payload：
 
-- trusted project installation 显式遮蔽同 ID global installation；
-- `ResolvedExtensionSet` 只包含 project entry；
-- UI 同时显示两个 installation，并把 global 标记为“在当前项目中被覆盖”；
-- 离开该 project 后 global entry 恢复生效；
-- project entry disabled 时仍视为显式 project override，不自动回退 global，避免禁用操作意外启用另一份代码；
+- global 插件对所有 project generation 可见；
+- project 插件仅对 `projectIds` 命中的 generation 可见；
+- 项目列表为空时 UI 回退为 global，registry 拒绝空的 project scope；
 - duplicate ID 与 builtin/curated 冲突仍按 source policy 拒绝并显示诊断，不静默覆盖产品内建来源；
-- development（本地）优先于 marketplace：本地插件在 `market-manifest.json` 声明 `plugin.id` 且 scope 匹配时，同 ID marketplace installation 不进入 `ResolvedExtensionSet`（市场版本禁用）并写入诊断；本地插件存在即视为本地 override，disabled 也不自动回退市场版本，避免禁用操作意外启用另一份代码；移除本地插件或改为不匹配的 scope 后市场版本恢复；本地插件不声明 `plugin.id` 时无法与市场插件建立覆盖关系。
+- development（本地）优先于 marketplace，但只在本地插件的 scope 命中当前 project 时生效；不匹配的本地插件不压制 marketplace 版本；
+- 本地 scope 或 marketplace scope 改变后通过新的 extension fingerprint 触发 replacement generation。
 
 ### 10.5 本地优先的插件身份
 
@@ -547,7 +545,7 @@ interface InstalledMarketplacePlugin {
   id: string;
   marketplaceId: string;
   scope: "global" | "project";
-  projectId?: string;
+  projectIds?: string[];
   version: string;
   artifactId: string;
   artifactHash: string;
@@ -621,7 +619,7 @@ resolving
 6. 校验 manifest schema、identity、entry、runtime target、ABI/OS 兼容与 capability 声明；
 7. 对 immutable entry 执行 Desktop Host Profile load probe；
 8. 检查目标 ownership 和用户修改；
-9. 获取用户需要的 full-trust/native/update disclosure 确认；
+9. 首次安装时获取用户的 full-trust/native disclosure 确认；更新不重复确认；
 10. 将 staging 原子 rename 为新的 `.versions/<artifact-hash>` 并 fsync parent；
 11. 原子更新 market registry（commit point）；
 12. 原子写 version owner、Pi CLI `index.ts` projection 和 ownership；
@@ -674,19 +672,13 @@ resolving
 - 只比较兼容 artifact；
 - update metadata 失败保留当前安装状态；
 - 首期默认不自动安装更新；
-- 用户可以在插件中心逐项或批量确认更新。
+- 用户可以在插件中心逐项或批量更新。
 
 ### 13.2 更新事务
 
 更新复用完整安装验证，不允许 patch 在未验证文件上就地修改。新版本进入新的 immutable version directory，验证完成后切换 registry 和 Pi CLI projection；旧 version 在 generation 引用和 rollback retention 结束前保留。
 
-更新出现以下变化时必须重新确认：
-
-- publisher identity；
-- 新增 capabilities；
-- 首次加入 native module；
-- 首次加入 executable；
-- scope 改变。
+更新不重复弹出全信任确认。Publisher identity、capabilities 或 native content 的变化必须在详情和版本信息中展示；版本不可变和 endpoint 信任边界仍适用。
 
 ### 13.3 降级
 
@@ -742,9 +734,9 @@ Desktop 继续设置 `noExtensions: true`，不重新打开 Pi 普通 global/pro
 - 只有 registry 中已安装且 enabled 的 marketplace entry 进入 worker；
 - renderer 不能通过在目录中放文件绕过批准；
 - draft/live 使用相同 marketplace set；
-- blocked、broken 或未确认更新不能加载；
+- blocked 或 broken installation 不能加载；
 - generation 对应精确 marketplace ID、plugin ID、version 和 immutable entry path；
-- project marketplace entry 按第 10.4 节遮蔽同 ID global entry；
+- project-scoped marketplace entry 只进入 `projectIds` 命中的 generation；
 - source policy 为每个 generation 注册 immutable version reference，供垃圾回收判断。
 
 `DesktopExtensionSourcePolicy` 验证 marketplace path 必须位于 Desktop 托管根目录下 `.versions/<artifact-hash>`，ownership、registry 和 artifact identity 必须一致。
@@ -804,7 +796,7 @@ Marketplace extension 可以：
 - 市场审核；
 - 用户展示；
 - regression tests；
-- 更新差异确认。
+- 更新差异展示。
 
 它不限制插件直接使用 Node API，也不能可靠归因共享 runner 中的每次调用。UI 禁止使用“仅可访问”“已隔离”“sandboxed”等误导文案。
 
@@ -820,7 +812,7 @@ Marketplace extension 可以：
 
 - native artifact 的来源与完整性由市场运营方审核与发布流程把关；
 - macOS native code 应满足当前发布渠道所需 code signing/notarization；
-- Windows binary 应支持 Authenticode publisher verification，市场仍以 artifact 签名为安装权威；
+- Windows binary 应支持 Authenticode publisher verification，由市场运营方按发布渠道策略审核；
 - Linux artifact 必须声明 libc 和 OS baseline；
 - installer 不主动执行 native binary 做探测；
 - runtime startup failure 通过 replacement rollback 处理；
@@ -1014,7 +1006,7 @@ operation-error
 
 ### 19.1 发布准入
 
-首期协议采用“市场运营方审核发布”模型。运营方可以是默认建议市场或用户配置的自托管市场，不绑定特定域名：
+首期协议采用自助发布模型。用户注册或登录后可创建一个未被占用的 publisher namespace，并成为首个 member；publisher 默认 `verified: false`。市场运营方可以额外验证 publisher 或治理已发布内容，但不是普通发布的前置人工步骤：
 
 - publisher identity 已登记；
 - manifest 和版本合法；
@@ -1065,8 +1057,7 @@ operation-error
 
 ### Phase 2：市场 API 与下载
 
-- 实现 catalog client、cache、target resolution 和 downloader；
-- 实现 signature/key rotation；
+- 实现 catalog 下载、cache、target resolution 和 downloader；
 - 实现 progress IPC；
 - 实现 offline/stale behavior；
 - 实现 withdrawal 状态。
@@ -1088,7 +1079,7 @@ operation-error
 
 - 实现周期 update check；
 - 实现 deprecated/withdrawn/blocked；
-- 实现批量更新与新增风险确认；
+- 实现批量更新与风险差异展示；
 - 实现版本撤回治理；
 - 补齐发布审核和操作手册。
 
@@ -1184,7 +1175,7 @@ operation-error
 - detail compatibility/native disclosure；
 - global/project scope；
 - untrusted project state；
-- install/update/uninstall confirmation；
+- install/uninstall confirmation，update direct execution；
 - operation progress；
 - modified installation；
 - reload-required/apply/rollback；
@@ -1256,7 +1247,7 @@ git diff --check
 
 以下能力必须单独立项：
 
-- 第三方 publisher 自助注册和上传；
+- publisher namespace 自助创建与直接发布已包含在首期；
 - 公开评分、评论和举报；
 - 付费插件、订阅和 entitlement；
 - 插件 renderer UI contribution；

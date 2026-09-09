@@ -160,7 +160,6 @@ describe("MarketplacePluginInstaller", () => {
       expectedRevision: installed.snapshot.revision,
       pluginId: "dev.meta-agent.example-tools",
       version: "2.0.0",
-      confirmFullTrust: true,
     });
 
     expect(updated).toEqual(
@@ -188,7 +187,6 @@ describe("MarketplacePluginInstaller", () => {
       expectedRevision: updated.snapshot.revision,
       pluginId: "dev.meta-agent.example-tools",
       version: "1.0.0",
-      confirmFullTrust: true,
     });
     expect(downgraded).toEqual(
       expect.objectContaining({
@@ -199,6 +197,48 @@ describe("MarketplacePluginInstaller", () => {
       }),
     );
     await expect(readFile(join(pluginRoot, "index.ts"), "utf8")).resolves.toContain(harness.artifactHash);
+  });
+
+  it("clears legacy skill and catalog metadata when the new version uses generated metadata", async () => {
+    const harness = await createHarness();
+    const initial = await harness.registry.getSnapshot();
+    const installed = await harness.installer.install({
+      requestId: "install-before-generated-update",
+      expectedRevision: initial.revision,
+      pluginId: "dev.meta-agent.example-tools",
+      version: "1.0.0",
+      confirmFullTrust: true,
+    });
+    if (installed.status !== "installed") throw new Error("Expected installation to succeed");
+    const before = (await harness.registry.getInternalSnapshot()).plugins[0]!;
+    const seeded = await harness.registry.commitUpdate(installed.snapshot.revision, before.artifactHash, {
+      ...before,
+      skillPaths: [join(before.rootPath, ".versions", before.artifactHash, "payload", "skills", "legacy", "SKILL.md")],
+      runCodeSkill: "legacy",
+      runCodeCatalogPath: join(before.rootPath, ".versions", before.artifactHash, "payload", "plugin-api.json"),
+      runCodeCatalogSha256: "a".repeat(64),
+      runCodeCatalog: {
+        schemaVersion: 1,
+        pluginId: before.id,
+        methods: [],
+      },
+    });
+    if (seeded.status !== "saved") throw new Error("Expected legacy metadata seed to succeed");
+
+    const updated = await harness.installer.update({
+      requestId: "update-to-generated-metadata",
+      expectedRevision: seeded.snapshot.revision,
+      pluginId: before.id,
+      version: "2.0.0",
+    });
+
+    if (updated.status !== "updated") throw new Error("Expected update to succeed");
+    const record = updated.snapshot.plugins[0]!;
+    expect(record.skillPaths).toEqual([]);
+    expect(record).not.toHaveProperty("runCodeSkill");
+    expect(record).not.toHaveProperty("runCodeCatalogPath");
+    expect(record).not.toHaveProperty("runCodeCatalogSha256");
+    expect(record).not.toHaveProperty("runCodeCatalog");
   });
 
   it("rejects updates for quarantined plugins until they are uninstalled", async () => {
@@ -221,7 +261,6 @@ describe("MarketplacePluginInstaller", () => {
         expectedRevision: broken.revision,
         pluginId: "dev.meta-agent.example-tools",
         version: "2.0.0",
-        confirmFullTrust: true,
       }),
     ).rejects.toThrow("must be uninstalled before reinstalling");
   });
@@ -465,7 +504,6 @@ describe("MarketplacePluginInstaller", () => {
         expectedRevision: installed.snapshot.revision,
         pluginId: "dev.meta-agent.example-tools",
         version: "2.0.0",
-        confirmFullTrust: true,
       }),
     ).rejects.toThrow("Marketplace API URL escapes the trusted API root");
 

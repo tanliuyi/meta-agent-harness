@@ -1,7 +1,7 @@
 import type { AgentToolResult, ExtensionContext, InlineExtension } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { PluginMethodDispatcher, type RunCodeExecution } from "./plugin-method-dispatcher.ts";
-import type { PluginMethodRegistry } from "./plugin-method-registry.ts";
+import { buildGeneratedApiInstructions, type PluginMethodRegistry } from "./plugin-method-registry.ts";
 import { normalizePluginError, type RunCodeError } from "./run-code-errors.ts";
 import { executePluginProgram, RunCodeRunManager } from "./run-code-runtime.ts";
 
@@ -25,6 +25,7 @@ export class RunCodeRegistryHolder {
   readonly generation: string;
   private registry?: PluginMethodRegistry;
   private dispatcher?: PluginMethodDispatcher;
+  private apiInstructions?: string;
   private stale = false;
   private readonly manager = new RunCodeRunManager();
 
@@ -36,12 +37,14 @@ export class RunCodeRegistryHolder {
     if (this.stale) throw new Error("PLUGIN_GENERATION_STALE");
     this.registry = registry;
     this.dispatcher = new PluginMethodDispatcher(registry, cwd);
+    this.apiInstructions = buildGeneratedApiInstructions(registry);
   }
 
   async dispose(): Promise<void> {
     this.stale = true;
     this.registry = undefined;
     this.dispatcher = undefined;
+    this.apiInstructions = undefined;
     await this.manager.dispose();
   }
 
@@ -54,6 +57,11 @@ export class RunCodeRegistryHolder {
     if (this.stale) throw new Error("PLUGIN_GENERATION_STALE");
     return this.manager;
   }
+
+  generatedApiInstructions(): string | undefined {
+    if (this.stale) return undefined;
+    return this.apiInstructions;
+  }
 }
 
 /** 注册唯一的 run_code 外层工具；插件方法仍由 direct/native 工具独立注册。 */
@@ -65,12 +73,12 @@ export function createRunCodeExtension(holder: RunCodeRegistryHolder, cwd: strin
         name: "run_code",
         label: "Run code",
         description:
-          'Run an async TypeScript program that combines enabled Desktop plugin APIs. Use `await plugin["canonical-plugin-id"].method(args)` with the plugin ID and method documented by its skill. Combine independent calls with `Promise.all`, await dependent calls in order, and explicitly return only the result needed by the model. Direct Pi tools remain available for simple one-step operations; use run_code for multi-step, batch, conditional, or composed plugin work. The host `pi` object is not injected, so do not guess methods or write `pi.someTool(...)`.',
+          'Run an async TypeScript program that combines enabled Desktop plugin APIs. Use `await plugin["canonical-plugin-id"].method(args)` with the plugin ID and method documented by its skill or generated API context. Combine independent calls with `Promise.all`, await dependent calls in order, and explicitly return only the result needed by the model. Direct Pi tools remain available for simple one-step operations; use run_code for multi-step, batch, conditional, or composed plugin work. The host `pi` object is not injected, so do not guess methods or write `pi.someTool(...)`.',
         promptSnippet: 'run_code({ code: "return await plugin[\\"plugin.id\\"].method(args)", description: "..." })',
         promptGuidelines: [
           "Use direct native tools for one simple action; use run_code when several plugin actions belong to one decision.",
           "Use Promise.all for independent read-only calls and await when one call depends on another.",
-          "Read the plugin skill for the exact plugin ID, method names, and argument shape before composing calls.",
+          "Read the plugin skill or generated API context for the exact plugin ID, method names, and argument shape before composing calls.",
           "Return only the data needed for the next reasoning step.",
         ],
         parameters: RunCodeParameters,
@@ -170,6 +178,11 @@ export function createRunCodeExtension(holder: RunCodeRegistryHolder, cwd: strin
             if (updateTimer) clearTimeout(updateTimer);
           }
         },
+      });
+      pi.on("before_agent_start", (event) => {
+        const generated = holder.generatedApiInstructions();
+        if (!generated) return;
+        return { systemPrompt: `${event.systemPrompt}\n\n${generated}` };
       });
     },
   };

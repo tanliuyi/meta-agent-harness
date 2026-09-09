@@ -57,7 +57,18 @@ async function main() {
     return data;
   }
 
-  // 1. Declare plugin metadata.
+  // 1. Claim the publisher namespace on first publish.
+  const me = await req("GET", "/auth/me");
+  if (!me?.admin && !me?.publisherIds?.includes(spec.publisherId)) {
+    const publisher = await req(
+      "POST",
+      `/publish/publishers/${spec.publisherId}`,
+      JSON.stringify({ displayName: spec.publisherDisplayName ?? spec.publisherId }),
+    );
+    console.log("publisher created:", JSON.stringify({ id: publisher.publisher?.id ?? spec.publisherId }));
+  }
+
+  // 2. Declare plugin metadata.
   const plugin = await req("PUT", `/publish/plugins/${pluginId}`, JSON.stringify({
     name: spec.name,
     description: spec.description,
@@ -67,7 +78,7 @@ async function main() {
   }));
   console.log("plugin declared:", JSON.stringify({ id: plugin.id ?? plugin.pluginId ?? pluginId }));
 
-  // 2. Create draft version.
+  // 3. Create draft version.
   const draftBody = {
     version,
     changelog: spec.changelog ?? "",
@@ -80,7 +91,7 @@ async function main() {
   const draft = await req("POST", `/publish/plugins/${pluginId}/versions`, JSON.stringify(draftBody));
   console.log("draft created:", JSON.stringify({ version: draft.version ?? version, status: draft.status }));
 
-  // 3. Upload artifacts.
+  // 4. Upload artifacts.
   const zipBufs = zips.map((z) => readFileSync(z));
   for (let i = 0; i < artifacts.length; i++) {
     const art = artifacts[i];
@@ -97,7 +108,7 @@ async function main() {
     }
   }
 
-  // 4. Publish (irreversible through draft-delete).
+  // 5. Publish (irreversible through draft-delete).
   if (!yes) {
     console.error(`About to publish ${pluginId} ${version}. Ctrl-C to abort, or rerun with --yes.`);
     await new Promise((r) => setTimeout(r, 3000));

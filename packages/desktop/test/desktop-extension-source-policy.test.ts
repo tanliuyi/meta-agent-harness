@@ -387,7 +387,7 @@ describe("DesktopExtensionSourcePolicy", () => {
     ]);
   });
 
-  it("loads development entries globally regardless of legacy scope fields", async () => {
+  it("loads development entries only in their configured project scope", async () => {
     const harness = await createHarness();
     const developmentPath = join(harness.root, "scoped-development.ts");
     await writeFile(developmentPath, "export default function () {}\n", "utf8");
@@ -422,11 +422,11 @@ describe("DesktopExtensionSourcePolicy", () => {
     expect(second.entries.map(({ id }) => id)).toEqual(["curated", "development:development", "builtin"]);
 
     const other = await harness.policy.resolve("other-project");
-    expect(other.entries.map(({ id }) => id)).toEqual(["curated", "development:development", "builtin"]);
+    expect(other.entries.map(({ id }) => id)).toEqual(["curated", "builtin"]);
     expect(other.diagnostics).toEqual([]);
   });
 
-  it("ignores legacy development scope changes", async () => {
+  it("changes the generation when development scope changes", async () => {
     const harness = await createHarness();
     const developmentPath = join(harness.root, "re-scoped-development.ts");
     await writeFile(developmentPath, "export default function () {}\n", "utf8");
@@ -467,7 +467,7 @@ describe("DesktopExtensionSourcePolicy", () => {
     if (global.status !== "saved") throw new Error("global scope failed");
     const after = await harness.policy.resolve("bound-project");
 
-    expect(after.generation).toBe(generation);
+    expect(after.generation).not.toBe(generation);
   });
 
   it("rejects duplicate IDs across controlled sources", async () => {
@@ -475,7 +475,7 @@ describe("DesktopExtensionSourcePolicy", () => {
     await expect(harness.policy.resolve("project")).rejects.toThrow("Duplicate Desktop extension ID: curated");
   });
 
-  it("loads marketplace entries globally regardless of legacy scope fields", async () => {
+  it("loads marketplace entries only in their configured project scope", async () => {
     const harness = await createHarness();
     let scopeGeneration = 0;
     const [globalPlugin, projectPlugin] = await createMarketplacePlugins(harness.root, [
@@ -508,11 +508,11 @@ describe("DesktopExtensionSourcePolicy", () => {
     expect(second.entries.map(({ id }) => id)).toEqual(["curated", "publisher.global", "publisher.bound", "builtin"]);
 
     const other = await harness.policy.resolve("other-project");
-    expect(other.entries.map(({ id }) => id)).toEqual(["curated", "publisher.global", "publisher.bound", "builtin"]);
+    expect(other.entries.map(({ id }) => id)).toEqual(["curated", "publisher.global", "builtin"]);
     expect(other.diagnostics).toEqual([]);
   });
 
-  it("ignores legacy marketplace scope changes", async () => {
+  it("changes the generation when marketplace scope changes", async () => {
     const harness = await createHarness();
     const [plugin] = await createMarketplacePlugins(harness.root, [
       { id: "publisher.scoped", displayName: "Scoped Plugin", scope: "global" },
@@ -536,15 +536,44 @@ describe("DesktopExtensionSourcePolicy", () => {
     plugin.projectIds = ["bound-project"];
     const afterProject = await harness.policy.resolve("bound-project");
     expect(afterProject.entries.some(({ id }) => id === "publisher.scoped")).toBe(true);
-    expect(afterProject.generation).toBe(first.generation);
+    expect(afterProject.generation).not.toBe(first.generation);
 
     plugin.projectIds = ["other-project"];
     const rebound = await harness.policy.resolve("bound-project");
-    expect(rebound.entries.some(({ id }) => id === "publisher.scoped")).toBe(true);
-    expect(rebound.generation).toBe(afterProject.generation);
+    expect(rebound.entries.some(({ id }) => id === "publisher.scoped")).toBe(false);
+    expect(rebound.generation).not.toBe(afterProject.generation);
 
     const other = await harness.policy.resolve("other-project");
     expect(other.entries.some(({ id }) => id === "publisher.scoped")).toBe(true);
+  });
+
+  it("keeps unrelated project generations stable when marketplace scope membership changes", async () => {
+    const harness = await createHarness();
+    const [plugin] = await createMarketplacePlugins(harness.root, [
+      {
+        id: "publisher.scoped",
+        displayName: "Scoped Plugin",
+        scope: "project",
+        projectIds: ["bound-project"],
+      },
+    ]);
+    let scopeGeneration = 0;
+    harness.policy = new DesktopExtensionSourcePolicy({
+      settings: harness.settings,
+      getBuiltinDefinitions: () => harness.builtin,
+      getCuratedDefinitions: () => harness.curated,
+      getMarketplaceExtensions: async () => ({ revision: `market-${scopeGeneration}`, plugins: [plugin] }),
+      marketplaceRoot: join(harness.root, "marketplace"),
+      curatedRoot: harness.curatedRoot,
+      createGeneration: () => `scope-generation-${++scopeGeneration}`,
+    });
+
+    const first = await harness.policy.resolve("unrelated-project");
+    plugin.projectIds = ["second-project"];
+    const second = await harness.policy.resolve("unrelated-project");
+
+    expect(second.generation).toBe(first.generation);
+    expect(second.entries.some(({ id }) => id === "publisher.scoped")).toBe(false);
   });
 
   it("disables the marketplace plugin when a local plugin declares the same plugin ID", async () => {
@@ -610,7 +639,7 @@ describe("DesktopExtensionSourcePolicy", () => {
       join(developmentRoot, "market-manifest.json"),
       `${JSON.stringify({
         schemaVersion: 1,
-        plugin: { id: "local.other", name: "Local Dev" },
+        plugin: { id: "publisher.plugin", name: "Local Dev" },
         pi: { entry: "index.ts" },
         desktop: { hostProfileVersion: DESKTOP_EXTENSION_HOST_PROFILE_VERSION },
         capabilities: [],
@@ -654,7 +683,7 @@ describe("DesktopExtensionSourcePolicy", () => {
 
     const resolved = await harness.policy.resolve("project");
 
-    // 本地插件 ID 不同且 scope 不匹配 project：市场插件保持加载
+    // 同 ID 的本地插件不在当前项目 scope 内，不会压制市场插件。
     expect(resolved.entries.some(({ id }) => id === "publisher.plugin")).toBe(true);
     expect(resolved.diagnostics).toEqual([]);
   });

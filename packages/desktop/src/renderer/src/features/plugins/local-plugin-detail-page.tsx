@@ -4,6 +4,8 @@ import { useNavigate } from "@tanstack/react-router";
 import RefreshCw from "lucide-react/dist/esm/icons/refresh-cw.mjs";
 import { useEffect, useState } from "react";
 import { SidebarToggle } from "../../components/layout/sidebar-toggle.tsx";
+import { useDesktopSelector } from "../../state/desktop-context.tsx";
+import { selectProjects } from "../../state/desktop-selectors.ts";
 import { LocalPluginDetailContent } from "./local-plugin-detail-content.tsx";
 import { PluginDetailBackLink } from "./plugin-detail-back-link.tsx";
 import { PluginMarketplaceBreadcrumb } from "./plugin-marketplace-breadcrumb.tsx";
@@ -17,6 +19,7 @@ export function LocalPluginDetailPage({
   returnSession?: { projectId: string; threadId: string };
 }) {
   const controller = useLocalPlugins(returnSession?.projectId, returnSession?.threadId);
+  const projects = useDesktopSelector(selectProjects);
   const navigate = useNavigate();
   const [removing, setRemoving] = useState(false);
   const plugin = controller.snapshot?.entries.find((entry) => entry.source === "development" && entry.id === pluginId);
@@ -68,9 +71,18 @@ export function LocalPluginDetailPage({
               <LocalPluginDetailContent
                 plugin={plugin}
                 diagnostics={diagnostics}
+                projects={projects}
                 mutating={controller.mutating}
                 onToggleEnabled={(enabled) =>
                   void controller.mutate({ type: "set-development-enabled", extensionId: plugin.id, enabled })
+                }
+                onSetScope={(scope, projectIds) =>
+                  void controller.mutate({
+                    type: "set-development-scope",
+                    extensionId: plugin.id,
+                    scope,
+                    ...(scope === "project" ? { projectIds } : {}),
+                  })
                 }
                 onRemove={() => {
                   setRemoving(true);

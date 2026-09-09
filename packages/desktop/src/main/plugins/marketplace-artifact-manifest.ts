@@ -268,9 +268,6 @@ async function validateRunCodeMetadata(
 }> {
   const skills = manifest.pi.skills ?? [];
   const runCode = manifest.pi.runCode;
-  if (manifest.capabilities.includes("plugin-methods.provide") && (!runCode || skills.length === 0)) {
-    throw new Error("Marketplace plugin-methods.provide requires skills and primary runCode skill/catalog");
-  }
   const skillPaths: string[] = [];
   for (const skill of skills) {
     if (!skill.startsWith("payload/") || !skill.endsWith("/SKILL.md") || !archive.files.has(skill))

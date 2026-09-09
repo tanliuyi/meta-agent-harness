@@ -147,8 +147,8 @@ function parseDesktopManifest(value: unknown): DesktopDevelopmentManifest {
   }
   const skills = parseRelativePaths(pi.skills, "pi.skills");
   const runCode = parseRunCode(pi.runCode);
-  if (capabilities.includes("plugin-methods.provide") && (!runCode || skills.length === 0 || !plugin.id)) {
-    throw new Error("market-manifest.json plugin methods require plugin.id, pi.skills and pi.runCode");
+  if (capabilities.includes("plugin-methods.provide") && !plugin.id) {
+    throw new Error("market-manifest.json plugin methods require plugin.id");
   }
   return {
     plugin: { ...(plugin.id ? { id: plugin.id.trim() } : {}), name: plugin.name.trim() },

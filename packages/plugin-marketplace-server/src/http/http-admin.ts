@@ -8,9 +8,9 @@ import {
 	bodyString,
 	type MarketplaceHttpRuntime,
 	mapStoreErrorsAsync,
-	PUBLISHER_ID_PATTERN,
 	requireAdmin,
 	USERNAME_PATTERN,
+	validatePublisherId,
 } from "./http-util.ts";
 
 export function createAdminControllers(runtime: MarketplaceHttpRuntime): Type<unknown>[] {
@@ -27,9 +27,7 @@ export function createAdminControllers(runtime: MarketplaceHttpRuntime): Type<un
 			authorization: string | undefined,
 		): Promise<{ publisher: PublisherAdminView }> {
 			await requireAdmin(runtime, authorization);
-			if (!PUBLISHER_ID_PATTERN.test(publisherId)) {
-				throw badRequest("PUBLISHER_ID_INVALID", "Publisher ID must be a lowercase identifier");
-			}
+			validatePublisherId(publisherId);
 			const record = bodyObject(body);
 			const displayName = bodyString(record, "displayName", 120);
 			const verified = bodyBoolean(record, "verified");
@@ -72,9 +70,7 @@ export function createAdminControllers(runtime: MarketplaceHttpRuntime): Type<un
 }
 
 function validateMemberPath(publisherId: string, username: string): void {
-	if (!PUBLISHER_ID_PATTERN.test(publisherId)) {
-		throw badRequest("PUBLISHER_ID_INVALID", "Publisher ID must be a lowercase identifier");
-	}
+	validatePublisherId(publisherId);
 	if (!USERNAME_PATTERN.test(username)) {
 		throw badRequest("USERNAME_INVALID", "Username must be a lowercase identifier");
 	}

@@ -7,25 +7,32 @@ import { TabsTrigger } from "@renderer/shared/ui/tabs-trigger";
 import Blocks from "lucide-react/dist/esm/icons/blocks.mjs";
 import Trash2 from "lucide-react/dist/esm/icons/trash-2.mjs";
 import { useState } from "react";
+import type { Project } from "../../../../shared/contracts.ts";
 import type {
   DesktopExtensionDiagnostic,
   DesktopExtensionListEntry,
+  ExtensionScope,
 } from "../../../../shared/desktop-extension-contracts.ts";
 import { PluginConfigurationForm } from "./plugin-configuration-form.tsx";
+import { PluginScopeSettings } from "./plugin-scope-settings.tsx";
 
 interface LocalPluginDetailContentProps {
   plugin: DesktopExtensionListEntry;
   diagnostics: DesktopExtensionDiagnostic[];
+  projects: readonly Project[];
   mutating: boolean;
   onToggleEnabled(enabled: boolean): void;
+  onSetScope(scope: ExtensionScope, projectIds?: string[]): void;
   onRemove(): void;
 }
 
 export function LocalPluginDetailContent({
   plugin,
   diagnostics,
+  projects,
   mutating,
   onToggleEnabled,
+  onSetScope,
   onRemove,
 }: LocalPluginDetailContentProps) {
   const [confirmingRemove, setConfirmingRemove] = useState(false);
@@ -130,6 +137,15 @@ export function LocalPluginDetailContent({
                 </div>
               </dl>
             </section>
+
+            <PluginScopeSettings
+              pluginId={plugin.id}
+              scope={plugin.scope}
+              projectIds={plugin.projectIds ?? []}
+              projects={projects}
+              mutationPending={mutating}
+              onSetScope={onSetScope}
+            />
 
             <section className="plugin-marketplace-detail-section" aria-labelledby="plugin-local-detail-risks">
               <h3 id="plugin-local-detail-risks">能力与风险</h3>

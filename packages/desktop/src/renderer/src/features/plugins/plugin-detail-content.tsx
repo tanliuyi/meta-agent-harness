@@ -2,12 +2,15 @@ import { Tabs } from "@renderer/shared/ui/tabs";
 import { TabsContent } from "@renderer/shared/ui/tabs-content";
 import { TabsList } from "@renderer/shared/ui/tabs-list";
 import { TabsTrigger } from "@renderer/shared/ui/tabs-trigger";
+import type { Project } from "../../../../shared/contracts.ts";
+import type { ExtensionScope } from "../../../../shared/desktop-extension-contracts.ts";
 import type {
   InstalledMarketplacePluginSummary,
   MarketplacePluginSummary,
 } from "../../../../shared/plugin-marketplace-contracts.ts";
 import { PluginConfigurationForm } from "./plugin-configuration-form.tsx";
 import { formatDate } from "./plugin-marketplace-utils.ts";
+import { PluginScopeSettings } from "./plugin-scope-settings.tsx";
 
 export { pluginActionConfirmation } from "./plugin-detail-actions.tsx";
 
@@ -15,10 +18,20 @@ interface PluginDetailContentProps {
   plugin?: MarketplacePluginSummary;
   installed?: InstalledMarketplacePluginSummary;
   marketplaceId?: string;
+  projects?: readonly Project[];
+  mutationPending?: boolean;
+  onSetScope?(scope: ExtensionScope, projectIds?: string[]): void;
 }
 
 /** Detail content shared by the route page and the legacy dialog wrapper. */
-export function PluginDetailContent({ plugin, installed, marketplaceId }: PluginDetailContentProps) {
+export function PluginDetailContent({
+  plugin,
+  installed,
+  marketplaceId,
+  projects,
+  mutationPending = false,
+  onSetScope,
+}: PluginDetailContentProps) {
   if (!plugin && !installed) return null;
   const capabilities = plugin?.capabilities ?? installed?.capabilities ?? [];
 
@@ -89,6 +102,17 @@ export function PluginDetailContent({ plugin, installed, marketplaceId }: Plugin
                   ))}
                 </div>
               </section>
+            ) : null}
+
+            {installed && projects && onSetScope ? (
+              <PluginScopeSettings
+                pluginId={installed.id}
+                scope={installed.scope}
+                projectIds={installed.projectIds ?? []}
+                projects={projects}
+                mutationPending={mutationPending}
+                onSetScope={onSetScope}
+              />
             ) : null}
 
             <section className="plugin-marketplace-detail-section" aria-labelledby="plugin-detail-capabilities">

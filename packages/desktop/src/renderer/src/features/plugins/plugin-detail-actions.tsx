@@ -10,7 +10,7 @@ import type {
 import { updateAvailable } from "./plugin-marketplace-utils.ts";
 import { canInstallMarketplacePlugin } from "./use-plugin-marketplace.ts";
 
-type PendingAction = "install" | "update" | "uninstall";
+type PendingAction = "install" | "uninstall";
 
 interface PluginDetailActionsProps {
   plugin?: MarketplacePluginSummary;
@@ -47,9 +47,8 @@ export function PluginDetailActions({
   const confirmAction = () => {
     const action = pendingAction;
     setPendingAction(undefined);
-    if ((action === "install" || action === "update") && plugin) {
-      if (action === "install") onInstall(plugin);
-      else onUpdate(plugin);
+    if (action === "install" && plugin) {
+      onInstall(plugin);
     } else if (action === "uninstall" && installed) {
       onUninstall(installed.id);
     }
@@ -68,6 +67,7 @@ export function PluginDetailActions({
     >
       {confirmation ? (
         <div className="plugin-marketplace-detail-confirmation" role="group" aria-label={confirmation.title}>
+          {confirmation.description ? <p>{confirmation.description}</p> : null}
           <div className="plugin-marketplace-detail-confirmation-actions">
             <Button variant="ghost" onClick={() => setPendingAction(undefined)}>
               取消
@@ -91,7 +91,7 @@ export function PluginDetailActions({
             </Button>
           ) : null}
           {hasUpdate && plugin ? (
-            <Button disabled={mutationPending} onClick={() => setPendingAction("update")}>
+            <Button disabled={mutationPending} onClick={() => onUpdate(plugin)}>
               <RefreshCw />
               {updating ? "更新中" : "更新"}
             </Button>
@@ -112,8 +112,8 @@ export function PluginDetailActions({
 export function pluginActionConfirmation(
   action: PendingAction,
   name: string,
-  _plugin: MarketplacePluginSummary | undefined,
-): { title: string; confirmLabel: string } {
+  plugin: MarketplacePluginSummary | undefined,
+): { title: string; confirmLabel: string; description?: string } {
   if (action === "uninstall") {
     return {
       title: `卸载 ${name}？`,
@@ -122,7 +122,10 @@ export function pluginActionConfirmation(
   }
 
   return {
-    title: `${action === "install" ? "安装" : "更新"} ${name}？`,
-    confirmLabel: action === "install" ? "确认安装" : "确认更新",
+    title: `安装 ${name}？`,
+    confirmLabel: "确认安装",
+    description: plugin?.containsNativeCode
+      ? "此插件包含原生代码，并将以当前账户权限运行，可读写文件、访问网络、读取环境变量并执行程序。仅安装你信任的插件。"
+      : "此插件将以当前账户权限运行，可读写文件、访问网络、读取环境变量并执行程序。仅安装你信任的插件。",
   };
 }

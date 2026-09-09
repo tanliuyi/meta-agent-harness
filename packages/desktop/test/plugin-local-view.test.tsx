@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { LocalPluginDetailContent } from "../src/renderer/src/features/plugins/local-plugin-detail-content.tsx";
 import { LocalPluginsView } from "../src/renderer/src/features/plugins/local-plugins-view.tsx";
 import type { LocalPluginsController } from "../src/renderer/src/features/plugins/use-local-plugins.ts";
+import type { Project } from "../src/shared/contracts.ts";
 import type { DesktopExtensionListEntry } from "../src/shared/desktop-extension-contracts.ts";
 
 vi.mock("../src/renderer/src/state/desktop-context.tsx", () => ({
@@ -13,6 +14,10 @@ vi.mock("../src/renderer/src/state/desktop-context.tsx", () => ({
 beforeEach(() => {
   vi.clearAllMocks();
 });
+
+const projects: Project[] = [
+  { id: "project-a", kind: "project", name: "Alpha", cwd: "/alpha", lastOpenedAt: 1, available: true },
+];
 
 function controller(): LocalPluginsController {
   return {
@@ -96,8 +101,10 @@ describe("local plugin detail dialog", () => {
             message: "插件加载失败",
           },
         ]}
+        projects={projects}
         mutating={false}
         onToggleEnabled={vi.fn()}
+        onSetScope={vi.fn()}
         onRemove={vi.fn()}
       />,
     );
@@ -134,8 +141,10 @@ describe("local plugin detail dialog", () => {
       <LocalPluginDetailContent
         plugin={configurable}
         diagnostics={[]}
+        projects={projects}
         mutating={false}
         onToggleEnabled={vi.fn()}
+        onSetScope={vi.fn()}
         onRemove={vi.fn()}
       />,
     );
@@ -153,8 +162,10 @@ describe("local plugin detail dialog", () => {
       <LocalPluginDetailContent
         plugin={entry()}
         diagnostics={[]}
+        projects={projects}
         mutating={false}
         onToggleEnabled={vi.fn()}
+        onSetScope={vi.fn()}
         onRemove={vi.fn()}
       />,
     );
@@ -162,7 +173,7 @@ describe("local plugin detail dialog", () => {
     expect(markup).not.toContain("诊断");
   });
 
-  it("does not render project scope settings", () => {
+  it("renders project scope settings", () => {
     const scoped: DesktopExtensionListEntry = {
       ...entry(),
       scope: "project",
@@ -172,13 +183,16 @@ describe("local plugin detail dialog", () => {
       <LocalPluginDetailContent
         plugin={scoped}
         diagnostics={[]}
+        projects={projects}
         mutating={false}
         onToggleEnabled={vi.fn()}
+        onSetScope={vi.fn()}
         onRemove={vi.fn()}
       />,
     );
 
-    expect(markup).not.toContain("作用域");
-    expect(markup).not.toContain("指定项目");
+    expect(markup).toContain("作用域");
+    expect(markup).toContain("指定项目");
+    expect(markup).toContain("Alpha");
   });
 });

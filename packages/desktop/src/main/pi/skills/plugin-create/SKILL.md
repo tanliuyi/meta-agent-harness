@@ -12,7 +12,7 @@ Treat a Desktop plugin as a standard Pi Extension. Do not invent a Desktop-only 
 
 1. Clarify the plugin's user-visible behavior, scope, external services, credentials, destructive actions, and whether it needs tools, commands, events, or a provider. Ask only for decisions that materially affect behavior or trust.
 2. Inspect the target directory, its package manager, existing extension patterns, TypeScript configuration, and installed Pi API types before writing code. Reuse local conventions and do not guess external API signatures.
-3. Use a manifest-backed directory whenever the plugin exposes composed operations through `run_code`; the manifest supplies stable identity, skill, and catalog metadata. Add `package.json` only when the plugin needs its own dependencies or distribution metadata.
+3. Use a manifest-backed directory whenever the plugin exposes composed operations through `run_code`; the manifest supplies the stable `plugin.id`. Add optional Skill/catalog guidance metadata only when richer workflow documentation is useful. Add `package.json` only when the plugin needs its own dependencies or distribution metadata.
 4. Define every model-callable operation once with standard `pi.registerTool()`. Native tools stay direct; Desktop captures registrations only for entries opting into `run_code`. Do not add a parallel `desktopPlugin` handler.
 5. Add an idempotent `session_shutdown` handler for every session-scoped resource used by a default Pi factory. Pass `AbortSignal` through to cancellable work.
 6. Validate parameter schemas, normalize paths against `ctx.cwd`, bound external input and output, and throw errors from tool execution when an operation fails.
@@ -44,7 +44,7 @@ export default function plugin(pi: ExtensionAPI) {
 }
 ```
 
-The manifest must declare `plugin-methods.provide`, `pi.skills`, and `pi.runCode` for `run_code` composition. The catalog documents the registered names and schemas; it is not a second executable implementation. The primary skill must document canonical bracket syntax such as `plugin["com.example.records"].lookup(...)`, link `references/api.md`, and explain limits, side effects, errors, and workflows.
+The manifest must declare a stable `plugin.id` and `plugin-methods.provide` for `run_code` composition. Desktop captures the standard registrations and generates bounded API context when no primary Skill is declared. Optional `pi.skills` and `pi.runCode` metadata can provide richer workflow guidance; when present, the catalog documents the registered names and schemas without becoming a second executable implementation, and the primary Skill should document canonical bracket syntax such as `plugin["com.example.records"].lookup(...)`, link `references/api.md`, and explain limits, side effects, errors, and workflows.
 
 ## Host-Owned Native Tools
 
@@ -87,13 +87,13 @@ Custom TUI `renderCall`, `renderResult`, message renderers, and entry renderers 
 
 For local development, create an ordinary extension entry and use Desktop Developer Mode. Desktop does not auto-discover arbitrary global or project extensions.
 
-Marketplace accounts, publisher authorization, artifact assembly, upload, signing, and release lifecycle belong to the built-in `plugin-publish` skill. When publication is requested, finish the plugin compatibility and focused validation work here, then load `plugin-publish`; do not fabricate an upload command or endpoint. Marketplace artifacts must be fully assembled ahead of installation, include every non-host runtime dependency, declare every payload file and capability, and must not depend on install scripts or on-device compilation.
+Marketplace accounts, publisher authorization, artifact assembly, upload, integrity verification, and release lifecycle belong to the built-in `plugin-publish` skill. When publication is requested, finish the plugin compatibility and focused validation work here, then load `plugin-publish`; do not fabricate an upload command or endpoint. Marketplace artifacts must be fully assembled ahead of installation, include every non-host runtime dependency, declare every payload file and capability, and must not depend on install scripts or on-device compilation.
 
 ## Verification
 
 Before declaring completion:
 
-1. Confirm a tool plugin is a manifest-backed directory with a stable `plugin.id`, primary `SKILL.md`, generated `references/api.md`, and `plugin-api.json` covering every captured registration.
+1. Confirm a tool plugin is a manifest-backed directory with a stable `plugin.id` and valid standard `pi.registerTool()` definitions. When optional Skill/catalog guidance is included, confirm the primary `SKILL.md`, generated `references/api.md`, and `plugin-api.json` cover every captured registration.
 2. Typecheck against the installed Pi packages and fix all diagnostics.
 3. Exercise every new tool, command, and event handler with deterministic fixtures or fakes.
 4. Verify cleanup on `session_shutdown` for opened resources.
