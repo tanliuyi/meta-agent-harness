@@ -263,6 +263,18 @@ describe("provider adapters", () => {
 });
 
 describe("extension contract", () => {
+  it("registers without the Desktop configuration API", () => {
+    const registerTool = vi.fn();
+    const mockApi = {
+      on: vi.fn(),
+      registerTool,
+    } as unknown as ExtensionAPI;
+
+    imageGenPlugin(mockApi);
+
+    expect(registerTool).toHaveBeenCalledOnce();
+  });
+
   it("registers one Desktop-compatible tool and throws on execution failure", async () => {
     let registeredTool:
       | { name: string; execute: (...args: unknown[]) => Promise<unknown> }

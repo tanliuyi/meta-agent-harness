@@ -15,6 +15,10 @@ import type {
 
 const QUALITY_VALUES = ["low", "medium", "high", "auto"] as const;
 
+type DesktopExtensionAPI = ExtensionAPI & {
+  getConfig<T = DesktopImageGenConfig>(): Readonly<T>;
+};
+
 type ImageToolCapabilities = {
   api: ApiStyle | null;
   quality: boolean;
@@ -22,7 +26,9 @@ type ImageToolCapabilities = {
 };
 
 export default function piImageGenExtension(pi: ExtensionAPI): void {
-  const settings = createImageGenSettings(pi.getConfig<DesktopImageGenConfig>());
+  const desktopApi = pi as Partial<DesktopExtensionAPI>;
+  const config = typeof desktopApi.getConfig === "function" ? desktopApi.getConfig<DesktopImageGenConfig>() : {};
+  const settings = createImageGenSettings(config);
   let sessionCwd = process.cwd();
   const capabilities = resolveImageToolCapabilities(settings);
 
