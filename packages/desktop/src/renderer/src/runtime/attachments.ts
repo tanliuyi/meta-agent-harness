@@ -6,7 +6,8 @@ import {
   type PendingAttachment,
   SimpleImageAttachmentAdapter,
 } from "@assistant-ui/react";
-import type { ImageInput } from "../../../shared/contracts.ts";
+import type { ImageInput, SessionImageAttachmentRef } from "../../../shared/contracts.ts";
+import { parseSessionImageResourceUrl } from "./session-image-resource-ref.ts";
 
 class PiAttachmentAdapter extends SimpleImageAttachmentAdapter {
   override accept = "*";
@@ -82,6 +83,7 @@ type CompleteAttachmentFn = (attachment: PendingAttachment) => Promise<CompleteA
 export interface PiPromptAttachments {
   text: string;
   images: ImageInput[];
+  imageResources: SessionImageAttachmentRef[];
 }
 
 export interface PiFileContext {
@@ -123,23 +125,28 @@ export async function toPiPromptAttachments(
     ),
   );
   const images: ImageInput[] = [];
+  const imageResources: SessionImageAttachmentRef[] = [];
   const files: PiFileContext[] = [];
   for (const attachment of completed) {
     for (const part of attachment.content) {
       if (part.type === "image") {
-        images.push(parseImageDataUrl(part.image, part.filename ?? attachment.name));
+        const name = part.filename ?? attachment.name;
+        const resource = parseSessionImageResourceUrl(part.image);
+        if (resource) imageResources.push({ name, ...resource });
+        else images.push(parseImageDataUrl(part.image, name));
       } else if (part.type === "file") {
         files.push({ path: part.data, name: part.filename ?? attachment.name });
       }
     }
   }
-  if (files.length === 0) return { text, images };
+  if (files.length === 0) return { text, images, imageResources };
   const fileLines = files.map((file) => formatFileContext(file.path, file.name));
   return {
     text: text.trim()
       ? `${text}\n\n${formatFileContextEnvelope(files)}\n\n${fileLines.join("\n")}`
       : `${formatFileContextEnvelope(files)}\n\n${fileLines.join("\n")}`,
     images,
+    imageResources,
   };
 }
 

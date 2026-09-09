@@ -11,7 +11,7 @@ import type { QuestionnaireInput, QuestionnaireResult } from "./questionnaire-co
 export type { DesktopExtensionHostState } from "./desktop-extension-contracts.ts";
 
 /** Desktop 与 renderer 之间使用的协议版本。 */
-export const PROTOCOL_VERSION = 10;
+export const PROTOCOL_VERSION = 11;
 
 /** Desktop 内部通用对话工作区的稳定 ID。不出现在主界面项目列表，但参与设置页（子智能体/记忆）的项目作用域。 */
 export const GENERAL_WORKSPACE_ID = "__general__";
@@ -210,6 +210,11 @@ export type PiUserContentPart = { type: "text"; text: string } | ({ type: "image
 export interface SessionImageResourceRef {
   resourceId: string;
   mimeType: string;
+}
+
+/** 编辑消息携带的命名图像资源引用；由所属 session 的 worker 解析主体。 */
+export interface SessionImageAttachmentRef extends SessionImageResourceRef {
+  name: string;
 }
 
 /** 图像资源主体（base64 data），仅经 readImageResource 单图返回，不进 timeline/bootstrap。 */
@@ -548,6 +553,8 @@ export interface SessionPromptInput {
 
 export interface SessionEditInput extends SessionPromptInput {
   sourceId: string;
+  /** 历史消息中的图片主体留在 sidecar，由所属 session 的 worker 按引用解析。 */
+  imageResources?: SessionImageAttachmentRef[];
 }
 
 export interface SessionReloadInput {

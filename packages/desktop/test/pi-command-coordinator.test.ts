@@ -242,6 +242,26 @@ describe("PiCommandCoordinator", () => {
     expect(reload).toHaveBeenCalledWith(expect.objectContaining({ parentId: "resolved-user-entry" }));
   });
 
+  it("edit 将历史图片作为 sidecar 资源引用发送", async () => {
+    const coordinator = createCoordinator();
+    const edited = {
+      ...userMessage("edited image"),
+      sourceId: "user-entry",
+      attachments: [sessionImageAttachment()],
+    };
+
+    await coordinator.edit(edited);
+
+    expect(edit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sourceId: "user-entry",
+        text: "edited image",
+        images: [],
+        imageResources: [{ name: "history.png", resourceId: "resource-1", mimeType: "image/png" }],
+      }),
+    );
+  });
+
   it("running 时提交 edit 先取消当前 run，再发送编辑后的消息", async () => {
     phase = "running";
     const coordinator = createCoordinator();
@@ -424,6 +444,17 @@ function fileAttachment(): NonNullable<AppendMessage["attachments"]>[number] {
         mimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
       },
     ],
+  };
+}
+
+function sessionImageAttachment(): NonNullable<AppendMessage["attachments"]>[number] {
+  return {
+    id: "history-image",
+    type: "image",
+    name: "history.png",
+    contentType: "image/png",
+    status: { type: "complete" },
+    content: [{ type: "image", image: "pi-session-image:resource-1#image%2Fpng", filename: "history.png" }],
   };
 }
 

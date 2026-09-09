@@ -6,6 +6,7 @@ import type {
   PiThreadPhase,
   PiThreadSnapshot,
   SessionCommandResult,
+  SessionImageAttachmentRef,
   SessionPromptInput,
 } from "../../../shared/contracts.ts";
 import { toComposerAttachmentInput, toPiPromptAttachments } from "./attachments.ts";
@@ -103,8 +104,12 @@ export class PiCommandCoordinator {
     else this.assertIdle("edit");
     const target = this.requireTarget();
     if (!message.sourceId) throw new Error("assistant-ui edit 缺少 sourceId");
-    const input = await promptInput(message, target, undefined);
-    const result = await window.desktop.sessions.edit({ ...input, sourceId: message.sourceId });
+    const { input, imageResources } = await promptInput(message, target, undefined);
+    const result = await window.desktop.sessions.edit({
+      ...input,
+      sourceId: message.sourceId,
+      ...(imageResources.length > 0 ? { imageResources } : {}),
+    });
     assertAccepted(result);
     if (result.error) this.report(result.error);
   };
@@ -162,7 +167,8 @@ export class PiCommandCoordinator {
   ): Promise<SessionCommandResult> {
     const phase = this.getPhase();
     if (phase !== "idle" && phase !== "running") throw new Error(`Pi ${phase} 阶段不接受 Composer submit`);
-    const input = await promptInput(message, target, desiredMode, requestId);
+    const { input, imageResources } = await promptInput(message, target, desiredMode, requestId);
+    if (imageResources.length > 0) throw new Error("历史消息图片只能在原消息编辑时重新发送");
     const isResourceReload = input.text.trim() === "/reload" && input.images.length === 0;
     const progressNotificationId = isResourceReload
       ? this.notify({
@@ -290,20 +296,23 @@ async function promptInput(
   target: SessionTarget,
   desiredMode: "steer" | "followUp" | undefined,
   requestId: string = crypto.randomUUID(),
-): Promise<SessionPromptInput> {
+): Promise<{ input: SessionPromptInput; imageResources: SessionImageAttachmentRef[] }> {
   if (message.role !== "user") throw new Error(`Pi Composer 只接受 user message: ${message.role}`);
   const messageQuotes = quotes(message);
   const messageQuote = messageQuotes.length === 1 ? messageQuotes[0] : undefined;
   const attachments = await toPiPromptAttachments(messageText(message), message.attachments ?? []);
   return {
-    requestId,
-    projectId: target.projectId,
-    threadId: target.threadId,
-    text: attachments.text,
-    images: attachments.images,
-    ...(messageQuote ? { quote: messageQuote } : {}),
-    ...(messageQuotes.length > 1 ? { quotes: messageQuotes } : {}),
-    ...(desiredMode ? { desiredMode } : {}),
+    input: {
+      requestId,
+      projectId: target.projectId,
+      threadId: target.threadId,
+      text: attachments.text,
+      images: attachments.images,
+      ...(messageQuote ? { quote: messageQuote } : {}),
+      ...(messageQuotes.length > 1 ? { quotes: messageQuotes } : {}),
+      ...(desiredMode ? { desiredMode } : {}),
+    },
+    imageResources: attachments.imageResources,
   };
 }
 

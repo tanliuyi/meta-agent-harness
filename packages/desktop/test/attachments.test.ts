@@ -6,6 +6,7 @@ import {
   toComposerAttachmentInput,
   toPiPromptAttachments,
 } from "../src/renderer/src/runtime/attachments.ts";
+import { toSessionImageResourceUrl } from "../src/renderer/src/runtime/session-image-resource-ref.ts";
 
 describe("assistant-ui 附件", () => {
   const testAttachmentAdapter = createAttachmentAdapter((file) => `C:\\images\\${file.name}`);
@@ -25,6 +26,7 @@ describe("assistant-ui 附件", () => {
           data: "AQID",
         },
       ],
+      imageResources: [],
     });
   });
 
@@ -51,6 +53,7 @@ describe("assistant-ui 附件", () => {
     await expect(toPiPromptAttachments("分析截图", [attachment], (pending) => adapter.send(pending))).resolves.toEqual({
       text: "分析截图",
       images: [{ name: "image.png", mimeType: "image/png", data: "AQID" }],
+      imageResources: [],
     });
   });
 
@@ -105,6 +108,7 @@ describe("assistant-ui 附件", () => {
     expect(prompt).toEqual({
       text: `分析附件\n\n${marker}\n\n<file name="C:\\docs\\report.docx">report.docx</file>`,
       images: [],
+      imageResources: [],
     });
     // round-trip：发送文本可逆恢复为附件 + 正文。
     expect(parsePiFileContexts(prompt.text)).toEqual({
@@ -196,6 +200,27 @@ describe("assistant-ui 附件", () => {
           data: "/9j/",
         },
       ],
+      imageResources: [],
+    });
+  });
+
+  it("将历史消息图片保留为 sidecar 资源引用", async () => {
+    const resource = { resourceId: "resource-1", mimeType: "image/png" };
+
+    await expect(
+      toPiPromptAttachments("重新分析", [
+        {
+          id: "image-1",
+          type: "image",
+          name: "screenshot.png",
+          status: { type: "complete" },
+          content: [{ type: "image", image: toSessionImageResourceUrl(resource), filename: "screenshot.png" }],
+        },
+      ]),
+    ).resolves.toEqual({
+      text: "重新分析",
+      images: [],
+      imageResources: [{ name: "screenshot.png", ...resource }],
     });
   });
 
@@ -230,6 +255,7 @@ describe("assistant-ui 附件", () => {
         { name: "first.png", mimeType: "image/png", data: first.id },
         { name: "second.png", mimeType: "image/png", data: second.id },
       ],
+      imageResources: [],
     });
   });
 });

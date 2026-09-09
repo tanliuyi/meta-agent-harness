@@ -415,7 +415,16 @@ export class SessionRuntime {
   edit(input: SessionEditInput): Promise<SessionCommandResult> {
     this.assertTimelineAvailable();
     if (input.threadId !== this.id || input.projectId !== this.projectId) throw new Error("Pi edit session 不匹配");
-    return this.runCommand(input.requestId, () => this.compatibility.edit(input));
+    const { imageResources = [], ...editInput } = input;
+    return this.runCommand(input.requestId, () => {
+      const images = [...editInput.images];
+      for (const image of imageResources) {
+        const resource = this.projector.readImageResource(image.resourceId);
+        if (!resource) throw new Error(`Pi edit 图片资源不存在: ${image.name}`);
+        images.push({ name: image.name, mimeType: resource.mimeType, data: resource.data });
+      }
+      return this.compatibility.edit({ ...editInput, images });
+    });
   }
 
   reload(input: SessionReloadInput): Promise<SessionCommandResult> {

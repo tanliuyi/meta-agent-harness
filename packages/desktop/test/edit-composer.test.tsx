@@ -39,6 +39,12 @@ vi.mock("@assistant-ui/react", () => ({
     }),
 }));
 
+vi.mock("../src/renderer/src/components/assistant-ui/attachment/composer-attachments.tsx", () => ({
+  ComposerAttachments: ({ disabled }: { disabled?: boolean }) => (
+    <div data-component="composer-attachments" data-disabled={disabled ? "true" : "false"} />
+  ),
+}));
+
 vi.mock("../src/renderer/src/shared/ui/button.tsx", () => ({
   Button: ({ children }: { children?: ReactNode }) => <button type="button">{children}</button>,
 }));
@@ -80,7 +86,11 @@ async function dispatch(type: "input" | "compositionstart" | "compositionend", v
   });
 }
 
-describe("EditComposer IME input", () => {
+describe("EditComposer", () => {
+  it("显示编辑消息中已有的附件", () => {
+    expect(container.querySelector('[data-component="composer-attachments"]')).not.toBeNull();
+  });
+
   it("组合输入期间保留连续拼音并在选字后保留中文", async () => {
     expect(input().value).toBe("original");
 

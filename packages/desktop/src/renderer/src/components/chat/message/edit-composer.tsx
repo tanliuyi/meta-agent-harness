@@ -1,6 +1,7 @@
 import { ComposerPrimitive, MessagePrimitive, useAui, useAuiState } from "@assistant-ui/react";
 import { Button } from "@renderer/shared/ui/button";
 import { type ChangeEvent, type CompositionEvent, useRef, useState } from "react";
+import { ComposerAttachments } from "../../assistant-ui/attachment/composer-attachments.tsx";
 
 export function EditComposer() {
   const aui = useAui();
@@ -37,6 +38,7 @@ export function EditComposer() {
             }
           }}
         />
+        <ComposerAttachments disabled={isRunning && !canQueue} />
         <div className="aui-edit-composer-footer mx-2.5 mb-2.5 flex items-center gap-1.5 self-end">
           <ComposerPrimitive.Cancel asChild>
             <Button variant="ghost" size="sm" className="h-8 rounded-full px-3.5">

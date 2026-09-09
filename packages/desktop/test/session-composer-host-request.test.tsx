@@ -1,7 +1,7 @@
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { SessionControlState } from "../src/shared/contracts.ts";
+import { PROTOCOL_VERSION, type SessionControlState } from "../src/shared/contracts.ts";
 
 const state = vi.hoisted(() => ({
   control: null as SessionControlState | null,
@@ -66,7 +66,7 @@ import { SessionComposer } from "../src/renderer/src/components/chat/session-com
 
 function control(interaction: SessionControlState["interaction"]): SessionControlState {
   return {
-    protocolVersion: 10,
+    protocolVersion: PROTOCOL_VERSION,
     revision: 1,
     projectId: "project",
     threadId: "thread",

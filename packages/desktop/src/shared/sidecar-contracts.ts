@@ -32,7 +32,7 @@ import type {
   SubagentWorkerCommand,
 } from "./subagent-contracts.ts";
 
-export const SIDECAR_PROTOCOL_VERSION = 3;
+export const SIDECAR_PROTOCOL_VERSION = 4;
 
 export type SidecarRole = "thread" | "metadata" | "subagent";
 

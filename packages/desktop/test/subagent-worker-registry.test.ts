@@ -14,7 +14,11 @@ import {
   type SessionImageResource,
   type SessionPushPayload,
 } from "../src/shared/contracts.ts";
-import type { RuntimeCompatibility, SidecarEvent } from "../src/shared/sidecar-contracts.ts";
+import {
+  type RuntimeCompatibility,
+  SIDECAR_PROTOCOL_VERSION,
+  type SidecarEvent,
+} from "../src/shared/sidecar-contracts.ts";
 import type { SubagentRunRequest } from "../src/shared/subagent-contracts.ts";
 
 const compatibility: RuntimeCompatibility = {
@@ -119,7 +123,7 @@ class FakeClient implements SubagentWorkerClient {
   ready() {
     return Promise.resolve({
       kind: "ready" as const,
-      protocolVersion: 3 as const,
+      protocolVersion: SIDECAR_PROTOCOL_VERSION,
       workerInstanceId: this.instanceId,
       role: "subagent" as const,
       runtime: compatibility,
@@ -180,7 +184,7 @@ function event(
 ): SidecarEvent {
   return {
     kind: "event",
-    protocolVersion: 3,
+    protocolVersion: SIDECAR_PROTOCOL_VERSION,
     workerInstanceId,
     sequence,
     creditCost: 1,
@@ -1036,7 +1040,7 @@ describe("SubagentWorkerRegistry", () => {
       const payload = subagentBootstrap("live-child").control;
       client?.emitSidecarEvent({
         kind: "event",
-        protocolVersion: 3,
+        protocolVersion: SIDECAR_PROTOCOL_VERSION,
         workerInstanceId: client.instanceId,
         sequence: 2,
         creditCost: 1,
@@ -1222,7 +1226,7 @@ describe("SubagentWorkerRegistry", () => {
     await Promise.resolve();
     client?.emitSidecarEvent({
       kind: "event",
-      protocolVersion: 3,
+      protocolVersion: SIDECAR_PROTOCOL_VERSION,
       workerInstanceId: client.instanceId,
       sequence: 1,
       creditCost: 0,

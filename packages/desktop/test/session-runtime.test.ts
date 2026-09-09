@@ -1,5 +1,11 @@
 import { fileURLToPath } from "node:url";
-import type { AgentSession, AgentSessionEvent, SessionManager, Skill } from "@earendil-works/pi-coding-agent";
+import type {
+  AgentSession,
+  AgentSessionEvent,
+  SessionEntry,
+  SessionManager,
+  Skill,
+} from "@earendil-works/pi-coding-agent";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { RunCodeRegistryHolder } from "../src/main/pi/run-code/run-code-tool.ts";
 import { PiTimelineUnavailableError, SessionRuntime } from "../src/main/pi/session-runtime.ts";
@@ -465,6 +471,66 @@ describe("SessionRuntime Pi-native commands", () => {
     expect(runtime.threadSummary(false).title).toBe("/extension arg");
     expect(push).toHaveBeenCalledWith(
       expect.objectContaining({ type: "control", control: expect.objectContaining({ title: "/extension arg" }) }),
+    );
+    await runtime.dispose();
+  });
+
+  it("编辑历史图片时在 worker 内解析资源引用", async () => {
+    const session = createSession();
+    const user = {
+      role: "user",
+      content: [
+        { type: "text", text: "original" },
+        { type: "image", data: "base64-image-body", mimeType: "image/png" },
+      ],
+      timestamp: 1,
+    } as AgentSession["messages"][number];
+    const entry: SessionEntry = {
+      type: "message",
+      id: "user-entry",
+      parentId: null,
+      timestamp: new Date(1).toISOString(),
+      message: user,
+    };
+    const mutable = session as unknown as {
+      messages: AgentSession["messages"];
+      sessionManager: {
+        getLeafId(): string | null;
+        getBranch(): SessionEntry[];
+        getEntry(id: string): SessionEntry | undefined;
+      };
+    };
+    mutable.messages = [user];
+    mutable.sessionManager.getLeafId = () => "user-entry";
+    mutable.sessionManager.getBranch = () => [entry];
+    mutable.sessionManager.getEntry = (id) => (id === entry.id ? entry : undefined);
+    mocks.createAgentSessionFromServices.mockResolvedValue({ session });
+    const runtime = await SessionRuntime.create({
+      projectId: "project",
+      cwd: "/workspace",
+      push: () => {},
+      onSummaryChanged: () => {},
+    });
+    const node = runtime.bootstrap().timeline.nodes[0];
+    if (node?.kind !== "user") throw new Error("user node missing");
+    const image = node.content.find((part) => part.type === "image");
+    if (!image || image.type !== "image") throw new Error("user image missing");
+
+    await runtime.edit({
+      requestId: "edit-request",
+      projectId: "project",
+      threadId: "thread",
+      sourceId: "user-entry",
+      text: "edited",
+      images: [],
+      imageResources: [{ name: "history.png", ...image }],
+    });
+
+    expect(session.prompt).toHaveBeenCalledWith(
+      "edited",
+      expect.objectContaining({
+        images: [{ type: "image", data: "base64-image-body", mimeType: "image/png" }],
+      }),
     );
     await runtime.dispose();
   });
@@ -963,7 +1029,7 @@ function createSession(streaming = false): AgentSession & {
     clearQueue: () => ({ steering: [], followUp: [] }),
     getSteeringMessages: () => [],
     getFollowUpMessages: () => [],
-    navigateTree: vi.fn(),
+    navigateTree: vi.fn(async () => ({ cancelled: false, editorText: "original" })),
     compact: vi.fn(),
     abortCompaction: vi.fn(),
     abortBranchSummary: vi.fn(),
