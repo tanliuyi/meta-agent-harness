@@ -10,7 +10,12 @@
   },
   "pi": {
     "entry": "index.ts",
-    "extensionApi": "v1"
+    "extensionApi": "v1",
+    "skills": ["skills/rpiv-todo/SKILL.md"],
+    "runCode": {
+      "skill": "rpiv-todo",
+      "catalog": "plugin-api.json"
+    }
   },
   "desktop": {
     "hostProfileVersion": 1
@@ -25,7 +30,7 @@
       {
         "key": "maxWidgetLines",
         "label": "最大面板行数",
-        "description": "鼠标悬停或键盘聚焦后，任务面板最多显示的总行数。",
+        "description": "Session Info 任务面板最多显示的总行数。",
         "type": "number",
         "minimum": 4,
         "maximum": 40,
@@ -38,7 +43,7 @@
   "capabilities": [
     "configuration.read",
     "events.subscribe",
-    "tools.register",
+    "plugin-methods.provide",
     "commands.register",
     "session.read",
     "ui.notify",
@@ -48,6 +53,15 @@
   "executables": [],
   "files": {
     "index.ts": {
+      "mode": "0644"
+    },
+    "plugin-api.json": {
+      "mode": "0644"
+    },
+    "skills/rpiv-todo/SKILL.md": {
+      "mode": "0644"
+    },
+    "skills/rpiv-todo/references/api.md": {
       "mode": "0644"
     },
     "assets/icon.png": {

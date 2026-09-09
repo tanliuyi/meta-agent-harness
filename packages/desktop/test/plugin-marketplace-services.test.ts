@@ -89,12 +89,12 @@ describe("MarketplaceEndpointSettingsService", () => {
       revision: MISSING_MARKETPLACE_ENDPOINT_REVISION,
       endpoint: {
         marketplaceId: "meta-agent-development",
-        baseUrl: "http://100.91.230.10:4317/",
-        apiRoot: "http://100.91.230.10:4317/v1/",
+        baseUrl: "http://8.130.125.104:4317/",
+        apiRoot: "http://8.130.125.104:4317/v1/",
       },
     });
     await expect(service.getActiveEndpoint()).resolves.toMatchObject({
-      apiRoot: "http://100.91.230.10:4317/v1/",
+      apiRoot: "http://8.130.125.104:4317/v1/",
     });
   });
 

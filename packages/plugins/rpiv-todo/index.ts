@@ -1,9 +1,9 @@
 /**
  * Desktop adaptation of @juicesharp/rpiv-todo.
  *
- * The standard `todo` tool persists its full state in tool-result details, so
- * session reload and compaction can replay the latest snapshot. Meta Agent
- * Desktop renders the list through the standard read-only `setWidget` surface.
+ * Desktop captures the `todo` declaration as a generation-scoped run_code
+ * method. Mutations persist full snapshots as custom session entries so reload
+ * and compaction can replay state. The list uses the read-only `setWidget` surface.
  */
 
 import type { ExtensionAPI, ExtensionUIContext } from "@earendil-works/pi-coding-agent";
@@ -20,7 +20,7 @@ import {
 	setActiveRenderSession,
 	sid,
 } from "./state/store";
-import { registerTodosCommand, registerTodoTool, TOOL_NAME } from "./todo";
+import { registerTodosCommand, registerTodoTool } from "./todo";
 import { TodoOverlay } from "./todo-overlay";
 
 interface DesktopExtensionAPI extends ExtensionAPI {
@@ -42,6 +42,13 @@ export default function rpivTodoDesktop(pi: ExtensionAPI): void {
 	let todoOverlay: TodoOverlay | undefined;
 	let uiCtx: ExtensionUIContext | undefined;
 	let lifecycleGeneration = 0;
+	const contextSessionIds = new WeakMap<object, string>();
+	const rememberSessionId = (ctx: Parameters<typeof sid>[0], id: string): void => {
+		contextSessionIds.set(ctx, id);
+		contextSessionIds.set(ctx.sessionManager, id);
+	};
+	const knownSessionId = (ctx: Parameters<typeof sid>[0]): string | undefined =>
+		contextSessionIds.get(ctx) ?? contextSessionIds.get(ctx.sessionManager);
 	const getConfig = (): Readonly<TodoConfig> => readConfig(pi);
 
 	async function updateTodoOverlay(
@@ -58,7 +65,7 @@ export default function rpivTodoDesktop(pi: ExtensionAPI): void {
 		todoOverlay.update();
 	}
 
-	registerTodoTool(pi, getConfig());
+	registerTodoTool(pi, getConfig(), updateTodoOverlay);
 	registerTodosCommand(pi);
 
 	const replayAndRefresh = async (
@@ -67,6 +74,7 @@ export default function rpivTodoDesktop(pi: ExtensionAPI): void {
 		let isForeground = false;
 		try {
 			const id = sid(ctx);
+			rememberSessionId(ctx, id);
 			replaceState(id, replayFromBranch(ctx));
 			isForeground = id === getActiveRenderSession();
 		} catch (error) {
@@ -79,14 +87,14 @@ export default function rpivTodoDesktop(pi: ExtensionAPI): void {
 		let id: string;
 		try {
 			id = sid(ctx);
+			rememberSessionId(ctx, id);
 			replaceState(id, replayFromBranch(ctx));
 		} catch (error) {
 			if (!isStaleCtxError(error)) throw error;
 			return;
 		}
 		if (!ctx.hasUI) return;
-		if (getActiveRenderSession() === "") setActiveRenderSession(id);
-		if (id !== getActiveRenderSession()) return;
+		setActiveRenderSession(id);
 		const generation = ++lifecycleGeneration;
 		uiCtx = ctx.ui;
 		await updateTodoOverlay(true, generation);
@@ -96,29 +104,24 @@ export default function rpivTodoDesktop(pi: ExtensionAPI): void {
 	pi.on("session_tree", async (_event, ctx) => replayAndRefresh(ctx));
 
 	pi.on("session_shutdown", async (_event, ctx) => {
-		let sessionId: string;
+		let sessionId = knownSessionId(ctx);
 		try {
 			sessionId = sid(ctx);
+			rememberSessionId(ctx, sessionId);
 		} catch (error) {
 			if (!isStaleCtxError(error)) throw error;
-			sessionId = "";
 		}
+		if (!sessionId) return;
 		evictSession(sessionId);
-		if (sessionId === "" || sessionId === getActiveRenderSession()) {
-			lifecycleGeneration++;
-			uiCtx = undefined;
-			try {
-				todoOverlay?.dispose();
-			} finally {
-				todoOverlay = undefined;
-				clearActiveRenderSession();
-			}
+		if (sessionId !== getActiveRenderSession()) return;
+		lifecycleGeneration++;
+		uiCtx = undefined;
+		try {
+			todoOverlay?.dispose();
+		} finally {
+			todoOverlay = undefined;
+			clearActiveRenderSession();
 		}
-	});
-
-	pi.on("tool_execution_end", async (event) => {
-		if (event.toolName !== TOOL_NAME || event.isError) return;
-		await updateTodoOverlay();
 	});
 
 	pi.on("agent_start", async () => {

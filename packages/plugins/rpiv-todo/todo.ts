@@ -23,7 +23,9 @@ import {
 	COMMAND_NAME,
 	ERR_REQUIRES_INTERACTIVE,
 	MSG_NO_TODOS,
+	type TaskDetails,
 	type TaskMutationParams,
+	TODO_STATE_ENTRY_TYPE,
 	TOOL_LABEL,
 	TOOL_NAME,
 	TodoParamsSchema,
@@ -64,7 +66,11 @@ export const DEFAULT_PROMPT_GUIDELINES: string[] = [
 	"Subject must be short and imperative (e.g. 'Research existing tool'); description is for long-form detail. activeForm is a present-continuous label shown while in_progress.",
 ];
 
-export function registerTodoTool(pi: ExtensionAPI, config: Readonly<TodoConfig> = {}): void {
+export function registerTodoTool(
+	pi: ExtensionAPI,
+	config: Readonly<TodoConfig> = {},
+	onStateChanged?: () => void | Promise<void>,
+): void {
 	const guidance = validateGuidanceFields(config.guidance);
 	pi.registerTool({
 		name: TOOL_NAME,
@@ -76,9 +82,28 @@ export function registerTodoTool(pi: ExtensionAPI, config: Readonly<TodoConfig> 
 		parameters: TodoParamsSchema,
 
 		async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
-			const result = applyTaskMutation(getState(sid(ctx)), params.action, params as TaskMutationParams);
-			commitState(sid(ctx), result.state);
-			return buildToolResult(params.action, params as TaskMutationParams, result.state, result.op);
+			const sessionId = sid(ctx);
+			const currentState = getState(sessionId);
+			const mutation = applyTaskMutation(currentState, params.action, params as TaskMutationParams);
+			const result = buildToolResult(params.action, params as TaskMutationParams, mutation.state, mutation.op);
+			if (didMutate(mutation.op)) {
+				pi.appendEntry(
+					TODO_STATE_ENTRY_TYPE,
+					{
+						action: params.action,
+						params: {},
+						tasks: mutation.state.tasks,
+						nextId: mutation.state.nextId,
+					} satisfies TaskDetails,
+				);
+				commitState(sessionId, mutation.state);
+				try {
+					await onStateChanged?.();
+				} catch {
+					// Persistence is authoritative; a disposed presentation must not make a retry duplicate it.
+				}
+			}
+			return result;
 		},
 
 		// renderCall reflects the FOREGROUND slot, not the calling session's. Pi's
@@ -97,6 +122,22 @@ export function registerTodoTool(pi: ExtensionAPI, config: Readonly<TodoConfig> 
 			return renderTodoResult(result, theme);
 		},
 	});
+}
+
+function didMutate(op: ReturnType<typeof applyTaskMutation>["op"]): boolean {
+	switch (op.kind) {
+		case "create":
+		case "delete":
+			return true;
+		case "update":
+			return op.changed;
+		case "clear":
+			return op.count > 0;
+		case "list":
+		case "get":
+		case "error":
+			return false;
+	}
 }
 
 // ---------------------------------------------------------------------------

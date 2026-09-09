@@ -2,10 +2,16 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { SessionControlState } from "../src/shared/contracts.ts";
 
+const state = vi.hoisted(() => ({ control: null as SessionControlState | null, selectorCalls: 0 }));
 vi.mock("../src/renderer/src/components/session-context.tsx", () => ({
   useSessionIdentity: () => ({ projectId: "project-1", threadId: "thread-1" }),
+  useSessionControlSelector: (selector: (control: SessionControlState | null) => unknown) => {
+    state.selectorCalls++;
+    return selector(state.control);
+  },
 }));
 
 import { SessionInfo } from "../src/renderer/src/components/chat/session-info.tsx";
@@ -37,7 +43,12 @@ const threadSource = readFileSync(
 );
 
 describe("SessionInfo", () => {
-  it("renders only the session ID and its copy action", () => {
+  beforeEach(() => {
+    state.control = null;
+    state.selectorCalls = 0;
+  });
+
+  it("renders only the session ID and its copy action without todo state", () => {
     const markup = renderSessionInfo(true);
 
     expect(markup).toContain('id="session-info-panel"');
@@ -69,11 +80,79 @@ describe("SessionInfo", () => {
     }
   });
 
+  it("renders native todo details from the session extension host", () => {
+    state.control = {
+      extensionHost: {
+        widgets: [
+          {
+            key: "rpiv-todos",
+            placement: "aboveEditor",
+            lines: ["任务清单 (1/3)"],
+            nativeContent: {
+              type: "todo",
+              version: 1,
+              summary: { total: 3, completed: 1, pending: 1, inProgress: 1 },
+              labels: {
+                heading: "任务清单",
+                more: "更多",
+                statuses: { pending: "待处理", inProgress: "进行中", completed: "已完成" },
+              },
+              tasks: [
+                { id: 1, subject: "完成协议", status: "completed" },
+                { id: 2, subject: "迁移面板", status: "in_progress", activeForm: "正在迁移" },
+                { id: 3, subject: "验证", status: "pending", blockedBy: [2] },
+              ],
+              hiddenTaskCount: 0,
+            },
+          },
+        ],
+      },
+    } as unknown as SessionControlState;
+
+    const markup = renderSessionInfo(true);
+    expect(markup).toContain('data-slot="session-todo-list"');
+    expect(markup).toContain("任务清单");
+    expect(markup).toContain("1/3");
+    expect(markup).toContain("完成协议");
+    expect(markup).toContain("迁移面板");
+    expect(markup).toContain("正在迁移");
+    expect(markup).toContain("#2");
+    expect(markup).not.toContain("desktop-todo-list-trigger");
+    expect(markup).not.toContain("desktop-todo-list-popover");
+  });
+
+  it("renders every native todo widget", () => {
+    const nativeContent = {
+      type: "todo" as const,
+      version: 1 as const,
+      summary: { total: 1, completed: 0, pending: 1, inProgress: 0 },
+      labels: {
+        heading: "任务清单",
+        more: "更多",
+        statuses: { pending: "待处理", inProgress: "进行中", completed: "已完成" },
+      },
+      tasks: [{ id: 1, subject: "任务", status: "pending" as const }],
+      hiddenTaskCount: 0,
+    };
+    state.control = {
+      extensionHost: {
+        widgets: [
+          { key: "first", placement: "aboveEditor", lines: ["first"], nativeContent },
+          { key: "second", placement: "aboveEditor", lines: ["second"], nativeContent },
+        ],
+      },
+    } as unknown as SessionControlState;
+
+    const markup = renderSessionInfo(true);
+    expect(markup.match(/data-slot="session-todo-list"/g)).toHaveLength(2);
+  });
+
   it("keeps the collapsed panel mounted but hidden from the accessibility tree", () => {
     const markup = renderSessionInfo(false);
 
     expect(markup).toContain('data-open="false"');
     expect(markup).toContain('aria-hidden="true"');
+    expect(state.selectorCalls).toBe(0);
   });
 });
 

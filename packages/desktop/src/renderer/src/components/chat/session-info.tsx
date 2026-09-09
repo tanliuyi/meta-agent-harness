@@ -2,7 +2,8 @@ import Check from "lucide-react/dist/esm/icons/check.mjs";
 import Copy from "lucide-react/dist/esm/icons/copy.mjs";
 import { useEffect, useRef, useState } from "react";
 import { TooltipIconButton } from "../assistant-ui/tooltip-icon-button.tsx";
-import { useSessionIdentity } from "../session-context.tsx";
+import { useSessionControlSelector, useSessionIdentity } from "../session-context.tsx";
+import { SessionTodoList } from "./session-todo-list.tsx";
 
 /** 当前主会话的只读基本信息。 */
 export function SessionInfo({ open }: { open: boolean }) {
@@ -45,6 +46,17 @@ export function SessionInfo({ open }: { open: boolean }) {
           </dd>
         </div>
       </dl>
+      {open ? <SessionTodoLists /> : null}
     </aside>
   );
+}
+
+function SessionTodoLists() {
+  const widgets = useSessionControlSelector((control) => control?.extensionHost.widgets);
+  return widgets
+    ?.filter(
+      (widget): widget is typeof widget & { nativeContent: NonNullable<typeof widget.nativeContent> } =>
+        widget.nativeContent?.type === "todo",
+    )
+    .map((widget) => <SessionTodoList key={widget.key} content={widget.nativeContent} />);
 }

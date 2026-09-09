@@ -95,60 +95,28 @@ describe("ComposerWidgets", () => {
     expect(state.terminals).toHaveLength(0);
   });
 
-  it("renders native todo content compactly and expands task rows on hover", async () => {
+  it("omits native todo widgets because Session Info owns their presentation", async () => {
     const todoWidget: DesktopExtensionHostState["widgets"][number] = {
       key: "rpiv-todos",
       placement: "aboveEditor",
-      lines: ["Todos (1/3)", "✓ Finished", "◐ Writing tests", "○ Ship"],
+      lines: ["Todos (1/1)", "○ Ship"],
       nativeContent: {
         type: "todo",
         version: 1,
-        summary: { total: 3, completed: 1, pending: 1, inProgress: 1 },
+        summary: { total: 1, completed: 0, pending: 1, inProgress: 0 },
         labels: {
           heading: "任务清单",
           more: "更多",
           statuses: { pending: "待处理", inProgress: "进行中", completed: "已完成" },
         },
-        tasks: [
-          { id: 1, subject: "Finished", status: "completed" },
-          { id: 2, subject: "Writing tests", status: "in_progress", activeForm: "Running Vitest" },
-          { id: 3, subject: "Ship", status: "pending", blockedBy: [2] },
-        ],
+        tasks: [{ id: 1, subject: "Ship", status: "pending" }],
         hiddenTaskCount: 0,
       },
     };
     await act(async () => root.render(<ComposerWidgets widgets={[todoWidget]} />));
-    const trigger = container.querySelector<HTMLElement>("[data-slot='desktop-todo-list-trigger']");
-    expect(trigger?.getAttribute("aria-expanded")).toBe("false");
-    expect(trigger?.className).toContain("w-44");
-    expect(container.textContent).toContain("任务清单1/3");
-    expect(document.querySelector("[data-slot='desktop-todo-list-popover']")).toBeNull();
+    expect(container.textContent).toBe("");
+    expect(container.querySelector(".composer-widget-list")).toBeNull();
     expect(state.terminals).toHaveLength(0);
-
-    await act(async () => trigger?.dispatchEvent(new MouseEvent("mouseover", { bubbles: true })));
-    const popover = document.querySelector<HTMLElement>("[data-slot='desktop-todo-list-popover']");
-    expect(trigger?.getAttribute("aria-expanded")).toBe("true");
-    expect(popover?.className).toContain("w-[min(36rem,calc(100vw-2rem))]");
-    expect(popover?.textContent).toContain("任务清单1/3");
-    expect(popover?.textContent).toContain("1 进行中");
-    expect(popover?.textContent).toContain("Finished");
-    expect(popover?.textContent).toContain("Writing tests");
-    expect(popover?.textContent).toContain("Running Vitest");
-    expect(popover?.textContent).toContain("#2");
-
-    await act(async () => {
-      trigger?.dispatchEvent(new MouseEvent("mouseout", { bubbles: true }));
-      popover?.dispatchEvent(new MouseEvent("mouseover", { bubbles: true }));
-      await new Promise((resolve) => setTimeout(resolve, 150));
-    });
-    expect(trigger?.getAttribute("aria-expanded")).toBe("true");
-
-    await act(async () => {
-      popover?.dispatchEvent(new MouseEvent("mouseout", { bubbles: true }));
-      await new Promise((resolve) => setTimeout(resolve, 150));
-    });
-    expect(trigger?.getAttribute("aria-expanded")).toBe("false");
-    expect(document.querySelector("[data-slot='desktop-todo-list-popover']")).toBeNull();
   });
 
   it("sends measured widths, replaces snapshots, refreshes themes and cleans up resources", async () => {

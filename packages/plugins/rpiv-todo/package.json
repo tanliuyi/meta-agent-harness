@@ -2,7 +2,7 @@
   "name": "@juicesharp/rpiv-todo",
   "version": "2.9.0",
   "private": true,
-  "description": "Meta Agent Desktop adaptation of rpiv-todo with a persistent hover-expand task panel",
+  "description": "Meta Agent Desktop todo plugin with run_code methods and a native Session Info task panel",
   "type": "module",
   "license": "MIT",
   "author": "juicesharp",

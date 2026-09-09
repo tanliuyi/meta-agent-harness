@@ -7,6 +7,8 @@ import { sanitizeTerminalText } from "./tool/sanitize";
 import type { Task, TaskStatus } from "./tool/types";
 
 const WIDGET_KEY = "rpiv-todos";
+const MAX_NATIVE_TEXT_LENGTH = 500;
+const MAX_NATIVE_DEPENDENCIES = 40;
 const OVERLAY_HEADING = "Todos";
 const OVERLAY_MORE = "more";
 
@@ -146,13 +148,22 @@ export class TodoOverlay {
 
 	private toNativeTask(task: Task): DesktopTodoWidgetContent["tasks"][number] {
 		if (task.status === "deleted") throw new Error("Deleted tasks cannot be rendered in the todo widget");
+		const subject = this.toNativeText(task.subject) || `#${task.id}`;
+		const activeForm = task.activeForm ? this.toNativeText(task.activeForm) : "";
+		const blockedBy = task.blockedBy
+			?.filter((id) => Number.isSafeInteger(id) && id > 0)
+			.slice(0, MAX_NATIVE_DEPENDENCIES);
 		return {
 			id: task.id,
-			subject: sanitizeTerminalText(task.subject),
+			subject,
 			status: task.status,
-			...(task.activeForm ? { activeForm: sanitizeTerminalText(task.activeForm) } : {}),
-			...(task.blockedBy?.length ? { blockedBy: [...task.blockedBy] } : {}),
+			...(activeForm ? { activeForm } : {}),
+			...(blockedBy?.length ? { blockedBy } : {}),
 		};
+	}
+
+	private toNativeText(value: string): string {
+		return sanitizeTerminalText(value).slice(0, MAX_NATIVE_TEXT_LENGTH);
 	}
 
 	private renderFallbackLines(content: DesktopTodoWidgetContent, showIds: boolean): string[] {

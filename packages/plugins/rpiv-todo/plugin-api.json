@@ -1,0 +1,139 @@
+{
+  "schemaVersion": 1,
+  "pluginId": "rpiv.todo",
+  "methods": [
+    {
+      "name": "todo",
+      "description": "Create, update, inspect, delete, or clear the current session's structured task list.",
+      "parameters": {
+        "type": "object",
+        "required": [
+          "action"
+        ],
+        "properties": {
+          "action": {
+            "type": "string",
+            "anyOf": [
+              {
+                "const": "create"
+              },
+              {
+                "const": "update"
+              },
+              {
+                "const": "list"
+              },
+              {
+                "const": "get"
+              },
+              {
+                "const": "delete"
+              },
+              {
+                "const": "clear"
+              }
+            ]
+          },
+          "subject": {
+            "type": "string",
+            "maxLength": 500,
+            "description": "Task subject line (required for create)"
+          },
+          "description": {
+            "type": "string",
+            "maxLength": 4000,
+            "description": "Long-form task description"
+          },
+          "activeForm": {
+            "type": "string",
+            "maxLength": 500,
+            "description": "Present-continuous spinner label shown while status is in_progress (e.g. 'writing tests')"
+          },
+          "status": {
+            "type": "string",
+            "anyOf": [
+              {
+                "const": "pending"
+              },
+              {
+                "const": "in_progress"
+              },
+              {
+                "const": "completed"
+              },
+              {
+                "const": "deleted"
+              }
+            ],
+            "description": "Set this task's status (update): one of pending, in_progress, completed, deleted. When action is list, filters returned tasks by this status."
+          },
+          "blockedBy": {
+            "type": "array",
+            "items": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "maxItems": 40,
+            "uniqueItems": true,
+            "description": "Initial blockedBy ids (create only)"
+          },
+          "addBlockedBy": {
+            "type": "array",
+            "items": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "maxItems": 40,
+            "uniqueItems": true,
+            "description": "Task ids to add to blockedBy (update only, additive merge)"
+          },
+          "removeBlockedBy": {
+            "type": "array",
+            "items": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "maxItems": 40,
+            "uniqueItems": true,
+            "description": "Task ids to remove from blockedBy (update only, additive merge)"
+          },
+          "owner": {
+            "type": "string",
+            "maxLength": 200,
+            "description": "Agent/owner assigned to this task"
+          },
+          "metadata": {
+            "type": "object",
+            "properties": {},
+            "additionalProperties": true,
+            "maxProperties": 64,
+            "description": "Arbitrary metadata; pass null value for a key to delete that key on update"
+          },
+          "id": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Task id (required for update, get, delete)"
+          },
+          "includeDeleted": {
+            "type": "boolean",
+            "description": "If true, list action returns deleted (tombstoned) tasks as well. Default: false."
+          }
+        },
+        "additionalProperties": false
+      },
+      "result": {
+        "type": "object",
+        "properties": {
+          "text": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "text"
+        ],
+        "additionalProperties": false
+      },
+      "concurrency": "serial"
+    }
+  ]
+}

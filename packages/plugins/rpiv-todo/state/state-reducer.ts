@@ -1,4 +1,12 @@
-import type { Task, TaskAction, TaskMutationParams, TaskStatus } from "../tool/types";
+import {
+	MAX_TASK_COUNT,
+	MAX_TASK_DEPENDENCIES,
+	MAX_TASK_STATE_BYTES,
+	type Task,
+	type TaskAction,
+	type TaskMutationParams,
+	type TaskStatus,
+} from "../tool/types";
 import { isTransitionValid } from "./invariants";
 import type { TaskState } from "./state";
 import { detectCycle } from "./task-graph";
@@ -28,6 +36,13 @@ export interface ApplyResult {
 
 function errorResult(state: TaskState, message: string): ApplyResult {
 	return { state, op: { kind: "error", message } };
+}
+
+function boundedMutationResult(previous: TaskState, next: TaskState, op: Op): ApplyResult {
+	if (Buffer.byteLength(JSON.stringify(next), "utf8") > MAX_TASK_STATE_BYTES) {
+		return errorResult(previous, `todo state exceeds ${MAX_TASK_STATE_BYTES} bytes`);
+	}
+	return { state: next, op };
 }
 
 function sameNumberList(a: number[] | undefined, b: number[] | undefined): boolean {
@@ -78,6 +93,9 @@ function taskChanged(before: Task, after: Task): boolean {
 export function applyTaskMutation(state: TaskState, action: TaskAction, params: TaskMutationParams): ApplyResult {
 	switch (action) {
 		case "create": {
+			if (state.tasks.length >= MAX_TASK_COUNT) {
+				return errorResult(state, `todo list supports at most ${MAX_TASK_COUNT} tasks; clear it before creating more`);
+			}
 			if (!params.subject?.trim()) {
 				return errorResult(state, "subject required for create");
 			}
@@ -100,10 +118,11 @@ export function applyTaskMutation(state: TaskState, action: TaskAction, params: 
 			if (params.metadata) newTask.metadata = { ...params.metadata };
 
 			const newTasks = [...state.tasks, newTask];
-			return {
-				state: { tasks: newTasks, nextId: state.nextId + 1 },
-				op: { kind: "create", taskId: newTask.id },
-			};
+			return boundedMutationResult(
+				state,
+				{ tasks: newTasks, nextId: state.nextId + 1 },
+				{ kind: "create", taskId: newTask.id },
+			);
 		}
 
 		case "update": {
@@ -148,6 +167,9 @@ export function applyTaskMutation(state: TaskState, action: TaskAction, params: 
 					if (depTask.status === "deleted") return errorResult(state, `addBlockedBy: #${dep} is deleted`);
 					if (!newBlockedBy.includes(dep)) newBlockedBy.push(dep);
 				}
+				if (newBlockedBy.length > MAX_TASK_DEPENDENCIES) {
+					return errorResult(state, `a task supports at most ${MAX_TASK_DEPENDENCIES} dependencies`);
+				}
 				if (detectCycle(state.tasks, current.id, newBlockedBy)) {
 					return errorResult(state, "addBlockedBy would create a cycle in the blockedBy graph");
 				}
@@ -175,16 +197,17 @@ export function applyTaskMutation(state: TaskState, action: TaskAction, params: 
 
 			const newTasks = [...state.tasks];
 			newTasks[idx] = updated;
-			return {
-				state: { tasks: newTasks, nextId: state.nextId },
-				op: {
+			return boundedMutationResult(
+				state,
+				{ tasks: newTasks, nextId: state.nextId },
+				{
 					kind: "update",
 					id: updated.id,
 					fromStatus: current.status,
 					toStatus: newStatus,
 					changed: taskChanged(current, updated),
 				},
-			};
+			);
 		}
 
 		case "list": {

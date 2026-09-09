@@ -1,17 +1,21 @@
-# Composer panel
+# Session Info task list
 
-The plugin renders a centered read-only progress trigger immediately above the Desktop Composer input.
+The plugin publishes a bounded structured todo snapshot. Meta Agent Desktop renders that snapshot natively inside the current session's Session Info Panel.
 
-## Compact state
+## Native content
 
-The compact trigger shows the localized title and `completed/total` count. It does not grow to the Composer width.
+The panel displays:
 
-## Expanded state
+- localized title and `completed/total` progress
+- pending, in-progress, and completed status icons
+- task subjects and active-work labels
+- dependency IDs
+- a localized hidden-task count when the configured row budget truncates the list
 
-Pointer hover or keyboard focus opens a separate, wider popover above the trigger. Moving the pointer from the trigger into the popover keeps it open. Leaving both surfaces or moving focus away closes it. The renderer constrains the list to the structured rows produced by the plugin; `maxWidgetLines` bounds that output.
+The Composer does not render the todo widget. It remains available for ordinary extension widgets and message input.
 
 ## Compatibility
 
-The plugin sends bounded structured task data as a Desktop-only structural widget option and also supplies plain-text widget lines. Desktop validates the data and renders the native React card. The public Pi extension API is unchanged; hosts that do not support the option render the plain-text fallback instead.
+The structured snapshot is sent as a Desktop-only widget option. The public Pi extension API is unchanged. Hosts that do not support the option render the plugin's standard plain-text fallback lines.
 
 The upstream `Ctrl+Shift+T` terminal shortcut is not registered in Desktop.

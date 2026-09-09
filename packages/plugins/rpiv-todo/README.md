@@ -2,23 +2,35 @@
 
 Meta Agent Desktop adaptation of [`@juicesharp/rpiv-todo`](https://github.com/juicesharp/rpiv-mono/tree/main/packages/rpiv-todo).
 
-The plugin gives the model a persistent structured `todo` tool and renders a compact progress trigger immediately above the Desktop Composer. Hovering or focusing the trigger opens a wider native task-details popover above it; the Composer itself stays compact.
+The plugin exposes a persistent structured `todo` method through Desktop's generation-scoped `run_code` plugin API and renders the current task list natively inside the Session Info Panel. The Composer remains dedicated to message input and other generic extension widgets.
 
 ## Features
 
-- `todo` tool actions: `create`, `update`, `list`, `get`, `delete`, and `clear`
+- `plugin["rpiv.todo"].todo(...)` actions: `create`, `update`, `list`, `get`, `delete`, and `clear`
 - task statuses: `pending`, `in_progress`, `completed`, and `deleted`
 - dependency relationships through `blockedBy`
-- session-scoped state restored from tool-result snapshots
+- session-scoped state restored from bounded custom snapshots, with historical direct-tool replay compatibility
 - `/todos` command for a notification summary
-- live Composer progress panel
+- native task list in the Session Info Panel
 - localized tool and panel text
+
+## run_code usage
+
+```ts
+return await plugin["rpiv.todo"].todo({
+  action: "create",
+  subject: "Verify Desktop integration",
+  activeForm: "verifying Desktop integration"
+});
+```
+
+The plugin ships a `pi.runCode` catalog and skill. Desktop exposes the method through `plugin_call`; it does not add a direct model-facing `todo` tool.
 
 ## Desktop behavior
 
-The upstream terminal `Ctrl+Shift+T` collapse shortcut is intentionally not registered. The plugin sends a bounded structured todo snapshot for Desktop's native React trigger and details popover, plus standard plain-text fallback lines for other Pi hosts. Desktop owns the hover and keyboard interaction.
+The upstream terminal `Ctrl+Shift+T` collapse shortcut is intentionally not registered. The plugin sends a bounded structured todo snapshot for Desktop's native React Session Info Panel, plus standard plain-text fallback lines for other Pi hosts.
 
-The first panel line is the compact progress summary. Expanded content is bounded by the `maxWidgetLines` plugin setting.
+The Session Info Panel displays localized progress, status icons, task details, active work, dependencies, and a bounded overflow count. Output is bounded by the `maxWidgetLines` plugin setting.
 
 ## Configuration
 

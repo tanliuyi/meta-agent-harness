@@ -4,7 +4,7 @@ Meta Agent Desktop supplies plugin configuration through `pi.getConfig()`.
 
 | Field | Type | Default | Range | Purpose |
 | --- | --- | --- | --- | --- |
-| `maxWidgetLines` | number | `12` | `4`–`40` | Maximum total rows rendered when the Composer panel is expanded. |
+| `maxWidgetLines` | number | `12` | `4`–`40` | Maximum total rows rendered in the Session Info task list. |
 
 The value is normalized to an integer. Missing or invalid values fall back to `12`.
 

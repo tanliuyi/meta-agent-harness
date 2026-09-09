@@ -3,9 +3,8 @@ import { type Static, Type } from "typebox";
 
 // ---------------------------------------------------------------------------
 // Tool / command identity — verbatim string boundaries.
-// Tool name "todo" is the persistence key for branch replay (filtering
-// `toolResult.toolName === "todo"`) AND the permissions entry at
-// `templates/pi-permissions.jsonc:26`. DO NOT rename.
+// Desktop captures TOOL_NAME as the run_code catalog method. Replay also accepts
+// historical direct-tool results with this name. DO NOT rename.
 // ---------------------------------------------------------------------------
 
 export const TOOL_NAME = "todo";
@@ -57,6 +56,16 @@ export interface TaskDetails {
  * signature (`[key: string]: unknown`) lets the runtime pass through TypeBox
  * `Static<typeof TodoParamsSchema>` without `as` casts.
  */
+export const TODO_STATE_ENTRY_TYPE = "rpiv-todo-state";
+export const MAX_TASK_COUNT = 10_000;
+export const MAX_TASK_SUBJECT_LENGTH = 500;
+export const MAX_TASK_DESCRIPTION_LENGTH = 4_000;
+export const MAX_TASK_ACTIVE_FORM_LENGTH = 500;
+export const MAX_TASK_OWNER_LENGTH = 200;
+export const MAX_TASK_DEPENDENCIES = 40;
+export const MAX_TASK_METADATA_PROPERTIES = 64;
+export const MAX_TASK_STATE_BYTES = 1_000_000;
+
 export interface TaskMutationParams {
 	[key: string]: unknown;
 	subject?: string;
@@ -80,10 +89,15 @@ export interface TaskMutationParams {
 
 export const TodoParamsSchema = Type.Object({
 	action: StringEnum(["create", "update", "list", "get", "delete", "clear"] as const),
-	subject: Type.Optional(Type.String({ description: "Task subject line (required for create)" })),
-	description: Type.Optional(Type.String({ description: "Long-form task description" })),
+	subject: Type.Optional(
+		Type.String({ maxLength: MAX_TASK_SUBJECT_LENGTH, description: "Task subject line (required for create)" }),
+	),
+	description: Type.Optional(
+		Type.String({ maxLength: MAX_TASK_DESCRIPTION_LENGTH, description: "Long-form task description" }),
+	),
 	activeForm: Type.Optional(
 		Type.String({
+			maxLength: MAX_TASK_ACTIVE_FORM_LENGTH,
 			description: "Present-continuous spinner label shown while status is in_progress (e.g. 'writing tests')",
 		}),
 	),
@@ -94,28 +108,38 @@ export const TodoParamsSchema = Type.Object({
 		}),
 	),
 	blockedBy: Type.Optional(
-		Type.Array(Type.Number(), {
+		Type.Array(Type.Integer({ minimum: 1 }), {
+			maxItems: MAX_TASK_DEPENDENCIES,
+			uniqueItems: true,
 			description: "Initial blockedBy ids (create only)",
 		}),
 	),
 	addBlockedBy: Type.Optional(
-		Type.Array(Type.Number(), {
+		Type.Array(Type.Integer({ minimum: 1 }), {
+			maxItems: MAX_TASK_DEPENDENCIES,
+			uniqueItems: true,
 			description: "Task ids to add to blockedBy (update only, additive merge)",
 		}),
 	),
 	removeBlockedBy: Type.Optional(
-		Type.Array(Type.Number(), {
+		Type.Array(Type.Integer({ minimum: 1 }), {
+			maxItems: MAX_TASK_DEPENDENCIES,
+			uniqueItems: true,
 			description: "Task ids to remove from blockedBy (update only, additive merge)",
 		}),
 	),
-	owner: Type.Optional(Type.String({ description: "Agent/owner assigned to this task" })),
+	owner: Type.Optional(
+		Type.String({ maxLength: MAX_TASK_OWNER_LENGTH, description: "Agent/owner assigned to this task" }),
+	),
 	metadata: Type.Optional(
 		Type.Record(Type.String(), Type.Unknown(), {
+			maxProperties: MAX_TASK_METADATA_PROPERTIES,
 			description: "Arbitrary metadata; pass null value for a key to delete that key on update",
 		}),
 	),
 	id: Type.Optional(
-		Type.Number({
+		Type.Integer({
+			minimum: 1,
 			description: "Task id (required for update, get, delete)",
 		}),
 	),

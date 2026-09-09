@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { replayFromBranch } from "../state/replay";
 import { applyTaskMutation } from "../state/state-reducer";
 import { EMPTY_STATE } from "../state/state";
 
@@ -28,6 +29,22 @@ test("creates dependency-aware tasks and enforces status transitions", () => {
 	});
 	assert.equal(invalidReopen.op.kind, "error");
 	if (invalidReopen.op.kind === "error") assert.match(invalidReopen.op.message, /illegal transition/);
+});
+
+test("replays the latest run_code persistence entry", () => {
+	const replayed = replayFromBranch({
+		sessionManager: {
+			getBranch: () => [
+				{
+					type: "custom",
+					customType: "rpiv-todo-state",
+					data: { action: "create", params: {}, tasks: [{ id: 1, subject: "Persisted", status: "pending" }], nextId: 2 },
+				},
+			],
+		},
+	});
+	assert.equal(replayed.tasks[0]?.subject, "Persisted");
+	assert.equal(replayed.nextId, 2);
 });
 
 test("rejects dependency cycles", () => {
