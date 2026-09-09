@@ -112,10 +112,15 @@ describe("DesktopBuiltinProviderRegistry", () => {
       },
       models: expect.arrayContaining([
         expect.objectContaining({
-          id: "gpt-5.6-terra",
+          id: "gpt-6-astra",
           api: "openai-responses",
           baseUrl: "http://[fd7a:115c:a1e0::7c3b:e60b]:8080",
-          contextWindow: 372000,
+          input: ["text", "image"],
+          cost: { input: 10, output: 50, cacheRead: 1, cacheWrite: 12.5 },
+          contextWindow: 272000,
+          maxTokens: 128000,
+          thinkingLevelMap: { xhigh: "xhigh", max: "max", minimal: "low" },
+          compat: { supportsToolSearch: true },
         }),
       ]),
     });

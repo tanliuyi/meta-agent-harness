@@ -15,7 +15,7 @@ interface ComposerWidgetsProps {
 
 /** Generic Pi widget presentation. String payloads are text, never inferred as plugin protocols. */
 export const ComposerWidgets = memo(function ComposerWidgets({ widgets, onViewportChange }: ComposerWidgetsProps) {
-  const composerWidgets = widgets.filter((widget) => widget.nativeContent?.type !== "todo");
+  const composerWidgets = widgets.filter((widget) => widget.nativeContent === undefined);
   if (composerWidgets.length === 0) return null;
   return (
     <div className="composer-widget-list grid min-w-0 gap-2 px-2 py-2 text-xs">

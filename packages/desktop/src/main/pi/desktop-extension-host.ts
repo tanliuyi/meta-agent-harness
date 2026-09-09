@@ -6,7 +6,13 @@ import type {
   ExtensionWidgetOptions,
 } from "@earendil-works/pi-coding-agent";
 import type { DesktopExtensionHostState, HostRequest, HostResponse } from "../../shared/contracts.ts";
-import type { DesktopTodoWidgetContent, DesktopWidgetViewport } from "../../shared/desktop-extension-contracts.ts";
+import type {
+  DesktopNativeWidgetContent,
+  DesktopSubagentWidgetContent,
+  DesktopSubagentWidgetNode,
+  DesktopTodoWidgetContent,
+  DesktopWidgetViewport,
+} from "../../shared/desktop-extension-contracts.ts";
 import {
   type QuestionnaireUI,
   readQuestionnaireResult,
@@ -21,6 +27,10 @@ interface DesktopWidgetOptions extends ExtensionWidgetOptions {
 const TODO_WIDGET_TASK_LIMIT = 40;
 const TODO_WIDGET_TEXT_LIMIT = 500;
 const TODO_WIDGET_COUNT_LIMIT = 10_000;
+const SUBAGENT_WIDGET_NODE_LIMIT = 80;
+const SUBAGENT_WIDGET_CHILD_LIMIT = 8;
+const SUBAGENT_WIDGET_DEPTH_LIMIT = 3;
+const SUBAGENT_WIDGET_TEXT_LIMIT = 160;
 
 function normalizeTodoWidgetContent(value: unknown): DesktopTodoWidgetContent | undefined {
   if (!isRecord(value) || value.type !== "todo" || value.version !== 1) return undefined;
@@ -111,6 +121,140 @@ function normalizeTodoWidgetContent(value: unknown): DesktopTodoWidgetContent | 
     tasks,
     hiddenTaskCount: value.hiddenTaskCount,
   };
+}
+
+function normalizeSubagentWidgetContent(value: unknown): DesktopSubagentWidgetContent | undefined {
+  if (
+    !isRecord(value) ||
+    value.type !== "subagents" ||
+    value.version !== 1 ||
+    (value.source !== "fleet" && value.source !== "async") ||
+    !isSubagentWidgetTime(value.generatedAt) ||
+    !isRecord(value.summary) ||
+    !isSubagentWidgetCount(value.summary.activeAgents) ||
+    !isSubagentWidgetCount(value.summary.asyncRunsUsed) ||
+    !isSubagentWidgetCount(value.summary.asyncRunsLimit) ||
+    !isSubagentWidgetCount(value.summary.totalTokens) ||
+    !isSubagentWidgetCount(value.omittedNodeCount) ||
+    !Array.isArray(value.nodes) ||
+    value.nodes.length > 20
+  ) {
+    return undefined;
+  }
+  const budget = { count: 0 };
+  const nodes: DesktopSubagentWidgetNode[] = [];
+  for (const node of value.nodes) {
+    const normalized = normalizeSubagentWidgetNode(node, 0, budget);
+    if (!normalized) return undefined;
+    nodes.push(normalized);
+  }
+  return {
+    type: "subagents",
+    version: 1,
+    source: value.source,
+    generatedAt: value.generatedAt,
+    summary: {
+      activeAgents: value.summary.activeAgents,
+      asyncRunsUsed: value.summary.asyncRunsUsed,
+      asyncRunsLimit: value.summary.asyncRunsLimit,
+      totalTokens: value.summary.totalTokens,
+    },
+    nodes,
+    omittedNodeCount: value.omittedNodeCount,
+  };
+}
+
+function normalizeSubagentWidgetNode(
+  value: unknown,
+  depth: number,
+  budget: { count: number },
+): DesktopSubagentWidgetNode | undefined {
+  if (!isRecord(value) || depth > SUBAGENT_WIDGET_DEPTH_LIMIT || ++budget.count > SUBAGENT_WIDGET_NODE_LIMIT) {
+    return undefined;
+  }
+  const kinds = ["subagent", "workflow", "step", "host-step", "external", "project-pane"];
+  if (
+    typeof value.kind !== "string" ||
+    !kinds.includes(value.kind) ||
+    !isSubagentWidgetText(value.id) ||
+    !isSubagentWidgetText(value.label) ||
+    !isSubagentWidgetText(value.state) ||
+    !isOptionalSubagentWidgetText(value.runId) ||
+    !isOptionalSubagentWidgetText(value.modelThinking) ||
+    !isOptionalSubagentWidgetText(value.description) ||
+    !isOptionalSubagentWidgetText(value.activity) ||
+    !isOptionalSubagentWidgetTime(value.startedAt) ||
+    !isOptionalSubagentWidgetTime(value.updatedAt) ||
+    !isOptionalSubagentWidgetTime(value.endedAt) ||
+    !isOptionalSubagentWidgetCount(value.tokens) ||
+    !isOptionalSubagentWidgetCount(value.window) ||
+    !isOptionalSubagentWidgetCount(value.toolCount) ||
+    !isOptionalSubagentWidgetCount(value.turnCount) ||
+    (value.verdict !== undefined &&
+      value.verdict !== "pass" &&
+      value.verdict !== "fail" &&
+      value.verdict !== "inconclusive") ||
+    (value.children !== undefined &&
+      (!Array.isArray(value.children) || value.children.length > SUBAGENT_WIDGET_CHILD_LIMIT))
+  ) {
+    return undefined;
+  }
+  const children: DesktopSubagentWidgetNode[] = [];
+  for (const child of value.children ?? []) {
+    const normalized = normalizeSubagentWidgetNode(child, depth + 1, budget);
+    if (!normalized) return undefined;
+    children.push(normalized);
+  }
+  return {
+    id: value.id,
+    kind: value.kind as DesktopSubagentWidgetNode["kind"],
+    label: value.label,
+    state: value.state,
+    ...(value.runId ? { runId: value.runId } : {}),
+    ...(value.modelThinking ? { modelThinking: value.modelThinking } : {}),
+    ...(value.description ? { description: value.description } : {}),
+    ...(value.activity ? { activity: value.activity } : {}),
+    ...(value.startedAt !== undefined ? { startedAt: value.startedAt } : {}),
+    ...(value.updatedAt !== undefined ? { updatedAt: value.updatedAt } : {}),
+    ...(value.endedAt !== undefined ? { endedAt: value.endedAt } : {}),
+    ...(value.tokens !== undefined ? { tokens: value.tokens } : {}),
+    ...(value.window !== undefined ? { window: value.window } : {}),
+    ...(value.toolCount !== undefined ? { toolCount: value.toolCount } : {}),
+    ...(value.turnCount !== undefined ? { turnCount: value.turnCount } : {}),
+    ...(value.verdict !== undefined ? { verdict: value.verdict } : {}),
+    ...(children.length ? { children } : {}),
+  };
+}
+
+function normalizeNativeWidgetContent(value: unknown): DesktopNativeWidgetContent | undefined {
+  if (!isRecord(value)) return undefined;
+  if (value.type === "todo") return normalizeTodoWidgetContent(value);
+  if (value.type === "subagents") return normalizeSubagentWidgetContent(value);
+  return undefined;
+}
+
+function isSubagentWidgetText(value: unknown): value is string {
+  return typeof value === "string" && value.trim().length > 0 && value.length <= SUBAGENT_WIDGET_TEXT_LIMIT;
+}
+
+function isOptionalSubagentWidgetText(value: unknown): value is string | undefined {
+  return value === undefined || isSubagentWidgetText(value);
+}
+
+function isSubagentWidgetCount(value: unknown): value is number {
+  return Number.isSafeInteger(value) && (value as number) >= 0;
+}
+
+function isOptionalSubagentWidgetCount(value: unknown): value is number | undefined {
+  return value === undefined || isSubagentWidgetCount(value);
+}
+
+function isSubagentWidgetTime(value: unknown): value is number {
+  return Number.isSafeInteger(value) && (value as number) >= 0;
+}
+
+function isOptionalSubagentWidgetTime(value: unknown): value is number | undefined {
+  return value === undefined || isSubagentWidgetTime(value);
 }
 
 function isTodoWidgetCount(value: unknown): value is number {
@@ -210,10 +354,13 @@ export class DesktopExtensionHost {
     return this.state;
   }
 
-  createContext(): ExtensionUIContext & QuestionnaireUI & { widgetCapabilities: { components: true; input: false } } {
+  createContext(): ExtensionUIContext &
+    QuestionnaireUI & {
+      widgetCapabilities: { components: true; input: false; nativeContent: true };
+    } {
     const host = this;
     return {
-      widgetCapabilities: { components: true, input: false },
+      widgetCapabilities: { components: true, input: false, nativeContent: true },
       questionnaire: (input, opts) => {
         validateQuestionnaireInput(input);
         return this.ask(
@@ -427,7 +574,7 @@ export class DesktopExtensionHost {
     this.widgetAdapter.remove(key);
     const widgets = this.state.widgets.filter((widget) => widget.key !== key);
     if (content) {
-      const nativeContent = normalizeTodoWidgetContent(options?.nativeContent);
+      const nativeContent = normalizeNativeWidgetContent(options?.nativeContent);
       if (options?.nativeContent !== undefined && !nativeContent) {
         this.warn("Desktop extension native widget content is invalid; rendering text fallback");
       }

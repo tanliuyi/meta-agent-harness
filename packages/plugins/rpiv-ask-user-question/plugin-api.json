@@ -1,0 +1,91 @@
+{
+  "schemaVersion": 1,
+  "pluginId": "rpiv.ask-user-question",
+  "methods": [
+    {
+      "name": "ask_user_question",
+      "description": "Ask the user one to four structured questions and return the selected or custom answers as text.",
+      "parameters": {
+        "type": "object",
+        "required": [
+          "questions"
+        ],
+        "properties": {
+          "questions": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "question",
+                "header",
+                "options"
+              ],
+              "properties": {
+                "question": {
+                  "type": "string",
+                  "description": "The complete question to ask the user. It should be clear, specific, and end with a question mark."
+                },
+                "header": {
+                  "type": "string",
+                  "maxLength": 16,
+                  "description": "A short chip label for the question, limited to 16 characters."
+                },
+                "options": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "required": [
+                      "label",
+                      "description"
+                    ],
+                    "properties": {
+                      "label": {
+                        "type": "string",
+                        "maxLength": 60,
+                        "description": "A concise option label, limited to 60 characters. Do not use the reserved labels Other, Type something., or Next."
+                      },
+                      "description": {
+                        "type": "string",
+                        "description": "What the option means or what will happen if selected."
+                      },
+                      "preview": {
+                        "type": "string",
+                        "description": "Optional markdown preview for concrete artifacts such as layouts, code, diagrams, or configuration. Use only for single-select questions."
+                      }
+                    },
+                    "additionalProperties": false
+                  },
+                  "minItems": 2,
+                  "maxItems": 4,
+                  "description": "Two to four distinct choices. A custom-answer row is appended automatically."
+                },
+                "multiSelect": {
+                  "type": "boolean",
+                  "description": "Set to true when the user may select multiple options."
+                }
+              },
+              "additionalProperties": false
+            },
+            "minItems": 1,
+            "maxItems": 4,
+            "description": "One to four questions to present in a single questionnaire."
+          }
+        },
+        "additionalProperties": false
+      },
+      "result": {
+        "type": "object",
+        "properties": {
+          "text": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "text"
+        ],
+        "additionalProperties": false
+      },
+      "concurrency": "serial"
+    }
+  ]
+}

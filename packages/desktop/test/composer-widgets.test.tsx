@@ -1,8 +1,12 @@
 // @vitest-environment jsdom
 
+import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { DesktopExtensionHost } from "../src/main/pi/desktop-extension-host.ts";
+import type { SubagentState } from "../src/main/pi/extensions/pi-subagents/src/shared/types.ts";
+import { SubagentFleetStatus } from "../src/main/pi/extensions/pi-subagents/src/tui/fleet-status.ts";
 import type { DesktopExtensionHostState } from "../src/shared/desktop-extension-contracts.ts";
 
 const state = vi.hoisted(() => ({
@@ -117,6 +121,80 @@ describe("ComposerWidgets", () => {
     expect(container.textContent).toBe("");
     expect(container.querySelector(".composer-widget-list")).toBeNull();
     expect(state.terminals).toHaveLength(0);
+  });
+
+  it("omits validated native subagent widgets because Session Info owns their presentation", async () => {
+    const subagentWidget: DesktopExtensionHostState["widgets"][number] = {
+      key: "subagent-fleet-status",
+      placement: "belowEditor",
+      lines: ["Subagents"],
+      nativeContent: {
+        type: "subagents",
+        version: 1,
+        source: "fleet",
+        generatedAt: 1_000,
+        summary: { activeAgents: 1, asyncRunsUsed: 0, asyncRunsLimit: 4, totalTokens: 0 },
+        nodes: [{ id: "worker", kind: "subagent", label: "worker", state: "running" }],
+        omittedNodeCount: 0,
+      },
+    };
+    await act(async () => root.render(<ComposerWidgets widgets={[subagentWidget]} />));
+    expect(container.textContent).toBe("");
+    expect(container.querySelector(".composer-widget-list")).toBeNull();
+    expect(state.terminals).toHaveLength(0);
+  });
+
+  it("retains real native fleet data while omitting its fallback from the composer", async () => {
+    const host = new DesktopExtensionHost(
+      () => undefined,
+      () => [],
+    );
+    const ui = host.createContext();
+    const fleet = new SubagentFleetStatus(
+      {
+        widgetsSuspended: false,
+        foregroundControls: new Map([
+          [
+            "run-1",
+            {
+              runId: "run-1",
+              mode: "single",
+              currentAgent: "worker",
+              startedAt: 1_000,
+              tokens: 0,
+            },
+          ],
+        ]),
+        asyncJobs: new Map(),
+        herdrProjectPanes: new Map(),
+        activeAsyncCapacity: { used: 0, limit: 0 },
+      } as unknown as SubagentState,
+      () => undefined,
+    );
+    const context = { hasUI: true, mode: "rpc", ui } as unknown as ExtensionContext;
+
+    fleet.setContext(context);
+
+    expect(ui.widgetCapabilities).toEqual({ components: true, input: false, nativeContent: true });
+    expect(host.hostState.widgets).toEqual([
+      expect.objectContaining({
+        key: "subagent-fleet-status",
+        lines: ["Subagents · 1 active · 0/∞ async"],
+        nativeContent: expect.objectContaining({
+          type: "subagents",
+          version: 1,
+          source: "fleet",
+          summary: expect.objectContaining({ activeAgents: 1, asyncRunsUsed: 0, asyncRunsLimit: 0 }),
+        }),
+      }),
+    ]);
+
+    await act(async () => root.render(<ComposerWidgets widgets={host.hostState.widgets} />));
+    expect(container.textContent).toBe("");
+    expect(container.querySelector(".composer-widget-list")).toBeNull();
+
+    fleet.dispose();
+    expect(host.hostState.widgets).toEqual([]);
   });
 
   it("sends measured widths, replaces snapshots, refreshes themes and cleans up resources", async () => {

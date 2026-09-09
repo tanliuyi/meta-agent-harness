@@ -1,5 +1,5 @@
 import ExternalLink from "lucide-react/dist/esm/icons/external-link.mjs";
-import type { PiRunCodeArtifact } from "../../../../../shared/contracts.ts";
+import type { PiPluginSubCallRecord, PiRunCodeArtifact } from "../../../../../shared/contracts.ts";
 import { useSessionScope } from "../../session-context.tsx";
 import { ToolCode } from "./tool-code.tsx";
 import { formatToolValue } from "./tool-format.ts";
@@ -11,6 +11,14 @@ interface RunCodeContentProps {
   error: boolean;
   artifact: unknown;
 }
+
+const PLUGIN_CALL_STATE_LABELS: Readonly<Record<PiPluginSubCallRecord["state"], string>> = {
+  queued: "等待中",
+  running: "运行中",
+  complete: "已完成",
+  error: "失败",
+  aborted: "已中止",
+};
 
 export function RunCodeContent({ args, result, error, artifact }: RunCodeContentProps) {
   const { record } = useSessionScope();
@@ -39,11 +47,16 @@ export function RunCodeContent({ args, result, error, artifact }: RunCodeContent
       <div className="run-code-list" aria-label="Plugin method calls">
         {runCode.calls.map((call) => (
           <div key={call.callId} className="run-code-row" data-state={call.state}>
-            <span className="run-code-method">
+            <span className="run-code-method" title={`${call.pluginId}.${call.method}`}>
               {call.pluginId}.{call.method}
             </span>
-            <span className="tool-context">
-              {call.state}
+            <span
+              className="run-code-state"
+              title={`${PLUGIN_CALL_STATE_LABELS[call.state]}${
+                call.durationMs === undefined ? "" : ` · ${call.durationMs} ms`
+              }${call.errorCode ? ` · ${call.errorCode}` : ""}`}
+            >
+              {PLUGIN_CALL_STATE_LABELS[call.state]}
               {call.durationMs === undefined ? "" : ` · ${call.durationMs} ms`}
               {call.errorCode ? ` · ${call.errorCode}` : ""}
             </span>

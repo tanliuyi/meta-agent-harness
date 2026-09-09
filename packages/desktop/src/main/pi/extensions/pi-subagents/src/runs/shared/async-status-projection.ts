@@ -59,9 +59,12 @@ export interface AsyncStatusSnapshotNodeV1 {
 	kind: AsyncStatusSnapshotKind | "host-step";
 	label: string;
 	state: AsyncStatusSnapshotState;
+	modelThinking?: string;
 	startedAt?: number;
 	updatedAt?: number;
 	endedAt?: number;
+	tokens?: number;
+	window?: number;
 	activity?: AsyncStatusSnapshotActivityV1;
 	hostStep?: AsyncStatusSnapshotHostStepV1;
 	children?: AsyncStatusSnapshotNodeV1[];
@@ -108,6 +111,7 @@ export interface AsyncStatusWorkflowRow {
 	modelThinking?: string;
 	activity?: string;
 	startedAt?: number;
+	endedAt?: number;
 	tokens?: number;
 	window?: number;
 	overflow?: number;
@@ -228,14 +232,20 @@ function projectStep(step: AsyncJobStep | NestedStepSummary, index: number, dept
 	const endedAt = publicTime(step.endedAt);
 	const updatedAt = endedAt ?? publicTime(step.lastActivityAt) ?? startedAt;
 	const activity = activityFor(step, ctx);
+	const modelThinking = publicOptionalText(formatModelThinking(step.model, step.thinking), ctx.caps.maxStringLength);
+	const tokens = publicCount("tokens" in step ? step.tokens?.total : undefined);
+	const window = publicCount("tokens" in step ? step.tokens?.window : undefined);
 	const node: AsyncStatusSnapshotNodeV1 = {
 		id: publicText("workflowKey" in step && step.workflowKey ? step.workflowKey : "runId" in step && step.runId ? step.runId : `step:${index}`, `step:${index}`, ctx.caps.maxStringLength),
 		kind: "step",
 		label: publicText("label" in step && step.label ? step.label : step.agent, "step", ctx.caps.maxStringLength),
 		state,
+		...(modelThinking ? { modelThinking } : {}),
 		...(startedAt !== undefined ? { startedAt } : {}),
 		...(updatedAt !== undefined ? { updatedAt } : {}),
 		...(terminalState(state) && endedAt !== undefined ? { endedAt } : {}),
+		...(tokens !== undefined ? { tokens } : {}),
+		...(window !== undefined ? { window } : {}),
 		...(activity ? { activity } : {}),
 	};
 	if (depth < ctx.caps.maxDepth && step.children?.length) {
@@ -265,14 +275,20 @@ function projectNestedRun(child: NestedRunSummary, index: number, depth: number,
 	const endedAt = publicTime(child.endedAt);
 	const updatedAt = publicTime(child.lastUpdate) ?? endedAt ?? publicTime(child.lastActivityAt) ?? startedAt;
 	const activity = activityFor(child, ctx);
+	const modelThinking = publicOptionalText(formatModelThinking(child.model, child.thinking), ctx.caps.maxStringLength);
+	const tokens = publicCount(child.totalTokens?.total);
+	const window = publicCount(child.totalTokens?.window);
 	const node: AsyncStatusSnapshotNodeV1 = {
 		id: publicText(child.id, `nested:${index}`, ctx.caps.maxStringLength),
 		kind: kindForMode(child.mode),
 		label: child.agent ? publicText(child.agent, "subagent", ctx.caps.maxStringLength) : labelForAgents(child.agents, child.mode ?? "subagent", ctx.caps.maxStringLength),
 		state,
+		...(modelThinking ? { modelThinking } : {}),
 		...(startedAt !== undefined ? { startedAt } : {}),
 		...(updatedAt !== undefined ? { updatedAt } : {}),
 		...(terminalState(state) && endedAt !== undefined ? { endedAt } : {}),
+		...(tokens !== undefined ? { tokens } : {}),
+		...(window !== undefined ? { window } : {}),
 		...(activity ? { activity } : {}),
 	};
 	if (depth < ctx.caps.maxDepth) {
@@ -327,6 +343,8 @@ function projectRun(job: AsyncJobState, ctx: ProjectionContext): AsyncStatusSnap
 	const startedAt = publicTime(job.startedAt);
 	const updatedAt = publicTime(job.updatedAt) ?? startedAt;
 	const activity = activityFor(job, ctx);
+	const tokens = publicCount(job.totalTokens?.total);
+	const window = publicCount(job.totalTokens?.window);
 	const node: AsyncStatusSnapshotNodeV1 = {
 		id: publicText(job.asyncId, "async", ctx.caps.maxStringLength),
 		kind: kindForMode(job.mode),
@@ -335,6 +353,8 @@ function projectRun(job: AsyncJobState, ctx: ProjectionContext): AsyncStatusSnap
 		...(startedAt !== undefined ? { startedAt } : {}),
 		...(updatedAt !== undefined ? { updatedAt } : {}),
 		...(terminalState(state) && updatedAt !== undefined ? { endedAt: updatedAt } : {}),
+		...(tokens !== undefined ? { tokens } : {}),
+		...(window !== undefined ? { window } : {}),
 		...(activity ? { activity } : {}),
 	};
 	if (ctx.caps.maxDepth > 0) {
@@ -421,6 +441,7 @@ function hostStepRow(hostStep: HostStepNodeV1): AsyncStatusWorkflowRow {
 		...(hostStep.target ? { target: publicText(hostStep.target, "target", HOST_STEP_MAX_TARGET_CHARS) } : {}),
 		...(freshness ? { freshness } : {}),
 		...(hostStep.reportPath ? { reportPath: hostStepReportName(hostStep.reportPath) } : {}),
+		...(hostStep.state !== "pending" && hostStep.state !== "running" ? { endedAt: hostStep.updatedAt } : {}),
 	};
 }
 
@@ -536,6 +557,7 @@ function projectLoadedWorkflowRow(step: AsyncJobStep, index: number, preflight?:
 		...(modelThinking ? { modelThinking } : {}),
 		...(activity ? { activity } : {}),
 		...(step.startedAt !== undefined ? { startedAt: step.startedAt } : {}),
+		...(terminalState(normalizeState(step.status)) && step.endedAt !== undefined ? { endedAt: step.endedAt } : {}),
 		...(step.tokens?.total !== undefined ? { tokens: step.tokens.total } : {}),
 		...(step.tokens?.window !== undefined ? { window: step.tokens.window } : {}),
 		...(preflight ? { preflight } : {}),

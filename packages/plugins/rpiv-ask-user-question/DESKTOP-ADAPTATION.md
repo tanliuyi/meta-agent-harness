@@ -4,6 +4,12 @@ Upstream: https://github.com/juicesharp/rpiv-mono/tree/main/packages/rpiv-ask-us
 
 This snapshot supports terminal Pi, RPC hosts, and Meta Agent Desktop through capability detection.
 
+## Desktop tool exposure
+
+Meta Agent Desktop captures the existing `ask_user_question` `registerTool()` declaration as the generation-scoped `plugin["rpiv.ask-user-question"].ask_user_question(...)` method. The extension declares `plugin-methods.provide` in `market-manifest.json`; it does not register a second Desktop-only implementation. The primary skill and `plugin-api.json` catalog document the method for `run_code`.
+
+Terminal Pi and RPC hosts continue to receive the standard direct tool declaration.
+
 ## Execution paths
 
 1. Hosts exposing `ctx.ui.questionnaire` receive the complete structured request in one call. Meta Agent Desktop implements this capability and renders the questionnaire in its Composer surface.

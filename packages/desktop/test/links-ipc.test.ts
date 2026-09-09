@@ -5,6 +5,7 @@ import { pathToFileURL } from "node:url";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { registerIpc } from "../src/main/ipc.ts";
 import { CHANNELS } from "../src/shared/channels.ts";
+import { markdownLocalPath, preprocessMarkdownImages } from "../src/shared/markdown-image-contracts.ts";
 import { createIpcTestDependencies } from "./ipc-test-dependencies.ts";
 
 const electron = vi.hoisted(() => ({
@@ -53,6 +54,28 @@ describe("links IPC", () => {
     await expect(handler?.({}, "project", `${pathToFileURL(filePath).href}:6-10`)).resolves.toEqual({
       openInApp: true,
       path: "src/app.tsx",
+    });
+  });
+
+  it("preserves URL-encoded fragment characters in local filenames", async () => {
+    const root = await mkdtemp(join(tmpdir(), "meta-agent-links-hash-"));
+    roots.push(root);
+    const cwd = join(root, "project");
+    const filePath = join(cwd, "docs", "a#b.md");
+    await mkdir(join(cwd, "docs"), { recursive: true });
+    await writeFile(filePath, "content\n");
+
+    registerIpc(createIpcTestDependencies({ projects: { getCwd: () => cwd } as never }));
+    const handler = electron.handles.get(CHANNELS.linksOpen);
+    expect(handler).toBeDefined();
+
+    const preprocessed = preprocessMarkdownImages("[file](docs/a%23b.md)", cwd);
+    const renderedTarget = preprocessed.slice("[file](".length, -1);
+    const routedTarget = markdownLocalPath(renderedTarget);
+    expect(routedTarget).toContain("a%23b.md");
+    await expect(handler?.({}, "project", routedTarget)).resolves.toEqual({
+      openInApp: true,
+      path: "docs/a#b.md",
     });
   });
 

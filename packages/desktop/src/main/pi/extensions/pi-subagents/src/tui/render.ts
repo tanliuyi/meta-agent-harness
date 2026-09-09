@@ -37,6 +37,7 @@ import { shouldSuppressSingleStep, stripRepeatedAgentPrefix, withDuplicateLabelD
 import { buildWorkflowChatProgressRows, type WorkflowChatProgressRow } from "../workflows/chat-progress.ts";
 import { formatWorkflowPreflight, formatWorkflowPreflightPlanSummary, formatWorkflowPreflightWarningSummary, formatWorkflowPreflightWarnings } from "../workflows/workflow-preflight.ts";
 import { encodeAsyncStatusSnapshotWidget } from "../runs/background/async-status-snapshot.ts";
+import { buildAsyncDesktopStatus, type DesktopSubagentWidgetOptions, supportsDesktopNativeWidgets } from "./desktop-native-status.ts";
 import { projectAsyncWorkflowRows, type AsyncStatusWorkflowRow } from "../runs/shared/async-status-projection.ts";
 import { hostStepReportName, hostStepVerdictLabel } from "../runs/shared/host-step-status.ts";
 import { workflowGraphStageNodes } from "../runs/shared/workflow-graph.ts";
@@ -2839,6 +2840,15 @@ export function renderWidget(ctx: ExtensionContext, jobs: AsyncJobState[]): void
 		&& ctx.ui.widgetCapabilities !== null
 		&& "components" in ctx.ui.widgetCapabilities
 		&& ctx.ui.widgetCapabilities.components === true;
+	if (supportsDesktopNativeWidgets(ctx)) {
+		const fallbackLines = encodeAsyncStatusSnapshotWidget(jobs);
+		const options: DesktopSubagentWidgetOptions = {
+			placement: "aboveEditor",
+			nativeContent: buildAsyncDesktopStatus(jobs),
+		};
+		ctx.ui.setWidget(WIDGET_KEY, fallbackLines, options);
+		return;
+	}
 	if ((ctx as { mode?: string }).mode === "rpc" && !componentWidgets) {
 		ctx.ui.setWidget(WIDGET_KEY, encodeAsyncStatusSnapshotWidget(jobs));
 		return;

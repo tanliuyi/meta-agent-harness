@@ -62,7 +62,9 @@ vi.mock("../src/renderer/src/components/chat/session-info.tsx", () => ({
   SessionInfo: ({ open }: { open: boolean }) => <section data-slot="session-info" data-open={String(open)} />,
 }));
 vi.mock("../src/renderer/src/components/layout/topbar.tsx", () => ({
-  Topbar: () => <header data-slot="topbar" />,
+  Topbar: ({ sessionInfoOpen }: { sessionInfoOpen: boolean }) => (
+    <header data-slot="topbar" data-session-info-open={String(sessionInfoOpen)} />
+  ),
 }));
 vi.mock("../src/renderer/src/components/panel/terminal/bottom-terminal.tsx", () => ({
   BottomTerminal: () => <section data-slot="bottom" />,
@@ -135,7 +137,7 @@ describe("SessionSurface layout", () => {
     const markup = renderToStaticMarkup(React.createElement(SessionSurface));
 
     expect(markup).toContain(
-      '<div class="session-surface-shell"><header data-slot="topbar"></header><div class="workspace-row session-surface" data-session-key="session-1" data-active="true"><main class="chat-workspace" data-session-info-open="true"><div data-slot="messages"></div><section data-slot="session-info" data-open="true"></section></main></div></div><section data-slot="bottom"></section><aside data-slot="panel"></aside>',
+      '<div class="session-surface-shell"><header data-slot="topbar" data-session-info-open="true"></header><div class="workspace-row session-surface" data-session-key="session-1" data-active="true"><main class="chat-workspace" data-session-info-open="true"><div data-slot="messages"></div><section data-slot="session-info" data-open="true"></section></main></div></div><section data-slot="bottom"></section><aside data-slot="panel"></aside>',
     );
     // 普通态：ChatThread 唯一实例，不渲染 modal。
     expect(chatThreadRenderCount.value).toBe(1);
@@ -190,8 +192,11 @@ describe("SessionSurface layout", () => {
   it("renders the session thread inside the assistant modal when fullscreen", () => {
     const markup = renderFullscreen();
 
-    // 普通会话壳让位，ChatThread 移入 modal Content 且仍为单实例。
-    expect(markup).not.toContain('class="chat-workspace"');
+    // 普通会话壳让位，ChatThread 与会话信息入口移入 modal Content 且仍为单实例。
+    expect(markup).not.toContain('class="session-surface-shell"');
+    expect(markup).toContain('class="session-modal-session-surface"');
+    expect(markup).toContain('data-slot="topbar" data-session-info-open="true"');
+    expect(markup).toContain('data-slot="session-info" data-open="true"');
     expect(markup).toContain("data-modal-anchor");
     expect(markup).toContain("data-modal-trigger");
     expect(markup).toContain('data-modal-content="true" data-avoid-collisions="false"');
@@ -199,9 +204,25 @@ describe("SessionSurface layout", () => {
     expect(markup).toContain(
       '<div data-modal-content="true" data-avoid-collisions="false"><div class="session-modal-shell"',
     );
-    expect(markup).toContain('<div class="session-modal-body"><div data-slot="messages"></div></div>');
+    expect(markup).toContain(
+      '<div class="session-modal-body"><div class="session-modal-session-surface"><header data-slot="topbar" data-session-info-open="true"></header>',
+    );
+    expect(markup).toContain(
+      '<main class="chat-workspace" data-session-info-open="true"><div data-slot="messages"></div><section data-slot="session-info" data-open="true"></section></main>',
+    );
     expect(markup.match(/data-slot="messages"/g)).toHaveLength(1);
     expect(chatThreadRenderCount.value).toBe(1);
+  });
+
+  it("keeps session info available inside the fullscreen modal while the workbench is open", () => {
+    sessionScope.ready = true;
+    sessionScope.panelOpen = true;
+    sessionScope.sessionInfoOpen = true;
+    sessionScope.persisted = { fullscreen: true, modalOpen: true, drag: { x: 0, y: 0 }, size: null };
+
+    const markup = renderFullscreen();
+    expect(markup).toContain('data-slot="topbar" data-session-info-open="true"');
+    expect(markup).toContain('data-slot="session-info" data-open="true"');
   });
 
   it("does not auto-open the modal when entering fullscreen", () => {

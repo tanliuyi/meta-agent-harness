@@ -1,0 +1,52 @@
+{
+  "schemaVersion": 1,
+  "marketplaceId": "meta-agent-development",
+  "artifactId": "rpiv-ask-user-question-local",
+  "plugin": {
+    "id": "rpiv.ask-user-question",
+    "name": "Ask User Question",
+    "version": "0.0.0-local",
+    "publisherId": "admin"
+  },
+  "pi": {
+    "entry": "index.ts",
+    "extensionApi": "v1",
+    "skills": ["skills/rpiv-ask-user-question/SKILL.md"],
+    "runCode": {
+      "skill": "rpiv-ask-user-question",
+      "catalog": "plugin-api.json"
+    }
+  },
+  "desktop": {
+    "hostProfileVersion": 1
+  },
+  "target": {
+    "platform": "universal",
+    "arch": "universal"
+  },
+  "capabilities": [
+    "events.subscribe",
+    "plugin-methods.provide",
+    "ui.dialog",
+    "ui.notify"
+  ],
+  "nativeModules": [],
+  "executables": [],
+  "files": {
+    "index.ts": {
+      "mode": "0644"
+    },
+    "plugin-api.json": {
+      "mode": "0644"
+    },
+    "skills/rpiv-ask-user-question/SKILL.md": {
+      "mode": "0644"
+    },
+    "skills/rpiv-ask-user-question/references/api.md": {
+      "mode": "0644"
+    },
+    "assets/icon.png": {
+      "mode": "0644"
+    }
+  }
+}

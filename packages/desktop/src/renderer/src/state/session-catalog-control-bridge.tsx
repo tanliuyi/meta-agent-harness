@@ -24,6 +24,7 @@ export function SessionCatalogControlBridge({ record, store }: SessionCatalogCon
       title: control.title,
       updatedAt: control.updatedAt,
       running: control.running,
+      blocked: control.hostRequests.length > 0,
     });
   }, [control, store]);
 

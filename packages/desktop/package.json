@@ -1,6 +1,6 @@
 {
   "name": "meta-agent",
-  "version": "0.0.44",
+  "version": "0.0.45",
   "private": true,
   "description": "Meta Agent desktop application",
   "homepage": "https://github.com/tanliuyi/meta-agent-harness",
@@ -108,6 +108,7 @@
     "jsdom": "27.4.0",
     "katex": "0.16.27",
     "lucide-react": "1.24.0",
+    "mdast-util-from-markdown": "2.0.3",
     "playwright": "1.61.1",
     "react": "19.2.7",
     "react-dom": "19.2.7",

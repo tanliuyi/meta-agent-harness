@@ -23,7 +23,7 @@
 import { createServer } from "node:http";
 import { spawn } from "node:child_process";
 import os from "node:os";
-import { defaultSessionPath, readSession, writeSession } from "./session.mjs";
+import { defaultSessionPath, normalizeApiRoot, readSession, writeSession } from "./session.mjs";
 
 const args = process.argv.slice(2);
 let register = false;
@@ -42,7 +42,8 @@ for (let i = 0; i < args.length; i++) {
   else if (args[i] === "--timeout" && args[i + 1]) timeoutSec = Number(args[++i]) || 300;
   else positional.push(args[i]);
 }
-const [apiRoot, legacyTokenOut, legacyPublisherId] = positional;
+const [apiRootArg, legacyTokenOut, legacyPublisherId] = positional;
+const apiRoot = apiRootArg ? normalizeApiRoot(apiRootArg) : undefined;
 const publisherId = publisherIdArg ?? legacyPublisherId;
 const tokenOut = tokenOutArg ?? legacyTokenOut ?? (apiRoot ? defaultSessionPath(apiRoot, publisherId) : undefined);
 if (!apiRoot || !tokenOut) {

@@ -14,7 +14,7 @@ describe("Desktop widget component adapter", () => {
       const component = new Text(theme.fg("success", "Tests passed"), 0, 0);
       return { render: (width) => component.render(width), invalidate: () => component.invalidate(), dispose };
     });
-    expect(ui.widgetCapabilities).toEqual({ components: true, input: false });
+    expect(ui.widgetCapabilities).toEqual({ components: true, input: false, nativeContent: true });
     expect(host.hostState.widgets[0]).toMatchObject({
       key: "third-party-progress",
       columns: 80,

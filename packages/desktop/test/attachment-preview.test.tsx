@@ -21,6 +21,8 @@ describe("AttachmentPreview", () => {
     expect(markup).toContain("预览图片");
     expect(markup).toContain("aui-image-preview-trigger");
     expect(markup).toContain('tabindex="-1"');
+    expect(markup).toContain("view-transition-name:none");
+    expect(markup).not.toContain("view-transition-name:aui-image-preview-hero-");
     expect(markup).not.toContain("rc-image-preview-mask");
   });
 });

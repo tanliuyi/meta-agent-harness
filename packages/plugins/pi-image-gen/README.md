@@ -28,7 +28,7 @@ validated values to `pi.getConfig()`.
 
 | Field | Type | Default | Description |
 | --- | --- | --- | --- |
-| `defaultModel` | select | `gpt-image-2` | Built-in model quick pick (12 models, option descriptions show provider and aliases). Select **自定义模型…** to use a custom id. |
+| `defaultModel` | select | `gpt-image-2` | Built-in model quick pick (14 models, option descriptions show provider and aliases). Select **自定义模型…** to use a custom id. |
 | `customModel` | text | – | Arbitrary model id (e.g. `openrouter/<vendor>/<model>`); used only when `defaultModel` is `custom`. Needs the matching provider key. |
 | `outputDir` | path | `.pi/images` | Output directory, relative to the session cwd or absolute. |
 | `<provider>ApiKey` | secret | – | API key for `openai`, `gemini`, `dashscope`, `ark`, `openrouter`. Stored encrypted by the Desktop credential store; never rendered back as plaintext. |

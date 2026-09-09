@@ -3,9 +3,13 @@ import { chmodSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:
 import os from "node:os";
 import { dirname, join } from "node:path";
 
+export function normalizeApiRoot(apiRoot) {
+  return apiRoot.replace(/\/+$/, "");
+}
+
 export function defaultSessionPath(apiRoot, publisherId = "") {
   const key = createHash("sha256")
-    .update(`${apiRoot}\u0000${publisherId}`, "utf8")
+    .update(`${normalizeApiRoot(apiRoot)}\u0000${publisherId}`, "utf8")
     .digest("hex")
     .slice(0, 24);
   const configHome = process.env.XDG_CONFIG_HOME || join(os.homedir(), ".config");

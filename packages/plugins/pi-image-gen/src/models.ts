@@ -7,6 +7,8 @@ export type BuiltInModelEntry = {
 };
 
 export const BUILT_IN_MODELS: BuiltInModelEntry[] = [
+  { id: "gpt-image-2.5-sunburst", provider: "openai" },
+  { id: "gpt-image-2.5-flare", provider: "openai" },
   { id: "gpt-image-2", provider: "openai" },
   { id: "gemini-3-pro-image", aliases: ["nano-banana-pro"], provider: "gemini" },
   { id: "gemini-3.1-flash-image", aliases: ["nano-banana-2"], provider: "gemini" },

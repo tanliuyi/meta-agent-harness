@@ -24,7 +24,8 @@ function renderThread(
   options: {
     depth?: number;
     childCount?: number;
-    runningChildCount?: number;
+    runningDescendantCount?: number;
+    expanded?: boolean;
     compactRoot?: boolean;
     active?: boolean;
     pinned?: boolean;
@@ -45,8 +46,8 @@ function renderThread(
       shortcutHint={options.shortcutHint}
       depth={options.depth ?? 1}
       childCount={options.childCount ?? 0}
-      runningChildCount={options.runningChildCount ?? 0}
-      expanded={false}
+      runningDescendantCount={options.runningDescendantCount ?? 0}
+      expanded={options.expanded ?? false}
       ancestorContinuations={[]}
       isLastChild
       compactRoot={options.compactRoot}
@@ -111,12 +112,30 @@ describe("DesktopThreadListItem", () => {
     expect(markup).not.toContain("running-dot");
   });
 
-  it("shows only the number of running child sessions", () => {
-    const markup = renderThread(baseThread, { childCount: 6, runningChildCount: 2 });
+  it("shows a waiting-action icon instead of loading while blocked", () => {
+    const markup = renderThread({ ...baseThread, running: true, blocked: true });
+
+    expect(markup).toContain('aria-label="等待操作"');
+    expect(markup).toContain("text-warning");
+    expect(markup).not.toContain("running-dot");
+  });
+
+  it("shows only the number of running descendant sessions while collapsed", () => {
+    const markup = renderThread(baseThread, { childCount: 6, runningDescendantCount: 2 });
 
     expect(markup).toContain('aria-label="2 个子会话正在运行"');
     expect(markup).toContain(">2</span>");
     expect(markup).not.toContain(">6</span>");
+    expect(markup).toContain('class="running-dot"');
+    expect(markup).toContain('aria-label="子会话运行中"');
+  });
+
+  it("shows the parent running status while a descendant session runs and the tree is expanded", () => {
+    const markup = renderThread(baseThread, { childCount: 1, runningDescendantCount: 1, expanded: true });
+
+    expect(markup).toContain('class="running-dot"');
+    expect(markup).toContain('aria-label="子会话运行中"');
+    expect(markup).not.toContain("个子会话正在运行");
   });
 
   it("hides the child count when no child session is running", () => {

@@ -35,12 +35,13 @@ export function AttachmentPreview({ children, src }: AttachmentPreviewProps) {
   const heroName = `aui-image-preview-hero-${useId().replaceAll(INVALID_VIEW_TRANSITION_NAME_CHARACTERS, "")}`;
   const transitionRef = useRef<ViewTransition | null>(null);
   const [open, setOpen] = useState(false);
+  const [transitioning, setTransitioning] = useState(false);
   const triggerElement = children as ReactElement<ImagePreviewElementProps>;
   const trigger = cloneElement(triggerElement, {
     className: cn(triggerElement.props.className, "aui-image-preview-hero"),
     style: {
       ...triggerElement.props.style,
-      viewTransitionName: open ? "none" : heroName,
+      viewTransitionName: transitioning && !open ? heroName : "none",
     },
   });
 
@@ -51,12 +52,12 @@ export function AttachmentPreview({ children, src }: AttachmentPreviewProps) {
         className: cn(imageElement.props.className, "aui-image-preview-hero"),
         style: {
           ...imageElement.props.style,
-          viewTransitionName: open ? heroName : "none",
+          viewTransitionName: transitioning && open ? heroName : "none",
         },
       });
       return <div className="aui-image-preview-image-stage">{previewImage}</div>;
     },
-    [heroName, open],
+    [heroName, open, transitioning],
   );
 
   const updateOpen = useCallback((nextOpen: boolean) => {
@@ -67,6 +68,7 @@ export function AttachmentPreview({ children, src }: AttachmentPreviewProps) {
     }
 
     transitionRef.current?.skipTransition();
+    flushSync(() => setTransitioning(true));
     const transition = document.startViewTransition({
       types: [IMAGE_PREVIEW_TRANSITION_TYPE],
       update: () => flushSync(() => setOpen(nextOpen)),
@@ -77,6 +79,7 @@ export function AttachmentPreview({ children, src }: AttachmentPreviewProps) {
       .finally(() => {
         if (transitionRef.current !== transition) return;
         transitionRef.current = null;
+        setTransitioning(false);
       });
   }, []);
 

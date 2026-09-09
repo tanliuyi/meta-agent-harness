@@ -1,6 +1,6 @@
 # Marketplace Publish API v1
 
-Fetch `GET /.well-known/meta-agent-marketplace.json` from the marketplace public base URL and read `apiRoot` and `marketplaceId`. `apiRoot` already ends in `/v1`; never insert a second `/v1`. The configured base URL is the trust boundary; discovery and artifacts are not cryptographically authenticated. All authenticated requests use `Authorization: Bearer <token>`. JSON requests use `Content-Type: application/json`; artifact uploads use a raw `application/zip` or `application/octet-stream` body.
+Fetch `GET /.well-known/meta-agent-marketplace.json` from the marketplace public base URL and read `apiRoot` and `marketplaceId`. `apiRoot` already ends in `/v1`; never insert a second `/v1`. Normalize it by removing trailing slashes before joining route paths; the bundled scripts do this automatically and use the normalized value for session-cache identity. This prevents malformed routes such as `/v1//auth/login` and duplicate sessions for equivalent endpoints. The configured base URL is the trust boundary; discovery and artifacts are not cryptographically authenticated. All authenticated requests use `Authorization: Bearer <token>`. JSON requests use `Content-Type: application/json`; artifact uploads use a raw `application/zip` or `application/octet-stream` body.
 
 ## Discovery and Accounts
 

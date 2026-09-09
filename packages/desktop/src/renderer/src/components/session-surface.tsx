@@ -52,18 +52,20 @@ export function SessionSurface({ initialFullscreen = false }: SessionSurfaceProp
   const workbench = useSessionWorkbenchSelector((workbench) => workbench);
   const persisted = workbench?.sessionModal ?? null;
   const workbenchPanelOpen = workbench?.panelOpen === true;
-  // 会话信息面板开关是会话级偏好。workbench 展开时的隐藏只是派生的可见性冲突，
-  // 不写回偏好：workbench 关闭后按偏好恢复，且不会影响其他会话的面板。
-  const sessionInfoOpenPreference = workbench?.sessionInfoOpen ?? SESSION_INFO_DEFAULT_OPEN;
-  const sessionInfoOpen = resolveSessionInfoOpenForWorkbenchPanel(workbenchPanelOpen, sessionInfoOpenPreference);
-  const toggleSessionInfo = useCallback(() => {
-    updateWorkbench({ sessionInfoOpen: !sessionInfoOpenPreference });
-  }, [sessionInfoOpenPreference, updateWorkbench]);
   // 全屏/modal 开关与几何为单一状态对象：lazy 初始化直接按持久化值恢复，
   // 无记录时用默认值 + initialFullscreen（测试注入）。
   const [modalState, setModalState] = useState<SessionModalPersistedState>(() =>
     persisted ? persisted : { ...DEFAULT_MODAL_STATE, fullscreen: initialFullscreen },
   );
+  // 会话信息面板开关是会话级偏好。普通布局中 workbench 展开时派生隐藏；
+  // 全屏浮窗有独立空间，继续按偏好显示并允许从浮窗 Topbar 切换。
+  const sessionInfoOpenPreference = workbench?.sessionInfoOpen ?? SESSION_INFO_DEFAULT_OPEN;
+  const sessionInfoOpen = modalState.fullscreen
+    ? sessionInfoOpenPreference
+    : resolveSessionInfoOpenForWorkbenchPanel(workbenchPanelOpen, sessionInfoOpenPreference);
+  const toggleSessionInfo = useCallback(() => {
+    updateWorkbench({ sessionInfoOpen: !sessionInfoOpenPreference });
+  }, [sessionInfoOpenPreference, updateWorkbench]);
   // 最新提交的持久化值：相同状态重复提交时跳过写回（如 Esc 的双路径），
   // 保证写入始终由显式 UI action 触发且不产生 set/write 循环。
   const lastPersistedRef = useRef<SessionModalPersistedState | null>(null);
@@ -151,6 +153,17 @@ export function SessionSurface({ initialFullscreen = false }: SessionSurfaceProp
   // ChatThread 单实例：普通态内联于 chat-workspace，全屏态置于 modal Content（portal 到 body）。
   // 两种形态互斥，同一时刻仅渲染一处；切换会重挂载，会话状态由 SessionProvider/runtime 持有不受影响。
   const thread = <ChatThread />;
+  const sessionWorkspace = (
+    <>
+      <Topbar sessionInfoOpen={sessionInfoOpen} onToggleSessionInfo={toggleSessionInfo} />
+      <div className="workspace-row session-surface" data-session-key={record.key} data-active={active || undefined}>
+        <main className="chat-workspace" data-session-info-open={sessionInfoOpen || undefined}>
+          {thread}
+          <SessionInfo open={sessionInfoOpen} />
+        </main>
+      </div>
+    </>
+  );
   return (
     <>
       {modalState.fullscreen ? (
@@ -161,22 +174,10 @@ export function SessionSurface({ initialFullscreen = false }: SessionSurfaceProp
           initialSize={modalState.size}
           onGeometryChange={commitGeometry}
         >
-          {thread}
+          <div className="session-modal-session-surface">{sessionWorkspace}</div>
         </SessionModal>
       ) : (
-        <div className="session-surface-shell">
-          <Topbar sessionInfoOpen={sessionInfoOpen} onToggleSessionInfo={toggleSessionInfo} />
-          <div
-            className="workspace-row session-surface"
-            data-session-key={record.key}
-            data-active={active || undefined}
-          >
-            <main className="chat-workspace" data-session-info-open={sessionInfoOpen || undefined}>
-              {thread}
-              <SessionInfo open={sessionInfoOpen} />
-            </main>
-          </div>
-        </div>
+        <div className="session-surface-shell">{sessionWorkspace}</div>
       )}
       <BottomTerminal />
       <WorkbenchPanel

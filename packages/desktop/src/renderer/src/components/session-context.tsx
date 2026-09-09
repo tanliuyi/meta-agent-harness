@@ -33,6 +33,10 @@ export interface SessionScope {
 }
 
 const SessionScopeContext = createContext<SessionScope | null>(null);
+const EMPTY_SESSION_CONTROL_STORE = {
+  getSnapshot: (): SessionControlState | null => null,
+  subscribe: (): (() => void) => () => undefined,
+};
 
 export function SessionScopeProvider({ scope, children }: { scope: SessionScope; children: ReactNode }) {
   return <SessionScopeContext.Provider value={scope}>{children}</SessionScopeContext.Provider>;
@@ -52,6 +56,12 @@ export function useSessionControl() {
 export function useSessionControlSelector<T>(selector: (control: SessionControlState | null) => T): T {
   const { record } = useSessionScope();
   return useExternalStoreSelector(record.stores.control, selector);
+}
+
+/** Session 外预览也可复用的 control selector；无所属 session 时以 null 计算。 */
+export function useOptionalSessionControlSelector<T>(selector: (control: SessionControlState | null) => T): T {
+  const scope = useContext(SessionScopeContext);
+  return useExternalStoreSelector(scope?.record.stores.control ?? EMPTY_SESSION_CONTROL_STORE, selector);
 }
 
 export function useSessionTimeline() {

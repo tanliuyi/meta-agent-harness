@@ -64,6 +64,8 @@ export interface Thread {
   lastAssistantPreview?: string;
   archived: boolean;
   running: boolean;
+  /** 渲染器本地标记：会话正在等待用户完成交互请求。主进程从不发送该字段。 */
+  blocked?: boolean;
   /** 渲染器本地标记：运行完成（成功或失败）后尚未被用户查看。主进程从不发送该字段。 */
   completed?: boolean;
   parentThreadId?: string;

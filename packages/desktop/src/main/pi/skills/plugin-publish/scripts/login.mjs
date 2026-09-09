@@ -10,11 +10,17 @@
 // The session record contains only the bearer token and server-provided
 // expiresAt; login-web.mjs can reuse it until it expires.
 import { readFileSync } from "node:fs";
-import { writeSession } from "./session.mjs";
+import { normalizeApiRoot, writeSession } from "./session.mjs";
 
 async function main() {
-  const [apiRoot, user, passFile, tokenOut, publisherId] = process.argv.slice(2);
-  if (!apiRoot || !user || !passFile || !tokenOut) {
+  const [apiRootArg, user, passFile, tokenOut, publisherId] = process.argv.slice(2);
+  if (!apiRootArg || !user || !passFile || !tokenOut) {
+    console.error("usage: node login.mjs <apiRoot> <username> <passwordFile> <tokenOut> [publisherId]");
+    process.exitCode = 2;
+    return;
+  }
+  const apiRoot = normalizeApiRoot(apiRootArg);
+  if (!apiRoot) {
     console.error("usage: node login.mjs <apiRoot> <username> <passwordFile> <tokenOut> [publisherId]");
     process.exitCode = 2;
     return;

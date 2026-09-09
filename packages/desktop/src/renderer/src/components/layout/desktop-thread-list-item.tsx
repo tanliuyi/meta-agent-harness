@@ -5,6 +5,7 @@ import ArrowUpToLine from "lucide-react/dist/esm/icons/arrow-up-to-line.mjs";
 import Bot from "lucide-react/dist/esm/icons/bot.mjs";
 import ChevronDown from "lucide-react/dist/esm/icons/chevron-down.mjs";
 import ChevronRight from "lucide-react/dist/esm/icons/chevron-right.mjs";
+import CircleEllipsis from "lucide-react/dist/esm/icons/circle-ellipsis.mjs";
 import GitBranch from "lucide-react/dist/esm/icons/git-branch.mjs";
 import PanelRight from "lucide-react/dist/esm/icons/panel-right.mjs";
 import Pencil from "lucide-react/dist/esm/icons/pencil.mjs";
@@ -43,7 +44,7 @@ interface DesktopThreadListItemProps {
   shortcutHint?: string;
   depth: number;
   childCount: number;
-  runningChildCount: number;
+  runningDescendantCount: number;
   expanded: boolean;
   ancestorContinuations: readonly boolean[];
   isLastChild: boolean;
@@ -204,20 +205,22 @@ export const DesktopThreadListItem = memo(function DesktopThreadListItem(props: 
             <span data-slot="thread-title" className="min-w-0 flex-1 truncate">
               {thread.title || "新会话"}
             </span>
-            {!props.expanded && props.runningChildCount > 0 ? (
+            {!props.expanded && props.runningDescendantCount > 0 ? (
               <span
                 className="text-muted-foreground shrink-0 text-xs"
-                aria-label={`${props.runningChildCount} 个子会话正在运行`}
+                aria-label={`${props.runningDescendantCount} 个子会话正在运行`}
               >
-                {props.runningChildCount}
+                {props.runningDescendantCount}
               </span>
             ) : null}
             {props.shortcutHint !== undefined ? (
               <span className="desktop-thread-shortcut-hint" aria-hidden="true">
                 {props.shortcutHint}
               </span>
-            ) : thread.running ? (
-              <span className="running-dot" aria-label="运行中" />
+            ) : thread.blocked ? (
+              <CircleEllipsis className="text-warning size-3.5 shrink-0" aria-label="等待操作" />
+            ) : thread.running || props.runningDescendantCount > 0 ? (
+              <span className="running-dot" aria-label={thread.running ? "运行中" : "子会话运行中"} />
             ) : thread.completed === true && !props.active ? (
               <span className="completed-dot" aria-label="运行已完成" />
             ) : null}

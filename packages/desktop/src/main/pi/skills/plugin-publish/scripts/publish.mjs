@@ -14,13 +14,19 @@
 // Default behavior pauses 3 seconds before publishing so an unintended run
 // can be Ctrl-C'd; pass --yes to skip the pause.
 import { readFileSync } from "node:fs";
-import { readSession } from "./session.mjs";
+import { normalizeApiRoot, readSession } from "./session.mjs";
 
 async function main() {
   const args = process.argv.slice(2);
   const yes = args.includes("--yes");
-  const [apiRoot, tokenFile, specFile, ...zips] = args.filter((a) => a !== "--yes");
-  if (!apiRoot || !tokenFile || !specFile || !zips.length) {
+  const [apiRootArg, tokenFile, specFile, ...zips] = args.filter((a) => a !== "--yes");
+  if (!apiRootArg || !tokenFile || !specFile || !zips.length) {
+    console.error("usage: node publish.mjs <apiRoot> <tokenFile> <spec.json> <payload.zip>... [--yes]");
+    process.exitCode = 2;
+    return;
+  }
+  const apiRoot = normalizeApiRoot(apiRootArg);
+  if (!apiRoot) {
     console.error("usage: node publish.mjs <apiRoot> <tokenFile> <spec.json> <payload.zip>... [--yes]");
     process.exitCode = 2;
     return;

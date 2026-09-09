@@ -3,6 +3,7 @@ import { useIsStreamdownCodeBlock } from "@assistant-ui/react-streamdown";
 import { type ComponentPropsWithoutRef, isValidElement, type ReactElement, type ReactNode } from "react";
 import { MarkdownCodeBlock } from "./streamdown-code-block.tsx";
 import { MarkdownImage } from "./streamdown-image.tsx";
+import { MarkdownLink } from "./streamdown-link.tsx";
 import { MarkdownTable } from "./streamdown-table.tsx";
 
 const LANGUAGE_PATTERN = /language-([^\s]+)/;
@@ -13,6 +14,7 @@ type MarkdownCodeProps = ComponentPropsWithoutRef<"code"> & {
 };
 
 export const STREAMDOWN_COMPONENTS = {
+  a: MarkdownLink,
   code: MarkdownCode,
   img: MarkdownImage,
   table: MarkdownTable,

@@ -7,6 +7,7 @@
 // `apiRoot` already ends in /v1 - never append another /v1. The configured
 // public base URL is the trust boundary; discovery is not cryptographically
 // authenticated.
+import { normalizeApiRoot } from "./session.mjs";
 
 const BASE = process.argv[2];
 if (!BASE) {
@@ -32,7 +33,7 @@ console.log(
   JSON.stringify(
     {
       baseUrl: BASE,
-      apiRoot: data.apiRoot,
+      apiRoot: typeof data.apiRoot === "string" ? normalizeApiRoot(data.apiRoot) : data.apiRoot,
       marketplaceId: data.marketplaceId,
       protocolVersion: data.protocolVersion,
     },

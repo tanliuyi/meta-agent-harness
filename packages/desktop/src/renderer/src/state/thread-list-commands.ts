@@ -42,7 +42,7 @@ export interface VisibleThreadTreeItem {
   thread: Thread;
   depth: number;
   childCount: number;
-  runningChildCount: number;
+  runningDescendantCount: number;
   expanded: boolean;
   ancestorContinuations: boolean[];
   isLastChild: boolean;
@@ -102,6 +102,17 @@ export function flattenVisibleThreadTree(
   childVisibleLimits: ReadonlyMap<string, number> = new Map(),
 ): VisibleThreadTreeItem[] {
   const visible: VisibleThreadTreeItem[] = [];
+  const runningDescendantCounts = new Map<string, number>();
+  const countRunningDescendants = (node: ThreadTreeNode): number => {
+    const cached = runningDescendantCounts.get(node.thread.id);
+    if (cached !== undefined) return cached;
+    const count = node.children.reduce(
+      (total, child) => total + (child.thread.running ? 1 : 0) + countRunningDescendants(child),
+      0,
+    );
+    runningDescendantCounts.set(node.thread.id, count);
+    return count;
+  };
   const appendSiblings = (
     siblings: readonly ThreadTreeNode[],
     depth: number,
@@ -119,7 +130,7 @@ export function flattenVisibleThreadTree(
         thread: node.thread,
         depth,
         childCount: node.children.length,
-        runningChildCount: node.children.filter(({ thread }) => thread.running).length,
+        runningDescendantCount: countRunningDescendants(node),
         expanded,
         ancestorContinuations,
         isLastChild,

@@ -7,16 +7,18 @@ import { DialogFooter } from "@renderer/shared/ui/dialog-footer";
 import { DialogTitle } from "@renderer/shared/ui/dialog-title";
 import { useCallback, useEffect, useRef } from "react";
 import type { LinkSafetyModalProps } from "streamdown";
+import { isEncodedMarkdownLocalPath, markdownLocalPath } from "../../../../../shared/markdown-image-contracts.ts";
 import { useOpenWorkbenchFileInPanel, useSessionScope } from "../../session-context.tsx";
 
 export function LinkSafetyModal({ url, isOpen, onClose }: LinkSafetyModalProps) {
   const { record } = useSessionScope();
   const openInApp = useOpenWorkbenchFileInPanel();
   const openedLocalUrl = useRef<string | null>(null);
-  const localFileLink = isLocalFileLink(url);
+  const target = markdownLocalPath(url);
+  const localFileLink = isLocalMarkdownLink(url);
   const openLink = useCallback(() => {
     void window.desktop.links
-      .open(record.identity.projectId, url)
+      .open(record.identity.projectId, target)
       .then((result) => {
         if (!result.openInApp || !result.path) return;
         openInApp(result.path);
@@ -25,7 +27,7 @@ export function LinkSafetyModal({ url, isOpen, onClose }: LinkSafetyModalProps) 
         console.error("Failed to open link:", error);
       });
     onClose();
-  }, [onClose, openInApp, record.identity.projectId, url]);
+  }, [onClose, openInApp, record.identity.projectId, target]);
 
   useEffect(() => {
     if (!isOpen || !localFileLink || openedLocalUrl.current === url) return;
@@ -59,6 +61,10 @@ const URI_SCHEME_PATTERN = /^[a-z][a-z\d+.-]*:/iu;
 const WINDOWS_ABSOLUTE_PATH_PATTERN = /^[a-z]:[\\/]/iu;
 
 /** Streamdown 只需对外部链接确认；本地文件引用直接交给主进程解析项目归属。 */
+export function isLocalMarkdownLink(url: string): boolean {
+  return isEncodedMarkdownLocalPath(url) || isLocalFileLink(markdownLocalPath(url));
+}
+
 export function isLocalFileLink(url: string): boolean {
   const value = url.trim();
   if (!value || value.startsWith("#") || value.startsWith("//")) return false;

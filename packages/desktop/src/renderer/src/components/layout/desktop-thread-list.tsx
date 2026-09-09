@@ -253,7 +253,7 @@ export function DesktopThreadList({
           thread,
           depth,
           childCount,
-          runningChildCount,
+          runningDescendantCount,
           expanded,
           ancestorContinuations,
           isLastChild,
@@ -277,7 +277,7 @@ export function DesktopThreadList({
               }
               depth={depth}
               childCount={childCount}
-              runningChildCount={runningChildCount}
+              runningDescendantCount={runningDescendantCount}
               expanded={expanded}
               ancestorContinuations={ancestorContinuations}
               isLastChild={isLastChild}

@@ -53,6 +53,38 @@ describe("mergeSessionControl", () => {
     expect(merged.extensionHost.widgets).not.toBe(previous.extensionHost.widgets);
     expect(merged.extensionHost.widgets[0]?.nativeContent?.summary.completed).toBe(1);
   });
+  it("subagent 原生节点变化时替换快照，等值快照复用引用", () => {
+    const previous = control();
+    previous.extensionHost.widgets[0]!.nativeContent = {
+      type: "subagents",
+      version: 1,
+      source: "fleet",
+      generatedAt: 1_000,
+      summary: { activeAgents: 1, asyncRunsUsed: 1, asyncRunsLimit: 4, totalTokens: 2_000_000 },
+      nodes: [
+        {
+          id: "worker",
+          runId: "run-1",
+          kind: "subagent",
+          label: "worker",
+          state: "running",
+          toolCount: 1,
+        },
+      ],
+      omittedNodeCount: 0,
+    };
+    const equalIncoming = structuredClone({ ...previous, revision: 2 });
+    expect(mergeSessionControl(previous, equalIncoming).extensionHost.widgets).toBe(previous.extensionHost.widgets);
+
+    const changedIncoming = structuredClone({ ...previous, revision: 3 });
+    const nativeContent = changedIncoming.extensionHost.widgets[0]!.nativeContent;
+    if (nativeContent?.type !== "subagents") throw new Error("Expected subagent widget");
+    nativeContent.nodes[0]!.toolCount = 2;
+    const merged = mergeSessionControl(previous, changedIncoming);
+    expect(merged.extensionHost.widgets).not.toBe(previous.extensionHost.widgets);
+    expect(merged.extensionHost.widgets[0]?.nativeContent?.type).toBe("subagents");
+  });
+
   it("Goal 设置变化时替换 Goal 快照", () => {
     const previous = control();
     const incoming = structuredClone({ ...previous, revision: 2 });

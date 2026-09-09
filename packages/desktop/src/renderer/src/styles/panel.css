@@ -226,12 +226,12 @@ body.is-resizing-column .workbench-panel {
 .resize-handle-file-tree {
   top: 0;
   bottom: 0;
-  width: 8px;
+  width: 4px;
   cursor: col-resize;
 }
 
 .resize-handle-panel {
-  left: -8px;
+  left: -4px;
 }
 
 .resize-handle-panel::after,
@@ -242,7 +242,7 @@ body.is-resizing-column .workbench-panel {
 }
 
 .resize-handle-panel::after {
-  left: 3px;
+  left: 1px;
 }
 
 .resize-handle-panel:hover::after,
@@ -256,16 +256,16 @@ body.is-resizing-column .workbench-panel {
   left: 0;
 }
 .resize-handle-terminal {
-  /* 终端与上方会话区之间 row-gap 8px，8px 高的拖拽条 top: -8px 恰好覆盖整个 gap 并居中；
+  /* 终端与上方会话区之间 row-gap 4px，4px 高的拖拽条 top: -4px 恰好覆盖整个 gap 并居中；
      非 darwin 下终端元素自身无边框（边框经 ::before 绘制），无需边框补偿。 */
-  top: -8px;
+  top: -4px;
   right: 0;
   left: 0;
   height: 8px;
   cursor: row-resize;
 }
 .resize-handle-terminal::after {
-  top: 3px;
+  top: 1px;
   right: 0;
   left: 0;
   height: 2px;

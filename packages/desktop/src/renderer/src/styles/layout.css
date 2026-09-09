@@ -646,10 +646,10 @@ body.is-resizing-column .sidebar {
   display: grid;
   grid-template-rows: var(--layout-topbar-height) minmax(0, 1fr) auto;
   column-gap: 0;
-  row-gap: 8px;
+  row-gap: 4px;
   min-width: 0;
   min-height: 0;
-  margin: 0 8px 8px 0;
+  margin: 0 4px 4px 0;
   background: transparent;
   overflow: hidden;
   container-type: inline-size;
@@ -679,7 +679,7 @@ body.is-resizing-column .sidebar {
 }
 
 .workspace:has(> .workbench-panel:not([data-collapsed])) {
-  column-gap: 8px;
+  column-gap: 4px;
   transition:
     column-gap var(--motion-duration-standard) var(--motion-ease-emphasized),
     border-radius var(--motion-duration-standard) var(--motion-ease-emphasized),
@@ -862,6 +862,15 @@ body.is-resizing-column .sidebar {
   min-height: 0;
 }
 
+.session-modal-session-surface {
+  display: grid;
+  grid-template-rows: var(--layout-topbar-height) minmax(0, 1fr);
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+}
+
 /* 右下角缩放手柄：热区 24x24 无边框绘制（避免被 shell 的 border-radius +
    overflow:hidden 裁切），圆弧由 ::after 在热区内缩 5px 处绘制，保证可见。
    双轴缩放，面板左上角保持不动；不拦截消息区滚动与文本选择（手柄外区域）。
@@ -959,7 +968,7 @@ body.is-resizing-column .sidebar {
 
 .workspace:has(> .workbench-panel[data-collapsed]) .session-info-toggle {
   /* 2 * 24px actions + 4px internal gap + 4px gap before this button. */
-  margin-right: 56px;
+  margin-right: 60px;
 }
 
 .topbar-actions {

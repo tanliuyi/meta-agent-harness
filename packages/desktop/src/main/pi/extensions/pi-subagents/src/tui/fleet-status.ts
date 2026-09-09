@@ -9,6 +9,16 @@ import { formatWorkflowJsonPreview } from "../workflows/scripted-workflow.ts";
 import { hostStepReportName, hostStepVerdictLabel } from "../runs/shared/host-step-status.ts";
 import { isStaleExtensionContextError } from "../shared/extension-context.ts";
 import { formatWorkflowChecklistBottleneck, formatWorkflowChecklistPhase, formatWorkflowChecklistSummary, projectWorkflowChecklist, type WorkflowChecklistPhase, type WorkflowChecklistProjection } from "../workflows/workflow-checklist.ts";
+import { previewDisplayText } from "../shared/display-text.ts";
+import {
+	DESKTOP_SUBAGENT_CHILD_LIMIT,
+	DESKTOP_SUBAGENT_DEPTH_LIMIT,
+	DESKTOP_SUBAGENT_NODE_LIMIT,
+	type DesktopSubagentNode,
+	type DesktopSubagentWidgetContent,
+	type DesktopSubagentWidgetOptions,
+	supportsDesktopNativeWidgets,
+} from "./desktop-native-status.ts";
 
 export const FLEET_STATUS_WIDGET_KEY = "subagent-fleet-status";
 
@@ -20,17 +30,22 @@ type Theme = ExtensionContext["ui"]["theme"];
 type FleetStatusTui = {
 	requestRender(): void;
 };
-type FleetStatusEntry = {
+export type FleetStatusEntry = {
 	key: string;
 	surface?: "project-pane";
 	parentKey?: string;
 	workflowWrapper?: boolean;
+	runId?: string;
 	agent: string;
 	modelThinking?: string;
 	description?: string;
+	activity?: string;
 	startedAt: number;
+	updatedAt?: number;
 	tokens: number;
 	window?: number;
+	toolCount?: number;
+	turnCount?: number;
 	state: string;
 	external?: true;
 	projectPane?: HerdrProjectPaneSnapshot;
@@ -99,7 +114,11 @@ function nestedRunLabel(run: NestedRunSummary): string {
 	return run.id;
 }
 
-function nestedActivity(node: NestedRunSummary | NestedStepSummary): string | undefined {
+function nestedActivity(node: {
+	currentTool?: string;
+	currentPath?: string;
+	activityState?: string;
+}): string | undefined {
 	if (node.currentTool) return `tool ${node.currentTool}`;
 	if (node.currentPath) return node.currentPath.split(/[\\/]/).at(-1);
 	if (node.activityState === "needs_attention") return "needs attention";
@@ -134,7 +153,13 @@ function visibleWorkflowPhases(checklist: WorkflowChecklistProjection | undefine
 
 function isWorkflowRowTerminal(row: AsyncStatusWorkflowRow): boolean {
 	if (row.kind) return row.state === "done" || row.state === "cancelled" || row.state === "error";
-	return row.state === "complete" || row.state === "completed";
+	return row.state === "complete"
+		|| row.state === "completed"
+		|| row.state === "failed"
+		|| row.state === "partial"
+		|| row.state === "paused"
+		|| row.state === "stopped"
+		|| row.state === "rejected";
 }
 
 function nestedStatusGlyph(state: FleetNestedRow["state"] | "planned", theme: Theme): string {
@@ -294,6 +319,251 @@ function activeLeafAgentCount(entries: FleetStatusEntry[]): number {
 	return entries.filter((entry) => !entry.workflowWrapper && !entry.surface).length;
 }
 
+interface NativeProjectionBudget {
+	remaining: number;
+	omitted: number;
+}
+
+function nativeText(value: string): string {
+	return previewDisplayText(value, 160);
+}
+
+function nativeUsageTotal(entries: FleetStatusEntry[]): number {
+	let total = 0;
+	for (const entry of entries) total = Math.min(Number.MAX_SAFE_INTEGER, total + Math.max(0, entry.tokens));
+	return total;
+}
+
+function nativeNestedNodeCount(children: NestedRunSummary[] | undefined): number {
+	let count = 0;
+	for (const child of children ?? []) {
+		count += 1;
+		for (const step of child.steps ?? []) count += 1 + nativeNestedNodeCount(step.children);
+		count += nativeNestedNodeCount(child.children);
+	}
+	return count;
+}
+
+function nativeNestedNodes(
+	children: NestedRunSummary[] | undefined,
+	depth: number,
+	budget: NativeProjectionBudget,
+	childLimit = DESKTOP_SUBAGENT_CHILD_LIMIT,
+): DesktopSubagentNode[] {
+	if (!children?.length) return [];
+	if (depth > DESKTOP_SUBAGENT_DEPTH_LIMIT) {
+		budget.omitted += nativeNestedNodeCount(children);
+		return [];
+	}
+	const nodes: DesktopSubagentNode[] = [];
+	for (const [index, child] of children.entries()) {
+		if (nodes.length >= childLimit || budget.remaining <= 0) {
+			budget.omitted += nativeNestedNodeCount(children.slice(index));
+			break;
+		}
+		budget.remaining--;
+		const modelThinking = formatModelThinking(child.model, child.thinking) || undefined;
+		const childNodes: DesktopSubagentNode[] = [];
+		if (depth >= DESKTOP_SUBAGENT_DEPTH_LIMIT) {
+			budget.omitted += (child.steps?.length ?? 0)
+				+ (child.steps?.reduce((count, step) => count + nativeNestedNodeCount(step.children), 0) ?? 0)
+				+ nativeNestedNodeCount(child.children);
+		} else for (const [stepIndex, step] of (child.steps ?? []).entries()) {
+			if (childNodes.length >= childLimit || budget.remaining <= 0) {
+				budget.omitted += (child.steps?.length ?? 0) - stepIndex
+					+ (child.steps?.slice(stepIndex).reduce((count, remaining) => count + nativeNestedNodeCount(remaining.children), 0) ?? 0);
+				break;
+			}
+			budget.remaining--;
+			const stepModelThinking = formatModelThinking(step.model, step.thinking) || undefined;
+			const stepTokens = "tokens" in step
+				? step.tokens as { total?: number; window?: number } | undefined
+				: undefined;
+			const nested = nativeNestedNodes(step.children, depth + 2, budget);
+			childNodes.push({
+				id: nativeText(`${child.id}:step:${stepIndex}`),
+				kind: "step",
+				label: nativeText(step.sessionName?.trim() || step.agent),
+				state: step.status,
+				...(stepModelThinking ? { modelThinking: nativeText(stepModelThinking) } : {}),
+				...(nestedActivity(step) ? { activity: nativeText(nestedActivity(step)!) } : {}),
+				...(step.startedAt !== undefined ? { startedAt: step.startedAt } : {}),
+				...(step.endedAt !== undefined ? { updatedAt: step.endedAt } : step.lastActivityAt !== undefined ? { updatedAt: step.lastActivityAt } : {}),
+				...(!isActiveState(step.status) && step.endedAt !== undefined ? { endedAt: step.endedAt } : {}),
+				...(stepTokens?.total !== undefined ? { tokens: stepTokens.total } : {}),
+				...(stepTokens?.window !== undefined ? { window: stepTokens.window } : {}),
+				...(step.toolCount !== undefined ? { toolCount: step.toolCount } : {}),
+				...(step.turnCount !== undefined ? { turnCount: step.turnCount } : {}),
+				...(nested.length ? { children: nested } : {}),
+			});
+		}
+		const remainingChildSlots = Math.max(0, childLimit - childNodes.length);
+		const directChildren = depth >= DESKTOP_SUBAGENT_DEPTH_LIMIT
+			? []
+			: nativeNestedNodes(child.children, depth + 1, budget, remainingChildSlots);
+		const nested = [...childNodes, ...directChildren];
+		nodes.push({
+			id: nativeText(child.id),
+			kind: child.mode === "workflow" ? "workflow" : "subagent",
+			label: nativeText(nestedRunLabel(child)),
+			state: child.state,
+			...(modelThinking ? { modelThinking: nativeText(modelThinking) } : {}),
+			...(nestedActivity(child) ? { activity: nativeText(nestedActivity(child)!) } : {}),
+			...(child.startedAt !== undefined ? { startedAt: child.startedAt } : {}),
+			...(child.lastUpdate !== undefined ? { updatedAt: child.lastUpdate } : {}),
+			...(!isActiveState(child.state) && child.endedAt !== undefined ? { endedAt: child.endedAt } : {}),
+			...(child.totalTokens?.total !== undefined ? { tokens: child.totalTokens.total } : {}),
+			...(child.totalTokens?.window !== undefined ? { window: child.totalTokens.window } : {}),
+			...(child.toolCount !== undefined ? { toolCount: child.toolCount } : {}),
+			...(child.turnCount !== undefined ? { turnCount: child.turnCount } : {}),
+			...(nested.length ? { children: nested } : {}),
+		});
+	}
+	return nodes;
+}
+
+function nativeWorkflowNodes(
+	rows: AsyncStatusWorkflowRow[] | undefined,
+	budget: NativeProjectionBudget,
+	childLimit = DESKTOP_SUBAGENT_CHILD_LIMIT,
+): DesktopSubagentNode[] {
+	const rowList = rows ?? [];
+	const available = Math.max(0, Math.min(childLimit, budget.remaining));
+	if (available === 0) {
+		budget.omitted += rowList.length;
+		return [];
+	}
+	const selected = new Set<number>();
+	for (const [index, row] of rowList.entries()) {
+		if (!isWorkflowRowTerminal(row) || row.activity === "needs attention" || row.activity === "needs_attention") {
+			selected.add(index);
+		}
+		if (selected.size >= available) break;
+	}
+	for (let index = 0; index < rowList.length && selected.size < available; index++) selected.add(index);
+	const selectedRows = [...selected].sort((left, right) => left - right);
+	budget.omitted += rowList.length - selectedRows.length;
+	return selectedRows.map((index) => {
+		const row = rowList[index]!;
+		budget.remaining--;
+		return {
+			id: nativeText(`workflow-row:${index}:${row.name}`),
+			kind: row.kind ? "host-step" : "step",
+			label: nativeText(row.name),
+			state: row.state,
+			...(row.modelThinking ? { modelThinking: nativeText(row.modelThinking) } : {}),
+			...(row.activity ? { activity: nativeText(row.activity) } : {}),
+			...(row.startedAt !== undefined ? { startedAt: row.startedAt } : {}),
+			...(isWorkflowRowTerminal(row) && row.endedAt !== undefined ? { endedAt: row.endedAt } : {}),
+			...(row.tokens !== undefined ? { tokens: row.tokens } : {}),
+			...(row.window !== undefined ? { window: row.window } : {}),
+			...(row.verdict ? { verdict: row.verdict } : {}),
+		};
+	});
+}
+
+export function buildFleetDesktopStatus(
+	entries: FleetStatusEntry[],
+	capacity: SubagentState["activeAsyncCapacity"],
+	generatedAt = Date.now(),
+): DesktopSubagentWidgetContent {
+	const budget: NativeProjectionBudget = { remaining: DESKTOP_SUBAGENT_NODE_LIMIT, omitted: 0 };
+	const entriesByParent = new Map<string, FleetStatusEntry[]>();
+	for (const entry of entries) {
+		if (!entry.parentKey) continue;
+		const children = entriesByParent.get(entry.parentKey) ?? [];
+		children.push(entry);
+		entriesByParent.set(entry.parentKey, children);
+	}
+	const countEntrySubtree = (entry: FleetStatusEntry, ancestors = new Set<string>()): number => {
+		if (ancestors.has(entry.key)) return 0;
+		const nextAncestors = new Set(ancestors).add(entry.key);
+		return 1
+			+ (entry.workflowRows?.length ?? 0)
+			+ nativeNestedNodeCount(entry.nestedChildren)
+			+ (entriesByParent.get(entry.key)?.reduce((count, child) => count + countEntrySubtree(child, nextAncestors), 0) ?? 0);
+	};
+	const appendEntry = (entry: FleetStatusEntry, depth: number, ancestors = new Set<string>()): DesktopSubagentNode | undefined => {
+		if (budget.remaining <= 0 || ancestors.has(entry.key)) {
+			budget.omitted += countEntrySubtree(entry, ancestors);
+			return undefined;
+		}
+		budget.remaining--;
+		const nextAncestors = new Set(ancestors).add(entry.key);
+		const attached: DesktopSubagentNode[] = [];
+		let workflowNodes: DesktopSubagentNode[] = [];
+		let nestedNodes: DesktopSubagentNode[] = [];
+		if (depth < DESKTOP_SUBAGENT_DEPTH_LIMIT) {
+			let availableChildren = DESKTOP_SUBAGENT_CHILD_LIMIT;
+			const childEntries = entriesByParent.get(entry.key) ?? [];
+			for (const [index, child] of childEntries.entries()) {
+				if (availableChildren <= 0) {
+					budget.omitted += childEntries.slice(index).reduce((count, omitted) => count + countEntrySubtree(omitted, nextAncestors), 0);
+					break;
+				}
+				const node = appendEntry(child, depth + 1, nextAncestors);
+				if (node) {
+					attached.push(node);
+					availableChildren--;
+				}
+			}
+			workflowNodes = nativeWorkflowNodes(entry.workflowRows, budget, availableChildren);
+			availableChildren -= workflowNodes.length;
+			nestedNodes = nativeNestedNodes(entry.nestedChildren, depth + 1, budget, availableChildren);
+		} else {
+			budget.omitted += (entriesByParent.get(entry.key)?.reduce((count, child) => count + countEntrySubtree(child, nextAncestors), 0) ?? 0)
+				+ (entry.workflowRows?.length ?? 0)
+				+ nativeNestedNodeCount(entry.nestedChildren);
+		}
+		const children = [...attached, ...workflowNodes, ...nestedNodes];
+		return {
+			id: nativeText(entry.key),
+			kind: entry.surface === "project-pane" ? "project-pane" : entry.external ? "external" : entry.workflowWrapper ? "workflow" : "subagent",
+			label: nativeText(entry.agent),
+			state: nativeText(entry.state),
+			...(entry.runId ? { runId: nativeText(entry.runId) } : {}),
+			...(entry.modelThinking ? { modelThinking: nativeText(entry.modelThinking) } : {}),
+			...(entry.description ? { description: nativeText(entry.description) } : {}),
+			...(entry.activity ? { activity: nativeText(entry.activity) } : {}),
+			...(entry.startedAt !== undefined ? { startedAt: entry.startedAt } : {}),
+			...(entry.updatedAt !== undefined ? { updatedAt: entry.updatedAt } : {}),
+			...(entry.tokens > 0 ? { tokens: entry.tokens } : {}),
+			...(entry.window !== undefined ? { window: entry.window } : {}),
+			...(entry.toolCount !== undefined ? { toolCount: entry.toolCount } : {}),
+			...(entry.turnCount !== undefined ? { turnCount: entry.turnCount } : {}),
+			...(children.length ? { children } : {}),
+		};
+	};
+	const roots: DesktopSubagentNode[] = [];
+	for (const [index, entry] of entries.entries()) {
+		if (entry.parentKey) continue;
+		if (roots.length >= 20 || budget.remaining <= 0) {
+			budget.omitted += entries
+				.slice(index)
+				.filter((candidate) => !candidate.parentKey)
+				.reduce((count, candidate) => count + countEntrySubtree(candidate), 0);
+			break;
+		}
+		const node = appendEntry(entry, 0);
+		if (node) roots.push(node);
+	}
+	const usageEntries = entries.filter((entry) => !entry.parentKey);
+	return {
+		type: "subagents",
+		version: 1,
+		source: "fleet",
+		generatedAt,
+		summary: {
+			activeAgents: activeLeafAgentCount(entries.filter((entry) => !entry.surface)),
+			asyncRunsUsed: capacity?.used ?? 0,
+			asyncRunsLimit: capacity?.limit ?? 0,
+			totalTokens: nativeUsageTotal(usageEntries),
+		},
+		nodes: roots,
+		omittedNodeCount: budget.omitted,
+	};
+}
+
 function projectPaneNeedsAttention(pane: HerdrProjectPaneSnapshot): boolean {
 	return ["attention", "blocked", "paused", "failed", "error"].some((status) => pane.agentStatus.includes(status))
 		|| pane.summary?.includes("⚠") === true;
@@ -350,13 +620,18 @@ export function collectFleetStatusEntries(state: SubagentState): FleetStatusEntr
 					?? (control.activeChildren.size === 1 && nestedChildren.length ? nestedChildren : undefined);
 				entries.push({
 					key: `foreground-active:${control.runId}:${child.index}`,
+					runId: control.runId,
 					...(linkedParentKey ? { parentKey: linkedParentKey } : {}),
 					agent: child.agent,
 					...(modelThinking ? { modelThinking } : {}),
 					description: foregroundDescription(control, child.description),
+					...(nestedActivity(child) ? { activity: nestedActivity(child) } : {}),
 					startedAt: child.startedAt,
+					updatedAt: child.lastActivityAt,
 					tokens: child.tokens ?? 0,
 					...(child.window !== undefined ? { window: child.window } : {}),
+					...(child.toolCount !== undefined ? { toolCount: child.toolCount } : {}),
+					...(child.turnCount !== undefined ? { turnCount: child.turnCount } : {}),
 					state: "running",
 					...(childNestedChildren?.length ? { nestedChildren: childNestedChildren } : {}),
 				});
@@ -366,13 +641,18 @@ export function collectFleetStatusEntries(state: SubagentState): FleetStatusEntr
 		const modelThinking = formatModelThinking(control.model, control.thinking) || undefined;
 		entries.push({
 			key: `foreground-active:${control.runId}:${control.currentIndex ?? 0}`,
+			runId: control.runId,
 			...(linkedParentKey ? { parentKey: linkedParentKey } : {}),
 			agent: control.currentAgent ?? control.mode,
 			...(modelThinking ? { modelThinking } : {}),
 			description: foregroundDescription(control, control.description),
+			...(nestedActivity(control) ? { activity: nestedActivity(control) } : {}),
 			startedAt: control.startedAt,
+			updatedAt: control.lastActivityAt,
 			tokens: control.tokens ?? 0,
 			...(control.window !== undefined ? { window: control.window } : {}),
+			...(control.toolCount !== undefined ? { toolCount: control.toolCount } : {}),
+			...(control.turnCount !== undefined ? { turnCount: control.turnCount } : {}),
 			state: "running",
 			...(control.nestedChildren?.length ? { nestedChildren: control.nestedChildren } : {}),
 		});
@@ -396,13 +676,18 @@ export function collectFleetStatusEntries(state: SubagentState): FleetStatusEntr
 			});
 			entries.push({
 				key: `async:${job.asyncId}`,
+				runId: job.asyncId,
 				...(linkedParentKey ? { parentKey: linkedParentKey } : {}),
 				workflowWrapper: true,
 				agent: "workflow",
 				description: latestEmit !== undefined ? `latest emit: ${latestEmit}` : job.description,
+				...(job.currentTool ? { activity: `tool ${job.currentTool}` } : job.activityState ? { activity: job.activityState } : {}),
 				startedAt,
+				updatedAt: job.updatedAt,
 				tokens: job.totalTokens?.total ?? 0,
 				...(job.totalTokens?.window !== undefined ? { window: job.totalTokens.window } : {}),
+				...(job.toolCount !== undefined ? { toolCount: job.toolCount } : {}),
+				...(job.turnCount !== undefined ? { turnCount: job.turnCount } : {}),
 				state: job.status,
 				...(workflowRows.length ? { workflowRows } : {}),
 				...(workflowChecklist.total ? { workflowChecklist } : {}),
@@ -420,12 +705,17 @@ export function collectFleetStatusEntries(state: SubagentState): FleetStatusEntr
 		if (!steps?.length) {
 			entries.push({
 				key: `async:${job.asyncId}`,
+				runId: job.asyncId,
 				...(linkedParentKey ? { parentKey: linkedParentKey } : {}),
 				agent: job.mode ?? "subagent",
 				description: job.description,
+				...(job.currentTool ? { activity: `tool ${job.currentTool}` } : job.activityState ? { activity: job.activityState } : {}),
 				startedAt,
+				updatedAt: job.updatedAt,
 				tokens: job.totalTokens?.total ?? 0,
 				...(job.totalTokens?.window !== undefined ? { window: job.totalTokens.window } : {}),
+				...(job.toolCount !== undefined ? { toolCount: job.toolCount } : {}),
+				...(job.turnCount !== undefined ? { turnCount: job.turnCount } : {}),
 				state: job.status,
 				...(job.nestedChildren?.length ? { nestedChildren: job.nestedChildren } : {}),
 			});
@@ -438,15 +728,20 @@ export function collectFleetStatusEntries(state: SubagentState): FleetStatusEntr
 			const modelThinking = formatModelThinking(step.model, step.thinking) || undefined;
 			entries.push({
 				key: `async:${job.asyncId}:${index}`,
+				runId: job.asyncId,
 				...(linkedParentKey ? { parentKey: linkedParentKey } : {}),
 				agent: step.label ? `${step.label} (${step.agent})` : step.agent,
 				...(modelThinking ? { modelThinking } : {}),
 				description: step.description ?? job.description,
+				...(nestedActivity(step) ? { activity: nestedActivity(step) } : {}),
 				startedAt: step.startedAt ?? startedAt,
+				updatedAt: step.lastActivityAt ?? job.updatedAt,
 				tokens: step.tokens?.total ?? (steps.length === 1 ? job.totalTokens?.total ?? 0 : 0),
 				...((step.tokens?.window ?? (steps.length === 1 ? job.totalTokens?.window : undefined)) !== undefined
 					? { window: step.tokens?.window ?? job.totalTokens?.window }
 					: {}),
+				...(step.toolCount !== undefined ? { toolCount: step.toolCount } : {}),
+				...(step.turnCount !== undefined ? { turnCount: step.turnCount } : {}),
 				state: step.status,
 				...((step.children?.length ?? 0) > 0
 					? { nestedChildren: step.children }
@@ -463,6 +758,7 @@ export function collectFleetStatusEntries(state: SubagentState): FleetStatusEntr
 				if (!isActiveState(run.state)) continue;
 				entries.push({
 					key: `external:${run.id}`,
+					runId: run.id,
 					agent: `external · ${run.label}`,
 					description: run.currentAction ?? `source: ${run.source}`,
 					startedAt: run.startedAt,
@@ -563,6 +859,21 @@ export class SubagentFleetStatus {
 		}
 
 		const renderKey = this.getRenderKey();
+		if (supportsDesktopNativeWidgets(ctx)) {
+			const nativeContent = buildFleetDesktopStatus(
+				this.entries,
+				this.state.activeAsyncCapacity,
+				Math.floor(Date.now() / 1_000) * 1_000,
+			);
+			const nativeRenderKey = JSON.stringify(nativeContent);
+			if (this.widgetRegistered && nativeRenderKey === this.lastRenderKey) return;
+			const options: DesktopSubagentWidgetOptions = { placement: this.placement, nativeContent };
+			const fallbackLines = [`Subagents · ${nativeContent.summary.activeAgents} active · ${nativeContent.summary.asyncRunsUsed}/${nativeContent.summary.asyncRunsLimit || "∞"} async`];
+			ctx.ui.setWidget(FLEET_STATUS_WIDGET_KEY, fallbackLines, options);
+			this.widgetRegistered = true;
+			this.lastRenderKey = nativeRenderKey;
+			return;
+		}
 		if (!this.widgetRegistered) {
 			ctx.ui.setWidget(FLEET_STATUS_WIDGET_KEY, (tui, theme) => {
 				this.tui = tui;

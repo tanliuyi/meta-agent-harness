@@ -30,6 +30,7 @@ vi.mock("../src/renderer/src/components/session-context.tsx", () => ({
 
 import {
   isLocalFileLink,
+  isLocalMarkdownLink,
   LinkSafetyModal,
 } from "../src/renderer/src/components/assistant-ui/streamdown/link-safety-modal.tsx";
 
@@ -50,6 +51,11 @@ describe("LinkSafetyModal", () => {
       expect(isLocalFileLink(url)).toBe(false);
     },
   );
+
+  it("recognizes encoded Windows and UNC paths as local without decoding reserved characters", () => {
+    expect(isLocalMarkdownLink("/.meta-agent-local/windows/C:/workspace/docs/a%23b.md")).toBe(true);
+    expect(isLocalMarkdownLink("/.meta-agent-local/windows/UNC/server/share/docs/a%23b.md")).toBe(true);
+  });
 
   it("does not render the external-link dialog for a project file", () => {
     const markup = renderToStaticMarkup(

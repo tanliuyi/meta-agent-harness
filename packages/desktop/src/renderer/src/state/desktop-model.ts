@@ -47,6 +47,7 @@ export type DesktopAction =
       title: string;
       updatedAt: number;
       running: boolean;
+      blocked?: boolean;
     }
   | { type: "loading"; loading: boolean }
   | { type: "error"; error: string | null };
@@ -156,11 +157,13 @@ export function desktopReducer(state: DesktopState, action: DesktopAction): Desk
       const current = threads[index];
       if (!current) return state;
       const title = liveThreadTitle(current, action.title);
+      const blocked = action.blocked ?? current.blocked;
       const completed = current.running && !action.running ? true : current.completed;
       if (
         current.title === title &&
         current.updatedAt === action.updatedAt &&
         current.running === action.running &&
+        current.blocked === blocked &&
         current.completed === completed
       ) {
         return state;
@@ -171,6 +174,7 @@ export function desktopReducer(state: DesktopState, action: DesktopAction): Desk
         title,
         updatedAt: action.updatedAt,
         running: action.running,
+        blocked,
         ...(completed ? { completed: true } : {}),
       };
       next.sort((left, right) => right.updatedAt - left.updatedAt);
@@ -218,6 +222,7 @@ export function threadFromBootstrap(bootstrap: SessionBootstrap): Thread {
     lastAssistantPreview,
     archived: false,
     running: bootstrap.timeline.phase !== "idle",
+    ...(bootstrap.control.hostRequests.length > 0 ? { blocked: true } : {}),
   };
 }
 
@@ -239,10 +244,11 @@ function reuseThreadCatalog(previous: Thread[] | undefined, next: Thread[]): Thr
   const stable = next.map((thread) => {
     const current = previousById.get(thread.id);
     if (!current) return thread;
-    if (current.title !== thread.title || current.completed) {
+    if (current.title !== thread.title || current.blocked || current.completed) {
       return {
         ...thread,
         title: current.title,
+        ...(current.blocked ? { blocked: true } : {}),
         ...(current.completed ? { completed: true } : {}),
       };
     }
@@ -265,6 +271,7 @@ function mergeCatalogThread(current: Thread, update: Thread): Thread {
     lastUserPreview: update.lastUserPreview ?? current.lastUserPreview,
     lastAssistantPreview: update.lastAssistantPreview ?? current.lastAssistantPreview,
     archived: current.archived,
+    ...(current.blocked ? { blocked: true } : {}),
     ...(completed ? { completed: true } : {}),
     ...(parentThreadId ? { parentThreadId } : {}),
     ...(origin ? { origin } : {}),
@@ -290,6 +297,7 @@ function equalThread(left: Thread, right: Thread | undefined): boolean {
     left.lastAssistantPreview === right.lastAssistantPreview &&
     left.archived === right.archived &&
     left.running === right.running &&
+    left.blocked === right.blocked &&
     left.completed === right.completed &&
     left.parentThreadId === right.parentThreadId &&
     left.origin === right.origin &&

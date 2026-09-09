@@ -19,6 +19,7 @@
 import { writeFileSync, mkdirSync } from "node:fs";
 import path from "node:path";
 import { sha256, zipEntries } from "./lib/zip.mjs";
+import { normalizeApiRoot } from "./session.mjs";
 
 async function main() {
   const args = process.argv.slice(2);
@@ -28,8 +29,14 @@ async function main() {
     if (args[i] === "--out" && args[i + 1]) outDir = args[++i];
     else positional.push(args[i]);
   }
-  const [apiRoot, pluginId, version] = positional;
-  if (!apiRoot || !pluginId || !version) {
+  const [apiRootArg, pluginId, version] = positional;
+  if (!apiRootArg || !pluginId || !version) {
+    console.error("usage: node verify.mjs <apiRoot> <pluginId> <version> [--out <dir>]");
+    process.exitCode = 2;
+    return;
+  }
+  const apiRoot = normalizeApiRoot(apiRootArg);
+  if (!apiRoot) {
     console.error("usage: node verify.mjs <apiRoot> <pluginId> <version> [--out <dir>]");
     process.exitCode = 2;
     return;

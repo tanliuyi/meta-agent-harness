@@ -335,6 +335,18 @@ const META_AGENT_MODELS = [
     maxTokens: 128000,
     compat: { supportsToolSearch: true },
   },
+  {
+    id: "gpt-6-astra",
+    name: "GPT-6 Astra",
+    api: "openai-responses",
+    reasoning: true,
+    thinkingLevelMap: { xhigh: "xhigh", max: "max", minimal: "low" },
+    input: ["text", "image"],
+    cost: { input: 10, output: 50, cacheRead: 1, cacheWrite: 12.5 },
+    contextWindow: 272000,
+    maxTokens: 128000,
+    compat: { supportsToolSearch: true },
+  },
 ] satisfies ModelsModelDefinition[];
 
 DesktopBuiltinProviderRegistry.register(META_AGENT_ID, {

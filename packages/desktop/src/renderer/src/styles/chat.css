@@ -302,6 +302,85 @@
   display: flex;
   flex-direction: column;
 }
+.run-code-details,
+.run-code-list {
+  display: grid;
+  min-width: 0;
+}
+.run-code-row {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  font-family: var(--font-family-mono);
+}
+.run-code-row + .run-code-row {
+  border-top: 1px solid hsl(var(--foreground) / 0.07);
+}
+.run-code-row[data-state="running"] {
+  background: hsl(var(--info) / 0.05);
+}
+.run-code-row[data-state="error"] {
+  background: hsl(var(--destructive) / 0.06);
+}
+.run-code-method {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--type-size-control);
+  font-weight: 600;
+}
+.run-code-state {
+  display: inline-flex;
+  max-width: min(50%, 280px);
+  flex: 0 1 auto;
+  align-items: center;
+  gap: 5px;
+  overflow: hidden;
+  color: hsl(var(--muted-foreground));
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--type-size-meta);
+  font-variant-numeric: tabular-nums;
+}
+.run-code-state::before {
+  width: 6px;
+  height: 6px;
+  flex: 0 0 6px;
+  border-radius: var(--shape-radius-round);
+  background: currentColor;
+  content: "";
+}
+.run-code-row[data-state="running"] .run-code-state {
+  color: hsl(var(--info));
+}
+.run-code-row[data-state="complete"] .run-code-state {
+  color: hsl(var(--success));
+}
+.run-code-row[data-state="error"] .run-code-state,
+.run-code-row[data-state="aborted"] .run-code-state {
+  color: hsl(var(--destructive));
+}
+.run-code-row > .tool-code {
+  grid-column: 1 / -1;
+  margin: 0 -10px -6px;
+  border-top: 1px solid hsl(var(--foreground) / 0.07);
+}
+.run-code-logs,
+.run-code-list,
+.run-code-attachments {
+  border-bottom: 1px solid hsl(var(--foreground) / 0.07);
+}
+.run-code-attachments {
+  display: flex;
+  min-width: 0;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 5px 10px;
+}
 .tool-output {
   min-width: 0;
 }

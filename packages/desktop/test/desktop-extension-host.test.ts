@@ -194,6 +194,78 @@ describe("DesktopExtensionHost", () => {
     expect(warnings).toContain("Desktop extension native widget content is invalid; rendering text fallback");
   });
 
+  it("accepts bounded native subagent status and rejects over-depth content", () => {
+    const warnings: string[] = [];
+    const host = new DesktopExtensionHost(
+      () => undefined,
+      () => [],
+      () => undefined,
+      (message) => warnings.push(message),
+    );
+    const ui = host.createContext();
+    const nativeContent = {
+      type: "subagents" as const,
+      version: 1 as const,
+      source: "fleet" as const,
+      generatedAt: 1_000,
+      summary: { activeAgents: 1, asyncRunsUsed: 1, asyncRunsLimit: 4, totalTokens: 2_000_000 },
+      nodes: [
+        {
+          id: "workflow:1",
+          kind: "workflow" as const,
+          label: "Implementation",
+          state: "running",
+          children: [
+            {
+              id: "worker:1",
+              kind: "subagent" as const,
+              label: "worker",
+              state: "running",
+              modelThinking: "GPT 5.6 Sol · medium",
+              activity: "tool edit",
+              toolCount: 3,
+              tokens: 2_000_000,
+            },
+          ],
+        },
+      ],
+      omittedNodeCount: 0,
+    };
+
+    ui.setWidget("fleet", ["Subagents"], { nativeContent } as never);
+    expect(host.hostState.widgets[0]?.nativeContent).toEqual(nativeContent);
+
+    const tooDeep = structuredClone(nativeContent);
+    tooDeep.nodes[0]!.children = [
+      {
+        id: "1",
+        kind: "step",
+        label: "1",
+        state: "running",
+        children: [
+          {
+            id: "2",
+            kind: "step",
+            label: "2",
+            state: "running",
+            children: [
+              {
+                id: "3",
+                kind: "step",
+                label: "3",
+                state: "running",
+                children: [{ id: "4", kind: "step", label: "4", state: "running" }],
+              },
+            ],
+          },
+        ],
+      },
+    ];
+    ui.setWidget("fleet", ["fallback"], { nativeContent: tooDeep } as never);
+    expect(host.hostState.widgets[0]).toEqual({ key: "fleet", lines: ["fallback"], placement: "belowEditor" });
+    expect(warnings).toContain("Desktop extension native widget content is invalid; rendering text fallback");
+  });
+
   it("uses a fresh composer command identity after host replacement", () => {
     const first = new DesktopExtensionHost(
       () => undefined,

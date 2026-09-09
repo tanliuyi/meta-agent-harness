@@ -47,3 +47,4 @@ output/
 .tmp*/
 dist-skill/
 .pi/subagents/
+NUL

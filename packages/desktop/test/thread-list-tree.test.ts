@@ -64,11 +64,11 @@ describe("thread list tree", () => {
     ]);
     expect(flattenVisibleThreadTree(roots, new Set())[0]).toMatchObject({
       childCount: 1,
-      runningChildCount: 1,
+      runningDescendantCount: 1,
     });
   });
 
-  it("counts only directly running child sessions", () => {
+  it("counts running descendants through the full child-session tree", () => {
     const roots = threadTreeByArchiveState(
       [
         thread("parent", 50),
@@ -84,11 +84,11 @@ describe("thread list tree", () => {
 
     expect(visible.find(({ thread: item }) => item.id === "parent")).toMatchObject({
       childCount: 2,
-      runningChildCount: 1,
+      runningDescendantCount: 2,
     });
     expect(visible.find(({ thread: item }) => item.id === "idle-child")).toMatchObject({
       childCount: 1,
-      runningChildCount: 1,
+      runningDescendantCount: 1,
     });
   });
 

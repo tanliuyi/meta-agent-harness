@@ -5,6 +5,7 @@ import type {
   SessionControlState,
   SlashCommand,
 } from "../../../shared/contracts.ts";
+import type { DesktopSubagentWidgetNode } from "../../../shared/desktop-extension-contracts.ts";
 import type { PiGoalSnapshot } from "../../../shared/pi-goal-contracts.ts";
 
 /**
@@ -108,8 +109,19 @@ function equalNativeWidgetContent(
   right: DesktopExtensionHostState["widgets"][number]["nativeContent"],
 ): boolean {
   if (!left || !right) return left === right;
+  if (left.type !== right.type) return false;
+  if (left.type === "subagents" && right.type === "subagents") {
+    return (
+      left.version === right.version &&
+      left.source === right.source &&
+      left.generatedAt === right.generatedAt &&
+      equalRecord(left.summary, right.summary) &&
+      left.omittedNodeCount === right.omittedNodeCount &&
+      equalArray(left.nodes, right.nodes, equalSubagentWidgetNode)
+    );
+  }
+  if (left.type !== "todo" || right.type !== "todo") return false;
   return (
-    left.type === right.type &&
     left.version === right.version &&
     equalRecord(left.summary, right.summary) &&
     left.labels.heading === right.labels.heading &&
@@ -126,6 +138,28 @@ function equalNativeWidgetContent(
         leftTask.activeForm === rightTask.activeForm &&
         equalOptionalArray(leftTask.blockedBy, rightTask.blockedBy, Object.is),
     )
+  );
+}
+
+function equalSubagentWidgetNode(left: DesktopSubagentWidgetNode, right: DesktopSubagentWidgetNode): boolean {
+  return (
+    left.id === right.id &&
+    left.kind === right.kind &&
+    left.label === right.label &&
+    left.state === right.state &&
+    left.runId === right.runId &&
+    left.modelThinking === right.modelThinking &&
+    left.description === right.description &&
+    left.activity === right.activity &&
+    left.startedAt === right.startedAt &&
+    left.updatedAt === right.updatedAt &&
+    left.endedAt === right.endedAt &&
+    left.tokens === right.tokens &&
+    left.window === right.window &&
+    left.toolCount === right.toolCount &&
+    left.turnCount === right.turnCount &&
+    left.verdict === right.verdict &&
+    equalOptionalArray(left.children, right.children, equalSubagentWidgetNode)
   );
 }
 

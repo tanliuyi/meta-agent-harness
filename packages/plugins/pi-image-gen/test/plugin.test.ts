@@ -39,6 +39,15 @@ describe("configuration", () => {
     expect(resolveModel("image2", settings)).toHaveProperty("error");
   });
 
+  it("resolves GPT Image 2.5 models through OpenAI", () => {
+    const settings = createImageGenSettings({ openaiApiKey: "openai-host-key" });
+    for (const model of ["gpt-image-2.5-sunburst", "gpt-image-2.5-flare"]) {
+      const resolved = resolveModel(model, settings);
+      if ("error" in resolved) throw new Error(`Expected ${model} to resolve`);
+      expect(resolved).toMatchObject({ remoteId: model, provider: { api: "openai" } });
+    }
+  });
+
   it("accepts host configuration and falls back to provider environment variables", () => {
     vi.stubEnv("GEMINI_API_KEY", "gemini-env-key");
     const settings = createImageGenSettings({

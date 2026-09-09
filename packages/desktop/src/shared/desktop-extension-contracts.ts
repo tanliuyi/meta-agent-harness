@@ -172,6 +172,43 @@ export interface DesktopTodoWidgetContent {
   hiddenTaskCount: number;
 }
 
+export interface DesktopSubagentWidgetNode {
+  id: string;
+  kind: "subagent" | "workflow" | "step" | "host-step" | "external" | "project-pane";
+  label: string;
+  state: string;
+  runId?: string;
+  modelThinking?: string;
+  description?: string;
+  activity?: string;
+  startedAt?: number;
+  updatedAt?: number;
+  endedAt?: number;
+  tokens?: number;
+  window?: number;
+  toolCount?: number;
+  turnCount?: number;
+  verdict?: "pass" | "fail" | "inconclusive";
+  children?: DesktopSubagentWidgetNode[];
+}
+
+export interface DesktopSubagentWidgetContent {
+  type: "subagents";
+  version: 1;
+  source: "fleet" | "async";
+  generatedAt: number;
+  summary: {
+    activeAgents: number;
+    asyncRunsUsed: number;
+    asyncRunsLimit: number;
+    totalTokens: number;
+  };
+  nodes: DesktopSubagentWidgetNode[];
+  omittedNodeCount: number;
+}
+
+export type DesktopNativeWidgetContent = DesktopTodoWidgetContent | DesktopSubagentWidgetContent;
+
 export interface DesktopExtensionHostState {
   statuses: Record<string, string>;
   windowTitle?: string;
@@ -189,7 +226,7 @@ export interface DesktopExtensionHostState {
     hostId?: string;
     columns?: number;
     truncated?: boolean;
-    nativeContent?: DesktopTodoWidgetContent;
+    nativeContent?: DesktopNativeWidgetContent;
   }>;
   working?: {
     message?: string;

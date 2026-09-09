@@ -118,6 +118,36 @@ describe("desktop catalog reducer", () => {
     expect(state).not.toHaveProperty("controls");
   });
 
+  it("cached control 在阻塞时标记等待操作，并在交互完成后清除", () => {
+    let state = desktopReducer(INITIAL_STATE, {
+      type: "project-threads-loaded",
+      projectId: project.id,
+      threads: [{ ...thread, running: true }],
+    });
+
+    state = desktopReducer(state, {
+      type: "thread-summary-updated",
+      projectId: project.id,
+      threadId: thread.id,
+      title: thread.title,
+      updatedAt: 2,
+      running: true,
+      blocked: true,
+    });
+    expect(state.threadCatalogs[project.id]?.[0]).toMatchObject({ running: true, blocked: true });
+
+    state = desktopReducer(state, {
+      type: "thread-summary-updated",
+      projectId: project.id,
+      threadId: thread.id,
+      title: thread.title,
+      updatedAt: 3,
+      running: true,
+      blocked: false,
+    });
+    expect(state.threadCatalogs[project.id]?.[0]?.blocked).toBe(false);
+  });
+
   it("subagent ordinary control 不用 Read from 前缀覆盖任务标题，但接受显式重命名", () => {
     const subagent: Thread = {
       ...thread,
