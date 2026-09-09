@@ -11,6 +11,7 @@ import {
   markdownImageSourceToUrl,
   markdownLocalPath,
   preprocessMarkdownImages,
+  resolveMarkdownDestination,
   resolveRelativeMarkdownPath,
 } from "../src/shared/markdown-image-contracts.ts";
 
@@ -38,22 +39,21 @@ describe("Markdown images", () => {
       '[带标题](docs/guide.md "指南")',
     ].join("\n\n");
 
-    expect(preprocessMarkdownImages(markdown, "/workspace/session-a")).toBe(
-      [
-        "![gundam_mecha](/workspace/session-a/gundam_mecha.png)",
-        "[文件位置](/workspace/session-a/art/gundam_mecha.png)",
-        "[上级文档](/workspace/README.md)",
-        '[带标题](/workspace/session-a/docs/guide.md "指南")',
-      ].join("\n\n"),
+    expect(resolveMarkdownDestination("gundam_mecha.png", "/workspace/session-a")).toBe(
+      "/workspace/session-a/gundam_mecha.png",
     );
+    expect(resolveMarkdownDestination("./art/gundam_mecha.png", "/workspace/session-a")).toBe(
+      "/workspace/session-a/art/gundam_mecha.png",
+    );
+    expect(resolveMarkdownDestination("../README.md", "/workspace/session-a")).toBe("/workspace/README.md");
     expect(resolveRelativeMarkdownPath("images/My%20Mecha.png", "C:\\workspace\\session-b")).toBe(
       "/.meta-agent-local/windows/C:/workspace/session-b/images/My%20Mecha.png",
     );
     expect(resolveRelativeMarkdownPath("../mecha.png", "C:\\workspace\\session-b")).toBe(
       "/.meta-agent-local/windows/C:/workspace/mecha.png",
     );
-    expect(preprocessMarkdownImages("![absolute](C:\\workspace\\mecha.png)")).toBe(
-      "![absolute](/.meta-agent-local/windows/C:/workspace/mecha.png)",
+    expect(resolveMarkdownDestination("C:\\workspace\\mecha.png")).toBe(
+      "/.meta-agent-local/windows/C:/workspace/mecha.png",
     );
   });
 
@@ -81,18 +81,12 @@ describe("Markdown images", () => {
       "![paren](<images/a)b.png>)",
     ].join("\n");
 
-    expect(preprocessMarkdownImages(markdown, "/workspace")).toBe(
-      [
-        "`[inline](docs/inline.md)`",
-        "```md",
-        "![fenced](images/fenced.png)",
-        "```",
-        "[hash](/workspace/docs/a%23b.md)",
-        "![paren](</workspace/images/a)b.png>)",
-      ].join("\n"),
-    );
+    expect(preprocessMarkdownImages(markdown)).toBe(markdown);
     expect(resolveRelativeMarkdownPath("x.png", "/")).toBe("/x.png");
     expect(resolveRelativeMarkdownPath("../../../x.png", "\\\\server\\share\\project")).toBe(
+      "/.meta-agent-local/windows/UNC/server/share/x.png",
+    );
+    expect(resolveRelativeMarkdownPath("../../../../x.png", "\\\\server\\share")).toBe(
       "/.meta-agent-local/windows/UNC/server/share/x.png",
     );
 
@@ -122,29 +116,7 @@ describe("Markdown images", () => {
       "[ordinary](docs/resolved.md)",
     ].join("\n");
 
-    expect(preprocessMarkdownImages(markdown, "/workspace")).toBe(
-      [
-        "    [indented](docs/indented.md)",
-        "> ```md",
-        "> [quoted fence](docs/quoted.md)",
-        "> ```",
-        "- item",
-        "  ````md",
-        "  [list fence](docs/list.md)",
-        "  ````",
-        "`cross-line code",
-        "[cross-line](docs/cross.md)",
-        "end code`",
-        "``[exact code](docs/exact.md)``",
-        "``[not code](/workspace/docs/ordinary.md)```",
-        "[ordinary](/workspace/docs/resolved.md)",
-      ].join("\n"),
-    );
-
-    const crlf = "```md\r\n[fenced](docs/fenced.md)\r\n```\r\n[after](docs/after.md)";
-    expect(preprocessMarkdownImages(crlf, "/workspace")).toBe(
-      "```md\r\n[fenced](docs/fenced.md)\r\n```\r\n[after](/workspace/docs/after.md)",
-    );
+    expect(preprocessMarkdownImages(markdown)).toBe(markdown);
 
     const markup = renderToStaticMarkup(
       <StreamdownMarkdown cwd="/workspace" linkSafety={{ enabled: false }}>
@@ -157,26 +129,22 @@ describe("Markdown images", () => {
   });
 
   it("keeps Windows and UNC URL escapes encoded until their final consumer", () => {
-    const windowsLink = preprocessMarkdownImages("[file](docs/a%23b.md)", "C:/workspace");
-    const encodedWindowsTarget = windowsLink.slice("[file](".length, -1);
+    const encodedWindowsTarget = resolveMarkdownDestination("docs/a%23b.md", "C:/workspace") ?? "";
     expect(encodedWindowsTarget).toBe("/.meta-agent-local/windows/C:/workspace/docs/a%23b.md");
     expect(isEncodedMarkdownLocalPath(encodedWindowsTarget)).toBe(true);
     expect(markdownLocalPath(encodedWindowsTarget)).toBe("C:/workspace/docs/a%23b.md");
 
-    const windowsImage = preprocessMarkdownImages("![image](docs/a%2523b.png)", "C:/workspace");
-    const encodedWindowsSource = windowsImage.slice("![image](".length, -1);
+    const encodedWindowsSource = resolveMarkdownDestination("docs/a%2523b.png", "C:/workspace") ?? "";
     expect(markdownImageSourceToUrl(encodedWindowsSource)).toBe(
       "meta-agent-markdown-image://local/image?source=C%3A%2Fworkspace%2Fdocs%2Fa%2523b.png",
     );
     expect(markdownImageFilename(encodedWindowsSource, "image")).toBe("a%23b.png");
 
-    const uncLink = preprocessMarkdownImages("[file](docs/a%23b.md)", "\\\\server\\share");
-    const encodedUncTarget = uncLink.slice("[file](".length, -1);
+    const encodedUncTarget = resolveMarkdownDestination("docs/a%23b.md", "\\\\server\\share") ?? "";
     expect(markdownLocalPath(encodedUncTarget)).toBe("//server/share/docs/a%23b.md");
     expect(isEncodedMarkdownLocalPath(encodedUncTarget)).toBe(true);
 
-    const uncImage = preprocessMarkdownImages("![image](docs/a%2523b.png)", "\\\\server\\share");
-    const encodedUncSource = uncImage.slice("![image](".length, -1);
+    const encodedUncSource = resolveMarkdownDestination("docs/a%2523b.png", "\\\\server\\share") ?? "";
     expect(markdownLocalPath(encodedUncSource)).toBe("//server/share/docs/a%2523b.png");
     expect(markdownImageSourceToUrl(encodedUncSource)).toBe(
       "meta-agent-markdown-image://local/image?source=%2F%2Fserver%2Fshare%2Fdocs%2Fa%2523b.png",
@@ -252,6 +220,63 @@ describe("Markdown images", () => {
     expect(markup).toContain("预览图片");
     expect(markup).toContain("下载图片");
     expect(markup).toContain("引用图片");
+  });
+
+  it("distinguishes external and local links with icons without decorating fragments or linked images", () => {
+    const markup = renderToStaticMarkup(
+      <TooltipProvider>
+        <StreamdownMarkdown cwd="/workspace" linkSafety={{ enabled: false }}>
+          {
+            '[external](https://example.com "External") [file](docs/readme.md) [reference][guide] [fragment](#details) [![image](image.png)](https://example.com/image)\n\n[guide]: docs/guide.md'
+          }
+        </StreamdownMarkdown>
+      </TooltipProvider>,
+    );
+
+    expect(markup.match(/lucide-external-link/gu)).toHaveLength(1);
+    expect(markup.match(/lucide-file/gu)).toHaveLength(2);
+    expect(markup).toContain('title="External"');
+    expect(markup).toContain('href="/workspace/docs/guide.md"');
+    expect(markup).toContain('href="#details"');
+    expect(markup).toContain('aria-hidden="true"');
+    expect(markup).not.toContain("[blocked]");
+  });
+
+  it("decodes URL escapes exactly once at the image protocol boundary", () => {
+    const markup = renderToStaticMarkup(
+      <TooltipProvider>
+        <StreamdownMarkdown cwd="/workspace" linkSafety={{ enabled: false }}>
+          {
+            "![paren](images/a%28b%29.png) ![space](images/a%20b.png) ![hash](images/a%23b.png) ![percent](images/a%25b.png) ![literal escape](images/a%2528b.png)"
+          }
+        </StreamdownMarkdown>
+      </TooltipProvider>,
+    );
+
+    expect(markup).toContain("source=%2Fworkspace%2Fimages%2Fa(b).png");
+    expect(markup).toContain("source=%2Fworkspace%2Fimages%2Fa%20b.png");
+    expect(markup).toContain("source=%2Fworkspace%2Fimages%2Fa%23b.png");
+    expect(markup).toContain("source=%2Fworkspace%2Fimages%2Fa%25b.png");
+    expect(markup).toContain("source=%2Fworkspace%2Fimages%2Fa%2528b.png");
+  });
+
+  it("preserves Streamdown link safety rendering while adding icons", () => {
+    const markup = renderToStaticMarkup(
+      <StreamdownMarkdown
+        linkSafety={{
+          enabled: true,
+          renderModal: ({ url }) => <span data-modal-url={url} />,
+        }}
+      >
+        {'[external](https://example.com "External")'}
+      </StreamdownMarkdown>,
+    );
+
+    expect(markup).toContain('type="button"');
+    expect(markup).toContain('data-streamdown="link"');
+    expect(markup).toContain('title="External"');
+    expect(markup).toContain('data-modal-url="https://example.com/"');
+    expect(markup).toContain("lucide-external-link");
   });
 
   it("在无 SessionScope 的悬浮预览中禁用链接安全，链接直接渲染为锚点", () => {

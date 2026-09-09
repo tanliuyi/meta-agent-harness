@@ -3,35 +3,15 @@ import { fromMarkdown } from "mdast-util-from-markdown";
 export const MARKDOWN_IMAGE_SCHEME = "meta-agent-markdown-image";
 const MARKDOWN_WINDOWS_PATH_PREFIX = "/.meta-agent-local/windows/";
 
-const INLINE_MARKDOWN_DESTINATION_PATTERN =
-  /(!?\[[^\]\n]*\]\()(<([^<>\n]+)>|([^()\s]+))((?:[ \t]+(?:"[^"\n]*"|'[^'\n]*'|\([^\n)]*\)))?)(\))/gu;
 const LOCAL_IMAGE_WITH_SPACES_PATTERN =
   /(!\[[^\]\n]*\]\()((?:\/|file:\/\/\/|[A-Za-z]:[\\/]|\\\\)[^<>\n]*\s[^<>\n]*\.(?:avif|bmp|gif|jpe?g|png|webp))(\))/giu;
 const URI_SCHEME_PATTERN = /^[a-z][a-z\d+.-]*:/iu;
 const WINDOWS_ABSOLUTE_PATH_PATTERN = /^[a-z]:[\\/]/iu;
 
-export function preprocessMarkdownImages(markdown: string, cwd?: string): string {
-  return transformMarkdownOutsideCode(markdown, (source) => {
-    const resolved = source.replace(
-      INLINE_MARKDOWN_DESTINATION_PATTERN,
-      (
-        match,
-        prefix: string,
-        _destination: string,
-        enclosed: string | undefined,
-        plain: string | undefined,
-        title: string,
-      ) => {
-        const destination = enclosed ?? plain;
-        if (!destination) return match;
-        const absolute = resolveMarkdownDestination(destination, cwd);
-        if (!absolute) return match;
-        const needsEnclosure = enclosed !== undefined || /[\s()]/u.test(absolute);
-        return `${prefix}${needsEnclosure ? `<${absolute}>` : absolute}${title})`;
-      },
-    );
-    return resolved.replace(LOCAL_IMAGE_WITH_SPACES_PATTERN, "$1<$2>$3");
-  });
+export function preprocessMarkdownImages(markdown: string): string {
+  return transformMarkdownOutsideCode(markdown, (source) =>
+    source.replace(LOCAL_IMAGE_WITH_SPACES_PATTERN, "$1<$2>$3"),
+  );
 }
 
 function transformMarkdownOutsideCode(markdown: string, transform: (source: string) => string): string {

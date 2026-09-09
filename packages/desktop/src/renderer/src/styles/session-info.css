@@ -222,8 +222,8 @@
   .session-subagent-disclosure {
     position: relative;
     gap: 4px;
-    min-height: 40px;
-    padding: 8px 0;
+    min-height: 32px;
+    padding: 4px 0;
   }
 
   .session-subagent-chevron {
@@ -350,6 +350,7 @@
   .session-subagent-details {
     min-width: 0;
     padding: 0 0 8px;
+    margin-top: 4px;
   }
 
   .session-subagent-details > .session-subagent-description,

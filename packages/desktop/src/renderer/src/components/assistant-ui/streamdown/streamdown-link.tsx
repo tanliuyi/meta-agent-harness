@@ -9,7 +9,7 @@ import {
   useState,
 } from "react";
 import { StreamdownContext } from "streamdown";
-import { isLocalMarkdownLink } from "./link-safety-modal.tsx";
+import { isLocalMarkdownLink, LinkSafetyModal } from "./link-safety-modal.tsx";
 
 type MarkdownLinkProps = ComponentPropsWithoutRef<"a"> & {
   node?: {
@@ -49,16 +49,16 @@ export function MarkdownLink({ children, className, href, node, ...props }: Mark
     return (
       <>
         <button
-          {...props}
           className={`${sharedClassName} appearance-none text-left`}
           data-incomplete={incomplete}
           data-streamdown="link"
           onClick={click}
+          title={props.title}
           type="button"
         >
           {content}
         </button>
-        {linkSafety.renderModal ? linkSafety.renderModal(modal) : null}
+        {linkSafety.renderModal ? linkSafety.renderModal(modal) : <LinkSafetyModal {...modal} />}
       </>
     );
   }
