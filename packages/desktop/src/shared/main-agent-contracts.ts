@@ -12,7 +12,7 @@ export interface MainAgentConfiguration {
     includeProjectRules: boolean;
     includeSkills: boolean;
   };
-  /** null preserves the SDK/settings default. [] is an explicit empty allowlist. */
+  /** Built-in tool selection only; enabled plugin tools are always admitted. null uses SDK/settings defaults, [] disables built-in tools. */
   tools: string[] | null;
   /** null preserves the Desktop built-in feature defaults. */
   builtinPluginIds: string[] | null;

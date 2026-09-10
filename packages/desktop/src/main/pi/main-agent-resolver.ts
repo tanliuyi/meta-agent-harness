@@ -16,6 +16,7 @@ export interface ResolvedMainAgentConfiguration {
   snapshot: MainAgentSessionSnapshot;
   extensionSet: ResolvedExtensionSet;
   tools: string[] | undefined;
+  excludedTools: string[] | undefined;
   resourceLoaderOptions: Pick<
     ConstructorParameters<typeof DefaultResourceLoader>[0],
     "systemPromptOverride" | "appendSystemPromptOverride" | "agentsFilesOverride" | "skillsOverride"
@@ -65,7 +66,14 @@ export function resolveMainAgentConfiguration(
   return {
     snapshot: structuredClone(snapshot),
     extensionSet: resolvedExtensionSet,
-    tools: snapshot.configuration.tools === null ? undefined : [...snapshot.configuration.tools],
+    tools:
+      snapshot.configuration.tools === null
+        ? undefined
+        : MAIN_AGENT_TOOL_CATALOG.filter((name) => snapshot.configuration.tools?.includes(name)),
+    excludedTools:
+      snapshot.configuration.tools === null
+        ? undefined
+        : MAIN_AGENT_TOOL_CATALOG.filter((name) => !snapshot.configuration.tools?.includes(name)),
     resourceLoaderOptions,
   };
 }

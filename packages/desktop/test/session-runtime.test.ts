@@ -16,7 +16,11 @@ const mocks = vi.hoisted(() => ({
   createAgentSessionServices: vi.fn(),
   createSessionManager: vi.fn(() => ({})),
   createModelRuntime: vi.fn(async () => ({})),
-  createSettingsManager: vi.fn(() => ({ getShellPath: () => undefined, applyDefaults: vi.fn() })),
+  createSettingsManager: vi.fn(() => ({
+    getShellPath: () => undefined,
+    applyDefaults: vi.fn(),
+    applyOverrides: vi.fn(),
+  })),
   resolveSelection: vi.fn(),
   resolveResumeSelection: vi.fn(),
 }));
@@ -87,7 +91,11 @@ describe("SessionRuntime Pi-native commands", () => {
 
   it("registers the managed shell as a low-priority runtime default", async () => {
     const applyDefaults = vi.fn();
-    mocks.createSettingsManager.mockReturnValueOnce({ getShellPath: () => undefined, applyDefaults });
+    mocks.createSettingsManager.mockReturnValueOnce({
+      getShellPath: () => undefined,
+      applyDefaults,
+      applyOverrides: vi.fn(),
+    });
     mocks.createAgentSessionFromServices.mockResolvedValue({ session: createSession() });
 
     const runtime = await SessionRuntime.create({
@@ -104,7 +112,11 @@ describe("SessionRuntime Pi-native commands", () => {
 
   it("keeps the managed fallback available when the user has configured shellPath", async () => {
     const applyDefaults = vi.fn();
-    mocks.createSettingsManager.mockReturnValueOnce({ getShellPath: () => "/user/bin/bash", applyDefaults });
+    mocks.createSettingsManager.mockReturnValueOnce({
+      getShellPath: () => "/user/bin/bash",
+      applyDefaults,
+      applyOverrides: vi.fn(),
+    });
     mocks.createAgentSessionFromServices.mockResolvedValue({ session: createSession() });
 
     const runtime = await SessionRuntime.create({
@@ -334,7 +346,15 @@ describe("SessionRuntime Pi-native commands", () => {
         onSummaryChanged: () => {},
       });
 
-      expect(mocks.createAgentSessionFromServices).toHaveBeenCalledWith(expect.objectContaining({ tools: [] }));
+      expect(mocks.createAgentSessionFromServices).toHaveBeenCalledWith(
+        expect.objectContaining({
+          excludeTools: ["read", "bash", "powershell", "edit", "write", "grep", "find", "ls"],
+        }),
+      );
+      expect(mocks.createAgentSessionFromServices.mock.calls[0][0].tools).toBeUndefined();
+      expect(mocks.createSettingsManager.mock.results.at(-1)?.value.applyOverrides).toHaveBeenCalledWith({
+        defaultTools: [],
+      });
       expect(factories).toHaveBeenCalledWith(
         expect.objectContaining({
           enabledExtensionIds: new Set(["pi-auto-title"]),

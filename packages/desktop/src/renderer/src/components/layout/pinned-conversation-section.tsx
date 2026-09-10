@@ -109,7 +109,6 @@ export function PinnedConversationSection() {
       <div className="sidebar-projects sidebar-pinned-groups">
         {groups.map(({ project, threads, pinnedThreads }) => (
           <div key={project.id} className="sidebar-pinned-group">
-            <div className="px-2 text-xs text-muted-foreground">{project.name}</div>
             <DesktopThreadList
               project={project}
               threads={threads}

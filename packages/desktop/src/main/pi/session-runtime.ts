@@ -209,7 +209,6 @@ export class SessionRuntime {
             pluginRegistryBuilder: builder,
             cwd: options.cwd,
             agentDir,
-            allowRunCode: resolvedMainAgent?.tools === undefined || resolvedMainAgent.tools.includes("run_code"),
           },
         ),
         ...(resolvedMainAgent?.resourceLoaderOptions ?? {}),
@@ -247,11 +246,14 @@ export class SessionRuntime {
       : options.sessionManager
         ? resolveSessionResumeSelection(options.sessionManager, services.modelRuntime)
         : undefined;
+    if (resolvedMainAgent?.tools !== undefined) {
+      settingsManager.applyOverrides({ defaultTools: resolvedMainAgent.tools });
+    }
     const result = await createAgentSessionFromServices({
       services,
       sessionManager,
       ...(selection ? { model: selection.model, thinkingLevel: selection.thinkingLevel } : {}),
-      ...(resolvedMainAgent?.tools !== undefined ? { tools: resolvedMainAgent.tools } : {}),
+      ...(resolvedMainAgent?.excludedTools !== undefined ? { excludeTools: resolvedMainAgent.excludedTools } : {}),
       sessionStartEvent: { type: "session_start", reason: isNewSession ? "new" : "resume" },
     });
     let runtime: SessionRuntime;

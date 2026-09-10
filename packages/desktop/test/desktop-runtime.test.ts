@@ -427,7 +427,8 @@ describe("Desktop runtime authenticated bridge", () => {
       { generation: "g", projectId: "project", entries: [], diagnostics: [], resolvedAt: 0 },
       directory,
     );
-    expect(resolved.tools).toEqual(["read", "write", "run_code"]);
+    expect(resolved.tools).toEqual(["read", "write"]);
+    expect(resolved.excludedTools).not.toContain("run_code");
     expect(resolved.resourceLoaderOptions.appendSystemPromptOverride?.([])).toEqual([
       profile.configuration.prompt.text,
     ]);

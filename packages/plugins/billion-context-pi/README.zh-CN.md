@@ -100,7 +100,7 @@ Desktop 子代理在 `pi-subagents` 编排下显式加载此扩展。子代理�
 ╭─────────────────────────────────────────────╮
 │           ACP Context Analysis              │
 ╰─────────────────────────────────────────────╯
- billion-context-pi@0.1.14
+ billion-context-pi@0.1.65
 
 Context: 12% (120K / 1.0M)
 Growth: +15K since last nudge
@@ -120,7 +120,7 @@ Blocks: 3 active (3.7K summary, 15.2K original compressed)
 
 ## 配置
 
-billion-context-pi 开箱即用,无需配置。标准 Pi 从 JSON 配置文件读取五个可选 key。
+billion-context-pi 开箱即用,无需配置。标准 Pi 读取全局和项目级 `acp.json`,项目级覆盖全局。
 
 ### 标准 Pi 配置文件
 
@@ -132,7 +132,15 @@ billion-context-pi 开箱即用,无需配置。标准 Pi 从 JSON 配置文件�
   "autoUpdate": true,
   "modelContextLimit": 200000,
   "toolBashDefaultTimeout": 60,
-  "toolOutputMaxBytes": 200000
+  "toolOutputMaxBytes": 200000,
+  "outputHeadroomMaxPct": "25%",
+  "repetitionGuard": { "warn": 3, "abort": 5 },
+  "degenerationGuard": { "minRun": 200 },
+  "compress": {
+    "maxContextLimit": "75%",
+    "emergencyThresholdPercent": "95%",
+    "reasoning": { "drop": true, "threshold": 2048 }
+  }
 }
 ```
 
@@ -141,11 +149,17 @@ billion-context-pi 开箱即用,无需配置。标准 Pi 从 JSON 配置文件�
 | `debug` | `false` | 将诊断事件写入 `~/.pi/acp-debug.log`。也可用环境变量 `ACP_DEBUG=1` 启用。 |
 | `autoUpdate` | `true` | Pi 启动时检查 npm 是否有更新版本并自动安装(限频:每 3 分钟最多一次检查)。禁用以避免所有启动时的网络请求。 |
 | `modelContextLimit` | *(自动)* | 覆盖上下文上限(token 数)。默认为模型的 `contextWindow`。 |
-
 | `toolBashDefaultTimeout` | `60` | 当模型未指定 `timeout` 时注入 `bash` 工具的超时秒数。Pi **本身没有默认超时**,不加这个,一次遗漏的超时可能挂起几千秒。超时后会提示模型用更大的 `timeout` 重跑。设为 `0` 恢复 Pi 的无界行为。 |
-| `toolOutputMaxBytes` | `200000` | 工具结果文本硬上限(字节,约 5000 行 @ ~40 字节/行,通过 `tool_result` hook 应用)。用于兜住 Pi 自身 50KB/2000 行截断管不到的输出(例如 Pi 未加限制的工具)。触发截断时会告诉模型如何查看完整输出——对 `bash`,完整输出在其临时文件(`BashToolDetails.fullOutputPath`)中;设更小(如 `8192`)可更省上下文,设 `0` 关闭。 |
+| `toolOutputMaxBytes` | `200000` | 工具结果文本硬上限;设为 `0` 关闭。 |
+| `enabled` | `true` | 对无法处理 ACP 提示词或工具的模型关闭整个扩展。 |
+| `outputHeadroomMaxPct` | `25%` | 限制 nudge 和截断带预留的输出空间比例;设为 `0` 关闭预留。 |
+| `compress` | kernel 默认值 | 可按全局、provider 或 model 调整压力阈值;`reasoning` 会删除已闭合 compress 回合中过大的 thinking。 |
+| `throttleRetry` | 启用 | 对临时 provider token 限流错误进行有界退避重试;设为 `false` 关闭。 |
+| `repetitionGuard` | warn `3`, abort `5` | 识别并阻断参数完全相同的重复工具调用。 |
+| `degenerationGuard` | minRun `200` | 折叠 assistant 文本/thinking 中过长的单字符重复并注入一次恢复提示。 |
+| `prompts` | kernel 默认值 | 覆盖压缩提示词前必须设置 `acknowledgePromptsRisk: true`。 |
 
-> **只有这五个 key 会被 `acp.json` 读取。** 其他调优参数(`preserveRecentMessages`、`protectedTools`、nudge 阈值)是代码级的,不向用户开放。
+> `acp.json` 还支持上述高级调优项;`preserveRecentMessages` 仍仅由 Desktop 提供,`protectedTools` 仍是代码级配置。
 
 ### Desktop 配置 schema
 
@@ -155,7 +169,7 @@ Desktop 配置优先于 `acp.json` 中的同名 key,并在扩展 worker 重新�
 
 schema 和字段规则详见内置 `desktop-plugin-development` skill 的 `references/configuration-schema.md`。
 
-> **标准 Pi 的 `acp.json` 只读取以上五个 key。** 其他调优参数(`preserveRecentMessages`、`protectedTools` 和 nudge 阈值)不会从该文件覆盖。
+> Desktop 保留 `pi-subagents` 作为唯一子代理编排层;此 fork 只向获批的 child session 提供 ACP 上下文工具,不会注册 delegate 或 fleet 工具。
 
 ### 环境变量
 

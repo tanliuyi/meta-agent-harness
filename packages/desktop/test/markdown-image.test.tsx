@@ -239,10 +239,8 @@ describe("Markdown images", () => {
 
     expect(markup.match(/src="https:\/\/example.com\/favicon.ico"/gu)).toHaveLength(1);
     expect(markup.match(/src="https:\/\/github.com\/favicon.ico"/gu)).toHaveLength(1);
-    expect(markup).toContain('src="https://example.com/favicon.ico"/>https://example.com/path</a>');
-    expect(markup).toContain(
-      'src="https://github.com/favicon.ico"/>https://github.com/tanliuyi/meta-agent-harness</a>',
-    );
+    expect(markup).toContain('src="https://example.com/favicon.ico"/>external</a>');
+    expect(markup).toContain('src="https://github.com/favicon.ico"/>github</a>');
     expect(markup).toContain('href="https://example.com/path?token=secret#section"');
     expect(markup).toContain('href="https://github.com/tanliuyi/meta-agent-harness?tab=readme"');
     expect(markup).toContain('class="@Typescript"');

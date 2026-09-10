@@ -27,18 +27,23 @@
         "properties": {
           "topic": { "type": "string" },
           "content": {
-            "type": "array",
-            "items": {
-              "type": "object",
-              "properties": {
-                "startId": { "type": "string" },
-                "endId": { "type": "string" },
-                "summary": { "type": "string" },
-                "topic": { "type": "string" }
+            "anyOf": [
+              {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "startId": { "type": "string" },
+                    "endId": { "type": "string" },
+                    "summary": { "type": "string" },
+                    "topic": { "type": "string" }
+                  },
+                  "required": ["startId", "endId", "summary"],
+                  "additionalProperties": false
+                }
               },
-              "required": ["startId", "endId", "summary"],
-              "additionalProperties": false
-            }
+              { "type": "string", "description": "JSON-encoded range array accepted from non-strict tool providers" }
+            ]
           },
           "summaryMaxChars": { "type": "number" }
         },

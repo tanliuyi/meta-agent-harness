@@ -94,7 +94,7 @@ Rich status display for the user:
 ╭─────────────────────────────────────────────╮
 │           ACP Context Analysis              │
 ╰─────────────────────────────────────────────╯
- billion-context-pi@0.1.14
+ billion-context-pi@0.1.65
 
 Context: 12% (120K / 1.0M)
 Growth: +15K since last nudge
@@ -114,7 +114,7 @@ Blocks: 3 active (3.7K summary, 15.2K original compressed)
 
 ## Configuration
 
-billion-context-pi works out of the box with no configuration. Standard Pi reads five optional keys from its JSON config file.
+billion-context-pi works out of the box with no configuration. Standard Pi reads global and project-local `acp.json` files; project-local values override global values.
 
 ### Standard Pi config file
 
@@ -126,7 +126,15 @@ Create `~/.pi/acp.json` (global) and/or `<project>/.pi/acp.json` (project-local,
   "autoUpdate": true,
   "modelContextLimit": 200000,
   "toolBashDefaultTimeout": 60,
-  "toolOutputMaxBytes": 200000
+  "toolOutputMaxBytes": 200000,
+  "outputHeadroomMaxPct": "25%",
+  "repetitionGuard": { "warn": 3, "abort": 5 },
+  "degenerationGuard": { "minRun": 200 },
+  "compress": {
+    "maxContextLimit": "75%",
+    "emergencyThresholdPercent": "95%",
+    "reasoning": { "drop": true, "threshold": 2048 }
+  }
 }
 ```
 
@@ -137,8 +145,15 @@ Create `~/.pi/acp.json` (global) and/or `<project>/.pi/acp.json` (project-local,
 | `modelContextLimit` | *(auto)* | Override the context limit (in tokens). Defaults to the model's `contextWindow`. |
 | `toolBashDefaultTimeout` | `60` | Seconds injected into the `bash` tool when the model omits `timeout`. Pi has **no** default of its own, so without this a forgotten timeout can hang for thousands of seconds. On timeout the model is guided to re-run with a larger `timeout`. `0` restores Pi's unbounded behavior. |
 | `toolOutputMaxBytes` | `200000` | Hard byte cap on tool result text (~5000 lines at ~40 B/line; applied via the `tool_result` hook). Stops runaway output that Pi's own 50KB/2000-line cap can't catch (e.g. tools Pi doesn't cap). When it fires the model is told how to see the full output — for `bash` the full output is in its temp file (`BashToolDetails.fullOutputPath`); set lower (e.g. `8192`) for a tighter context budget, or `0` to disable. |
+| `enabled` | `true` | Disable ACP entirely for models that cannot handle the ACP prompt or tools. |
+| `outputHeadroomMaxPct` | `25%` | Caps the output reservation used by nudge and truncation bands. Set `0` to disable the reservation. |
+| `compress` | kernel defaults | Tune pressure thresholds globally, per provider, or per model. `reasoning` drops oversized thinking from closed compress rounds. |
+| `throttleRetry` | enabled | Retry transient provider token-throttle errors with bounded backoff. Set `false` to disable. |
+| `repetitionGuard` | warn `3`, abort `5` | Warn on and then block byte-identical repeated tool calls. |
+| `degenerationGuard` | minRun `200` | Collapse long single-character runs in assistant text/thinking and inject a one-shot recovery notice. |
+| `prompts` | kernel defaults | Advanced prompt overrides require `acknowledgePromptsRisk: true`. |
 
-> **Only these five keys are read from `acp.json`.** Other tuning knobs (`preserveRecentMessages`, `protectedTools`, nudge thresholds) are code-level and not user-overridable.
+> Advanced tuning keys are read from `acp.json`; `preserveRecentMessages` remains Desktop-only and `protectedTools` remains code-level.
 
 ### Desktop configuration schema
 
@@ -148,7 +163,7 @@ Desktop values take precedence over the same keys in `acp.json` and are applied 
 
 The schema source and field rules are documented in the built-in `desktop-plugin-development` skill, under `references/configuration-schema.md`.
 
-> **Only these five keys are read from standard Pi `acp.json`.** Other tuning knobs (`preserveRecentMessages`, `protectedTools`, and nudge thresholds) are not user-overridable there.
+> Desktop keeps `pi-subagents` as the only subagent orchestrator. This fork adds ACP context tools to approved child sessions but does not register delegate or fleet tools.
 
 ### Environment variables
 

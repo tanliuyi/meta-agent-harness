@@ -15,7 +15,7 @@ import RotateCcw from "lucide-react/dist/esm/icons/rotate-ccw.mjs";
 import Save from "lucide-react/dist/esm/icons/save.mjs";
 import Star from "lucide-react/dist/esm/icons/star.mjs";
 import Trash2 from "lucide-react/dist/esm/icons/trash-2.mjs";
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import type { MainAgentPromptMode } from "../../../../../shared/main-agent-contracts.ts";
 import { useMainAgentSettingsController } from "./use-main-agent-settings-controller.ts";
 
@@ -43,16 +43,7 @@ export function MainAgentSettingsPage() {
   const snapshot = controller.snapshot;
   const configuredTools = draft?.configuration.tools ?? null;
   const configuredPlugins = draft?.configuration.builtinPluginIds ?? null;
-  const toolCatalog = useMemo(() => {
-    const items = controller.catalog?.tools ?? [];
-    const known = new Set(items.map(({ id }) => id));
-    return [
-      ...items,
-      ...(configuredTools ?? [])
-        .filter((id) => !known.has(id))
-        .map((id) => ({ id, name: id, source: "extension" as const, available: false, reason: "当前未发现此工具" })),
-    ];
-  }, [configuredTools, controller.catalog]);
+  const toolCatalog = (controller.catalog?.tools ?? []).filter((tool) => tool.source === "builtin");
 
   return (
     <>
@@ -269,8 +260,8 @@ export function MainAgentSettingsPage() {
                 <section className="settings-section" aria-labelledby="main-agent-tools-heading">
                   <div className="settings-section-heading">
                     <div>
-                      <h3 id="main-agent-tools-heading">工具白名单</h3>
-                      <p className="settings-row-description">工具限制主会话模型，不是操作系统权限边界</p>
+                      <h3 id="main-agent-tools-heading">基础工具</h3>
+                      <p className="settings-row-description">仅选择主会话的基础工具；已启用插件的工具自动可用。</p>
                     </div>
                   </div>
                   <div className="main-agent-form-block">
@@ -299,7 +290,7 @@ export function MainAgentSettingsPage() {
                           }))
                         }
                       >
-                        自定义白名单
+                        自定义选择
                       </button>
                     </div>
                     {configuredTools !== null ? (
@@ -330,7 +321,7 @@ export function MainAgentSettingsPage() {
                             </span>
                           </label>
                         ))}
-                        <p className="settings-row-description">不勾选任何工具会保存显式空白名单。</p>
+                        <p className="settings-row-description">不勾选时关闭所有基础工具，已启用插件的工具仍然可用。</p>
                       </div>
                     ) : null}
                   </div>

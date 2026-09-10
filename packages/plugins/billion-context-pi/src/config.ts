@@ -1,50 +1,107 @@
-import { defaultConfig, type Config } from "acp-kernel";
+import { defaultConfig, type Config, type Prompts } from "acp-kernel";
+import type { CompressReasoningConfig } from "./reasoning-drop.ts";
+import type { DegenerationGuardConfig } from "./degeneration.ts";
+import type { ThrottleRetryConfig } from "./throttle-retry.ts";
 
-/**
- * Adapter configuration. Maps onto acp-kernel's `Config` plus Pi-specific knobs
- * (live model context window, protected tools, state persistence).
- */
+export interface CompressSettings {
+  maxContextLimit?: number | string;
+  emergencyThresholdPercent?: number | string;
+  nudgeGrowthTokens?: number;
+  minPressureBenefitTokens?: number;
+  reasoning?: CompressReasoningConfig;
+}
+
+export interface ProviderCompress extends CompressSettings {
+  models?: Record<string, CompressSettings>;
+}
+
+export interface CompressConfig extends CompressSettings {
+  providers?: Record<string, ProviderCompress>;
+}
+
+export interface RepetitionGuardConfig {
+  enabled?: boolean;
+  warn?: number;
+  abort?: number;
+}
+
 export interface AdapterConfig {
-  /** When omitted, the adapter reads `ctx.model.contextWindow` live each turn.
-   *  Set explicitly for tests/headless runs. */
+  enabled?: boolean;
   modelContextLimit?: number;
   protectedTools?: string[];
   preserveRecentMessages?: number;
-  /** Check npm for a newer billion-context-pi on startup and auto-install it. Default: true.
-   *  Disable via `autoUpdate: false` or env `ACP_AUTO_UPDATE=0` to avoid all
-   *  network calls on startup. */
   autoUpdate?: boolean;
-  /** Entry path used when this extension opts into Desktop child sessions. */
   childExtensionPath?: string;
-  /** Write ACP debug events to the debug log file (default ~/.pi/acp-debug.log).
-   *  Default: false (or env ACP_DEBUG=1/true). */
   debug?: boolean;
-  /** Default timeout in seconds injected into the bash tool when the model
-   *  omits `timeout`. Pi has NO built-in default, so without this a command
-   *  that the model forgets to time out can hang for thousands of seconds.
-   *  Default: 60 (catches hangs quickly). On timeout the model is guided to
-   *  re-run with a larger `timeout`. Set to 0 to disable (restore Pi's
-   *  unbounded behavior). */
   toolBashDefaultTimeout?: number;
-  /** Hard byte cap applied to tool result text via the `tool_result` hook.
-   *  Default: 200000 (~200KB, roughly 5000 lines at ~40 bytes/line) — a
-   *  generous ceiling that stops runaway output. Pi already caps bash/read/grep
-   *  at 50KB/2000 lines (bash full output is saved to a temp file), so this
-   *  default mainly caps tools Pi doesn't cap. Set lower (e.g. 8192) for a
-   *  tighter context budget, or 0 to disable. When capped, oversized text is
-   *  head-truncated with a notice telling the model how to see the full output
-   *  (bash: read BashToolDetails.fullOutputPath). */
   toolOutputMaxBytes?: number;
+  compress?: CompressConfig;
+  throttleRetry?: boolean | ThrottleRetryConfig;
+  outputHeadroomMaxPct?: number | string;
+  repetitionGuard?: boolean | RepetitionGuardConfig;
+  degenerationGuard?: boolean | DegenerationGuardConfig;
+  prompts?: Partial<Prompts>;
+  acknowledgePromptsRisk?: boolean;
   coreOverrides?: Partial<Config>;
 }
 
 export const DEFAULT_TOOL_BASH_TIMEOUT = 60;
 export const DEFAULT_TOOL_OUTPUT_MAX_BYTES = 200_000;
+export const REPETITION_GUARD_DEFAULTS = { warn: 3, abort: 5 } as const;
 
-export function resolveConfig(adapter: AdapterConfig, liveContextLimit: number): Config {
+export function resolveRepetitionGuard(adapter: AdapterConfig): { enabled: boolean; warn: number; abort: number } {
+  const guard = adapter.repetitionGuard;
+  if (guard === false) return { enabled: false, ...REPETITION_GUARD_DEFAULTS };
+  if (typeof guard === "object" && guard !== null) {
+    const warn = positiveInt(guard.warn, REPETITION_GUARD_DEFAULTS.warn);
+    const abort = Math.max(positiveInt(guard.abort, REPETITION_GUARD_DEFAULTS.abort), warn + 1);
+    return { enabled: guard.enabled !== false, warn, abort };
+  }
+  return { enabled: true, ...REPETITION_GUARD_DEFAULTS };
+}
+
+function positiveInt(value: unknown, fallback: number): number {
+  return typeof value === "number" && Number.isFinite(value) && value >= 1 ? Math.floor(value) : fallback;
+}
+
+export function mergeCompress(
+  global?: CompressSettings,
+  provider?: CompressSettings,
+  model?: CompressSettings,
+): CompressSettings {
+  return {
+    maxContextLimit: model?.maxContextLimit ?? provider?.maxContextLimit ?? global?.maxContextLimit,
+    emergencyThresholdPercent: model?.emergencyThresholdPercent ?? provider?.emergencyThresholdPercent ?? global?.emergencyThresholdPercent,
+    nudgeGrowthTokens: model?.nudgeGrowthTokens ?? provider?.nudgeGrowthTokens ?? global?.nudgeGrowthTokens,
+    minPressureBenefitTokens: model?.minPressureBenefitTokens ?? provider?.minPressureBenefitTokens ?? global?.minPressureBenefitTokens,
+    reasoning: {
+      enabled: model?.reasoning?.enabled ?? provider?.reasoning?.enabled ?? global?.reasoning?.enabled,
+      drop: model?.reasoning?.drop ?? provider?.reasoning?.drop ?? global?.reasoning?.drop,
+      threshold: model?.reasoning?.threshold ?? provider?.reasoning?.threshold ?? global?.reasoning?.threshold,
+    },
+  };
+}
+
+export function resolveCompress(
+  compress: CompressConfig | undefined,
+  provider: string | undefined,
+  modelId: string | undefined,
+): CompressSettings {
+  if (!compress) return {};
+  const providerConfig = provider ? compress.providers?.[provider] : undefined;
+  const modelConfig = providerConfig && modelId ? providerConfig.models?.[modelId] : undefined;
+  return mergeCompress(compress, providerConfig, modelConfig);
+}
+
+export function resolveConfig(
+  adapter: AdapterConfig,
+  liveContextLimit: number,
+  provider?: string,
+  modelId?: string,
+): Config {
   const envLimit = process.env.ACP_MODEL_CONTEXT_LIMIT;
   const envLimitNum = envLimit ? Number(envLimit) : NaN;
-  const FALLBACK_LIMIT = 150_000;
+  const fallbackLimit = 150_000;
   const limit =
     !Number.isNaN(envLimitNum) && envLimitNum > 0
       ? envLimitNum
@@ -52,10 +109,31 @@ export function resolveConfig(adapter: AdapterConfig, liveContextLimit: number):
         ? adapter.modelContextLimit
         : liveContextLimit > 0
           ? liveContextLimit
-          : FALLBACK_LIMIT;
-  return defaultConfig(limit, {
+          : fallbackLimit;
+
+  const config = defaultConfig(limit, {
     protectedTools: adapter.protectedTools ?? [],
     preserveRecentMessages: adapter.preserveRecentMessages ?? 5,
     ...adapter.coreOverrides,
   });
+  const compression = resolveCompress(adapter.compress, provider, modelId);
+  if (compression.maxContextLimit !== undefined) config.nudge.maxContextLimitPct = parsePercent(compression.maxContextLimit);
+  if (compression.emergencyThresholdPercent !== undefined) {
+    const pct = parsePercent(compression.emergencyThresholdPercent);
+    config.nudge.emergencyThresholdPct = pct;
+    config.truncate.threshold = pct;
+  }
+  if (compression.nudgeGrowthTokens !== undefined) {
+    config.nudge.growthFloor = compression.nudgeGrowthTokens;
+    config.nudge.growthCap = compression.nudgeGrowthTokens;
+  }
+  if (compression.minPressureBenefitTokens !== undefined) config.nudge.minPressureBenefitTokens = compression.minPressureBenefitTokens;
+  return config;
+}
+
+export function parsePercent(value: number | string): number {
+  if (typeof value === "number") return value;
+  const text = value.trim();
+  if (text.endsWith("%")) return Number(text.slice(0, -1)) / 100;
+  return Number(text);
 }

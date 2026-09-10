@@ -126,20 +126,18 @@ function linkContent(href: string | undefined, node: MarkdownLinkProps["node"], 
     return (
       <>
         <WebsiteIcon origin={external.origin} />
-        {external.display}
+        {children}
       </>
     );
   }
   return children;
 }
 
-function externalUrl(href: string): { display: string; origin: string } | undefined {
+function externalUrl(href: string): { origin: string } | undefined {
   if (!/^https?:\/\//iu.test(href)) return undefined;
   try {
     const url = new URL(href);
-    url.search = "";
-    url.hash = "";
-    return { display: url.toString(), origin: url.origin };
+    return { origin: url.origin };
   } catch {
     return undefined;
   }

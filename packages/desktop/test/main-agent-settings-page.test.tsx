@@ -29,7 +29,10 @@ const snapshot: MainAgentStoreSnapshot = {
   profiles: [profile],
 };
 const catalog: MainAgentCatalog = {
-  tools: [{ id: "read", name: "read", source: "builtin", available: true }],
+  tools: [
+    { id: "read", name: "read", source: "builtin", available: true },
+    { id: "run_code", name: "run_code", source: "extension", available: true },
+  ],
   builtinPlugins: [{ id: "pi-browser", name: "浏览器", description: "浏览器能力", available: true }],
 };
 
@@ -80,7 +83,8 @@ describe("main agent settings page", () => {
     expect(markup).toContain("加载全局规则");
     expect(markup).toContain("加载项目规则");
     expect(markup).toContain("提供技能目录");
-    expect(markup).toContain("不勾选任何工具会保存显式空白名单");
+    expect(markup).toContain("不勾选时关闭所有基础工具，已启用插件的工具仍然可用");
+    expect(markup).not.toContain("run_code");
     expect(markup).toContain("会话回退（rewind）作为基础行为保留");
     expect(markup).toContain("浏览器能力");
   });

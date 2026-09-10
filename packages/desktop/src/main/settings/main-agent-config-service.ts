@@ -32,7 +32,6 @@ const MAIN_AGENT_CATALOG: MainAgentCatalog = {
       source: "builtin" as const,
       available: true,
     })),
-    { id: "run_code", name: "run_code", source: "extension", available: true },
   ],
   builtinPlugins: [
     { id: "desktop", name: "Desktop Runtime", description: "通过 run_code 检查和控制 Desktop 应用" },
