@@ -48,3 +48,4 @@ output/
 dist-skill/
 .pi/subagents/
 NUL
+.pi/images/
