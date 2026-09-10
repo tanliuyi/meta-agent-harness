@@ -48,7 +48,7 @@ function fakeCtx(entries: any[], stateFile: string) {
 // handles + ctx so each test can drive the decompress tool.
 async function setupWithCompressedBlock() {
   const { api, handlers } = captureApi();
-  createAcpExtension({ modelContextLimit: 200_000 })(api as any);
+  createAcpExtension({ modelContextLimit: 200_000, autoUpdate: false })(api as any);
 
   const stateFile = "/tmp/pai-acp-decompress-tool-it.session.json";
   await cleanState(stateFile);
@@ -81,7 +81,7 @@ test("decompress default writes content to an auto-generated file (no context bl
   const text = (res.content[0] as any).text as string;
 
   assert.match(text, /written to/, "result reports a file path");
-  assert.match(text, /acp-decompress\/b1-\d+\.txt/, "auto-generated path under ~/.cache/pi/acp-decompress");
+  assert.match(text, /acp-decompress[/\\]b1-\d+\.txt/, "auto-generated path under ~/.cache/pi/acp-decompress");
   assert.match(text, /stays compressed/, "tells model the block stays compressed");
   assert.match(text, /Preview:/, "includes a head preview");
   // Crucially: the full long content is NOT in the tool result (it's in the file).

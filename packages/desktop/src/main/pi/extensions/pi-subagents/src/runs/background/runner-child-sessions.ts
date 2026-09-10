@@ -12,6 +12,8 @@ import { pathToFileURL } from "node:url";
 import { createDefaultChildSessionFactory, type ChildSessionFactory } from "../shared/child-session.ts";
 
 export interface RunnerChildSessionConfig {
+	/** Native role-memory prompt injection ceiling inherited from the owning main agent. */
+	childMemoryAllowed?: boolean;
 	/** Test seam: module whose default export is a `ChildSessionFactory`, or a function returning one. */
 	childSessionFactoryModule?: string;
 }
@@ -21,11 +23,19 @@ function isChildSessionFactory(value: unknown): value is ChildSessionFactory {
 }
 
 export async function loadRunnerChildSessionFactory(config: RunnerChildSessionConfig): Promise<ChildSessionFactory> {
-	if (!config.childSessionFactoryModule) return createDefaultChildSessionFactory();
+	if (!config.childSessionFactoryModule)
+		return createDefaultChildSessionFactory({ allowMemory: config.childMemoryAllowed ?? true });
 	const loaded = await import(pathToFileURL(path.resolve(config.childSessionFactoryModule)).href) as { default?: unknown };
 	const candidate = typeof loaded.default === "function" ? (loaded.default as () => unknown)() : loaded.default;
 	if (!isChildSessionFactory(candidate)) {
 		throw new Error(`Child session factory module '${config.childSessionFactoryModule}' must default-export a ChildSessionFactory or a function returning one.`);
+	}
+	if (config.childMemoryAllowed === false) {
+		return {
+			allowMemory: false,
+			create: (launch) => candidate.create(launch),
+			dispose: () => candidate.dispose(),
+		};
 	}
 	return candidate;
 }

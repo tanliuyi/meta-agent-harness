@@ -8,6 +8,7 @@ import { buildAgentMemoryInjection } from "../agents/agent-memory.ts";
 import { buildModelCandidates, inheritsParentModel, resolveEffectiveSubagentModel, resolveModelOrigin, type AvailableModelInfo, type ParentModel } from "../runs/shared/model-fallback.ts";
 import { resolveModelScopesForAgent } from "../runs/shared/model-scope.ts";
 import { applyThinkingSuffix, resolvePiLaunchToolPlan, type PiLaunchToolPlan } from "../runs/shared/child-tool-plan.ts";
+import { childMemoryAllowed } from "../runs/shared/child-session.ts";
 import { injectOutputPathSystemPrompt, normalizeSingleOutputOverride, resolveSingleOutputPath } from "../runs/shared/single-output.ts";
 import { getArtifactPaths, getArtifactsDir } from "../shared/artifacts.ts";
 import { resolveEffectiveThinking } from "../shared/model-info.ts";
@@ -404,7 +405,7 @@ export async function resolveSubagentLaunchContract(input: SubagentLaunchContrac
 		const skillInjection = buildSkillInjection(resolvedSkills.resolved);
 		effectiveSystemPrompt = effectiveSystemPrompt ? `${effectiveSystemPrompt}\n\n${skillInjection}` : skillInjection;
 	}
-	const memoryInjection = buildAgentMemoryInjection(agent, effectiveCwd);
+	const memoryInjection = childMemoryAllowed() ? buildAgentMemoryInjection(agent, effectiveCwd) : "";
 	if (memoryInjection) effectiveSystemPrompt = effectiveSystemPrompt ? `${effectiveSystemPrompt}\n\n${memoryInjection}` : memoryInjection;
 	effectiveSystemPrompt = injectOutputPathSystemPrompt(effectiveSystemPrompt, outputPath, agent);
 	const candidates = candidateList(input.agent, agent, discovery.all);

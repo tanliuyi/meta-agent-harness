@@ -8,8 +8,32 @@ import {
 } from "../src/renderer/src/state/thread-list-commands.ts";
 import { pinnedThreadKey } from "../src/renderer/src/state/thread-pinning-preference.ts";
 import type { Thread } from "../src/shared/contracts.ts";
+import { resolveThreadRootId } from "../src/shared/thread-tree.ts";
 
 describe("thread list tree", () => {
+  it("resolves nested sessions to one stable root", () => {
+    const threads = new Map(
+      [
+        thread("root", 30),
+        thread("child", 20, { parentThreadId: "root" }),
+        thread("grandchild", 10, { parentThreadId: "child" }),
+      ].map((item) => [item.id, item]),
+    );
+
+    expect(resolveThreadRootId(threads, "root")).toBe("root");
+    expect(resolveThreadRootId(threads, "grandchild")).toBe("root");
+  });
+
+  it("resolves malformed parent cycles consistently", () => {
+    const threads = new Map([
+      ["cycle-b", thread("cycle-b", 20, { parentThreadId: "cycle-a" })],
+      ["cycle-a", thread("cycle-a", 10, { parentThreadId: "cycle-b" })],
+    ]);
+
+    expect(resolveThreadRootId(threads, "cycle-a")).toBe("cycle-a");
+    expect(resolveThreadRootId(threads, "cycle-b")).toBe("cycle-a");
+  });
+
   it("groups descendants under roots and limits only root sessions", () => {
     const roots = threadTreeByArchiveState(
       [

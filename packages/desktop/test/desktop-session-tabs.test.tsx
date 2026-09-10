@@ -167,6 +167,36 @@ describe("DesktopSessionTabs", () => {
     expect(markup).not.toContain('draggable="true"');
   });
 
+  it("groups cached descendants into their root session tab", () => {
+    setupSessions();
+    const child = createSessionRecord({ projectId: "project-a", threadId: "child-thread" });
+    const grandchild = createSessionRecord({ projectId: "project-a", threadId: "grandchild-thread" });
+    testState.records.push(child, grandchild);
+    const parent = testState.desktop.threadCatalogs["project-a"]![0]!;
+    testState.desktop.threadCatalogs["project-a"]!.push(
+      {
+        ...parent,
+        id: "child-thread",
+        title: "Child session",
+        parentThreadId: parent.id,
+      },
+      {
+        ...parent,
+        id: "grandchild-thread",
+        title: "Grandchild session",
+        parentThreadId: "child-thread",
+      },
+    );
+
+    const markup = renderToStaticMarkup(<DesktopSessionTabs />);
+
+    expect(markup.match(/data-tab-index=/g)).toHaveLength(2);
+    expect(markup).toContain('aria-label="2 个子会话归属于 Active session"');
+    expect(markup).toContain("Active session，包含 2 个子会话");
+    expect(markup).not.toContain('title="Child session"');
+    expect(markup).not.toContain('title="Grandchild session"');
+  });
+
   it("uses the timeline to clear stale running control and catalog state", () => {
     setupSessions();
     const first = testState.records[0]!;
@@ -176,6 +206,33 @@ describe("DesktopSessionTabs", () => {
     const markup = renderToStaticMarkup(<DesktopSessionTabs />);
 
     expect(markup).not.toContain('aria-label="运行中"');
+  });
+
+  it("shows an active parent tab as running while a descendant session runs", () => {
+    setupSessions();
+    const first = testState.records[0]!;
+    first.stores.timeline.replace({ ...first.stores.timeline.getSnapshot(), phase: "idle" });
+    const parent = testState.desktop.threadCatalogs["project-a"]![0]!;
+    parent.running = false;
+    testState.desktop.threadCatalogs["project-a"]!.push(
+      {
+        ...parent,
+        id: "child-thread",
+        title: "Child session",
+        parentThreadId: parent.id,
+      },
+      {
+        ...parent,
+        id: "grandchild-thread",
+        title: "Grandchild session",
+        parentThreadId: "child-thread",
+        running: true,
+      },
+    );
+
+    const markup = renderToStaticMarkup(<DesktopSessionTabs />);
+
+    expect(markup).toMatch(/role="tab" aria-selected="true"[^>]*>.*aria-label="运行中".*Active session<\/span>/s);
   });
 
   it("uses the catalog completion state when an inactive timeline is stale", () => {
@@ -211,6 +268,8 @@ describe("DesktopSessionTabs", () => {
       threadId: key,
       title: key,
       status: "idle",
+      childCount: 0,
+      members: [{ key, threadId: key }],
     }));
 
     expect(
@@ -324,7 +383,9 @@ describe("DesktopSessionTabs", () => {
     expect(keyboardShortcutProviderSource).toMatch(/window\.addEventListener\("keydown", onKeyDown\)/);
     expect(keyboardShortcutProviderSource).toMatch(/window\.addEventListener\("keyup", onKeyUp\)/);
     expect(keyboardShortcutProviderSource).toMatch(/window\.addEventListener\("blur", onBlur\)/);
-    expect(desktopSessionTabsSource).toMatch(/orderedRecords\.slice\(0, DESKTOP_SESSION_TAB_COMMAND_IDS\.length\)/);
+    expect(keyboardShortcutProviderSource).toMatch(/sessionTabTargetForCommand\(commandId, sessionTabTargets\)/);
+    expect(desktopSessionTabsSource).toMatch(/tabs\.slice\(0, DESKTOP_SESSION_TAB_COMMAND_IDS\.length\)/);
+    expect(layoutCss).toMatch(/\.desktop-session-tab-group\s*\{[^}]*height:\s*16px;[^}]*font-size:\s*10px;/s);
     expect(layoutCss).toMatch(
       /\.desktop-session-tab-status-running\s*\{[^}]*width:\s*12px;[^}]*border-top-color:\s*hsl\(var\(--foreground\)[^}]*animation:\s*spin/s,
     );

@@ -6,6 +6,7 @@ import type {
   ChildSessionFactory,
   ChildSessionLaunch,
 } from "../extensions/pi-subagents/src/runs/shared/child-session.ts";
+import { permittedChildExtensions } from "./child-extension-policy.ts";
 import type { SubagentRuntime, SubagentRuntimeRunRequest } from "./subagent-runtime.ts";
 
 function storageRequest(
@@ -39,15 +40,23 @@ function runtimeConfigForWire(runtime: ChildSessionLaunch["runtime"]): SubagentR
   ) as SubagentRuntimeRunRequest["childRuntime"];
 }
 
-function childExtensionsForLaunch(runtime: SubagentRuntime, launch: ChildSessionLaunch): SubagentChildExtension[] {
-  const approved = new Map((runtime.getChildExtensions?.() ?? []).map((extension) => [extension.path, extension]));
-  return launch.extensionPaths.flatMap((extensionPath) => {
-    const extension = approved.get(extensionPath);
-    return extension ? [{ path: extension.path, tools: [...extension.tools] }] : [];
-  });
+function childExtensionsForLaunch(
+  registered: SubagentChildExtension[],
+  launch: ChildSessionLaunch,
+): SubagentChildExtension[] {
+  const requested = new Set(launch.extensionPaths);
+  return permittedChildExtensions(
+    registered.filter((extension) => launch.inheritRegisteredExtensions !== false || requested.has(extension.path)),
+    launch.excludeTools,
+    launch.runtime.capabilityCeiling,
+  );
 }
 
-function createRemoteChildSession(runtime: SubagentRuntime, launch: ChildSessionLaunch): ChildSession {
+function createRemoteChildSession(
+  runtime: SubagentRuntime,
+  launch: ChildSessionLaunch,
+  allowMemory: boolean,
+): ChildSession {
   const listeners = new Set<(event: ChildSessionEvent) => void>();
   const messages: AgentMessage[] = [];
   let sessionFile = launch.storage.kind === "file" ? launch.storage.sessionFile : undefined;
@@ -71,6 +80,14 @@ function createRemoteChildSession(runtime: SubagentRuntime, launch: ChildSession
     if (!runId || !agent || childIndex === undefined) {
       return Promise.reject(new Error("Desktop subagent launch is missing run identity"));
     }
+    const registeredExtensions = runtime.getChildExtensions?.() ?? [];
+    const childExtensions = childExtensionsForLaunch(registeredExtensions, launch);
+    const activeExtensionPaths = new Set(childExtensions.map((extension) => extension.path));
+    const unavailableExtensionTools = new Set(
+      registeredExtensions
+        .filter((extension) => !activeExtensionPaths.has(extension.path))
+        .flatMap((extension) => extension.tools),
+    );
     const request: SubagentRuntimeRunRequest = {
       runId,
       rootRunId: runId,
@@ -86,7 +103,16 @@ function createRemoteChildSession(runtime: SubagentRuntime, launch: ChildSession
       ...(launch.runtime.orchestratorTarget ? { orchestratorTarget: launch.runtime.orchestratorTarget } : {}),
       ...(launch.runtime.intercomSessionName ? { intercomSessionName: launch.runtime.intercomSessionName } : {}),
       ...(launch.model ? { model: launch.model } : {}),
-      ...(launch.tools ? { tools: [...launch.tools] } : {}),
+      ...(launch.tools
+        ? {
+            tools: [
+              ...new Set([
+                ...launch.tools.filter((tool) => !unavailableExtensionTools.has(tool)),
+                ...childExtensions.flatMap((extension) => extension.tools),
+              ]),
+            ],
+          }
+        : {}),
       ...(launch.excludeTools ? { excludeTools: [...launch.excludeTools] } : {}),
       ...(launch.extensionPaths.length ? { extensionPaths: [...launch.extensionPaths] } : {}),
       ambientExtensions: launch.ambientExtensions,
@@ -97,8 +123,13 @@ function createRemoteChildSession(runtime: SubagentRuntime, launch: ChildSession
       inheritProjectContext: !launch.noContextFiles,
       inheritGlobalContext: launch.runtime.inheritGlobalContext,
       inheritSkills: !launch.noSkills,
-      extensionProfile: ["provider", "memory", "runtime", ...(launch.runtime.fanoutChild ? ["fanout" as const] : [])],
-      childExtensions: childExtensionsForLaunch(runtime, launch),
+      extensionProfile: [
+        "provider",
+        ...(allowMemory ? ["memory" as const] : []),
+        "runtime",
+        ...(launch.runtime.fanoutChild ? ["fanout" as const] : []),
+      ],
+      childExtensions,
       ...(launch.runtime.toolBudget ? { toolBudget: launch.runtime.toolBudget } : {}),
       ...(launch.runtime.structuredOutput
         ? {
@@ -184,9 +215,10 @@ function createRemoteChildSession(runtime: SubagentRuntime, launch: ChildSession
 }
 
 /** 将 Desktop Main 管理的 worker transport 适配为上游 child-session contract。 */
-export function createDesktopChildSessionFactory(runtime: SubagentRuntime): ChildSessionFactory {
+export function createDesktopChildSessionFactory(runtime: SubagentRuntime, allowMemory = true): ChildSessionFactory {
   return {
-    create: (launch) => Promise.resolve(createRemoteChildSession(runtime, launch)),
+    allowMemory,
+    create: (launch) => Promise.resolve(createRemoteChildSession(runtime, launch, allowMemory)),
     dispose: () => runtime.dispose(),
   };
 }

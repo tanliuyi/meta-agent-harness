@@ -24,6 +24,11 @@ describe("workbench responsive layout", () => {
     expect(body).toContain("grid-template-columns: minmax(0, 1fr);");
   });
 
+  it("keeps the project sidebar resize handle on the file-tree boundary", () => {
+    expect(panelCss).toMatch(/\.resize-handle-file-tree\s*\{\s*right:\s*0;/);
+    expect(panelCss).toMatch(/\.resize-handle-file-tree::after\s*\{\s*right:\s*0;/);
+  });
+
   it("keeps the panel width bounded by the JS-provided workspace-relative maximum", () => {
     expect(panelCss).toContain("max-width: var(--workbench-max-size, 80vw);");
     expect(panelCss).toContain("min-width: var(--layout-workbench-min-width);");

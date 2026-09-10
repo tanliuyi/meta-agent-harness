@@ -225,6 +225,7 @@ describe("ThreadWorkerRegistry", () => {
       "/workspace",
       expect.objectContaining({ generation: "extensions-generation" }),
       [],
+      expect.objectContaining({ profileId: "desktop-default", profileRevision: 1 }),
     );
     expect(harness.clients).toHaveLength(0);
     await registry.dispose();
@@ -241,6 +242,7 @@ describe("ThreadWorkerRegistry", () => {
       "/workspace-linked",
       expect.objectContaining({ generation: "extensions-generation" }),
       [],
+      expect.objectContaining({ profileId: "desktop-default", profileRevision: 1 }),
     );
     await registry.dispose();
   });
@@ -597,6 +599,11 @@ describe("ThreadWorkerRegistry", () => {
     harness.metadataRecoverCreationReservation
       .mockResolvedValueOnce({ status: "active", retryAfterMs: 1 })
       .mockResolvedValueOnce({ status: "committed" });
+    harness.options.mainAgents = {
+      getSnapshot: async () => {
+        throw new Error("updated profile store must not be consulted for a committed retry");
+      },
+    };
     const registry = new ThreadWorkerRegistry(harness.options);
 
     const recovered = await registry.create({
@@ -647,6 +654,62 @@ describe("ThreadWorkerRegistry", () => {
     });
 
     expect(harness.metadataResolve).toHaveBeenCalledWith("project", "/workspace", "cold-parent");
+    await registry.dispose();
+  });
+
+  it("inherits a cold parent main agent snapshot before child startup", async () => {
+    const harness = createHarness(userDataDir);
+    const parentFile = join(userDataDir, "cold-parent.jsonl");
+    writeFileSync(parentFile, `${JSON.stringify({ type: "session", id: "cold-parent", cwd: "/workspace" })}\n`);
+    writeFileSync(
+      `${parentFile}.main-agent.json`,
+      JSON.stringify({
+        version: 1,
+        profileId: "deleted-profile",
+        profileRevision: 9,
+        profileName: "Deleted profile",
+        createdAt: 1,
+        configuration: {
+          prompt: {
+            mode: "default",
+            text: "",
+            includeGlobalRules: true,
+            includeProjectRules: true,
+            includeSkills: true,
+          },
+          tools: ["read"],
+          builtinPluginIds: [],
+        },
+      }),
+    );
+    const registry = new ThreadWorkerRegistry(harness.options);
+
+    const preview = await registry.getDraftConfig("project", "/workspace", {
+      kind: "inherit-parent",
+      parentThreadId: "cold-parent",
+    });
+    expect(preview.mainAgent).toMatchObject({
+      selection: { id: "deleted-profile", revision: 9 },
+      snapshot: { profileId: "deleted-profile", profileRevision: 9 },
+    });
+    expect(preview.mainAgent?.profiles).toContainEqual(
+      expect.objectContaining({
+        id: "deleted-profile",
+        revision: 9,
+        description: "继承自父会话的创建时快照",
+      }),
+    );
+
+    await registry.create({
+      projectId: "project",
+      createRequestId: "child-inherit",
+      extensionSetGeneration: "extensions-generation",
+      model: { provider: "provider", id: "model" },
+      thinkingLevel: "off",
+      parentThreadId: "cold-parent",
+    });
+
+    expect(harness.clients[0]?.bindingMainAgentProfileId).toBe("deleted-profile");
     await registry.dispose();
   });
 
@@ -1377,6 +1440,7 @@ describe("ThreadWorkerRegistry", () => {
 
   it("rolls back to the previous extension set after replacement startup failures", async () => {
     const harness = createHarness(userDataDir, { failGeneration: "extensions-broken" });
+    harness.metadataList.mockResolvedValue([{ ...thread("thread"), enabledPluginIds: ["marketplace:second"] }]);
     const registry = new ThreadWorkerRegistry(harness.options);
     await registry.attach("project", "thread");
     harness.resolveExtensions.mockResolvedValue(extensionSet("project", "extensions-broken"));
@@ -1385,6 +1449,7 @@ describe("ThreadWorkerRegistry", () => {
 
     expect(result).toMatchObject({ status: "rolled-back", generation: "extensions-generation" });
     expect(harness.clients.at(-1)?.bindingGeneration).toBe("extensions-generation");
+    expect(harness.clients.at(-1)?.bindingEnabledPluginIds).toEqual(["marketplace:second"]);
     expect(harness.resync).toHaveBeenLastCalledWith("project", "thread", "extension-set-rollback");
     await registry.dispose();
   });
@@ -1484,7 +1549,7 @@ describe("ThreadWorkerRegistry", () => {
     expect(harness.clients[0]?.shutdownCount).toBe(1);
   });
 
-  it("removes a complete subtree through one metadata mutation", async () => {
+  it("removes a complete subtree and only its policy sidecars through one metadata mutation", async () => {
     const harness = createHarness(userDataDir);
     harness.metadataList.mockResolvedValue([
       thread("parent"),
@@ -1495,6 +1560,10 @@ describe("ThreadWorkerRegistry", () => {
     const ended: string[] = [];
     harness.options.beginSubagentTreeMutation = (_projectId, id) => begun.push(id);
     harness.options.endSubagentTreeMutation = (_projectId, id) => ended.push(id);
+    for (const id of ["parent", "child", "grandchild"]) {
+      writeFileSync(join(userDataDir, `${id}.jsonl.main-agent.json`), "{}\n");
+    }
+    writeFileSync(join(userDataDir, "unrelated.jsonl.main-agent.json"), "{}\n");
     const registry = new ThreadWorkerRegistry(harness.options);
     await expect(registry.remove("project", "parent", "subtree")).resolves.toEqual({
       removedThreadIds: ["parent", "child", "grandchild"],
@@ -1504,6 +1573,10 @@ describe("ThreadWorkerRegistry", () => {
     expect(harness.cleanupSessionCheckpoints).toHaveBeenCalledWith("project", ["parent", "child", "grandchild"]);
     expect(begun).toEqual(["parent", "child", "grandchild"]);
     expect(ended).toEqual(["grandchild", "child", "parent"]);
+    for (const id of ["parent", "child", "grandchild"]) {
+      expect(existsSync(join(userDataDir, `${id}.jsonl.main-agent.json`))).toBe(false);
+    }
+    expect(existsSync(join(userDataDir, "unrelated.jsonl.main-agent.json"))).toBe(true);
     await registry.dispose();
   });
 
@@ -1669,6 +1742,33 @@ function createHarness(
     userDataDir,
     agentDir: join(userDataDir, "agent"),
     extensionSourcePolicy,
+    mainAgents: {
+      getSnapshot: async () => ({
+        version: 1,
+        revision: "main-agent-store",
+        defaultAgentId: "desktop-default",
+        profiles: [
+          {
+            id: "desktop-default",
+            revision: 1,
+            name: "Default agent",
+            description: "Desktop default behavior",
+            builtin: true,
+            configuration: {
+              prompt: {
+                mode: "default",
+                text: "",
+                includeGlobalRules: true,
+                includeProjectRules: true,
+                includeSkills: true,
+              },
+              tools: null,
+              builtinPluginIds: null,
+            },
+          },
+        ],
+      }),
+    },
     generationReferences: overrides?.generationReferences,
     getCwd: () => "/workspace",
     resolveSessionCwd: async (_projectId, cwd) => cwd,
@@ -1723,6 +1823,8 @@ class FakeWorkerClient implements ThreadWorkerClient {
   readonly bindingGeneration: string;
   readonly shellPath: string | undefined;
   readonly bindingParentSessionFile: string | undefined;
+  readonly bindingMainAgentProfileId: string | undefined;
+  readonly bindingEnabledPluginIds: readonly string[] | undefined;
   readonly bindingExtensionEntries: ReadonlyArray<{ id: string; source: string }>;
   readyStarted = false;
   shutdownCount = 0;
@@ -1759,6 +1861,8 @@ class FakeWorkerClient implements ThreadWorkerClient {
     this.shellPath = options.binding.value.shellPath;
     this.bindingParentSessionFile =
       options.binding.value.mode === "create" ? options.binding.value.parentSessionFile : undefined;
+    this.bindingMainAgentProfileId = options.binding.value.mainAgentSnapshot?.profileId;
+    this.bindingEnabledPluginIds = options.binding.value.enabledPluginIds;
     this.bindingExtensionEntries = options.binding.value.extensionSet.entries.map((entry) => ({
       id: entry.id,
       source: entry.source,

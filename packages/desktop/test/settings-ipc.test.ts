@@ -27,6 +27,11 @@ describe("settings IPC", () => {
     getConfig: vi.fn(),
     saveConfig: vi.fn(),
   };
+  const mainAgents = {
+    getSnapshot: vi.fn(),
+    getCatalog: vi.fn(),
+    mutate: vi.fn(),
+  };
 
   beforeEach(() => {
     electron.handles.clear();
@@ -36,6 +41,7 @@ describe("settings IPC", () => {
       createIpcTestDependencies({
         projects: { list: vi.fn(), getActive: vi.fn() } as never,
         settings: settings as never,
+        mainAgents: mainAgents as never,
         dirtyGuard: { requestClose: vi.fn(), setDirty: vi.fn(), remove: vi.fn() } as never,
         runtime: { shell: { getStatus: vi.fn(), install: vi.fn(), use: vi.fn(), onProgress: vi.fn() } },
       }),
@@ -74,6 +80,23 @@ describe("settings IPC", () => {
       snapshot,
     });
     expect(settings.saveConfig).toHaveBeenCalledWith(input);
+  });
+
+  test("映射智能体快照、元数据目录和 CAS 修改处理器", async () => {
+    const snapshot = { revision: "agents" };
+    const catalog = { tools: [], builtinPlugins: [] };
+    const input = { action: "set-default", expectedRevision: "agents", id: "reader" };
+    mainAgents.getSnapshot.mockResolvedValue(snapshot);
+    mainAgents.getCatalog.mockReturnValue(catalog);
+    mainAgents.mutate.mockResolvedValue({ status: "saved", snapshot });
+
+    await expect(electron.handles.get(CHANNELS.mainAgentsGetSnapshot)?.({})).resolves.toBe(snapshot);
+    expect(electron.handles.get(CHANNELS.mainAgentsGetCatalog)?.({})).toBe(catalog);
+    await expect(electron.handles.get(CHANNELS.mainAgentsMutate)?.({}, input)).resolves.toEqual({
+      status: "saved",
+      snapshot,
+    });
+    expect(mainAgents.mutate).toHaveBeenCalledWith(input);
   });
 
   test("选择头像只返回外部图片路径", async () => {

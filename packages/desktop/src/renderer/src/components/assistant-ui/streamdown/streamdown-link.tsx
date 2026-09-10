@@ -1,5 +1,5 @@
-import ExternalLink from "lucide-react/dist/esm/icons/external-link.mjs";
-import File from "lucide-react/dist/esm/icons/file.mjs";
+import { FileTypeIcon } from "@renderer/components/panel/files/file-type-icon";
+import Globe from "lucide-react/dist/esm/icons/globe.mjs";
 import {
   type ComponentPropsWithoutRef,
   type MouseEvent,
@@ -8,7 +8,9 @@ import {
   useContext,
   useState,
 } from "react";
+import { FileIcon } from "react-material-vscode-icons";
 import { StreamdownContext } from "streamdown";
+import { markdownLocalPath } from "../../../../../shared/markdown-image-contracts.ts";
 import { isLocalMarkdownLink, LinkSafetyModal } from "./link-safety-modal.tsx";
 
 type MarkdownLinkProps = ComponentPropsWithoutRef<"a"> & {
@@ -37,7 +39,7 @@ export function MarkdownLink({ children, className, href, node, ...props }: Mark
     [href, incomplete, linkSafety, open],
   );
   const content = linkContent(href, node, children);
-  const sharedClassName = `wrap-anywhere font-medium text-primary underline${className ? ` ${className}` : ""}`;
+  const sharedClassName = `wrap-anywhere font-medium text-info underline${className ? ` ${className}` : ""}`;
 
   if (linkSafety?.enabled && href) {
     const modal = {
@@ -78,6 +80,22 @@ export function MarkdownLink({ children, className, href, node, ...props }: Mark
   );
 }
 
+function WebsiteIcon({ origin }: { origin: string }) {
+  const [failed, setFailed] = useState(false);
+  const className = "mr-1 inline size-3.5 align-[-0.125em]";
+  if (failed) return <Globe aria-hidden="true" className={className} />;
+  return (
+    <img
+      alt=""
+      aria-hidden="true"
+      className={className}
+      loading="lazy"
+      onError={() => setFailed(true)}
+      src={`${origin}/favicon.ico`}
+    />
+  );
+}
+
 function linkContent(href: string | undefined, node: MarkdownLinkProps["node"], children: ReactNode): ReactNode {
   if (
     !href ||
@@ -86,22 +104,53 @@ function linkContent(href: string | undefined, node: MarkdownLinkProps["node"], 
   ) {
     return children;
   }
-  const iconClassName = "mr-1 inline size-3.5 align-[-0.125em] text-current";
   if (isLocalMarkdownLink(href)) {
+    const localPath = markdownLocalPath(href);
+    const isFolder = /[/\\]$/u.test(localPath);
+    const name = pathName(localPath, isFolder);
     return (
       <>
-        <File aria-hidden="true" className={iconClassName} />
+        {isFolder ? (
+          <span className="mr-1 inline-flex size-3.5 align-[-0.125em]" aria-hidden="true">
+            <FileIcon fileName={name} isFolder size={14} />
+          </span>
+        ) : (
+          <FileTypeIcon className="mr-1 inline-flex size-3.5 align-[-0.125em]" name={name} size={14} />
+        )}
         {children}
       </>
     );
   }
-  if (/^https?:\/\//iu.test(href)) {
+  const external = externalUrl(href);
+  if (external) {
     return (
       <>
-        <ExternalLink aria-hidden="true" className={iconClassName} />
-        {children}
+        <WebsiteIcon origin={external.origin} />
+        {external.display}
       </>
     );
   }
   return children;
+}
+
+function externalUrl(href: string): { display: string; origin: string } | undefined {
+  if (!/^https?:\/\//iu.test(href)) return undefined;
+  try {
+    const url = new URL(href);
+    url.search = "";
+    url.hash = "";
+    return { display: url.toString(), origin: url.origin };
+  } catch {
+    return undefined;
+  }
+}
+
+function pathName(path: string, isFolder: boolean): string {
+  const normalized = isFolder ? path.replace(/[/\\]+$/u, "") : path;
+  const name = normalized.split(/[/\\]/u).at(-1) || (isFolder ? "folder" : "file");
+  try {
+    return decodeURIComponent(name);
+  } catch {
+    return name;
+  }
 }

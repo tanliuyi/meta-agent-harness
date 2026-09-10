@@ -6,6 +6,7 @@ import type {
 } from "../../shared/auth-config-contracts.ts";
 import type { SaveAutoTitleSettingsInput } from "../../shared/auto-title-contracts.ts";
 import { CHANNELS } from "../../shared/channels.ts";
+import type { MainAgentMutationInput } from "../../shared/main-agent-contracts.ts";
 import type {
   MutateMemoryEntryInput,
   RunMemoryMaintenanceInput,
@@ -21,7 +22,9 @@ import type { ModelsConfigService } from "../models/models-config-service.ts";
 import type { PreferencesConfigService } from "../preferences/preferences-config-service.ts";
 import type { ProvidersConfigService } from "../providers/providers-config-service.ts";
 import type { AutoTitleSettingsService } from "../settings/auto-title-settings-service.ts";
+import type { MainAgentConfigService } from "../settings/main-agent-config-service.ts";
 import type { MemorySettingsService } from "../settings/memory-settings-service.ts";
+import { saveSettingsAndBroadcast } from "../settings/settings-config-broadcast.ts";
 import type { SettingsConfigService } from "../settings/settings-config-service.ts";
 import type { SubagentSettingsConfigService } from "../subagents/subagent-settings-config-service.ts";
 import type { WindowDirtyGuard } from "../window-dirty-guard.ts";
@@ -35,6 +38,7 @@ export interface SettingsIpcDependencies {
   readonly settings: SettingsConfigService;
   readonly dirtyGuard: WindowDirtyGuard;
   readonly preferences?: PreferencesConfigService;
+  readonly mainAgents?: MainAgentConfigService;
   readonly memorySettings?: MemorySettingsService;
   readonly autoTitle?: AutoTitleSettingsService;
   readonly subagents?: SubagentSettingsConfigService;
@@ -63,6 +67,10 @@ export const SETTINGS_IPC_CHANNELS = [
   CHANNELS.preferencesGetInitial,
   CHANNELS.preferencesSave,
   CHANNELS.settingsChooseUserAvatar,
+  CHANNELS.mainAgentsGetSnapshot,
+  CHANNELS.mainAgentsGetCatalog,
+  CHANNELS.mainAgentsMutate,
+  CHANNELS.mainAgentsSetEditorDirty,
   CHANNELS.memorySettingsGetSnapshot,
   CHANNELS.memorySettingsSaveConfig,
   CHANNELS.memorySettingsMutateEntry,
@@ -82,8 +90,18 @@ export const SETTINGS_IPC_CHANNELS = [
 
 /** 注册模型、认证、provider、偏好、memory 和 subagent settings IPC。 */
 export function registerSettingsIpc(dependencies: SettingsIpcDependencies): readonly string[] {
-  const { models, auth, providers, settings, preferences, memorySettings, autoTitle, subagents, dirtyGuard } =
-    dependencies;
+  const {
+    models,
+    auth,
+    providers,
+    settings,
+    preferences,
+    mainAgents,
+    memorySettings,
+    autoTitle,
+    subagents,
+    dirtyGuard,
+  } = dependencies;
   const oauthOwners = new Set<number>();
   const oauth = new OauthLoginCoordinator({ login: (providerId, callbacks) => auth.loginOauth(providerId, callbacks) });
 
@@ -144,7 +162,9 @@ export function registerSettingsIpc(dependencies: SettingsIpcDependencies): read
   });
   ipcMain.handle(CHANNELS.providersOpenConfigExternally, async () => openPath(await providers.getExternalOpenTarget()));
   ipcMain.handle(CHANNELS.settingsGetConfig, () => settings.getConfig());
-  ipcMain.handle(CHANNELS.settingsSaveConfig, (_event, input: SaveSettingsConfigInput) => settings.saveConfig(input));
+  ipcMain.handle(CHANNELS.settingsSaveConfig, (_event, input: SaveSettingsConfigInput) =>
+    saveSettingsAndBroadcast(settings, input),
+  );
   if (preferences) {
     ipcMain.on(CHANNELS.preferencesGetInitial, (event) => {
       event.returnValue = preferences.getInitial();
@@ -161,6 +181,11 @@ export function registerSettingsIpc(dependencies: SettingsIpcDependencies): read
     const result = owner ? await dialog.showOpenDialog(owner, options) : await dialog.showOpenDialog(options);
     return result.canceled ? null : (result.filePaths[0] ?? null);
   });
+  if (mainAgents) {
+    ipcMain.handle(CHANNELS.mainAgentsGetSnapshot, () => mainAgents.getSnapshot());
+    ipcMain.handle(CHANNELS.mainAgentsGetCatalog, () => mainAgents.getCatalog());
+    ipcMain.handle(CHANNELS.mainAgentsMutate, (_event, input: MainAgentMutationInput) => mainAgents.mutate(input));
+  }
   if (memorySettings) {
     ipcMain.handle(CHANNELS.memorySettingsGetSnapshot, () => memorySettings.getSnapshot());
     ipcMain.handle(CHANNELS.memorySettingsSaveConfig, async (_event, input: SaveMemorySettingsInput) => {
@@ -197,6 +222,7 @@ export function registerSettingsIpc(dependencies: SettingsIpcDependencies): read
       subagents.saveConfig(input),
     );
   }
+  registerDirtyEditor(CHANNELS.mainAgentsSetEditorDirty, dirtyGuard);
   registerDirtyEditor(CHANNELS.memorySettingsSetEditorDirty, dirtyGuard);
   registerDirtyEditor(CHANNELS.browserSetEditorDirty, dirtyGuard);
   registerDirtyEditor(CHANNELS.autoTitleSetEditorDirty, dirtyGuard);
@@ -207,6 +233,11 @@ export function registerSettingsIpc(dependencies: SettingsIpcDependencies): read
   if (!preferences) {
     unavailable.add(CHANNELS.preferencesGetInitial);
     unavailable.add(CHANNELS.preferencesSave);
+  }
+  if (!mainAgents) {
+    unavailable.add(CHANNELS.mainAgentsGetSnapshot);
+    unavailable.add(CHANNELS.mainAgentsGetCatalog);
+    unavailable.add(CHANNELS.mainAgentsMutate);
   }
   if (!memorySettings) {
     unavailable.add(CHANNELS.memorySettingsGetSnapshot);

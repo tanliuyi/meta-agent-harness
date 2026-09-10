@@ -28,6 +28,7 @@ import type { BrowserSettingsSnapshot } from "../../../../../shared/browser-sett
 
 const DEFAULT_REQUEST_TIMEOUT_MS = 130_000;
 const REQUEST_TIMEOUTS_MS: Record<string, number> = {
+  desktopRuntime: 65_000,
   navigate: 35_000,
   tabsList: 15_000,
   activeTab: 15_000,
@@ -87,6 +88,10 @@ export class BrowserClient {
     this.sessionProjectId = sessionProjectId;
     this.sessionThreadId = sessionThreadId;
     this.fetchImpl = options.fetchImpl ?? fetch;
+  }
+
+  async desktopRuntime(method: string, params: unknown, signal?: AbortSignal): Promise<unknown> {
+    return this.request("desktopRuntime", { method, params }, signal);
   }
 
   async tabsList(signal?: AbortSignal): Promise<BrowserTab[]> {

@@ -1,8 +1,20 @@
+import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import * as fsPromises from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { fauxAssistantMessage } from "@earendil-works/pi-ai/compat";
 import { type AgentSession, SessionManager } from "@earendil-works/pi-coding-agent";
 import { describe, expect, it, vi } from "vitest";
+import { materializeDesktopSession } from "../src/main/pi/desktop-session-persistence.ts";
+import {
+  readMainAgentSessionSnapshot,
+  writeMainAgentSessionSnapshot,
+} from "../src/main/pi/main-agent-session-store.ts";
 import { PiCompatibilityAdapter } from "../src/main/pi/pi-compatibility-adapter.ts";
 import type { PiThreadProjector } from "../src/main/pi/pi-thread-projector.ts";
 import type { PiQuote } from "../src/shared/contracts.ts";
+
+vi.mock("node:fs/promises", async (importOriginal) => ({ ...(await importOriginal<Record<string, unknown>>()) }));
 
 describe("PiCompatibilityAdapter", () => {
   it("edit preflight 失败时返回 rejected result 并恢复旧 leaf", async () => {
@@ -79,39 +91,63 @@ describe("PiCompatibilityAdapter", () => {
     expect(session.clearQueue).not.toHaveBeenCalled();
   });
 
-  it("fork 使用独立 SessionManager，避免改写 source worker identity", async () => {
-    const sourceCreateBranch = vi.fn();
-    const session = createSession({
-      sessionFile: "/sessions/source.jsonl",
-      sessionManager: createSessionManager({
-        getEntry: (id: string) =>
-          id === "assistant" ? { type: "message", message: { role: "assistant" } } : undefined,
-        createBranchedSession: sourceCreateBranch,
-      }),
+  it.each([false, true])("publishes branch policy before JSONL with assistant history=%s", async (hasAssistant) => {
+    const directory = mkdtempSync(join(tmpdir(), "branch-policy-"));
+    const manager = SessionManager.create(directory, directory);
+    await materializeDesktopSession(manager);
+    let leaf = manager.appendMessage({ role: "user", content: "question", timestamp: 1 });
+    if (hasAssistant) leaf = manager.appendMessage(fauxAssistantMessage("answer"));
+    const sourceFile = manager.getSessionFile()!;
+    const snapshot = {
+      version: 1 as const,
+      profileId: "restricted",
+      profileRevision: 1,
+      profileName: "Restricted",
+      createdAt: 1,
+      configuration: {
+        prompt: {
+          mode: "default" as const,
+          text: "",
+          includeGlobalRules: true,
+          includeProjectRules: true,
+          includeSkills: true,
+        },
+        tools: ["read"],
+        builtinPluginIds: [],
+      },
+    };
+    await writeMainAgentSessionSnapshot(sourceFile, snapshot);
+    const originalRename = fsPromises.rename;
+    const publish = vi.spyOn(fsPromises, "rename").mockImplementation(async (from, to) => {
+      if (String(to).endsWith(".jsonl") && !String(to).includes(".branch-")) {
+        expect(existsSync(String(to))).toBe(false);
+        expect(JSON.parse(readFileSync(`${to}.main-agent.json`, "utf8"))).toEqual(snapshot);
+        expect((await SessionManager.list(directory, directory)).map(({ path }) => path)).toEqual([sourceFile]);
+        expect((await SessionManager.listAll(directory)).map(({ path }) => path)).toEqual([sourceFile]);
+      }
+      return originalRename(from, to);
     });
-    const branchCreate = vi.fn(() => "/sessions/forked.jsonl");
-    const branchManager = {
-      createBranchedSession: branchCreate,
-      getHeader: () => ({ id: "forked", timestamp: "2026-07-22T08:00:00.000Z" }),
-    } as unknown as SessionManager;
-    const open = vi.spyOn(SessionManager, "open").mockReturnValue(branchManager);
-    const adapter = new PiCompatibilityAdapter({ session, projector: createProjector() });
-
-    await expect(
-      adapter.branch({
-        requestId: "request",
-        projectId: "project",
-        threadId: "thread",
-        sourceEntryId: "assistant",
+    try {
+      const adapter = new PiCompatibilityAdapter({
+        session: createSession({ sessionManager: manager, sessionFile: sourceFile }),
+        projector: createProjector(),
+      });
+      const result = await adapter.branch({
+        requestId: "branch",
+        projectId: "p",
+        threadId: manager.getSessionId(),
+        sourceEntryId: leaf,
         position: "at",
-      }),
-    ).resolves.toEqual({ branchThreadId: "forked", branchSessionFile: "/sessions/forked.jsonl" });
-
-    expect(open).toHaveBeenCalledWith("/sessions/source.jsonl", "/sessions", "/workspace");
-    expect(branchCreate).toHaveBeenCalledWith("assistant");
-    expect(sourceCreateBranch).not.toHaveBeenCalled();
-    expect(session.sessionId).toBe("thread");
-    expect(session.sessionFile).toBe("/sessions/source.jsonl");
+      });
+      expect(SessionManager.open(result.branchSessionFile).getLeafId()).toBe(leaf);
+      expect(await readMainAgentSessionSnapshot(result.branchSessionFile)).toEqual(snapshot);
+      expect(manager.getSessionFile()).toBe(sourceFile);
+      expect(SessionManager.open(result.branchSessionFile).getHeader()?.parentSession).toBe(sourceFile);
+      expect((await fsPromises.readdir(directory)).filter((name) => name.startsWith(".branch-"))).toEqual([]);
+    } finally {
+      publish.mockRestore();
+      rmSync(directory, { recursive: true, force: true });
+    }
   });
 
   it("public property/surface 缺失时给出版本化 fail-fast 诊断", () => {
@@ -122,7 +158,7 @@ describe("PiCompatibilityAdapter", () => {
     } as unknown as AgentSession;
 
     expect(() => new PiCompatibilityAdapter({ session, projector: createProjector() })).toThrow(
-      /不兼容的 pi-coding-agent 0\.82\.1: 缺少 isStreaming, sessionManager/,
+      /不兼容的 pi-coding-agent \d+\.\d+\.\d+: 缺少 isStreaming, sessionManager/,
     );
   });
 

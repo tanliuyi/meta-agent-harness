@@ -2,6 +2,7 @@ import { ThreadPrimitive } from "@assistant-ui/react";
 import { cn } from "@renderer/shared/lib/cn";
 import type { DraftSessionConfig, GitWorktree, Project, ThinkingLevel } from "../../../../shared/contracts.ts";
 import type { DesktopExtensionDiagnostic } from "../../../../shared/desktop-extension-contracts.ts";
+import type { MainAgentSelection, MainAgentSessionSnapshot } from "../../../../shared/main-agent-contracts.ts";
 import { Composer } from "./composer/composer.tsx";
 import { ComposerFeedback, type ComposerFeedbackTone } from "./composer/composer-feedback.tsx";
 
@@ -19,10 +20,15 @@ interface DraftComposerThreadProps {
   fixedProject?: boolean;
   /** 工作台 panel 内嵌草稿：隐藏标题并将 composer 靠下对齐。 */
   compact?: boolean;
+  inheritedMainAgent?: boolean;
+  inheritedMainAgentProfile?: MainAgentSessionSnapshot | null;
   onProjectChange(projectId: string): Promise<void>;
   onWorktreeChange?(path: string): void;
   onModelChange(provider: string, modelId: string): void;
   onThinkingChange(level: ThinkingLevel): void;
+  onMainAgentChange?(selection: MainAgentSelection): void;
+  onInheritMainAgent?(): void;
+
   onPluginsChange(enabledPluginIds: string[] | null): void;
   onSubmit(): Promise<void>;
 }

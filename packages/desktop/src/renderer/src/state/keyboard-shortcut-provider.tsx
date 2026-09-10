@@ -1,5 +1,7 @@
 import { useMatchRoute, useNavigate, useSearch } from "@tanstack/react-router";
 import { createContext, type ReactNode, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
+import { resolveThreadRootId, type ThreadTreeEntry } from "../../../shared/thread-tree.ts";
+import { sessionRecordKey } from "../runtime/pi-session-store.ts";
 import { useDesktopActions, useDesktopSelector } from "./desktop-context.tsx";
 import {
   DESKTOP_SESSION_TAB_COMMAND_IDS,
@@ -42,21 +44,42 @@ export function KeyboardShortcutProvider({ children }: { children: ReactNode }) 
   const [primaryModifierPressed, setPrimaryModifierPressed] = useState(false);
   const commandHandlersRef = useRef(new Map<KeyboardCommandId, () => void>());
   const activeProjectId = useDesktopSelector((state) => state.activeProjectId);
+  const threadCatalogs = useDesktopSelector((state) => state.threadCatalogs);
   const actions = useDesktopActions();
   const { toggleSidebar } = useLayout();
   const matchRoute = useMatchRoute();
   const navigate = useNavigate();
   const routeSearch = useSearch({ strict: false });
   const sessionRecords = useSessionCacheRecords();
+  const sessionTabTargets = useMemo(() => {
+    const threadsByProject = new Map(
+      Object.entries(threadCatalogs).map(([projectId, threads]) => [
+        projectId,
+        new Map(threads.map((thread) => [thread.id, thread])),
+      ]),
+    );
+    const seen = new Set<string>();
+    const targets: Array<{ key: string; identity: { projectId: string; threadId: string } }> = [];
+    for (const record of sessionRecords) {
+      const { projectId } = record.identity;
+      const threadsById = threadsByProject.get(projectId) ?? new Map<string, ThreadTreeEntry>();
+      const threadId = resolveThreadRootId(threadsById, record.identity.threadId);
+      const key = sessionRecordKey(projectId, threadId);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      targets.push({ key, identity: { projectId, threadId } });
+    }
+    return targets;
+  }, [sessionRecords, threadCatalogs]);
   const commandTargets = useMemo(() => {
     const targets = new Map<KeyboardCommandId, string>();
     for (const [index, commandId] of DESKTOP_SESSION_TAB_COMMAND_IDS.entries()) {
-      const target = sessionRecords[index]?.key;
+      const target = sessionTabTargets[index]?.key;
       if (target) targets.set(commandId, target);
     }
     for (const [commandId, target] of registeredCommandTargets) targets.set(commandId, target);
     return targets;
-  }, [registeredCommandTargets, sessionRecords]);
+  }, [registeredCommandTargets, sessionTabTargets]);
 
   const getBindings = useCallback(
     (commandId: KeyboardCommandId) => {
@@ -110,7 +133,7 @@ export function KeyboardShortcutProvider({ children }: { children: ReactNode }) 
         registeredHandler();
         return true;
       }
-      const sessionTabTarget = sessionTabTargetForCommand(commandId, sessionRecords);
+      const sessionTabTarget = sessionTabTargetForCommand(commandId, sessionTabTargets);
       if (isSessionTabCommand(commandId)) {
         if (!sessionTabTarget) return false;
         void navigate({
@@ -142,7 +165,7 @@ export function KeyboardShortcutProvider({ children }: { children: ReactNode }) 
       }
       return false;
     },
-    [actions, activeProjectId, matchRoute, navigate, routeSearch, sessionRecords, toggleSidebar],
+    [actions, activeProjectId, matchRoute, navigate, routeSearch, sessionTabTargets, toggleSidebar],
   );
 
   useEffect(() => {

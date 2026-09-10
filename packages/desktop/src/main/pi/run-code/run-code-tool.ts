@@ -48,6 +48,24 @@ export class RunCodeRegistryHolder {
     await this.manager.dispose();
   }
 
+  snapshot(pluginId?: string) {
+    if (this.stale) throw new Error("PLUGIN_GENERATION_STALE");
+    return [...(this.registry ?? [])]
+      .filter(([id]) => pluginId === undefined || id === pluginId)
+      .map(([id, methods]) => ({
+        pluginId: id,
+        methods: [...methods.values()].map((method) => ({
+          name: method.name,
+          description: method.description,
+          parameters: method.parameters,
+          result: method.result,
+          concurrency: method.concurrency,
+          entryId: method.entryId,
+          primarySkill: method.primarySkill,
+        })),
+      }));
+  }
+
   getDispatcher(): PluginMethodDispatcher {
     if (!this.registry || !this.dispatcher || this.stale) throw new Error("PLUGIN_GENERATION_STALE");
     return this.dispatcher;

@@ -1,6 +1,11 @@
 import { fromMarkdown } from "mdast-util-from-markdown";
 
 export const MARKDOWN_IMAGE_SCHEME = "meta-agent-markdown-image";
+
+export interface MarkdownImageData {
+  bytes: Uint8Array<ArrayBuffer>;
+  contentType: string;
+}
 const MARKDOWN_WINDOWS_PATH_PREFIX = "/.meta-agent-local/windows/";
 
 const LOCAL_IMAGE_WITH_SPACES_PATTERN =
@@ -60,6 +65,7 @@ export function resolveRelativeMarkdownPath(source: string, cwd: string): string
 
   const normalizedCwd = cwd.replaceAll("\\", "/").replace(/\/+$/u, "");
   const normalizedSource = value.replaceAll("\\", "/");
+  const preserveTrailingSlash = normalizedSource.endsWith("/");
   const unc = normalizedCwd.startsWith("//");
   const windows = WINDOWS_ABSOLUTE_PATH_PATTERN.test(cwd) || unc;
   const prefix = unc ? "//" : cwd.replaceAll("\\", "/").startsWith("/") ? "/" : "";
@@ -75,7 +81,8 @@ export function resolveRelativeMarkdownPath(source: string, cwd: string): string
     resolved.push(part);
   }
   const absolute = `${prefix}${resolved.join("/")}` || prefix;
-  return windows ? encodeWindowsMarkdownPath(absolute) : absolute;
+  const destination = preserveTrailingSlash && absolute !== prefix ? `${absolute}/` : absolute;
+  return windows ? encodeWindowsMarkdownPath(destination) : destination;
 }
 
 /** Restore a Windows path encoded for Streamdown's URL sanitizer without decoding URL-reserved characters. */
@@ -103,10 +110,14 @@ function encodeWindowsMarkdownPath(source: string): string {
 }
 
 export function markdownImageSourceToUrl(source: string): string {
-  const localSource = markdownLocalPath(source);
-  if (!isProxyableImageSource(localSource)) return source;
-  const normalizedSource = isLocalImageSource(localSource) ? decodeLocalImageSource(localSource) : localSource;
+  const normalizedSource = markdownImageSourceForLoading(source);
+  if (!isProxyableImageSource(normalizedSource)) return source;
   return `${MARKDOWN_IMAGE_SCHEME}://local/image?source=${encodeURIComponent(normalizedSource)}`;
+}
+
+export function markdownImageSourceForLoading(source: string): string {
+  const localSource = markdownLocalPath(source);
+  return isLocalImageSource(localSource) ? decodeLocalImageSource(localSource) : localSource;
 }
 
 export function markdownImageReference(source: string, alt: string): string {

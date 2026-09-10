@@ -16,9 +16,10 @@ export class SessionStateStore {
   private cache: CompressionState | null = null;
   private loadedKey: string | null = null;
 
-  async load(sessionFile: string | undefined, _sessionId: string): Promise<CompressionState> {
+  async load(sessionFile: string | undefined, sessionId: string): Promise<CompressionState> {
     const file = stateFileFor(sessionFile);
-    if (file && this.loadedKey === file && this.cache) return this.cache;
+    const key = file ? `file:${file}` : `memory:${sessionId}`;
+    if (this.loadedKey === key && this.cache) return this.cache;
     let state = createInitialState();
     if (file) {
       try {
@@ -30,15 +31,15 @@ export class SessionStateStore {
       }
     }
     this.cache = state;
-    this.loadedKey = file;
+    this.loadedKey = key;
     return state;
   }
 
-  async save(state: CompressionState, sessionFile: string | undefined, _sessionId: string): Promise<void> {
+  async save(state: CompressionState, sessionFile: string | undefined, sessionId: string): Promise<void> {
     const file = stateFileFor(sessionFile);
-    if (!file) return; // ephemeral session: don't persist
     this.cache = state;
-    this.loadedKey = file;
+    this.loadedKey = file ? `file:${file}` : `memory:${sessionId}`;
+    if (!file) return; // Keep ephemeral state in memory without writing to disk.
     const dir = path.dirname(file);
     await fs.mkdir(dir, { recursive: true }).catch(() => {});
     const tmp = path.join(dir, `.acp-tmp-${path.basename(file)}`);

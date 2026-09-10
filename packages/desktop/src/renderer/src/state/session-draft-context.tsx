@@ -11,6 +11,7 @@ import {
   useSyncExternalStore,
 } from "react";
 import type { DraftSessionConfig, SessionIdentity } from "../../../shared/contracts.ts";
+import type { MainAgentSelection, MainAgentSessionSnapshot } from "../../../shared/main-agent-contracts.ts";
 import { parseSessionRecordKey } from "../runtime/pi-session-store.ts";
 import type { DraftPhase } from "./draft-session-context.tsx";
 import { useSessionCacheRecords } from "./session-cache-context.tsx";
@@ -27,10 +28,15 @@ export class SessionDraft {
   readonly createRequestIds = new Map<string, string>();
   composer = { text: "", attachments: [] as readonly Attachment[] };
   config: DraftSessionConfig | null = null;
+  retainedConfig: DraftSessionConfig | null = null;
+  mainAgentSelection: MainAgentSelection | null = null;
   phase: DraftPhase = "loading";
   loadError: string | null = null;
   submitInFlight = false;
+  mainAgentSource: "inherit-parent" | "profile" = "inherit-parent";
+  inheritedMainAgent: MainAgentSessionSnapshot | null = null;
   private version = 0;
+  private configRequestGeneration = 0;
   private readonly listeners = new Set<() => void>();
 
   constructor(key: string, parent: SessionIdentity) {
@@ -50,6 +56,12 @@ export class SessionDraft {
   setConfig(config: DraftSessionConfig | null): void {
     if (this.config === config) return;
     this.config = config;
+    if (config) {
+      this.retainedConfig = config;
+      if (this.mainAgentSource === "profile" && config.mainAgent) {
+        this.mainAgentSelection = config.mainAgent.selection;
+      }
+    }
     this.bump();
   }
 
@@ -71,6 +83,27 @@ export class SessionDraft {
     this.bump();
   }
 
+  setMainAgentSource(source: "inherit-parent" | "profile"): void {
+    if (this.mainAgentSource === source) return;
+    this.mainAgentSource = source;
+    this.createRequestIds.clear();
+    this.bump();
+  }
+
+  setInheritedMainAgent(snapshot: MainAgentSessionSnapshot): void {
+    this.inheritedMainAgent = structuredClone(snapshot);
+    this.bump();
+  }
+
+  beginConfigRequest(): number {
+    this.configRequestGeneration += 1;
+    return this.configRequestGeneration;
+  }
+
+  isCurrentConfigRequest(generation: number): boolean {
+    return generation === this.configRequestGeneration;
+  }
+
   setComposer(text: string, attachments: readonly Attachment[]): void {
     if (this.composer.text === text && this.composer.attachments === attachments) return;
     this.composer = { text, attachments };
@@ -81,10 +114,15 @@ export class SessionDraft {
   clear(): void {
     this.composer = { text: "", attachments: [] };
     this.config = null;
+    this.retainedConfig = null;
+    this.mainAgentSelection = null;
     this.phase = "editing";
     this.loadError = null;
     this.submitInFlight = false;
+    this.mainAgentSource = "inherit-parent";
+    this.inheritedMainAgent = null;
     this.createRequestIds.clear();
+    this.configRequestGeneration += 1;
     this.bump();
   }
 

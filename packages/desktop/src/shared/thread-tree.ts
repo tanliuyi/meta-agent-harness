@@ -1,6 +1,20 @@
-interface ThreadTreeEntry {
+export interface ThreadTreeEntry {
   id: string;
   parentThreadId?: string;
+}
+
+export function resolveThreadRootId(threadsById: ReadonlyMap<string, ThreadTreeEntry>, threadId: string): string {
+  const visited: string[] = [];
+  const visitedIds = new Set<string>();
+  let currentId = threadId;
+  while (!visitedIds.has(currentId)) {
+    visited.push(currentId);
+    visitedIds.add(currentId);
+    const parentThreadId = threadsById.get(currentId)?.parentThreadId;
+    if (!parentThreadId || !threadsById.has(parentThreadId)) return currentId;
+    currentId = parentThreadId;
+  }
+  return visited.toSorted()[0] ?? threadId;
 }
 
 export function collectThreadDescendantIds(threads: readonly ThreadTreeEntry[], parentId: string): string[] {

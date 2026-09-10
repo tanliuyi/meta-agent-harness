@@ -28,6 +28,7 @@ import {
   THREAD_ASSISTANT_PREVIEW_MAX_CHARS,
   THREAD_USER_PREVIEW_MAX_CHARS,
 } from "../../shared/contracts.ts";
+import type { DesktopReloadStatus } from "../../shared/desktop-development-contracts.ts";
 import type {
   ApplyDesktopExtensionSetResult,
   DesktopExtensionDiagnostic,
@@ -37,6 +38,11 @@ import type {
   SessionPluginOptions,
   StaleDraftExtensionSetErrorDetails,
 } from "../../shared/desktop-extension-contracts.ts";
+import type {
+  MainAgentDraftSelection,
+  MainAgentSessionSnapshot,
+  MainAgentStoreSnapshot,
+} from "../../shared/main-agent-contracts.ts";
 import type { PiGoalSnapshot, SessionGoalActionInput } from "../../shared/pi-goal-contracts.ts";
 import type {
   SessionCheckpointDiffInput,
@@ -55,6 +61,8 @@ import { collectThreadDescendantIds } from "../../shared/thread-tree.ts";
 import { readSessionFileHeader } from "../../sidecar/session-file-header.ts";
 import type { DesktopExtensionSourcePolicy } from "../extensions/desktop-extension-source-policy.ts";
 import { samePath } from "../path-identity.ts";
+import { mainAgentDraftContext, resolveMainAgentConfiguration, snapshotMainAgent } from "../pi/main-agent-resolver.ts";
+import { readMainAgentSessionSnapshot, removeMainAgentSessionSnapshot } from "../pi/main-agent-session-store.ts";
 import type { MarketplaceGenerationReferenceTracker } from "../plugins/marketplace-generation-reference-tracker.ts";
 import type { MetadataWorkerClient } from "./metadata-worker-client.ts";
 import type { SidecarRuntimeManifest } from "./sidecar-runtime-manifest.ts";
@@ -88,11 +96,13 @@ interface WorkerRecord {
   parentThreadId?: string;
   initialBootstrap?: SessionBootstrap;
   lastActivityAt: number;
+  metadataWrites: number;
   inFlight: number;
   attachments: number;
   createRequestId?: string;
   sessionFile?: string;
   extensionSet: ResolvedExtensionSet;
+  mainAgentSnapshot?: MainAgentSessionSnapshot;
   /** 会话级 direct-tool 插件激活子集；缺失表示全部可用 direct-tool 插件。run_code 始终随全局启用状态加载。 */
   enabledPluginIds?: string[];
   desiredExtensionGeneration: string;
@@ -114,6 +124,7 @@ export interface ThreadWorkerRegistryOptions {
   agentDir: string;
   shellPath?: string;
   extensionSourcePolicy: DesktopExtensionSourcePolicy;
+  mainAgents: { getSnapshot(): Promise<MainAgentStoreSnapshot> };
   generationReferences?: Pick<MarketplaceGenerationReferenceTracker, "retain" | "release">;
   getCwd(projectId: string): string;
   resolveSessionCwd(projectId: string, cwd: string): Promise<string>;
@@ -174,6 +185,7 @@ export class StaleExtensionSetApplyError extends Error {
 
 export class ThreadWorkerRegistry {
   private readonly options: ThreadWorkerRegistryOptions;
+  private readonly pluginReloads = new Map<string, DesktopReloadStatus>();
   private readonly records = new Map<string, WorkerRecord>();
   private readonly liveClients = new Map<string, ThreadWorkerClient>();
   private readonly pending = new Map<string, Promise<WorkerRecord>>();
@@ -263,10 +275,62 @@ export class ThreadWorkerRegistry {
     else this.options.acknowledgeSubagent?.(workerInstanceId, sidecarSequence);
   }
 
-  async getDraftConfig(projectId: string, cwd = this.options.getCwd(projectId)): Promise<DraftSessionConfig> {
+  async getDraftConfig(
+    projectId: string,
+    cwd = this.options.getCwd(projectId),
+    selection?: MainAgentDraftSelection,
+  ): Promise<DraftSessionConfig> {
     this.assertProjectAvailable(projectId);
-    const { set: extensionSet, allEntries } = await this.options.extensionSourcePolicy.resolveWithAll(projectId);
-    return this.options.metadata.getDraftConfig(projectId, cwd, extensionSet, allEntries);
+    const [{ set: extensionSet, allEntries }, store] = await Promise.all([
+      this.options.extensionSourcePolicy.resolveWithAll(projectId),
+      this.options.mainAgents.getSnapshot(),
+    ]);
+    const inherited =
+      selection && "kind" in selection
+        ? await this.resolveParentMainAgent(projectId, selection.parentThreadId)
+        : undefined;
+    const mainAgentSnapshot =
+      inherited?.snapshot ?? snapshotMainAgent(store, selection && !("kind" in selection) ? selection : undefined);
+    const config = await this.options.metadata.getDraftConfig(
+      projectId,
+      cwd,
+      extensionSet,
+      allEntries,
+      mainAgentSnapshot,
+    );
+    const fallbackContext = mainAgentDraftContext(
+      store,
+      mainAgentSnapshot,
+      resolveMainAgentConfiguration(mainAgentSnapshot, extensionSet, this.options.agentDir).extensionSet,
+      { ...extensionSet, entries: allEntries },
+    );
+    const profiles = store.profiles.map(({ id, revision, name, description, builtin }) => ({
+      id,
+      revision,
+      name,
+      description,
+      builtin,
+    }));
+    if (
+      !profiles.some(
+        ({ id, revision }) => id === mainAgentSnapshot.profileId && revision === mainAgentSnapshot.profileRevision,
+      )
+    ) {
+      profiles.unshift({
+        id: mainAgentSnapshot.profileId,
+        revision: mainAgentSnapshot.profileRevision,
+        name: mainAgentSnapshot.profileName,
+        description: "继承自父会话的创建时快照",
+        builtin: mainAgentSnapshot.profileId === "desktop-default",
+      });
+    }
+    return {
+      ...config,
+      mainAgent: {
+        ...(config.mainAgent ?? fallbackContext),
+        profiles,
+      },
+    };
   }
 
   getSessionCwd(projectId: string, threadId: string): string | undefined {
@@ -460,10 +524,19 @@ export class ThreadWorkerRegistry {
     if (recovered) return recovered;
     const projectCwd = this.options.getCwd(input.projectId);
     const cwd = input.worktreePath ?? projectCwd;
-    const { set: extensionSet, allEntries } = await this.options.extensionSourcePolicy.resolveWithAll(input.projectId);
+    const [{ set: extensionSet, allEntries }, store] = await Promise.all([
+      this.options.extensionSourcePolicy.resolveWithAll(input.projectId),
+      this.options.mainAgents.getSnapshot(),
+    ]);
     if (input.extensionSetGeneration !== extensionSet.generation) {
       throw new StaleDraftExtensionSetError(input.extensionSetGeneration, extensionSet.generation);
     }
+    const parent = input.parentThreadId
+      ? await this.resolveParentMainAgent(input.projectId, input.parentThreadId, projectCwd)
+      : undefined;
+    const parentSessionFile = parent?.sessionFile;
+    const inheritedMainAgent = !input.mainAgent ? parent?.snapshot : undefined;
+    const mainAgentSnapshot = inheritedMainAgent ?? snapshotMainAgent(store, input.mainAgent);
     this.assertProjectAvailable(input.projectId);
     const sessionId = randomUUID();
     this.writeCreationReservation(
@@ -476,10 +549,6 @@ export class ThreadWorkerRegistry {
       undefined,
     );
     // 父会话通常在 registry 中有活跃 worker（sessionFile 已知）；冷会话回退到 metadata 索引。
-    const parentSessionFile =
-      input.parentThreadId &&
-      (this.records.get(workerKey(input.projectId, input.parentThreadId))?.sessionFile ??
-        (await this.options.metadata.resolve(input.projectId, projectCwd, input.parentThreadId)).path);
     const binding: ThreadWorkerBinding = {
       mode: "create",
       projectId: input.projectId,
@@ -489,6 +558,7 @@ export class ThreadWorkerRegistry {
       ...(this.options.shellPath ? { shellPath: this.options.shellPath } : {}),
       sessionId,
       createInput: input,
+      mainAgentSnapshot,
       ...(parentSessionFile ? { parentSessionFile } : {}),
       extensionSet: buildSessionExtensionSet(extensionSet, allEntries, input.enabledPluginIds),
     };
@@ -527,6 +597,18 @@ export class ThreadWorkerRegistry {
     this.records.set(key, record);
     record.inFlight -= 1;
     return decorateBootstrap(record, bootstrap);
+  }
+
+  private async resolveParentMainAgent(
+    projectId: string,
+    parentThreadId: string,
+    projectCwd = this.options.getCwd(projectId),
+  ): Promise<{ sessionFile: string; snapshot?: MainAgentSessionSnapshot }> {
+    const record = this.records.get(workerKey(projectId, parentThreadId));
+    const sessionFile =
+      record?.sessionFile ?? (await this.options.metadata.resolve(projectId, projectCwd, parentThreadId)).path;
+    const snapshot = record?.mainAgentSnapshot ?? (await readMainAgentSessionSnapshot(sessionFile));
+    return { sessionFile, ...(snapshot ? { snapshot } : {}) };
   }
 
   async attach(projectId: string, threadId: string): Promise<SessionBootstrap> {
@@ -608,6 +690,7 @@ export class ThreadWorkerRegistry {
   }
 
   private requestRetireRequestedCloseIfIdle(key: string): void {
+    this.requestPluginReloadIfIdle(key);
     void this.retireRequestedCloseIfIdle(key).catch((error: unknown) =>
       this.options.log?.("thread-close", error instanceof Error ? error.message : String(error)),
     );
@@ -681,6 +764,111 @@ export class ThreadWorkerRegistry {
     return this.use(input.projectId, input.threadId, (record) =>
       record.client.request({ type: "reload", input }, null),
     );
+  }
+
+  /** Called by Desktop runtime while the calling run_code is still active. Never interrupts it. */
+  schedulePluginReload(
+    projectId: string,
+    threadId: string,
+    requestId: string,
+    continuation?: string,
+  ): DesktopReloadStatus {
+    this.assertProjectAvailable(projectId);
+    this.assertNotActiveSubagent(projectId, threadId);
+    const key = workerKey(projectId, threadId);
+    const requestKey = `${key}\0${requestId}`;
+    const existing = this.pluginReloads.get(requestKey);
+    if (existing) return { ...existing };
+    const record = this.records.get(key);
+    if (!record || record.retired) throw new Error("Calling worker is unavailable");
+    if (
+      [...this.pluginReloads.values()].some(
+        (request) =>
+          request.projectId === projectId &&
+          request.threadId === threadId &&
+          ["scheduled", "applying"].includes(request.state),
+      )
+    )
+      throw new Error("A plugin reload is already pending for this thread");
+    if (this.pluginReloads.size >= 100) {
+      const completed = [...this.pluginReloads].find(
+        ([, request]) => request.state === "applied" || request.state === "failed",
+      );
+      if (!completed) throw new Error("Too many pending plugin reloads");
+      this.pluginReloads.delete(completed[0]);
+    }
+    const status: DesktopReloadStatus = {
+      requestId,
+      projectId,
+      threadId,
+      state: "scheduled",
+      previousWorkerInstanceId: record.client.instanceId,
+      ...(continuation ? { continuation } : {}),
+    };
+    this.pluginReloads.set(requestKey, status);
+    // A run_code caller is busy; idle callers are also handled without a timer.
+    this.requestPluginReloadIfIdle(key);
+    return { ...status };
+  }
+
+  getPluginReloadStatus(projectId: string, threadId: string, requestId: string): DesktopReloadStatus {
+    const status = this.pluginReloads.get(`${workerKey(projectId, threadId)}\0${requestId}`);
+    if (!status) throw new Error("Unknown or expired plugin reload request");
+    return { ...status };
+  }
+
+  async getPluginRuntime(projectId: string, threadId: string, pluginId?: string): Promise<unknown> {
+    const record = this.records.get(workerKey(projectId, threadId));
+    if (!record || record.retired) return { loaded: false, reason: "worker-unavailable" };
+    const runtime = await record.client.request(
+      { type: "getPluginRuntime", ...(pluginId ? { pluginId } : {}) },
+      10_000,
+    );
+    return {
+      workerInstanceId: record.client.instanceId,
+      runtime,
+      state: await this.getExtensionState(projectId, threadId),
+    };
+  }
+
+  private requestPluginReloadIfIdle(key: string): void {
+    if (this.disposing) return;
+    const status = [...this.pluginReloads.values()].find(
+      (request) => workerKey(request.projectId, request.threadId) === key && request.state === "scheduled",
+    );
+    if (!status) return;
+    const record = this.records.get(key);
+    if (!record || record.retired || record.client.instanceId !== status.previousWorkerInstanceId) {
+      status.state = "failed";
+      status.error = "Worker changed before the scheduled reload safe point";
+      return;
+    }
+    if (record.summary?.running || record.inFlight > 0 || record.metadataWrites > 0) return;
+    status.state = "applying";
+    void this.reloadResources({ projectId: status.projectId, threadId: status.threadId, requestId: status.requestId })
+      .then(async (result) => {
+        if (!result.accepted) throw new Error(result.error ?? "Plugin reload rejected");
+        const current = this.records.get(key);
+        if (!current || current.retired) throw new Error("Reloaded worker unavailable");
+        status.state = "applied";
+        status.workerInstanceId = current.client.instanceId;
+        status.generation = current.extensionSet.generation;
+        if (status.continuation) {
+          const resumed = await this.prompt({
+            requestId: `${status.requestId}:verify`,
+            projectId: status.projectId,
+            threadId: status.threadId,
+            text: `Desktop plugin reload request ${status.requestId} completed. Inspect plugin_runtime and reload_status before concluding success.\n${status.continuation}`,
+            images: [],
+          });
+          status.continuationAccepted = resumed.accepted;
+          if (!resumed.accepted) status.error = resumed.error ?? "Reload applied but verification prompt was rejected";
+        }
+      })
+      .catch((error: unknown) => {
+        if (status.state !== "applied") status.state = "failed";
+        status.error = error instanceof Error ? error.message : String(error);
+      });
   }
 
   async reloadResources(input: SessionResourceReloadInput): Promise<SessionCommandResult> {
@@ -774,10 +962,10 @@ export class ThreadWorkerRegistry {
   }
 
   async branch(input: SessionBranchInput): Promise<SessionBranchResult> {
-    const result = await this.use(input.projectId, input.threadId, (record) =>
+    // The worker publishes the policy before making the branch discoverable.
+    return this.use(input.projectId, input.threadId, (record) =>
       record.client.request<SessionBranchResult>({ type: "branch", input }, null),
     );
-    return result;
   }
 
   async cancel(projectId: string, threadId: string): Promise<ClearedQueue> {
@@ -912,6 +1100,7 @@ export class ThreadWorkerRegistry {
             ...(this.options.shellPath ? { shellPath: this.options.shellPath } : {}),
             threadId,
             sessionFile,
+            ...(current.enabledPluginIds ? { enabledPluginIds: current.enabledPluginIds } : {}),
             extensionSet: previousSet,
           });
           activateAppliedRecord(rollback, attachments);
@@ -1069,11 +1258,25 @@ export class ThreadWorkerRegistry {
         const key = workerKey(record.projectId, record.threadId);
         if (this.records.get(key) === record) this.records.delete(key);
       }
+      const removedSessionFiles = new Map(
+        await Promise.all(
+          [...removedIds].map(
+            async (id) =>
+              [id, (await this.options.metadata.resolve(projectId, this.options.getCwd(projectId), id)).path] as const,
+          ),
+        ),
+      );
       const result = await this.options.metadata.removeCold(
         projectId,
         this.options.getCwd(projectId),
         threadId,
         policy,
+      );
+      await Promise.all(
+        result.removedThreadIds.flatMap((id) => {
+          const sessionFile = removedSessionFiles.get(id);
+          return sessionFile ? [removeMainAgentSessionSnapshot(sessionFile)] : [];
+        }),
       );
       for (const id of result.removedThreadIds) this.clearCreationReservation(id);
       return result;
@@ -1393,8 +1596,17 @@ export class ThreadWorkerRegistry {
   private async validateOpenBinding(binding: ThreadWorkerSpawnBinding): Promise<ThreadWorkerBinding> {
     if (binding.mode === "create") return binding;
     const header = await readSessionFileHeader(binding.sessionFile, binding.projectId, binding.threadId);
-    const cwd = await this.options.resolveSessionCwd(binding.projectId, header.cwd);
-    return { ...binding, cwd, sessionFile: header.sessionFile, sessionHeaderCwd: header.cwd };
+    const [cwd, mainAgentSnapshot] = await Promise.all([
+      this.options.resolveSessionCwd(binding.projectId, header.cwd),
+      readMainAgentSessionSnapshot(header.sessionFile),
+    ]);
+    return {
+      ...binding,
+      cwd,
+      sessionFile: header.sessionFile,
+      sessionHeaderCwd: header.cwd,
+      ...(mainAgentSnapshot ? { mainAgentSnapshot } : {}),
+    };
   }
 
   private persistMetadata(record: WorkerRecord, summary: Thread): Promise<void> {
@@ -1525,11 +1737,13 @@ export class ThreadWorkerRegistry {
       cwd: binding.cwd,
       workspaceKey,
       lastActivityAt: Date.now(),
+      metadataWrites: 0,
       inFlight: 1,
       attachments: 0,
       createRequestId: binding.mode === "create" ? binding.createInput.createRequestId : undefined,
       sessionFile: binding.mode === "open" ? binding.sessionFile : undefined,
       extensionSet: cloneExtensionSet(binding.extensionSet),
+      ...(binding.mainAgentSnapshot ? { mainAgentSnapshot: structuredClone(binding.mainAgentSnapshot) } : {}),
       ...(binding.mode === "create"
         ? binding.createInput.enabledPluginIds
           ? { enabledPluginIds: binding.createInput.enabledPluginIds }
@@ -1633,6 +1847,7 @@ export class ThreadWorkerRegistry {
         ? { ...event.event.summary, parentThreadId: record.parentThreadId }
         : event.event.summary;
       if (record.attachments === 0) this.options.catalogChanged?.({ ...record.summary });
+      if (record.sessionFile) record.metadataWrites += 1;
       if (!record.summary.running) {
         this.requestCapacityTrim();
         this.requestRetireRequestedCloseIfIdle(workerKey(record.projectId, record.threadId));
@@ -1642,8 +1857,24 @@ export class ThreadWorkerRegistry {
         return;
       }
       void this.persistMetadata(record, record.summary)
-        .catch((error: unknown) => this.options.log?.(`metadata:${record.projectId}`, String(error)))
-        .finally(() => record.client.acknowledge(event.sequence));
+        .catch((error: unknown) => {
+          this.options.log?.(`metadata:${record.projectId}`, String(error));
+          for (const request of this.pluginReloads.values()) {
+            if (
+              request.projectId === record.projectId &&
+              request.threadId === record.threadId &&
+              request.state === "scheduled"
+            ) {
+              request.state = "failed";
+              request.error = "Metadata persistence failed before reload";
+            }
+          }
+        })
+        .finally(() => {
+          record.metadataWrites -= 1;
+          record.client.acknowledge(event.sequence);
+          this.requestPluginReloadIfIdle(workerKey(record.projectId, record.threadId));
+        });
     } else if (event.event.type === "resync-required") {
       record.client.acknowledge(event.sequence);
       this.options.resync(record.projectId, record.threadId, event.event.reason);

@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import * as path from "node:path";
 import { SessionStateStore } from "../src/state.ts";
@@ -57,8 +57,7 @@ test("load merges forward-compat: missing fields filled from fresh state", async
   const file = path.join(dir, "session.json");
   // The store persists to `{sessionFile}.acp.json`; write a minimal legacy file there.
   const minimal = { blocks: [{ blockId: "b0", active: true }], nextBlockId: 1 };
-  const { promises: fs } = await import("node:fs");
-  await fs.writeFile(`${file}.acp.json`, JSON.stringify(minimal), "utf8");
+  await writeFile(`${file}.acp.json`, JSON.stringify(minimal), "utf8");
 
   const store = new SessionStateStore();
   const state = await store.load(file, "sid");
@@ -66,6 +65,39 @@ test("load merges forward-compat: missing fields filled from fresh state", async
   assert.equal(state.nudge.lastPerMessageNudgeTokens, 0, "nudge backfilled");
   assert.ok(state.messageRefs.byRaw, "messageRefs backfilled");
   await rm(dir, { recursive: true, force: true });
+});
+
+test("ephemeral child sessions retain compression state across context requests", async () => {
+  const store = new SessionStateStore();
+  const state = await store.load(undefined, "child-1");
+  state.messageRefs.byRaw.a = "m00001";
+  state.messageRefs.byRef.m00001 = "a";
+  assert.equal(await store.load(undefined, "child-1"), state);
+
+  state.blocks.push({
+    blockId: "b1", runId: 1, tier: 1, generation: "young", active: true,
+    summary: "compressed child history", directMessageIds: ["a"], effectiveMessageIds: ["a"],
+    survivedCount: 0, createdAt: 100,
+  });
+  state.nextBlockId = 2;
+  await store.save(state, undefined, "child-1");
+  const next = await store.load(undefined, "child-1");
+  assert.equal(next.blocks[0]?.summary, "compressed child history");
+  assert.equal(next.messageRefs.byRef.m00001, "a");
+  assert.equal(next.nextBlockId, 2);
+
+  const other = await store.load(undefined, "child-2");
+  assert.deepEqual(other.blocks, []);
+  assert.deepEqual(other.messageRefs.byRaw, {});
+});
+
+test("invalidating an ephemeral session discards cached state", async () => {
+  const store = new SessionStateStore();
+  const state = await store.load(undefined, "child");
+  state.nextBlockId = 5;
+  await store.save(state, undefined, "child");
+  store.invalidate();
+  assert.equal((await store.load(undefined, "child")).nextBlockId, 1);
 });
 
 test("invalidate forces a fresh read after save", async () => {

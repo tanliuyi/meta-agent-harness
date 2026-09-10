@@ -8,6 +8,7 @@ import { DesktopBuiltinProviderRegistry } from "../pi/desktop-builtin-provider.t
 import { PreferencesConfigService } from "../preferences/preferences-config-service.ts";
 import { ProvidersConfigService } from "../providers/providers-config-service.ts";
 import { AutoTitleSettingsService } from "../settings/auto-title-settings-service.ts";
+import { MainAgentConfigService } from "../settings/main-agent-config-service.ts";
 import { MemorySettingsService } from "../settings/memory-settings-service.ts";
 import { SettingsConfigService } from "../settings/settings-config-service.ts";
 import { ProjectStore } from "../store/project-store.ts";
@@ -24,6 +25,7 @@ export interface CoreServices {
   readonly providers: ProvidersConfigService;
   readonly settings: SettingsConfigService;
   readonly preferences: PreferencesConfigService;
+  readonly mainAgents: MainAgentConfigService;
   readonly memorySettings: MemorySettingsService;
   readonly autoTitleSettings: AutoTitleSettingsService;
   readonly isDesktopProviderAvailable: (providerId: string) => Promise<boolean>;
@@ -44,6 +46,7 @@ export async function createCoreServices(context: DesktopRuntimeContext): Promis
   const files = new FileService(projects);
   const settings = new SettingsConfigService(context.userDataDir);
   const preferences = new PreferencesConfigService(context.userDataDir);
+  const mainAgents = new MainAgentConfigService(context.userDataDir);
   const memorySettings = new MemorySettingsService(context.agentDir, {
     listProjects: () => projects.list(),
     getProjectCwd: (projectId) => projects.getCwd(projectId),
@@ -85,6 +88,7 @@ export async function createCoreServices(context: DesktopRuntimeContext): Promis
     providers,
     settings,
     preferences,
+    mainAgents,
     memorySettings,
     autoTitleSettings,
     isDesktopProviderAvailable,

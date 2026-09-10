@@ -49,6 +49,9 @@ import { FileTree } from "./file-tree.tsx";
 import {
   activeFileChange,
   emptyFileTreeData,
+  fileTreeChangePlan,
+  isSameOrDescendantPath,
+  removeExpandedFileTreeDirectory,
   removeLoadedFileTreeDirectory,
   replaceFileTreeDirectory,
 } from "./file-tree-data.ts";
@@ -266,6 +269,24 @@ export function FilePanel({ portalTargets }: { portalTargets?: FileWorkspacePort
     [projectId],
   );
 
+  const discardDeletedDirectory = useCallback(
+    (path: string) => {
+      for (const requestPath of directoryRequests.current.keys()) {
+        if (isSameOrDescendantPath(requestPath, path)) directoryRequests.current.delete(requestPath);
+      }
+      setTree((current) => {
+        const next = removeLoadedFileTreeDirectory(current, path);
+        childrenRef.current = next.children;
+        return next;
+      });
+      const workbench = record.stores.workbench.getSnapshot();
+      if (!workbench) return;
+      const nextExpandedPaths = removeExpandedFileTreeDirectory(workbench.expandedPaths, path);
+      if (nextExpandedPaths !== workbench.expandedPaths) updateWorkbench({ expandedPaths: nextExpandedPaths });
+    },
+    [record, updateWorkbench],
+  );
+
   const loadCompactDirectoryChain = useCallback(
     async (firstNode: FileNode): Promise<string[]> => {
       const paths: string[] = [];
@@ -306,25 +327,12 @@ export function FilePanel({ portalTargets }: { portalTargets?: FileWorkspacePort
         setFileError("文件已被删除");
       }
       const loaded = new Set<string>(["", ...Object.keys(childrenRef.current)]);
-      const affected = new Set<string>();
-      for (const path of change.added) {
-        const dir = parentPath(path);
-        if (loaded.has(dir)) affected.add(dir);
-      }
-      for (const path of change.deleted) {
-        const dir = parentPath(path);
-        if (loaded.has(dir)) affected.add(dir);
-        if (loaded.has(path)) {
-          // 已展开目录本身被删除：清理其缓存并刷新父目录。
-          setTree((current) => removeLoadedFileTreeDirectory(current, path));
-          const parent = parentPath(path);
-          if (loaded.has(parent)) affected.add(parent);
-        }
-      }
-      for (const dir of affected) void loadDirectory(dir, true);
+      const plan = fileTreeChangePlan(change, loaded);
+      for (const path of plan.removedDirectories) discardDeletedDirectory(path);
+      for (const dir of plan.refreshDirectories) void loadDirectory(dir, true);
     });
     return unsubscribe;
-  }, [loadDirectory, projectId]);
+  }, [discardDeletedDirectory, loadDirectory, projectId]);
 
   // 窗口重新聚焦时刷新根目录，补偿失焦期间可能丢失的文件事件。
   useEffect(() => {
@@ -522,7 +530,13 @@ export function FilePanel({ portalTargets }: { portalTargets?: FileWorkspacePort
             variant="destructive"
             onSelect={() => {
               if (window.confirm(`确定删除“${node.name}”吗？`)) {
-                runOperation(() => window.desktop.files.remove(projectId, node.path));
+                void window.desktop.files
+                  .remove(projectId, node.path)
+                  .then(() => {
+                    if (isDirectory) discardDeletedDirectory(node.path);
+                    return loadDirectory(parentPath(node.path), true);
+                  })
+                  .catch((error: unknown) => setTreeError(errorMessage(error)));
               }
             }}
           >
@@ -551,7 +565,7 @@ export function FilePanel({ portalTargets }: { portalTargets?: FileWorkspacePort
         </ContextMenuContent>
       );
     },
-    [loadDirectory, projectId],
+    [discardDeletedDirectory, loadDirectory, projectId],
   );
 
   if (!workbenchAvailable) return null;

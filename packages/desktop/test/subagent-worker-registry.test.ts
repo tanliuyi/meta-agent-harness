@@ -1171,7 +1171,23 @@ describe("SubagentWorkerRegistry", () => {
         },
       }),
     ).rejects.toThrow("approved child extensions");
-    expect(clients).toHaveLength(2);
+    await expect(
+      clients[0]?.hostRequest({
+        type: "subagent.run",
+        request: { ...nestedRequest, runId: "without-acp", childExtensions: [] },
+      }),
+    ).resolves.toEqual({ status: "completed" });
+    await expect(
+      clients[0]?.hostRequest({
+        type: "subagent.run",
+        request: {
+          ...nestedRequest,
+          runId: "mutated-tools",
+          childExtensions: [{ path: "/approved/billion-context/index.ts", tools: ["compress", "write"] }],
+        },
+      }),
+    ).rejects.toThrow("approved child extensions");
+    expect(clients).toHaveLength(3);
 
     release();
     await parentRun;

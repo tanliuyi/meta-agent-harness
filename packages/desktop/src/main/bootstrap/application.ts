@@ -13,6 +13,8 @@ import {
   broadcastThreadCatalogUpdate,
   sendBrowserPasswordOffer,
 } from "../ipc.ts";
+import { DesktopDevelopmentService } from "../runtime/desktop-development-service.ts";
+import { DesktopRuntimeService } from "../runtime/desktop-runtime-service.ts";
 import { BrowserCapabilityPort } from "../session/browser-capability-port.ts";
 import { WorkspaceMutationPort } from "../session/workspace-mutation-port.ts";
 import { handleLocalImageRequests } from "../settings/user-avatar-protocol.ts";
@@ -88,6 +90,7 @@ export class DesktopApplication {
   private readonly options: DesktopApplicationOptions;
   private readonly factories: DesktopApplicationFactories;
   private readonly resources = new ResourceScope();
+  private desktopRuntime: DesktopRuntimeService | undefined;
   private graph: ApplicationGraph | undefined;
   private state: ApplicationState = "new";
   private initialization: Promise<void> | undefined;
@@ -126,7 +129,9 @@ export class DesktopApplication {
   /** 应用运行中创建一个主窗口；其他状态下返回 undefined。 */
   openWindow(): BrowserWindowType | undefined {
     if (this.state !== "running") return undefined;
-    return this.options.createWindow({ dirtyGuard: this.dirtyGuard, trayController: this.trayController });
+    const window = this.options.createWindow({ dirtyGuard: this.dirtyGuard, trayController: this.trayController });
+    this.desktopRuntime?.addWindow(window);
+    return window;
   }
 
   /** 处理 before-quit，协调 dirty guard 和分阶段资源释放。 */
@@ -225,6 +230,10 @@ export class DesktopApplication {
         context,
         capability: browserCapability,
         rendererUrl: this.options.rendererUrl,
+        desktopRuntime: (params, signal, identity) => {
+          if (!this.desktopRuntime) throw new Error("Desktop runtime is not ready");
+          return this.desktopRuntime.call(params, signal, identity);
+        },
         publishState: broadcastBrowserEvent,
         publishCreateTab: broadcastBrowserCreateTabRequest,
         publishCloseTab: broadcastBrowserCloseTabRequest,
@@ -250,6 +259,14 @@ export class DesktopApplication {
       });
       this.resources.add("IPC registration", "background", registration);
       const window = this.options.createWindow({ dirtyGuard: this.dirtyGuard, trayController: this.trayController });
+      this.desktopRuntime = new DesktopRuntimeService(
+        this.graph.core.settings,
+        this.dirtyGuard,
+        this.options.app.getVersion(),
+        new DesktopDevelopmentService(this.graph.core.mainAgents, this.graph.plugins, this.graph.sessions.workers),
+      );
+      this.desktopRuntime.addWindow(window);
+      this.resources.add("desktop runtime", "background", this.desktopRuntime);
       this.resources.add("main window", "background", {
         dispose: () => {
           if (!window.isDestroyed()) window.destroy();

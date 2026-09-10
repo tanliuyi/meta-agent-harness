@@ -7,6 +7,7 @@ import type {
   Skill,
 } from "@earendil-works/pi-coding-agent";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { DesktopBuiltinProviderRegistry } from "../src/main/pi/desktop-builtin-provider.ts";
 import { RunCodeRegistryHolder } from "../src/main/pi/run-code/run-code-tool.ts";
 import { PiTimelineUnavailableError, SessionRuntime } from "../src/main/pi/session-runtime.ts";
 
@@ -25,6 +26,17 @@ vi.mock("@earendil-works/pi-coding-agent", () => ({
   createAgentSessionFromServices: mocks.createAgentSessionFromServices,
   createAgentSessionServices: mocks.createAgentSessionServices,
   getAgentDir: () => "/agent",
+  loadSkills: ({ skillPaths }: { skillPaths: string[] }) => ({
+    skills: skillPaths.map((filePath) => ({
+      name: filePath.replaceAll("\\", "/").split("/").at(-2)!,
+      description: "Browser",
+      filePath,
+      baseDir: filePath,
+      source: "path" as const,
+      disableModelInvocation: false,
+    })),
+    diagnostics: [],
+  }),
   ModelRuntime: { create: mocks.createModelRuntime },
   SessionManager: { create: mocks.createSessionManager },
   SettingsManager: { create: mocks.createSettingsManager },
@@ -260,6 +272,85 @@ describe("SessionRuntime Pi-native commands", () => {
         sessionStartEvent: { type: "session_start", reason: "new" },
       }),
     );
+  });
+
+  it("applies main-agent empty tools and built-in plugin selection before session creation", async () => {
+    const session = createSession();
+    const factories = vi.spyOn(DesktopBuiltinProviderRegistry, "getExtensionFactories");
+    mocks.createAgentSessionFromServices.mockResolvedValue({ session });
+
+    try {
+      const runtime = await SessionRuntime.create({
+        projectId: "project",
+        cwd: "/workspace",
+        mainAgentSnapshot: {
+          version: 1,
+          profileId: "quiet",
+          profileRevision: 2,
+          profileName: "Quiet",
+          createdAt: 1,
+          configuration: {
+            prompt: {
+              mode: "replace",
+              text: "Answer directly.",
+              includeGlobalRules: false,
+              includeProjectRules: false,
+              includeSkills: false,
+            },
+            tools: [],
+            builtinPluginIds: ["pi-auto-title"],
+          },
+        },
+        extensionSet: {
+          generation: "main-agent-runtime",
+          projectId: "project",
+          entries: [
+            {
+              id: "pi-hermes-memory",
+              displayName: "Memory",
+              source: "builtin",
+              hostProfileVersion: 1,
+              capabilities: ["events.subscribe"],
+            },
+            {
+              id: "pi-browser",
+              displayName: "Browser",
+              source: "builtin",
+              hostProfileVersion: 1,
+              capabilities: ["plugin-methods.provide"],
+            },
+            {
+              id: "pi-auto-title",
+              displayName: "Auto title",
+              source: "builtin",
+              hostProfileVersion: 1,
+              capabilities: ["events.subscribe"],
+            },
+          ],
+          diagnostics: [],
+          resolvedAt: 0,
+        },
+        push: () => {},
+        onSummaryChanged: () => {},
+      });
+
+      expect(mocks.createAgentSessionFromServices).toHaveBeenCalledWith(expect.objectContaining({ tools: [] }));
+      expect(factories).toHaveBeenCalledWith(
+        expect.objectContaining({
+          enabledExtensionIds: new Set(["pi-auto-title"]),
+          allowChildMemory: false,
+        }),
+      );
+      expect(runtime.bootstrap().control.mainAgent).toMatchObject({
+        profileId: "quiet",
+        profileRevision: 2,
+        profileName: "Quiet",
+        configuration: { tools: [], builtinPluginIds: ["pi-auto-title"] },
+      });
+      await runtime.dispose();
+    } finally {
+      factories.mockRestore();
+    }
   });
 
   it("binds real waitForIdle and fails unsupported command actions closed", async () => {
@@ -949,6 +1040,7 @@ function createServices() {
   const builtinSkills: Skill[] = [
     ["pi-hermes-memory", "Hermes Memory"],
     ["pi-subagents", "Subagents"],
+    ["desktop", "Desktop Runtime"],
     ["pi-browser", "内置浏览器"],
   ].map(([name, description]) => {
     const filePath = fileURLToPath(

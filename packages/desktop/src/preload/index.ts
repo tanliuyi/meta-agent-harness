@@ -164,6 +164,10 @@ const desktopApi: DesktopApi = {
   links: {
     open: (projectId, url) => ipcRenderer.invoke(CHANNELS.linksOpen, projectId, url),
   },
+  markdownImages: {
+    read: (source) => ipcRenderer.invoke(CHANNELS.markdownImagesRead, source),
+    copy: (png) => ipcRenderer.invoke(CHANNELS.markdownImagesCopy, png),
+  },
   models: {
     getConfig: () => ipcRenderer.invoke(CHANNELS.modelsGetConfig),
     getConfigRevision: () => ipcRenderer.invoke(CHANNELS.modelsGetConfigRevision),
@@ -196,6 +200,11 @@ const desktopApi: DesktopApi = {
   settings: {
     getConfig: () => ipcRenderer.invoke(CHANNELS.settingsGetConfig),
     saveConfig: (input) => ipcRenderer.invoke(CHANNELS.settingsSaveConfig, input),
+    onChanged(listener) {
+      const handler = () => listener();
+      ipcRenderer.on(CHANNELS.settingsChanged, handler);
+      return () => ipcRenderer.removeListener(CHANNELS.settingsChanged, handler);
+    },
     chooseUserAvatar: () => ipcRenderer.invoke(CHANNELS.settingsChooseUserAvatar),
   },
   preferences: {
@@ -214,6 +223,12 @@ const desktopApi: DesktopApi = {
     saveConfig: (input) => ipcRenderer.invoke(CHANNELS.autoTitleSaveConfig, input),
     getModelOptions: () => ipcRenderer.invoke(CHANNELS.autoTitleGetModelOptions),
     setEditorDirty: (dirty) => ipcRenderer.sendSync(CHANNELS.autoTitleSetEditorDirty, dirty) === true,
+  },
+  mainAgents: {
+    getSnapshot: () => ipcRenderer.invoke(CHANNELS.mainAgentsGetSnapshot),
+    getCatalog: () => ipcRenderer.invoke(CHANNELS.mainAgentsGetCatalog),
+    mutate: (input) => ipcRenderer.invoke(CHANNELS.mainAgentsMutate, input),
+    setEditorDirty: (dirty) => ipcRenderer.sendSync(CHANNELS.mainAgentsSetEditorDirty, dirty) === true,
   },
   extensions: {
     getConfig: (projectId, threadId) => ipcRenderer.invoke(CHANNELS.extensionsGetConfig, projectId, threadId),
@@ -297,8 +312,8 @@ const desktopApi: DesktopApi = {
       ipcRenderer.on(CHANNELS.sessionsCatalogChanged, handler);
       return () => ipcRenderer.removeListener(CHANNELS.sessionsCatalogChanged, handler);
     },
-    getDraftConfig: (projectId, worktreePath) =>
-      ipcRenderer.invoke(CHANNELS.sessionsDraftConfig, projectId, worktreePath),
+    getDraftConfig: (projectId, worktreePath, mainAgent) =>
+      ipcRenderer.invoke(CHANNELS.sessionsDraftConfig, projectId, worktreePath, mainAgent),
     create: async (input) => {
       const result = (await ipcRenderer.invoke(CHANNELS.sessionsCreate, input)) as SessionCreateIpcResult;
       if (result.ok) return result.bootstrap;

@@ -115,7 +115,7 @@ import {
 } from "../shared/parallel-utils.ts";
 import { applyThinkingSuffix, deriveForkPromptCacheKey, projectLaunchResolvedChildExtensions, resolvePiLaunchToolPlan } from "../shared/child-tool-plan.ts";
 import { buildInProcessChildLaunch, type InheritedChildRuntime } from "../shared/child-launch.ts";
-import type { ChildSessionFactory } from "../shared/child-session.ts";
+import { setChildSessionFactory, type ChildSessionFactory } from "../shared/child-session.ts";
 import { runChildSession, type ChildEvent, type RunChildSessionResult, type StepSteerHandler } from "./run-child-session.ts";
 import { loadRunnerChildSessionFactory } from "./runner-child-sessions.ts";
 import { SUBAGENT_CHILD_ENV } from "../shared/child-runtime-config.ts";
@@ -216,6 +216,8 @@ interface SubagentRunConfig {
 	sessionId?: string | null;
 	completionOwnerId?: string;
 	piPackageRoot?: string;
+	/** Native role-memory prompt injection ceiling inherited from the owning main agent. */
+	childMemoryAllowed?: boolean;
 	/** Test seam: module the runner imports its `ChildSessionFactory` from. */
 	childSessionFactoryModule?: string;
 	/** The launching executor's own child runtime when it was itself an in-process child. */
@@ -4941,6 +4943,7 @@ async function runConfiguredSubagent(config: SubagentRunConfig): Promise<void> {
 			}
 		}
 		const childSessions = await loadRunnerChildSessionFactory(config);
+		setChildSessionFactory(childSessions);
 		try {
 			await runSubagent(config, childSessions);
 		} finally {

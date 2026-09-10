@@ -110,7 +110,13 @@ import {
 	type ChildWatchdogStatusEvent,
 } from "../../watchdog/child-status.ts";
 import { buildInProcessChildLaunch } from "../shared/child-launch.ts";
-import { childSessionFactory, projectChildSessionEventForJson, type ChildSession, type ChildSessionEvent } from "../shared/child-session.ts";
+import {
+	childMemoryAllowed,
+	childSessionFactory,
+	projectChildSessionEventForJson,
+	type ChildSession,
+	type ChildSessionEvent,
+} from "../shared/child-session.ts";
 
 const artifactOutputByResult = new WeakMap<SingleResult, string>();
 const acceptanceOutputByResult = new WeakMap<SingleResult, string>();
@@ -698,6 +704,7 @@ async function runSingleAttempt(
 			}
 		};
 		const startFinalDrain = () => {
+			if (childLifecycleState.compactionActive || childLifecycleState.compactionRetryActive) return;
 			if (childWatchdogIsActive(childWatchdogState)) {
 				armWatchdogTail();
 				return;
@@ -1751,7 +1758,7 @@ async function runSyncCompletionInner(
 		const skillInjection = buildSkillInjection(resolvedSkills);
 		systemPrompt = systemPrompt ? `${systemPrompt}\n\n${skillInjection}` : skillInjection;
 	}
-	const memoryInjection = buildAgentMemoryInjection(agent, skillCwd);
+	const memoryInjection = childMemoryAllowed(options.childSessionFactory) ? buildAgentMemoryInjection(agent, skillCwd) : "";
 	if (memoryInjection) {
 		systemPrompt = systemPrompt ? `${systemPrompt}\n\n${memoryInjection}` : memoryInjection;
 	}

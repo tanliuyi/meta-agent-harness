@@ -24,6 +24,7 @@ import type {
 import { getBuiltinSkillPath } from "../extensions/desktop-builtin-resource-paths.ts";
 import { getModelsConfigMetadata } from "../models/models-config-metadata.ts";
 import type { ModelsModelDefinition } from "../models/models-config-schema.ts";
+import desktopExtension, { runCodeCatalog as desktopCatalog } from "./extensions/desktop/index.ts";
 import piAutoTitleExtension from "./extensions/pi-auto-title/index.ts";
 import piBrowserExtension, { runCodeCatalog as piBrowserCatalog } from "./extensions/pi-browser/index.ts";
 import piGoalExtension from "./extensions/pi-goal/src/index.ts";
@@ -45,6 +46,19 @@ interface DesktopProviderDefinition {
 
 const providers = new Map<string, DesktopProviderDefinition>();
 const builtinExtensions: Array<{ definition: DesktopExtensionDefinition; factory: DesktopInlineExtension }> = [
+  {
+    definition: {
+      id: "desktop",
+      displayName: "Desktop Runtime",
+      source: "builtin",
+      hostProfileVersion: DESKTOP_EXTENSION_HOST_PROFILE_VERSION,
+      skillPaths: [getBuiltinSkillPath(import.meta.url, "desktop")],
+      runCodeSkill: "desktop",
+      runCodeCatalog: desktopCatalog,
+      capabilities: ["plugin-methods.provide"],
+    },
+    factory: { name: "desktop:desktop", factory: desktopExtension },
+  },
   {
     definition: {
       id: "pi-hermes-memory",
@@ -163,16 +177,28 @@ export const DesktopBuiltinProviderRegistry = {
   },
 
   /** Generate inline extension factories for a Desktop thread runtime. */
-  getExtensionFactories(options: { subagentRuntime?: SubagentRuntime } = {}): InlineExtension[] {
+  getExtensionFactories(
+    options: {
+      subagentRuntime?: SubagentRuntime;
+      enabledExtensionIds?: ReadonlySet<string>;
+      allowChildMemory?: boolean;
+    } = {},
+  ): InlineExtension[] {
+    const enabledBuiltinExtensions = options.enabledExtensionIds
+      ? builtinExtensions.filter(({ definition }) => options.enabledExtensionIds!.has(definition.id))
+      : builtinExtensions;
     return [
       ...[...providers.values()].map((provider) => provider.extensionFactory),
-      ...builtinExtensions.map(({ definition, factory }) =>
+      ...enabledBuiltinExtensions.map(({ definition, factory }) =>
         definition.id === "pi-subagents" && options.subagentRuntime
           ? {
               ...factory,
               name: typeof factory === "function" ? `desktop:${definition.id}` : factory.name,
               factory: (api: ExtensionAPI) =>
-                subagentsExtension(api, createDesktopChildSessionFactory(options.subagentRuntime!)),
+                subagentsExtension(
+                  api,
+                  createDesktopChildSessionFactory(options.subagentRuntime!, options.allowChildMemory ?? true),
+                ),
             }
           : factory,
       ),

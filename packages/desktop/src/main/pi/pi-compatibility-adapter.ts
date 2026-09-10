@@ -1,4 +1,4 @@
-import { type AgentSession, SessionManager, VERSION } from "@earendil-works/pi-coding-agent";
+import { type AgentSession, VERSION } from "@earendil-works/pi-coding-agent";
 import type {
   ClearedQueue,
   PiQuote,
@@ -9,6 +9,7 @@ import type {
   SessionPromptInput,
   SessionReloadInput,
 } from "../../shared/contracts.ts";
+import { createDesktopBranchedSession } from "./desktop-session-persistence.ts";
 import type { PiThreadProjector } from "./pi-thread-projector.ts";
 import { type PiQuoteAttachmentData, QUOTE_ATTACHMENT_CUSTOM_TYPE, withQuoteContext } from "./quote-context.ts";
 
@@ -69,13 +70,12 @@ export class PiCompatibilityAdapter {
     if (!sourceSessionFile) throw new Error("已持久化的 Pi session 缺少文件路径");
     const entry = manager.getEntry(input.sourceEntryId);
     if (!entry) throw new Error(`Pi branch 目标 entry 不存在: ${input.sourceEntryId}`);
-    // createBranchedSession 会原地替换 manager identity；必须在独立 manager 上执行，保持 source worker 归属不变。
-    const branchManager = SessionManager.open(sourceSessionFile, manager.getSessionDir(), manager.getCwd());
-    const branchSessionFile = branchManager.createBranchedSession(input.sourceEntryId);
-    if (!branchSessionFile) throw new Error("Pi createBranchedSession 未生成新 session 文件");
-    const header = branchManager.getHeader();
-    if (!header?.id) throw new Error(`Pi branch 新 session header 无效: ${branchSessionFile}`);
-    return { branchThreadId: header.id, branchSessionFile };
+    return createDesktopBranchedSession(
+      sourceSessionFile,
+      manager.getSessionDir(),
+      manager.getCwd(),
+      input.sourceEntryId,
+    );
   }
 
   /** 将结构化引用作为 session custom entry 持久化（custom 类型默认不进 LLM 上下文）。 */

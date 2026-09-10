@@ -44,7 +44,7 @@ function createHarness() {
   const workspace = { dispose: vi.fn(() => calls.push("workspace")) };
   const browser = { dispose: vi.fn(async () => calls.push("browser")) };
   const registration = { dispose: vi.fn(() => calls.push("ipc")) };
-  const window = { isDestroyed: vi.fn(() => false), destroy: vi.fn(() => calls.push("window")) };
+  const window = { id: 1, once: vi.fn(), isDestroyed: vi.fn(() => false), destroy: vi.fn(() => calls.push("window")) };
   const createWindow = vi.fn(() => window as never);
   const factories = {
     createRuntimeContext: vi.fn(() => context),

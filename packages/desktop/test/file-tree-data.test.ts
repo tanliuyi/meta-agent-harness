@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import {
   activeFileChange,
   emptyFileTreeData,
+  fileTreeChangePlan,
+  removeExpandedFileTreeDirectory,
   removeLoadedFileTreeDirectory,
   replaceFileTreeDirectory,
 } from "../src/renderer/src/components/panel/files/file-tree-data.ts";
@@ -36,9 +38,34 @@ describe("file tree data", () => {
     expect(activeFileChange({ ...base, updated: ["src/other.ts"] }, "src/index.ts")).toBeNull();
   });
 
-  it("删除已加载目录时清理对应缓存", () => {
-    const initial = replaceFileTreeDirectory(emptyFileTreeData(), "src", [childFile]);
-    expect(removeLoadedFileTreeDirectory(initial, "src")).toEqual({ roots: [], children: {} });
+  it("递归删除目录时只刷新仍存在的父目录", () => {
+    const change = {
+      projectId: "project",
+      added: [],
+      deleted: ["scene_split/generated/image.png", "scene_split/generated/nested", "scene_split/generated"],
+      updated: [],
+    };
+    const loaded = new Set(["", "scene_split", "scene_split/generated", "scene_split/generated/nested"]);
+
+    expect(fileTreeChangePlan(change, loaded)).toEqual({
+      removedDirectories: ["scene_split/generated/nested", "scene_split/generated"],
+      refreshDirectories: ["scene_split"],
+    });
+  });
+
+  it("删除已加载目录时清理目录及其后代缓存和展开状态", () => {
+    const initial = {
+      roots: [],
+      children: { src: [childFile], "src/components": [], "src-old": [], scripts: [] },
+    };
+    expect(removeLoadedFileTreeDirectory(initial, "src")).toEqual({
+      roots: [],
+      children: { "src-old": [], scripts: [] },
+    });
     expect(removeLoadedFileTreeDirectory(initial, "missing")).toBe(initial);
+
+    const expanded = ["src", "src/components", "src-old", "scripts"];
+    expect(removeExpandedFileTreeDirectory(expanded, "src")).toEqual(["src-old", "scripts"]);
+    expect(removeExpandedFileTreeDirectory(expanded, "missing")).toBe(expanded);
   });
 });

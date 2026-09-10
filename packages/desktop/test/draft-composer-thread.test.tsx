@@ -8,7 +8,9 @@ import { TooltipProvider } from "../src/renderer/src/shared/ui/tooltip-provider.
 import type { DraftSessionConfig, Project } from "../src/shared/contracts.ts";
 
 vi.mock("../src/renderer/src/components/session-context.tsx", () => ({
-  useSessionScope: () => ({ record: { key: "test-session" } }),
+  useSessionScope: () => ({
+    record: { key: "test-session", identity: { projectId: "project", threadId: "draft" } },
+  }),
 }));
 
 const project: Project = {
@@ -35,6 +37,31 @@ const config: DraftSessionConfig = {
   thinkingLevel: "off",
   thinkingLevels: ["off", "high"],
   readiness: { state: "ready" },
+  mainAgent: {
+    selection: { id: "reviewer", revision: 4 },
+    profiles: [{ id: "reviewer", revision: 4, name: "代码审查", description: "只读审查", builtin: false }],
+    snapshot: {
+      version: 1,
+      profileId: "reviewer",
+      profileRevision: 4,
+      profileName: "代码审查",
+      createdAt: 1,
+      configuration: {
+        prompt: {
+          mode: "default",
+          text: "",
+          includeGlobalRules: true,
+          includeProjectRules: true,
+          includeSkills: true,
+        },
+        tools: null,
+        builtinPluginIds: null,
+      },
+    },
+    tools: [],
+    builtinPlugins: [],
+    promptSources: [],
+  },
   extensions: { extensionSetGeneration: "test-generation", diagnostics: [] },
 };
 
@@ -143,6 +170,8 @@ describe("DraftComposerThread", () => {
               phase="editing"
               fixedProject
               compact
+              inheritedMainAgent
+              inheritedMainAgentProfile={config.mainAgent.snapshot}
               onProjectChange={vi.fn()}
               onModelChange={vi.fn()}
               onThinkingChange={vi.fn()}
@@ -159,6 +188,9 @@ describe("DraftComposerThread", () => {
     expect(markup).toContain("bg-background justify-end");
     expect(markup).not.toContain("bg-background justify-center");
     expect(markup).toContain('data-draft-composer="true"');
+    expect(markup).toContain('aria-label="选择主智能体"');
+    expect(markup).toContain("代码审查");
+    expect(markup).toContain("继承");
     expect(markup).not.toContain("draft-composer-drawer");
   });
 
@@ -191,6 +223,8 @@ describe("DraftComposerThread", () => {
     const markup = renderToStaticMarkup(createElement(TestRoutedSurface));
 
     expect(markup).toContain("做什么");
+    expect(markup).toContain('aria-label="选择主智能体"');
+    expect(markup).toContain("代码审查");
     expect(markup).toContain('class="draft-project-name"');
     expect(markup).toContain("bg-background justify-center");
   });

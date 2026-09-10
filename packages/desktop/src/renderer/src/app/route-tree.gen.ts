@@ -16,6 +16,7 @@ import { Route as ChatNewRouteImport } from './routes/_chat.new'
 import { Route as ChatPluginsRouteImport } from './routes/_chat.plugins'
 import { Route as SettingsIndexRouteImport } from './routes/settings.index'
 import { Route as SettingsAboutRouteImport } from './routes/settings.about'
+import { Route as SettingsAgentsRouteImport } from './routes/settings.agents'
 import { Route as SettingsArchivesRouteImport } from './routes/settings.archives'
 import { Route as SettingsAuthRouteImport } from './routes/settings.auth'
 import { Route as SettingsAutoTitleRouteImport } from './routes/settings.auto-title'
@@ -64,6 +65,11 @@ const SettingsIndexRoute = SettingsIndexRouteImport.update({
 const SettingsAboutRoute = SettingsAboutRouteImport.update({
   id: '/about',
   path: '/about',
+  getParentRoute: () => SettingsRoute,
+} as any)
+const SettingsAgentsRoute = SettingsAgentsRouteImport.update({
+  id: '/agents',
+  path: '/agents',
   getParentRoute: () => SettingsRoute,
 } as any)
 const SettingsArchivesRoute = SettingsArchivesRouteImport.update({
@@ -150,6 +156,7 @@ export interface FileRoutesByFullPath {
   '/new': typeof ChatNewRoute
   '/plugins': typeof ChatPluginsRouteWithChildren
   '/settings/about': typeof SettingsAboutRoute
+  '/settings/agents': typeof SettingsAgentsRoute
   '/settings/archives': typeof SettingsArchivesRoute
   '/settings/auth': typeof SettingsAuthRoute
   '/settings/auto-title': typeof SettingsAutoTitleRoute
@@ -170,6 +177,7 @@ export interface FileRoutesByFullPath {
 export interface FileRoutesByTo {
   '/new': typeof ChatNewRoute
   '/settings/about': typeof SettingsAboutRoute
+  '/settings/agents': typeof SettingsAgentsRoute
   '/settings/archives': typeof SettingsArchivesRoute
   '/settings/auth': typeof SettingsAuthRoute
   '/settings/auto-title': typeof SettingsAutoTitleRoute
@@ -195,6 +203,7 @@ export interface FileRoutesById {
   '/_chat/new': typeof ChatNewRoute
   '/_chat/plugins': typeof ChatPluginsRouteWithChildren
   '/settings/about': typeof SettingsAboutRoute
+  '/settings/agents': typeof SettingsAgentsRoute
   '/settings/archives': typeof SettingsArchivesRoute
   '/settings/auth': typeof SettingsAuthRoute
   '/settings/auto-title': typeof SettingsAutoTitleRoute
@@ -221,6 +230,7 @@ export interface FileRouteTypes {
     | '/new'
     | '/plugins'
     | '/settings/about'
+    | '/settings/agents'
     | '/settings/archives'
     | '/settings/auth'
     | '/settings/auto-title'
@@ -241,6 +251,7 @@ export interface FileRouteTypes {
   to:
     | '/new'
     | '/settings/about'
+    | '/settings/agents'
     | '/settings/archives'
     | '/settings/auth'
     | '/settings/auto-title'
@@ -265,6 +276,7 @@ export interface FileRouteTypes {
     | '/_chat/new'
     | '/_chat/plugins'
     | '/settings/about'
+    | '/settings/agents'
     | '/settings/archives'
     | '/settings/auth'
     | '/settings/auto-title'
@@ -338,6 +350,13 @@ declare module '@tanstack/react-router' {
       path: '/about'
       fullPath: '/settings/about'
       preLoaderRoute: typeof SettingsAboutRouteImport
+      parentRoute: typeof SettingsRoute
+    }
+    '/settings/agents': {
+      id: '/settings/agents'
+      path: '/agents'
+      fullPath: '/settings/agents'
+      preLoaderRoute: typeof SettingsAgentsRouteImport
       parentRoute: typeof SettingsRoute
     }
     '/settings/archives': {
@@ -483,6 +502,7 @@ const ChatRouteWithChildren = ChatRoute._addFileChildren(ChatRouteChildren)
 
 interface SettingsRouteChildren {
   SettingsAboutRoute: typeof SettingsAboutRoute
+  SettingsAgentsRoute: typeof SettingsAgentsRoute
   SettingsArchivesRoute: typeof SettingsArchivesRoute
   SettingsAuthRoute: typeof SettingsAuthRoute
   SettingsAutoTitleRoute: typeof SettingsAutoTitleRoute
@@ -499,6 +519,7 @@ interface SettingsRouteChildren {
 
 const SettingsRouteChildren: SettingsRouteChildren = {
   SettingsAboutRoute: SettingsAboutRoute,
+  SettingsAgentsRoute: SettingsAgentsRoute,
   SettingsArchivesRoute: SettingsArchivesRoute,
   SettingsAuthRoute: SettingsAuthRoute,
   SettingsAutoTitleRoute: SettingsAutoTitleRoute,

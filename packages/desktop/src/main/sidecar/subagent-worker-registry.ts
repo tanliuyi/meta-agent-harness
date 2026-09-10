@@ -665,7 +665,7 @@ function validateNestedRequest(parent: SubagentRunRequest, request: SubagentRunR
   if (!sameLineage(request.lineage, expectedLineage)) {
     throw new Error("Nested subagent request lineage does not match its parent worker");
   }
-  if (!sameChildExtensions(parent.childExtensions, request.childExtensions)) {
+  if (!isApprovedChildExtensionSubset(request.childExtensions, parent.childExtensions)) {
     throw new Error("Nested subagent request changed its approved child extensions");
   }
 }
@@ -694,18 +694,14 @@ function isDescendant(parent: SubagentRunRequest, candidate: SubagentRunRequest)
   );
 }
 
-function sameChildExtensions(
-  actual: SubagentRunRequest["childExtensions"],
-  expected: SubagentRunRequest["childExtensions"],
+function isApprovedChildExtensionSubset(
+  requested: SubagentRunRequest["childExtensions"],
+  approved: SubagentRunRequest["childExtensions"],
 ): boolean {
-  const signature = (extensions: SubagentRunRequest["childExtensions"]): string[] =>
-    (extensions ?? []).map((extension) => `${extension.path}\0${[...extension.tools].sort().join("\0")}`).sort();
-  const actualSignature = signature(actual);
-  const expectedSignature = signature(expected);
-  return (
-    actualSignature.length === expectedSignature.length &&
-    actualSignature.every((item, index) => item === expectedSignature[index])
-  );
+  const signature = (extension: NonNullable<SubagentRunRequest["childExtensions"]>[number]): string =>
+    `${extension.path}\0${[...extension.tools].sort().join("\0")}`;
+  const approvedSignatures = new Set((approved ?? []).map(signature));
+  return (requested ?? []).every((extension) => approvedSignatures.has(signature(extension)));
 }
 
 function sameLineage(actual: SubagentRunRequest["lineage"], expected: SubagentRunRequest["lineage"]): boolean {

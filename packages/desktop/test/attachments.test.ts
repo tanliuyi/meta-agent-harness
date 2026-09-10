@@ -6,7 +6,9 @@ import {
   toComposerAttachmentInput,
   toPiPromptAttachments,
 } from "../src/renderer/src/runtime/attachments.ts";
+import { PiMessageRepositoryConverter } from "../src/renderer/src/runtime/pi-message-repository.ts";
 import { toSessionImageResourceUrl } from "../src/renderer/src/runtime/session-image-resource-ref.ts";
+import { PROTOCOL_VERSION } from "../src/shared/contracts.ts";
 
 describe("assistant-ui 附件", () => {
   const testAttachmentAdapter = createAttachmentAdapter((file) => `C:\\images\\${file.name}`);
@@ -41,8 +43,62 @@ describe("assistant-ui 附件", () => {
     expect(prompt.images).toEqual([{ name: "screen.png", mimeType: "image/png", data: "AQID" }]);
     expect(parsePiFileContexts(prompt.text)).toEqual({
       text: "查看截图",
-      files: [{ path: "C:\\images\\screen.png", name: "screen.png" }],
+      files: [{ path: "C:\\images\\screen.png", name: "screen.png", imageIndex: 0 }],
     });
+  });
+
+  it("带源路径的图片发送后只恢复一个图片附件，并在编辑重发时保留路径", async () => {
+    const image = await testAttachmentAdapter.add({
+      file: new File([new Uint8Array([1])], "screen.png", { type: "image/png" }),
+    });
+    const file = await testAttachmentAdapter.add({
+      file: new File([], "screen.png", { type: "application/octet-stream" }),
+    });
+    const prompt = await toPiPromptAttachments("查看截图", [image, file], (pending) =>
+      testAttachmentAdapter.send(pending),
+    );
+    const repository = new PiMessageRepositoryConverter().build({
+      protocolVersion: PROTOCOL_VERSION,
+      projectId: "project",
+      threadId: "thread",
+      cursor: 0,
+      headId: "user",
+      nodes: [
+        {
+          id: "user",
+          parentId: null,
+          createdAt: 1,
+          kind: "user",
+          delivery: { state: "persisted" },
+          content: [
+            { type: "text", text: prompt.text },
+            { type: "image", resourceId: "image-resource", mimeType: "image/png" },
+          ],
+        },
+      ],
+      queue: [],
+      phase: "idle",
+    });
+    const message = repository.messages[0]!.message;
+    if (message.role !== "user") throw new Error("Expected user message");
+    expect(message.content).toEqual([{ type: "text", text: "查看截图" }]);
+    expect(message.attachments).toHaveLength(2);
+    expect(message.attachments.filter((attachment) => attachment.type === "file")).toHaveLength(1);
+    const restoredImage = message.attachments.find((attachment) => attachment.type === "image")!;
+    expect(restoredImage.name).toBe("screen.png");
+    expect(restoredImage.content).toEqual([
+      {
+        type: "image",
+        image: toSessionImageResourceUrl({ resourceId: "image-resource", mimeType: "image/png" }),
+        filename: "screen.png",
+      },
+      { type: "file", data: "C:\\images\\screen.png", filename: "screen.png", mimeType: "image/png" },
+    ]);
+    const resent = await toPiPromptAttachments("再次查看", message.attachments);
+    expect(parsePiFileContexts(resent.text).files).toEqual([...parsePiFileContexts(prompt.text).files].reverse());
+    expect(resent.imageResources).toEqual([
+      { name: "screen.png", resourceId: "image-resource", mimeType: "image/png" },
+    ]);
   });
 
   it("剪贴板截图没有源路径时仍只发送图片数据", async () => {

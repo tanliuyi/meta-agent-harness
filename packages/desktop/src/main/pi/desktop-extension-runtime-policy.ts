@@ -139,6 +139,7 @@ export function controlledResourceLoaderOptions(
     includeBuiltinSkills?: boolean;
     pluginRegistry?: RunCodeRegistryHolder;
     pluginRegistryBuilder?: DesktopPluginRegistryBuilder;
+    allowRunCode?: boolean;
     cwd?: string;
     agentDir?: string;
   } = {},
@@ -272,7 +273,8 @@ export function controlledResourceLoaderOptions(
     },
     extensionFactories: [
       ...controlledInlineFactories,
-      ...(options.pluginRegistry &&
+      ...(options.allowRunCode !== false &&
+      options.pluginRegistry &&
       options.pluginRegistryBuilder &&
       set.entries.some((entry) => providesPluginTools(entry))
         ? [createRunCodeExtension(options.pluginRegistry, options.cwd ?? process.cwd())]
@@ -297,10 +299,23 @@ export function validatePluginSkills(
         .filter((path): path is string => typeof path === "string" && path.length > 0)
         .map((path) => resolve(path)),
     );
-    const primary = loaded.skills.find(
+    const visiblePrimary = loaded.skills.find(
       (skill) => skill.name === primaryName && approvedPaths.has(resolve(skill.filePath)),
     );
-    const pathDiagnostic = loaded.diagnostics.find(
+    const loadedFromApprovedPaths = visiblePrimary
+      ? { skills: [], diagnostics: [] }
+      : loadSkills({
+          cwd: process.cwd(),
+          agentDir: process.env.PI_CODING_AGENT_DIR ?? process.cwd(),
+          skillPaths: [...approvedPaths],
+          includeDefaults: false,
+        });
+    const primary =
+      visiblePrimary ??
+      loadedFromApprovedPaths.skills.find(
+        (skill) => skill.name === primaryName && approvedPaths.has(resolve(skill.filePath)),
+      );
+    const pathDiagnostic = [...loaded.diagnostics, ...loadedFromApprovedPaths.diagnostics].find(
       (diagnostic) => diagnostic.path !== undefined && approvedPaths.has(resolve(diagnostic.path)),
     );
     if (!primary || !primary.description.trim() || primary.disableModelInvocation || pathDiagnostic) {

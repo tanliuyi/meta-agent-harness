@@ -56,6 +56,7 @@ export function registerApplicationIpc(services: ApplicationIpcServices): IpcReg
     marketplaceRegistry: plugins.marketplaceRegistry,
     marketplaceInstaller: plugins.marketplaceInstaller,
     pluginConfigurations: plugins.pluginConfigurations,
+    mainAgents: core.mainAgents,
     memorySettings: core.memorySettings,
     autoTitle: core.autoTitleSettings,
     preferences: core.preferences,

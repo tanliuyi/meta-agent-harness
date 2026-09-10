@@ -48,7 +48,14 @@ export class MetadataWorkerService implements SidecarService {
         return this.index.listWithPaths(command.projectId, command.cwd);
       case "getDraftConfig": {
         const extensionSet = await validateResolvedExtensionSet(command.projectId, command.extensionSet);
-        return loadDraftSessionConfig(command.cwd, undefined, this.agentDir, extensionSet, command.allEntries);
+        return loadDraftSessionConfig(
+          command.cwd,
+          undefined,
+          this.agentDir,
+          extensionSet,
+          command.allEntries,
+          command.mainAgentSnapshot,
+        );
       }
       case "resolveSession":
         return this.index.resolve(command.projectId, command.cwd, command.threadId);
@@ -217,6 +224,7 @@ async function finalizeCommittedRemoval(journal: RemovalJournal): Promise<void> 
       else await rename(removal.path, removal.tombstonePath);
     }
     await rm(removal.tombstonePath, { force: true });
+    await rm(`${removal.path}.main-agent.json`, { force: true });
   }
 }
 

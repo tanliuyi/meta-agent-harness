@@ -1,5 +1,6 @@
 import ChevronLeft from "lucide-react/dist/esm/icons/chevron-left.mjs";
 import ChevronRight from "lucide-react/dist/esm/icons/chevron-right.mjs";
+import GitFork from "lucide-react/dist/esm/icons/git-fork.mjs";
 import Plus from "lucide-react/dist/esm/icons/plus.mjs";
 import X from "lucide-react/dist/esm/icons/x.mjs";
 import {
@@ -14,7 +15,9 @@ import {
   useSyncExternalStore,
   type WheelEvent,
 } from "react";
-import type { CachedSessionRecord } from "../../runtime/pi-session-store.ts";
+import type { Thread } from "../../../../shared/contracts.ts";
+import { resolveThreadRootId } from "../../../../shared/thread-tree.ts";
+import { type CachedSessionRecord, sessionRecordKey } from "../../runtime/pi-session-store.ts";
 import { useDesktopSelector } from "../../state/desktop-context.tsx";
 import { useKeyboardShortcuts } from "../../state/keyboard-shortcut-provider.tsx";
 import { DESKTOP_SESSION_TAB_COMMAND_IDS, primaryDigitShortcutHint } from "../../state/keyboard-shortcuts.ts";
@@ -34,6 +37,8 @@ export interface DesktopSessionTab {
   threadId: string;
   title: string;
   status: DesktopSessionTabStatus;
+  childCount: number;
+  members: readonly { key: string; threadId: string }[];
 }
 
 const DESKTOP_SESSION_TAB_STATUS_LABELS: Record<Exclude<DesktopSessionTabStatus, "idle">, string> = {
@@ -131,77 +136,136 @@ export function DesktopSessionTabs() {
 
   const storeSnapshots = useSessionTabStoreSnapshots(records);
 
-  const orderedRecords = useMemo(() => {
-    const recordsByKey = new Map(records.map((record) => [record.key, record]));
-    const ordered = tabOrder.flatMap((key) => {
-      const record = recordsByKey.get(key);
-      return record ? [record] : [];
-    });
-    const orderedKeys = new Set(tabOrder);
-    return [...ordered, ...records.filter((record) => !orderedKeys.has(record.key))].filter(
-      (record) => !closingKeys.has(record.key),
+  const routeRootThreadId = useMemo(() => {
+    if (!routeProjectId || !routeThreadId) return undefined;
+    const threadsById = new Map((threadCatalogs[routeProjectId] ?? []).map((thread) => [thread.id, thread]));
+    return resolveThreadRootId(threadsById, routeThreadId);
+  }, [routeProjectId, routeThreadId, threadCatalogs]);
+
+  const groupedTabs = useMemo<DesktopSessionTab[]>(() => {
+    const threadsByProject = new Map(
+      Object.entries(threadCatalogs).map(([projectId, threads]) => [
+        projectId,
+        new Map(threads.map((thread) => [thread.id, thread])),
+      ]),
     );
-  }, [closingKeys, records, tabOrder]);
+    const activeRecord = records.find((record) => record.key === activeKey);
+    const activeTimeline = activeRecord?.stores.timeline.getSnapshot();
+    const activeTimelineAttached =
+      activeRecord !== undefined &&
+      activeTimeline?.projectId === activeRecord.identity.projectId &&
+      activeTimeline.threadId === activeRecord.identity.threadId;
+    const runningAncestorIdsByProject = new Map<string, ReadonlySet<string>>();
+    for (const [projectId, threadsById] of threadsByProject) {
+      const runningAncestorIds = new Set<string>();
+      for (const thread of threadsById.values()) {
+        const running =
+          activeTimelineAttached &&
+          activeRecord.identity.projectId === projectId &&
+          activeRecord.identity.threadId === thread.id
+            ? activeTimeline.phase !== "idle"
+            : thread.running;
+        if (!running) continue;
+        const visited = new Set([thread.id]);
+        let parentThreadId = thread.parentThreadId;
+        while (parentThreadId && !visited.has(parentThreadId)) {
+          runningAncestorIds.add(parentThreadId);
+          visited.add(parentThreadId);
+          parentThreadId = threadsById.get(parentThreadId)?.parentThreadId;
+        }
+      }
+      runningAncestorIdsByProject.set(projectId, runningAncestorIds);
+    }
 
-  useEffect(() => {
-    const recordKeys = records.map((record) => record.key);
-    const recordKeySet = new Set(recordKeys);
-    setTabOrder((current) => {
-      const next = [
-        ...current.filter((key) => recordKeySet.has(key)),
-        ...recordKeys.filter((key) => !current.includes(key)),
-      ];
-      return next.length === current.length && next.every((key, index) => key === current[index]) ? current : next;
-    });
-    setClosingKeys((current) => {
-      const next = new Set([...current].filter((key) => recordKeySet.has(key)));
-      return next.size === current.size ? current : next;
-    });
-  }, [records]);
+    const recordsByGroupKey = new Map<string, CachedSessionRecord[]>();
+    for (const record of records) {
+      const threadsById = threadsByProject.get(record.identity.projectId) ?? new Map<string, Thread>();
+      const rootThreadId = resolveThreadRootId(threadsById, record.identity.threadId);
+      const groupKey = sessionRecordKey(record.identity.projectId, rootThreadId);
+      const members = recordsByGroupKey.get(groupKey) ?? [];
+      members.push(record);
+      recordsByGroupKey.set(groupKey, members);
+    }
 
-  const tabs = useMemo<DesktopSessionTab[]>(
-    () =>
-      orderedRecords.map((record) => {
-        const thread = threadCatalogs[record.identity.projectId]?.find(({ id }) => id === record.identity.threadId);
+    return [...recordsByGroupKey].map(([key, memberRecords]) => {
+      const firstRecord = memberRecords[0]!;
+      const projectId = firstRecord.identity.projectId;
+      const threadsById = threadsByProject.get(projectId) ?? new Map<string, Thread>();
+      const threadId = resolveThreadRootId(threadsById, firstRecord.identity.threadId);
+      const rootThread = threadsById.get(threadId);
+      const rootRecord = memberRecords.find((record) => record.identity.threadId === threadId);
+      const rootControl = rootRecord?.stores.control.getSnapshot();
+      const fallbackControl = firstRecord.stores.control.getSnapshot();
+      const active = projectId === routeProjectId && threadId === routeRootThreadId;
+      let blocked = false;
+      let running = runningAncestorIdsByProject.get(projectId)?.has(threadId) === true;
+      let error = false;
+      for (const record of memberRecords) {
+        const memberThread = threadsById.get(record.identity.threadId);
         const control = record.stores.control.getSnapshot();
         const timeline = record.stores.timeline.getSnapshot();
         const latestAssistant = timeline.nodes.findLast((node) => node.kind === "assistant");
-        const timelineAttached =
-          timeline.projectId === record.identity.projectId && timeline.threadId === record.identity.threadId;
-        const active = record.key === activeKey;
-        const running =
-          active && timelineAttached
+        const timelineAttached = timeline.projectId === projectId && timeline.threadId === record.identity.threadId;
+        const memberRunning =
+          record.key === activeKey && timelineAttached
             ? timeline.phase !== "idle"
-            : (thread?.running ?? control?.running ?? (timelineAttached && timeline.phase !== "idle"));
-        return {
-          key: record.key,
-          projectId: record.identity.projectId,
-          threadId: record.identity.threadId,
-          title: thread?.title || control?.extensionHost.windowTitle || control?.title || "新会话",
-          status: resolveDesktopSessionTabStatus({
-            blocked: (control?.hostRequests.length ?? 0) > 0,
-            running,
-            error:
-              !running && latestAssistant?.status.type === "incomplete" && latestAssistant.status.reason === "error",
-            completed: thread?.completed === true,
-            active,
-          }),
-        };
-      }),
-    [activeKey, orderedRecords, storeSnapshots, threadCatalogs],
-  );
-  const shortcutTabs = useMemo(
-    () =>
-      orderedRecords.slice(0, DESKTOP_SESSION_TAB_COMMAND_IDS.length).map((record) => ({
-        key: record.key,
-        projectId: record.identity.projectId,
-        threadId: record.identity.threadId,
-      })),
-    [orderedRecords],
-  );
+            : (memberThread?.running ?? control?.running ?? (timelineAttached && timeline.phase !== "idle"));
+        blocked ||= (control?.hostRequests.length ?? 0) > 0;
+        running ||= memberRunning;
+        error ||= latestAssistant?.status.type === "incomplete" && latestAssistant.status.reason === "error";
+      }
+      return {
+        key,
+        projectId,
+        threadId,
+        title:
+          rootThread?.title ||
+          rootControl?.extensionHost.windowTitle ||
+          rootControl?.title ||
+          fallbackControl?.extensionHost.windowTitle ||
+          fallbackControl?.title ||
+          "新会话",
+        status: resolveDesktopSessionTabStatus({
+          blocked,
+          running,
+          error: !running && error,
+          completed: rootThread?.completed === true,
+          active,
+        }),
+        childCount: memberRecords.filter((record) => record.identity.threadId !== threadId).length,
+        members: memberRecords.map((record) => ({ key: record.key, threadId: record.identity.threadId })),
+      };
+    });
+  }, [activeKey, records, routeProjectId, routeRootThreadId, storeSnapshots, threadCatalogs]);
+
+  const tabs = useMemo(() => {
+    const visibleTabs = groupedTabs.filter((tab) => !closingKeys.has(tab.key));
+    const tabsByKey = new Map(visibleTabs.map((tab) => [tab.key, tab]));
+    const ordered = tabOrder.flatMap((key) => {
+      const tab = tabsByKey.get(key);
+      return tab ? [tab] : [];
+    });
+    const orderedKeys = new Set(tabOrder);
+    return [...ordered, ...visibleTabs.filter((tab) => !orderedKeys.has(tab.key))];
+  }, [closingKeys, groupedTabs, tabOrder]);
+
+  useEffect(() => {
+    const tabKeys = groupedTabs.map((tab) => tab.key);
+    const tabKeySet = new Set(tabKeys);
+    setTabOrder((current) => {
+      const next = [...current.filter((key) => tabKeySet.has(key)), ...tabKeys.filter((key) => !current.includes(key))];
+      return next.length === current.length && next.every((key, index) => key === current[index]) ? current : next;
+    });
+    setClosingKeys((current) => {
+      const next = new Set([...current].filter((key) => tabKeySet.has(key)));
+      return next.size === current.size ? current : next;
+    });
+  }, [groupedTabs]);
+
+  const shortcutTabs = useMemo(() => tabs.slice(0, DESKTOP_SESSION_TAB_COMMAND_IDS.length), [tabs]);
   const selectedTabKey = useMemo(
-    () => tabs.find((tab) => tab.projectId === routeProjectId && tab.threadId === routeThreadId)?.key ?? null,
-    [routeProjectId, routeThreadId, tabs],
+    () => tabs.find((tab) => tab.projectId === routeProjectId && tab.threadId === routeRootThreadId)?.key ?? null,
+    [routeProjectId, routeRootThreadId, tabs],
   );
 
   useLayoutEffect(() => {
@@ -278,23 +342,25 @@ export function DesktopSessionTabs() {
   }, [openSession, registerCommandHandler, routeProjectId, routeThreadId, shortcutTabs]);
 
   const createTask = useCallback(() => {
-    const projectId = tabs.find(({ key }) => key === activeKey)?.projectId;
+    const projectId =
+      tabs.find(({ key }) => key === selectedTabKey)?.projectId ??
+      records.find(({ key }) => key === activeKey)?.identity.projectId;
     void openDraft(projectId);
-  }, [activeKey, openDraft, tabs]);
+  }, [activeKey, openDraft, records, selectedTabKey, tabs]);
 
   const closeTab = useCallback(
     async (tab: DesktopSessionTab, index: number) => {
       setClosingKeys((current) => new Set(current).add(tab.key));
       let retired = false;
       try {
-        if (tab.projectId === routeProjectId && tab.threadId === routeThreadId) {
+        if (tab.key === selectedTabKey) {
           const nextTab = nextDesktopSessionTab(tabs, index);
           if (nextTab) await openSession(nextTab.projectId, nextTab.threadId);
           else await openDraft(tab.projectId);
         }
-        await cache.retire(tab.key);
+        await Promise.all(tab.members.map((member) => cache.retire(member.key)));
         retired = true;
-        await window.desktop.sessions.close(tab.projectId, tab.threadId);
+        await Promise.all(tab.members.map((member) => window.desktop.sessions.close(tab.projectId, member.threadId)));
       } catch (error) {
         if (!retired) {
           setClosingKeys((current) => {
@@ -306,7 +372,7 @@ export function DesktopSessionTabs() {
         throw error;
       }
     },
-    [cache, openDraft, openSession, routeProjectId, routeThreadId, tabs],
+    [cache, openDraft, openSession, selectedTabKey, tabs],
   );
 
   const handleKeyDown = (event: KeyboardEvent<HTMLButtonElement>, index: number) => {
@@ -462,7 +528,7 @@ export function DesktopSessionTabs() {
                 role="tab"
                 aria-selected={selected}
                 tabIndex={selected || (selectedTabKey === null && index === 0) ? 0 : -1}
-                title={tab.title}
+                title={tab.childCount > 0 ? `${tab.title}，包含 ${tab.childCount} 个子会话` : tab.title}
                 onClick={() => {
                   if (suppressActivationRef.current) return;
                   activate(tab);
@@ -477,6 +543,16 @@ export function DesktopSessionTabs() {
                   />
                 ) : null}
                 <span className="desktop-session-tab-title">{tab.title}</span>
+                {tab.childCount > 0 ? (
+                  <span
+                    className="desktop-session-tab-group"
+                    aria-label={`${tab.childCount} 个子会话归属于 ${tab.title}`}
+                    title={`${tab.childCount} 个子会话`}
+                  >
+                    <GitFork size={10} aria-hidden="true" />
+                    <span>{tab.childCount}</span>
+                  </span>
+                ) : null}
               </button>
               <TooltipIconButton
                 className="desktop-session-tab-close size-5! shrink-0"

@@ -8,6 +8,7 @@ import {
   isEncodedMarkdownLocalPath,
   markdownImageFilename,
   markdownImageReference,
+  markdownImageSourceForLoading,
   markdownImageSourceToUrl,
   markdownLocalPath,
   preprocessMarkdownImages,
@@ -46,6 +47,7 @@ describe("Markdown images", () => {
       "/workspace/session-a/art/gundam_mecha.png",
     );
     expect(resolveMarkdownDestination("../README.md", "/workspace/session-a")).toBe("/workspace/README.md");
+    expect(resolveMarkdownDestination("docs/", "/workspace/session-a")).toBe("/workspace/session-a/docs/");
     expect(resolveRelativeMarkdownPath("images/My%20Mecha.png", "C:\\workspace\\session-b")).toBe(
       "/.meta-agent-local/windows/C:/workspace/session-b/images/My%20Mecha.png",
     );
@@ -138,6 +140,7 @@ describe("Markdown images", () => {
     expect(markdownImageSourceToUrl(encodedWindowsSource)).toBe(
       "meta-agent-markdown-image://local/image?source=C%3A%2Fworkspace%2Fdocs%2Fa%2523b.png",
     );
+    expect(markdownImageSourceForLoading(encodedWindowsSource)).toBe("C:/workspace/docs/a%23b.png");
     expect(markdownImageFilename(encodedWindowsSource, "image")).toBe("a%23b.png");
 
     const encodedUncTarget = resolveMarkdownDestination("docs/a%23b.md", "\\\\server\\share") ?? "";
@@ -219,22 +222,34 @@ describe("Markdown images", () => {
     expect(markup).toContain('data-streamdown="image-actions"');
     expect(markup).toContain("预览图片");
     expect(markup).toContain("下载图片");
+    expect(markup).toContain("复制图片");
     expect(markup).toContain("引用图片");
   });
 
-  it("distinguishes external and local links with icons without decorating fragments or linked images", () => {
+  it("uses stable link colors, site favicons, folder icons, and extension-specific file icons", () => {
     const markup = renderToStaticMarkup(
       <TooltipProvider>
         <StreamdownMarkdown cwd="/workspace" linkSafety={{ enabled: false }}>
           {
-            '[external](https://example.com "External") [file](docs/readme.md) [reference][guide] [fragment](#details) [![image](image.png)](https://example.com/image)\n\n[guide]: docs/guide.md'
+            '[external](https://example.com/path?token=secret#section "External") [github](https://github.com/tanliuyi/meta-agent-harness?tab=readme) [typescript](src/main.ts) [markdown](README.md) [folder](docs/) [reference][guide] [fragment](#details) [![image](image.png)](https://example.com/image)\n\n[guide]: docs/guide.md'
           }
         </StreamdownMarkdown>
       </TooltipProvider>,
     );
 
-    expect(markup.match(/lucide-external-link/gu)).toHaveLength(1);
-    expect(markup.match(/lucide-file/gu)).toHaveLength(2);
+    expect(markup.match(/src="https:\/\/example.com\/favicon.ico"/gu)).toHaveLength(1);
+    expect(markup.match(/src="https:\/\/github.com\/favicon.ico"/gu)).toHaveLength(1);
+    expect(markup).toContain('src="https://example.com/favicon.ico"/>https://example.com/path</a>');
+    expect(markup).toContain(
+      'src="https://github.com/favicon.ico"/>https://github.com/tanliuyi/meta-agent-harness</a>',
+    );
+    expect(markup).toContain('href="https://example.com/path?token=secret#section"');
+    expect(markup).toContain('href="https://github.com/tanliuyi/meta-agent-harness?tab=readme"');
+    expect(markup).toContain('class="@Typescript"');
+    expect(markup).toContain('class="@Readme"');
+    expect(markup).toContain('class="@FolderDocs"');
+    expect(markup).toContain("text-info");
+    expect(markup).not.toContain("text-primary");
     expect(markup).toContain('title="External"');
     expect(markup).toContain('href="/workspace/docs/guide.md"');
     expect(markup).toContain('href="#details"');
@@ -276,7 +291,8 @@ describe("Markdown images", () => {
     expect(markup).toContain('data-streamdown="link"');
     expect(markup).toContain('title="External"');
     expect(markup).toContain('data-modal-url="https://example.com/"');
-    expect(markup).toContain("lucide-external-link");
+    expect(markup).toContain('src="https://example.com/favicon.ico"');
+    expect(markup).toContain("https://example.com/");
   });
 
   it("在无 SessionScope 的悬浮预览中禁用链接安全，链接直接渲染为锚点", () => {

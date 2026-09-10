@@ -17,6 +17,7 @@
 @import "./subagent-settings.css" layer(components);
 @import "./memory-settings.css" layer(components);
 @import "./auto-title-settings.css" layer(components);
+@import "./main-agent-settings.css" layer(components);
 @import "./providers-settings.css" layer(components);
 @import "./keyboard-shortcuts-settings.css" layer(components);
 @import "./chat.css" layer(components);

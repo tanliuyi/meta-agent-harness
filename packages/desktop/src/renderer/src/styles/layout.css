@@ -202,9 +202,30 @@
 
 .desktop-session-tab-title {
   min-width: 0;
+  flex: 1;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.desktop-session-tab-group {
+  display: inline-flex;
+  height: 16px;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 2px;
+  padding: 0 4px;
+  border-radius: var(--shape-radius-xs);
+  background: hsl(var(--foreground) / 0.08);
+  color: hsl(var(--muted-foreground));
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+
+.desktop-session-tab[data-active="true"] .desktop-session-tab-group {
+  background: hsl(var(--foreground) / 0.12);
+  color: hsl(var(--foreground));
 }
 
 .desktop-session-tabs-new.desktop-session-tabs-new {

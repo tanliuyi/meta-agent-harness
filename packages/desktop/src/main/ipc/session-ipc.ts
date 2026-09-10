@@ -16,6 +16,7 @@ import type {
   SessionResourceReloadInput,
 } from "../../shared/contracts.ts";
 import type { DesktopWidgetViewport } from "../../shared/desktop-extension-contracts.ts";
+import type { MainAgentDraftSelection } from "../../shared/main-agent-contracts.ts";
 import type { PiGoalSnapshot, SessionGoalActionInput } from "../../shared/pi-goal-contracts.ts";
 import type {
   SessionCheckpointDiffInput,
@@ -77,8 +78,10 @@ export function registerSessionIpc({ sessions, terminals }: SessionIpcDependenci
     sessions.list(projectId, includeArchived),
   );
   ipcMain.handle(CHANNELS.sessionsListWithPaths, (_event, projectId: string) => sessions.listWithPaths(projectId));
-  ipcMain.handle(CHANNELS.sessionsDraftConfig, (_event, projectId: string, worktreePath?: string) =>
-    sessions.getDraftConfig(projectId, worktreePath),
+  ipcMain.handle(
+    CHANNELS.sessionsDraftConfig,
+    (_event, projectId: string, worktreePath?: string, mainAgent?: MainAgentDraftSelection) =>
+      sessions.getDraftConfig(projectId, worktreePath, mainAgent),
   );
   ipcMain.handle(
     CHANNELS.sessionsCreate,
@@ -88,6 +91,9 @@ export function registerSessionIpc({ sessions, terminals }: SessionIpcDependenci
       } catch (error) {
         if (isStaleDraftExtensionSetError(error)) {
           return { ok: false, error: { code: error.code, message: error.message, details: error.details } };
+        }
+        if (isStaleMainAgentError(error)) {
+          return { ok: false, error: { code: error.code, message: error.message, details: { code: error.code } } };
         }
         throw error;
       }
@@ -199,6 +205,10 @@ export function registerSessionIpc({ sessions, terminals }: SessionIpcDependenci
     return sessions.readImageResource(event.sender.id, attachmentId, resourceId);
   });
   return SESSION_IPC_CHANNELS;
+}
+
+function isStaleMainAgentError(error: unknown): error is Error & { code: "STALE_MAIN_AGENT" } {
+  return error instanceof Error && "code" in error && error.code === "STALE_MAIN_AGENT";
 }
 
 function isStaleDraftExtensionSetError(error: unknown): error is Error & {

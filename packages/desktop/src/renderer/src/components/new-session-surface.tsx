@@ -1,15 +1,19 @@
 import { useNavigate } from "@tanstack/react-router";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useStore } from "zustand";
-import type { GitWorktree, ThinkingLevel } from "../../../shared/contracts.ts";
+import type { DraftSessionConfig, GitWorktree, ThinkingLevel } from "../../../shared/contracts.ts";
 import { toPiPromptAttachments } from "../runtime/attachments.ts";
 import { selectProjects } from "../state/desktop-selectors.ts";
 import { dispatchDesktop } from "../state/desktop-store.ts";
 import { useDesktopStore } from "../state/desktop-store-context.tsx";
 import {
   draftCreateRequestKey,
+  isCurrentDraftConfigRequest,
   isStaleExtensionSetError,
+  isStaleMainAgentError,
   materializeDraftSession,
+  mergeMainAgentDraftConfig,
+  refreshMainAgentDraftConfig,
   selectDraftModel,
   selectDraftThinkingLevel,
 } from "../state/draft-creation.ts";
@@ -52,6 +56,8 @@ export function NewSessionSurface() {
     navigationTarget,
     setNavigationTarget,
     submitInFlight,
+    mainAgentSelection,
+    retainedConfig,
     createRequestIds,
     projectFallbackAllowed,
   } = draft;
@@ -65,6 +71,22 @@ export function NewSessionSurface() {
   const worktrees = worktreeCatalog.projectId === projectId ? worktreeCatalog.worktrees : [];
   const worktreesReady = projectId !== null && worktreeCatalog.projectId === projectId;
   const configTargetId = projectId ? draftCreateRequestKey(projectId, worktreePath ?? undefined) : null;
+  const configRequestGeneration = useRef(0);
+  const configTargetRef = useRef(configTargetId);
+  configTargetRef.current = configTargetId;
+
+  useEffect(() => {
+    configRequestGeneration.current += 1;
+  }, [configTargetId]);
+
+  const mounted = useRef(false);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+      configRequestGeneration.current += 1;
+    };
+  }, []);
 
   useEffect(() => {
     if (!navigationTarget) return;
@@ -108,26 +130,35 @@ export function NewSessionSurface() {
   }, [catalogLoading, projectId, projects]);
 
   useEffect(() => {
+    if (submitInFlight.current) return;
     setConfig(null);
     setConfigProjectId(null);
-  }, [setConfig, setConfigProjectId]);
+  }, [setConfig, setConfigProjectId, submitInFlight]);
 
   useEffect(() => {
-    if (catalogLoading || !worktreesReady || !projectId) return;
+    if (submitInFlight.current || catalogLoading || !worktreesReady || !projectId) return;
     if (configProjectId === configTargetId) return;
+    const token = { generation: ++configRequestGeneration.current, target: configTargetId };
     let active = true;
     setConfig(null);
     setLoadError(null);
     void window.desktop.sessions
-      .getDraftConfig(projectId, worktreePath ?? undefined)
+      .getDraftConfig(projectId, worktreePath ?? undefined, mainAgentSelection.current ?? undefined)
       .then((next) => {
-        if (!active) return;
-        setConfig(applyStoredDraftSelection(next, projectId));
+        if (!active || !isCurrentDraftConfigRequest(token, configRequestGeneration.current, configTargetRef.current))
+          return;
+        const current = retainedConfig.current;
+        setConfig(
+          current?.projectId === projectId
+            ? mergeMainAgentDraftConfig(current.config, next)
+            : applyStoredDraftSelection(next, projectId),
+        );
         setConfigProjectId(configTargetId);
         setLoadError(null);
       })
       .catch((reason: unknown) => {
-        if (active) setLoadError(reason instanceof Error ? reason.message : String(reason));
+        if (active && isCurrentDraftConfigRequest(token, configRequestGeneration.current, configTargetRef.current))
+          setLoadError(reason instanceof Error ? reason.message : String(reason));
       });
     return () => {
       active = false;
@@ -145,10 +176,11 @@ export function NewSessionSurface() {
   ]);
 
   useEffect(() => {
-    setConfig(null);
-    setConfigProjectId(null);
+    if (!submitInFlight.current) {
+      setConfig(null);
+      setConfigProjectId(null);
+    }
     setWorktreeCatalog({ projectId: null, worktrees: [] });
-    setWorktreePath(null);
     if (!projectId) return;
     let active = true;
     void window.desktop.projects
@@ -156,7 +188,11 @@ export function NewSessionSurface() {
       .then((next) => {
         if (!active) return;
         setWorktreeCatalog({ projectId, worktrees: next });
-        setWorktreePath(next.find((worktree) => worktree.current)?.path ?? next[0]?.path ?? null);
+        setWorktreePath((current) =>
+          next.some((worktree) => worktree.path === current)
+            ? current
+            : (next.find((worktree) => worktree.current)?.path ?? next[0]?.path ?? null),
+        );
       })
       .catch(() => {
         if (!active) return;
@@ -175,6 +211,8 @@ export function NewSessionSurface() {
   }, [sessionCache]);
 
   async function selectProject(nextProjectId: string) {
+    configRequestGeneration.current += 1;
+
     projectFallbackAllowed.current = true;
     writeStoredDraftProject(nextProjectId);
     setProjectId(nextProjectId);
@@ -184,6 +222,8 @@ export function NewSessionSurface() {
   }
 
   function selectWorktree(nextWorktreePath: string) {
+    configRequestGeneration.current += 1;
+
     setConfig(null);
     setConfigProjectId(null);
     setWorktreePath(nextWorktreePath);
@@ -201,6 +241,28 @@ export function NewSessionSurface() {
     setConfig(next);
   }
 
+  async function selectMainAgent(selection: NonNullable<DraftSessionConfig["mainAgent"]>["selection"]) {
+    if (submitInFlight.current || !projectId || !config) return;
+    const previousSelection = mainAgentSelection.current;
+    mainAgentSelection.current = selection;
+    const current = config;
+    const target = configTargetId;
+    const token = { generation: ++configRequestGeneration.current, target };
+    createRequestIds.delete(draftCreateRequestKey(projectId, worktreePath ?? undefined));
+    setConfig(null);
+    setLoadError(null);
+    try {
+      const next = await window.desktop.sessions.getDraftConfig(projectId, worktreePath ?? undefined, selection);
+      if (!isCurrentDraftConfigRequest(token, configRequestGeneration.current, configTargetRef.current)) return;
+      setConfig(mergeMainAgentDraftConfig(current, next));
+    } catch (reason) {
+      if (!isCurrentDraftConfigRequest(token, configRequestGeneration.current, configTargetRef.current)) return;
+      mainAgentSelection.current = previousSelection;
+      setConfig(current);
+      setLoadError(reason instanceof Error ? reason.message : String(reason));
+    }
+  }
+
   function selectPlugins(enabledPluginIds: string[] | null) {
     if (!config) return;
     setConfig({ ...config, extensions: { ...config.extensions, enabledPluginIds } });
@@ -208,8 +270,15 @@ export function NewSessionSurface() {
 
   async function submit() {
     if (submitInFlight.current) return;
-    if (!projectId || configProjectId !== configTargetId || !config?.model || config.readiness.state !== "ready")
+    if (
+      !projectId ||
+      configProjectId !== configTargetId ||
+      !config?.model ||
+      !config.mainAgent ||
+      config.readiness.state !== "ready"
+    )
       return;
+    const mainAgent = config.mainAgent;
     const composer = runtime.thread.composer;
     const state = composer.getState();
     if (state.isEmpty) return;
@@ -224,6 +293,7 @@ export function NewSessionSurface() {
           ...(worktreePath ? { worktreePath } : {}),
           model: { provider: config.model.provider, id: config.model.id },
           thinkingLevel: config.thinkingLevel,
+          mainAgent: mainAgent.selection,
           extensionSetGeneration: config.extensions.extensionSetGeneration,
           ...(config.extensions.enabledPluginIds ? { enabledPluginIds: config.extensions.enabledPluginIds } : {}),
           text: attachments.text,
@@ -245,10 +315,38 @@ export function NewSessionSurface() {
       await draft.clear(nextProjectId, target);
     } catch (reason) {
       setPhase("editing");
-      if (isStaleExtensionSetError(reason)) {
+      if (!mounted.current) throw reason;
+      if (isStaleExtensionSetError(reason) || isStaleMainAgentError(reason)) {
         createRequestIds.delete(draftCreateRequestKey(projectId, worktreePath ?? undefined));
+        const current = config;
+        const target = configTargetId;
+        const token = { generation: ++configRequestGeneration.current, target };
         setConfig(null);
-        setConfigProjectId(null);
+        try {
+          let selection = mainAgent.selection;
+          if (isStaleMainAgentError(reason)) {
+            const store = await window.desktop.mainAgents.getSnapshot();
+            const profile = store.profiles.find(({ id }) => id === selection.id);
+            selection = profile
+              ? { id: profile.id, revision: profile.revision }
+              : (store.profiles.find(({ id }) => id === store.defaultAgentId) ?? store.profiles[0] ?? selection);
+          }
+          const next = await refreshMainAgentDraftConfig(current, () =>
+            window.desktop.sessions.getDraftConfig(projectId, worktreePath ?? undefined, selection),
+          );
+          if (!isCurrentDraftConfigRequest(token, configRequestGeneration.current, configTargetRef.current)) {
+            throw reason;
+          }
+          mainAgentSelection.current = next.mainAgent?.selection ?? mainAgentSelection.current;
+          setConfig(next);
+          setConfigProjectId(target);
+        } catch (refreshError) {
+          if (isCurrentDraftConfigRequest(token, configRequestGeneration.current, configTargetRef.current)) {
+            setConfig(current);
+            setConfigProjectId(target);
+            setLoadError(refreshError instanceof Error ? refreshError.message : String(refreshError));
+          }
+        }
       }
       throw reason;
     } finally {
@@ -284,6 +382,7 @@ export function NewSessionSurface() {
         onWorktreeChange={selectWorktree}
         onModelChange={selectModel}
         onThinkingChange={selectThinking}
+        onMainAgentChange={(selection) => void selectMainAgent(selection)}
         onPluginsChange={selectPlugins}
         onSubmit={submit}
       />

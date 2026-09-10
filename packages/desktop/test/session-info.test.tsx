@@ -82,6 +82,38 @@ describe("SessionInfo", () => {
     }
   });
 
+  it("does not render main-agent information", () => {
+    state.control = {
+      mainAgent: {
+        version: 1,
+        profileId: "reviewer",
+        profileRevision: 7,
+        profileName: "代码审查",
+        createdAt: 1,
+        configuration: {
+          prompt: {
+            mode: "replace",
+            text: "Review only",
+            includeGlobalRules: false,
+            includeProjectRules: true,
+            includeSkills: false,
+          },
+          tools: ["read", "grep"],
+          builtinPluginIds: ["pi-subagents"],
+        },
+      },
+      extensionHost: { widgets: [] },
+    } as unknown as SessionControlState;
+
+    const markup = renderSessionInfo(true);
+
+    expect(markup).not.toContain("主智能体");
+    expect(markup).not.toContain("代码审查");
+    expect(markup).not.toContain("reviewer");
+    expect(markup).not.toContain("Review only");
+    expect(markup).not.toContain("pi-subagents");
+  });
+
   it("renders native todo details from the session extension host", () => {
     state.control = {
       extensionHost: {
@@ -388,7 +420,7 @@ describe("session info layout", () => {
     expect(summaryRule).toMatch(/padding:\s*0/);
     expect(summaryItemRule).not.toMatch(/border|background/);
     expect(runRule).not.toMatch(/border|background|border-radius/);
-    expect(disclosureRule).toMatch(/padding:\s*8px 0/);
+    expect(disclosureRule).toMatch(/padding:\s*4px 0/);
     expect(childTriggerRule).toMatch(/padding:\s*5px 8px/);
     expect(detailsRule).toMatch(/padding:\s*0 0 8px/);
     expect(detailContentRule).toMatch(/margin-left:\s*26px/);

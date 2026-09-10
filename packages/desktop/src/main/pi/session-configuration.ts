@@ -11,12 +11,14 @@ import {
   type ResolvedExtensionEntry,
   type ResolvedExtensionSet,
 } from "../../shared/desktop-extension-contracts.ts";
+import type { MainAgentSessionSnapshot } from "../../shared/main-agent-contracts.ts";
 import { DesktopBuiltinProviderRegistry } from "./desktop-builtin-provider.ts";
 import {
   controlledResourceLoaderOptions,
   extensionLoadDiagnostics,
   extensionServiceDiagnostics,
 } from "./desktop-extension-runtime-policy.ts";
+import { mainAgentDraftContext, resolveMainAgentConfiguration } from "./main-agent-resolver.ts";
 import { resolveThinkingConfiguration, selectInitialModel } from "./model-selection-adapter.ts";
 import { DesktopPluginRegistryBuilder } from "./run-code/plugin-method-registry.ts";
 import { getDraftCommands } from "./session-commands.ts";
@@ -35,8 +37,16 @@ export async function loadDraftSessionConfig(
   resolvedExtensionSet?: ResolvedExtensionSet,
   /** 全部可构建的插件中心条目（含项目作用域外），供会话级插件选择；缺省回退到扩展集内条目。 */
   allEntries?: ResolvedExtensionEntry[],
+  mainAgentSnapshot?: MainAgentSessionSnapshot,
 ): Promise<DraftSessionConfig> {
   const extensionSet = resolvedExtensionSet ?? fallbackExtensionSet(cwd);
+  const resolvedMainAgent = mainAgentSnapshot
+    ? resolveMainAgentConfiguration(mainAgentSnapshot, extensionSet, agentDir ?? process.cwd())
+    : undefined;
+  const effectiveExtensionSet = resolvedMainAgent?.extensionSet ?? extensionSet;
+  const enabledExtensionIds = new Set(
+    effectiveExtensionSet.entries.filter((entry) => entry.source === "builtin").map((entry) => entry.id),
+  );
   let models: ModelRuntime;
   let settings: SettingsManager;
   let resources: ResourceLoader | undefined;
@@ -49,11 +59,14 @@ export async function loadDraftSessionConfig(
     const runtimeServices = await createAgentSessionServices({
       cwd,
       agentDir,
-      resourceLoaderOptions: controlledResourceLoaderOptions(
-        extensionSet,
-        DesktopBuiltinProviderRegistry.getExtensionFactories(),
-        { pluginRegistryBuilder, agentDir },
-      ),
+      resourceLoaderOptions: {
+        ...controlledResourceLoaderOptions(
+          effectiveExtensionSet,
+          DesktopBuiltinProviderRegistry.getExtensionFactories({ enabledExtensionIds }),
+          { pluginRegistryBuilder, agentDir },
+        ),
+        ...(resolvedMainAgent?.resourceLoaderOptions ?? {}),
+      },
     });
     models = runtimeServices.modelRuntime;
     settings = runtimeServices.settingsManager;
@@ -61,8 +74,10 @@ export async function loadDraftSessionConfig(
     serviceDiagnostics = runtimeServices.diagnostics;
   }
   const extensionDiagnostics = [
-    ...(resources ? extensionLoadDiagnostics(extensionSet, resources.getExtensions()) : extensionSet.diagnostics),
-    ...extensionServiceDiagnostics(extensionSet, serviceDiagnostics),
+    ...(resources
+      ? extensionLoadDiagnostics(effectiveExtensionSet, resources.getExtensions())
+      : effectiveExtensionSet.diagnostics),
+    ...extensionServiceDiagnostics(effectiveExtensionSet, serviceDiagnostics),
   ];
   if (pluginRegistryBuilder) {
     try {
@@ -102,6 +117,31 @@ export async function loadDraftSessionConfig(
     thinkingLevel: thinking.thinkingLevel,
     thinkingLevels: thinking.thinkingLevels,
     readiness: sessionReadiness(Boolean(initial.model), available.length, models.getModels().length),
+    ...(mainAgentSnapshot
+      ? {
+          mainAgent: mainAgentDraftContext(
+            {
+              version: 1,
+              revision: "runtime",
+              defaultAgentId: mainAgentSnapshot.profileId,
+              profiles: [
+                {
+                  id: mainAgentSnapshot.profileId,
+                  revision: mainAgentSnapshot.profileRevision,
+                  name: mainAgentSnapshot.profileName,
+                  description: "",
+                  builtin: mainAgentSnapshot.profileId === "desktop-default",
+                  configuration: mainAgentSnapshot.configuration,
+                },
+              ],
+            },
+            mainAgentSnapshot,
+            effectiveExtensionSet,
+            { ...extensionSet, entries: allEntries ?? extensionSet.entries },
+            resources?.getExtensions().extensions.flatMap((extension) => [...extension.tools.keys()]) ?? [],
+          ),
+        }
+      : {}),
     extensions: {
       extensionSetGeneration: extensionSet.generation,
       diagnostics: extensionDiagnostics,

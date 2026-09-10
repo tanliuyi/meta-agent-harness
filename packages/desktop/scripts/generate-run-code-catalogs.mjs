@@ -1,6 +1,7 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { runCodeCatalog as desktopCatalog } from "../src/main/pi/extensions/desktop/index.ts";
 import { normalizePluginSchema } from "../src/main/pi/run-code/plugin-schema.ts";
 
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
@@ -56,6 +57,8 @@ await writeReference(
   "packages/desktop/src/main/pi/extensions/pi-browser/skills/pi-browser/references/api.md",
   browser.runCodeCatalog,
 );
+
+await writeReference("packages/desktop/src/main/pi/extensions/desktop/skills/desktop/references/api.md", desktopCatalog);
 
 function createCatalog(pluginId, tools) {
   return {

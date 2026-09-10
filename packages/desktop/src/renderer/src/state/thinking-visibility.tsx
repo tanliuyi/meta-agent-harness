@@ -64,21 +64,27 @@ export function ThinkingVisibilityProvider({ children }: { children: ReactNode }
 
   useEffect(() => {
     let disposed = false;
-    void window.desktop.settings
-      .getConfig()
-      .then((snapshot) => {
-        if (disposed) return;
-        snapshotRef.current = snapshot;
-        latestSettingsRef.current = snapshot.settings;
-        pendingMessageWidthRef.current = false;
-        setSettings(snapshot.settings);
-        setCanUpdateMessageSettings(true);
-      })
-      .catch(() => {
-        if (!disposed) setCanUpdateMessageSettings(false);
-      });
+    let generation = 0;
+    const refresh = () => {
+      const currentGeneration = ++generation;
+      void window.desktop.settings
+        .getConfig()
+        .then((snapshot) => {
+          if (disposed || currentGeneration !== generation || saving.current || pendingMessageWidthRef.current) return;
+          snapshotRef.current = snapshot;
+          latestSettingsRef.current = snapshot.settings;
+          setSettings(snapshot.settings);
+          setCanUpdateMessageSettings(true);
+        })
+        .catch(() => {
+          if (!disposed) setCanUpdateMessageSettings(false);
+        });
+    };
+    const unsubscribe = window.desktop.settings.onChanged(refresh);
+    refresh();
     return () => {
       disposed = true;
+      unsubscribe();
     };
   }, []);
 

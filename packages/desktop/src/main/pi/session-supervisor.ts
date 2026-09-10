@@ -25,6 +25,7 @@ import type {
   Thread,
 } from "../../shared/contracts.ts";
 import type { DesktopWidgetViewport } from "../../shared/desktop-extension-contracts.ts";
+import type { MainAgentDraftSelection } from "../../shared/main-agent-contracts.ts";
 import type { PiGoalSnapshot, SessionGoalActionInput } from "../../shared/pi-goal-contracts.ts";
 import type {
   SessionCheckpointDiffInput,
@@ -95,11 +96,15 @@ export class SessionSupervisor {
       .filter((thread) => !thread.archived);
   }
 
-  async getDraftConfig(projectId: string, worktreePath?: string): Promise<DraftSessionConfig> {
+  async getDraftConfig(
+    projectId: string,
+    worktreePath?: string,
+    mainAgent?: MainAgentDraftSelection,
+  ): Promise<DraftSessionConfig> {
     const cwd = worktreePath
       ? await this.projects.resolveSessionCwd(projectId, worktreePath)
       : this.projects.getCwd(projectId);
-    return this.workers.getDraftConfig(projectId, cwd);
+    return this.workers.getDraftConfig(projectId, cwd, mainAgent);
   }
 
   getExtensionState(projectId: string, threadId: string) {

@@ -300,6 +300,7 @@ export function runChildSession(input: RunChildSessionInput): Promise<RunChildSe
 		// If the child emits its terminal event but its run never settles (a hook
 		// is stuck), abort it after a short grace period and then finish without it.
 		function startFinalDrain(): void {
+			if (childLifecycleState.compactionActive || childLifecycleState.compactionRetryActive) return;
 			if (childWatchdogIsActive(childWatchdogState)) {
 				armWatchdogTail();
 				return;

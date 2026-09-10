@@ -23,6 +23,7 @@ import type {
   ResolvedExtensionEntry,
   ResolvedExtensionSet,
 } from "./desktop-extension-contracts.ts";
+import type { MainAgentSessionSnapshot } from "./main-agent-contracts.ts";
 import type { PiGoalSnapshot, SessionGoalActionInput } from "./pi-goal-contracts.ts";
 import type { SessionCheckpointDiffResult, SessionCheckpointRestoreResult } from "./pi-rewind-contracts.ts";
 import type {
@@ -59,6 +60,7 @@ export type ThreadWorkerBinding =
       shellPath?: string;
       sessionId: string;
       createInput: SessionCreateInput;
+      mainAgentSnapshot: MainAgentSessionSnapshot;
       /** 父会话的 session 文件路径，用于在 header 中记录 parentSession。 */
       parentSessionFile?: string;
       extensionSet: ResolvedExtensionSet;
@@ -74,6 +76,8 @@ export type ThreadWorkerBinding =
       /** 主进程校验前读取的原始 header cwd；worker 启动时用于检测文件被替换。 */
       sessionHeaderCwd: string;
       initialUpdatedAt?: number;
+      /** Authoritative profile snapshot loaded from the trusted session sidecar; absent means legacy behavior. */
+      mainAgentSnapshot?: MainAgentSessionSnapshot;
       /** 会话级激活的插件子集（来自索引）；缺失表示继承项目级（全部激活）。 */
       enabledPluginIds?: string[];
       extensionSet: ResolvedExtensionSet;
@@ -243,6 +247,7 @@ export type ThreadSidecarCommand =
   | { type: "prompt"; input: SessionPromptInput }
   | { type: "edit"; input: SessionEditInput }
   | { type: "reload"; input: SessionReloadInput }
+  | { type: "getPluginRuntime"; pluginId?: string }
   | { type: "reloadResources"; input: SessionResourceReloadInput }
   | { type: "runGoalAction"; action: SessionGoalActionInput["action"] }
   | { type: "getCheckpointDiff"; fromCheckpointId: string; toCheckpointId: string; path: string }
@@ -297,6 +302,7 @@ export type MetadataSidecarCommand =
       extensionSet: ResolvedExtensionSet;
       /** 全部可构建的插件中心条目（含项目作用域外），供会话级插件选择。 */
       allEntries: ResolvedExtensionEntry[];
+      mainAgentSnapshot: MainAgentSessionSnapshot;
     }
   | { type: "resolveSession"; projectId: string; cwd: string; threadId: string }
   | { type: "upsertSession"; projectId: string; cwd: string; sessionFile: string; thread: Thread }

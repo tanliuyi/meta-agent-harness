@@ -328,16 +328,29 @@ function sameMembers(left: readonly PiTimelineNode[], right: readonly PiTimeline
 function userMessage(node: Extract<PiTimelineNode, { kind: "user" }>, projectedId: string): ThreadMessage {
   const content: ThreadUserMessagePart[] = [];
   const attachments: CompleteAttachment[] = [];
+  const images = node.content.filter((part) => part.type === "image");
+  const fileContexts = node.content.flatMap((part) =>
+    part.type === "text" ? parsePiFileContexts(part.text).files : [],
+  );
   for (const [partIndex, part] of node.content.entries()) {
     if (part.type === "image") {
-      const name = imageName(part.mimeType, partIndex);
+      const sourceFiles = fileContexts.filter((file) => file.imageIndex === images.indexOf(part));
+      const name = sourceFiles[0]?.name ?? imageName(part.mimeType, partIndex);
       attachments.push({
         id: `${projectedId}:image:${partIndex}`,
         type: "image",
         name,
         contentType: part.mimeType,
         status: { type: "complete" },
-        content: [{ type: "image", image: toSessionImageResourceUrl(part), filename: name }],
+        content: [
+          { type: "image", image: toSessionImageResourceUrl(part), filename: name },
+          ...sourceFiles.map((file) => ({
+            type: "file" as const,
+            data: file.path,
+            filename: file.name,
+            mimeType: part.mimeType,
+          })),
+        ],
       });
       continue;
     }
@@ -345,6 +358,7 @@ function userMessage(node: Extract<PiTimelineNode, { kind: "user" }>, projectedI
     const parsed = parsePiFileContexts(part.text);
     if (parsed.text || parsed.files.length === 0) content.push({ type: "text", text: parsed.text });
     for (const [fileIndex, file] of parsed.files.entries()) {
+      if (file.imageIndex !== undefined && images[file.imageIndex]) continue;
       attachments.push({
         id: `${projectedId}:file:${partIndex}:${fileIndex}`,
         type: "file",

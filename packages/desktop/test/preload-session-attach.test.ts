@@ -45,6 +45,16 @@ describe("preload session attachment leases", () => {
     expect(electron.getPathForFile).toHaveBeenCalledWith(file);
   });
 
+  it("forwards image sources and decoded bytes through the typed clipboard contract", async () => {
+    const api = requiredApi();
+    electron.invoke.mockReset().mockResolvedValue(undefined);
+    const png = new Uint8Array([1, 2, 3]);
+    await api.markdownImages.read("https://example.com/a.webp");
+    await api.markdownImages.copy(png);
+    expect(electron.invoke).toHaveBeenNthCalledWith(1, CHANNELS.markdownImagesRead, "https://example.com/a.webp");
+    expect(electron.invoke).toHaveBeenNthCalledWith(2, CHANNELS.markdownImagesCopy, png);
+  });
+
   it("buffers and flushes A/B independently", async () => {
     const api = requiredApi();
     electron.invoke.mockReset().mockResolvedValueOnce(attachment("a", "a")).mockResolvedValueOnce(attachment("b", "b"));

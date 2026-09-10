@@ -4,6 +4,7 @@ import type {
   DraftExtensionContext,
   StaleDraftExtensionSetErrorDetails,
 } from "./desktop-extension-contracts.ts";
+import type { MainAgentDraftContext, MainAgentSelection, MainAgentSessionSnapshot } from "./main-agent-contracts.ts";
 
 import type { PiGoalSnapshot } from "./pi-goal-contracts.ts";
 import type { QuestionnaireInput, QuestionnaireResult } from "./questionnaire-contracts.ts";
@@ -124,6 +125,7 @@ export interface DraftSessionConfig {
   thinkingLevels: ThinkingLevel[];
   readiness: Readiness;
   extensions: DraftExtensionContext;
+  mainAgent?: MainAgentDraftContext;
 }
 
 /** 首次 prompt materialize session 时原子应用的配置。 */
@@ -135,6 +137,8 @@ export interface SessionCreateInput {
   extensionSetGeneration: string;
   model: { provider: string; id: string };
   thinkingLevel: ThinkingLevel;
+  /** Stable profile selection. Omitted only by pre-agent-settings renderer builds. */
+  mainAgent?: MainAgentSelection;
   /** 创建为该会话的子会话（侧边栏草稿等场景），写入 session header 的 parentSession。 */
   parentThreadId?: string;
   /** 会话级激活的插件子集；缺省表示继承项目级（全部激活）。 */
@@ -464,6 +468,8 @@ export interface SessionControlState {
     reloadRequired: boolean;
   };
   extensionHost: DesktopExtensionHostState;
+  /** Main-session profile identity, independent from subagent agentName. */
+  mainAgent?: MainAgentSessionSnapshot;
   /** Native state projected by the built-in pi-goal extension. */
   goal?: PiGoalSnapshot;
 }
@@ -483,9 +489,9 @@ export type SessionCreateIpcResult =
   | {
       ok: false;
       error: {
-        code: "STALE_DRAFT_EXTENSION_SET";
+        code: "STALE_DRAFT_EXTENSION_SET" | "STALE_MAIN_AGENT";
         message: string;
-        details: StaleDraftExtensionSetErrorDetails;
+        details: StaleDraftExtensionSetErrorDetails | { code: "STALE_MAIN_AGENT" };
       };
     };
 

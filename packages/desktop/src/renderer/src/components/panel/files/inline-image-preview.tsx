@@ -5,6 +5,7 @@ import Scan from "lucide-react/dist/esm/icons/scan.mjs";
 import ZoomIn from "lucide-react/dist/esm/icons/zoom-in.mjs";
 import ZoomOut from "lucide-react/dist/esm/icons/zoom-out.mjs";
 import { useEffect, useRef, useState } from "react";
+import { useNonPassiveWheel } from "../../../shared/hooks/use-non-passive-wheel.ts";
 
 const MIN_SCALE = 0.25;
 const MAX_SCALE = 10;
@@ -19,6 +20,7 @@ export function InlineImagePreview({ src, alt }: InlineImagePreviewProps) {
   const [rotation, setRotation] = useState(0);
   const [offset, setOffset] = useState({ x: 0, y: 0 });
   const [dragging, setDragging] = useState(false);
+  const viewportRef = useRef<HTMLDivElement>(null);
   const dragRef = useRef<{
     pointerId: number;
     startX: number;
@@ -63,17 +65,21 @@ export function InlineImagePreview({ src, alt }: InlineImagePreviewProps) {
     setOffset({ x: 0, y: 0 });
   };
 
+  useNonPassiveWheel(viewportRef, (event) => {
+    const viewport = viewportRef.current;
+    if (!viewport) return;
+    event.preventDefault();
+    const delta = Math.abs(event.deltaY) >= Math.abs(event.deltaX) ? event.deltaY : event.deltaX;
+    const nextScale = scale * Math.exp(-delta * 0.002);
+    zoomAt(nextScale, event.clientX, event.clientY, viewport);
+  });
+
   return (
     <div className="file-inline-image-preview">
       <div
+        ref={viewportRef}
         className="file-inline-image-viewport"
         data-dragging={dragging || undefined}
-        onWheel={(event) => {
-          event.preventDefault();
-          const delta = Math.abs(event.deltaY) >= Math.abs(event.deltaX) ? event.deltaY : event.deltaX;
-          const nextScale = scale * Math.exp(-delta * 0.002);
-          zoomAt(nextScale, event.clientX, event.clientY, event.currentTarget);
-        }}
         onPointerDown={(event) => {
           event.preventDefault();
           event.currentTarget.setPointerCapture(event.pointerId);

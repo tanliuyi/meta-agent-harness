@@ -1,6 +1,12 @@
 import { describe, expect, it, vi } from "vitest";
 import { createSessionRecord } from "../src/renderer/src/runtime/pi-session-store.ts";
-import { ensureDraftCreateRequestId, materializeDraftSession } from "../src/renderer/src/state/draft-creation.ts";
+import {
+  ensureDraftCreateRequestId,
+  isCurrentDraftConfigRequest,
+  materializeDraftSession,
+  mergeMainAgentDraftConfig,
+  refreshMainAgentDraftConfig,
+} from "../src/renderer/src/state/draft-creation.ts";
 import type { SessionBootstrap, SessionCommandResult } from "../src/shared/contracts.ts";
 import { PROTOCOL_VERSION } from "../src/shared/contracts.ts";
 
@@ -35,9 +41,80 @@ describe("draft creation request", () => {
     await materializeDraftSession({ ...input(), worktreePath: "/workspace/worktree" }, harness.dependencies);
 
     expect(harness.create).toHaveBeenCalledWith(
-      expect.objectContaining({ projectId: "project", worktreePath: "/workspace/worktree" }),
+      expect.objectContaining({
+        projectId: "project",
+        mainAgent: { id: "agent-a", revision: 3 },
+        worktreePath: "/workspace/worktree",
+      }),
     );
     expect(harness.dependencies.requestIds).toHaveLength(0);
+  });
+
+  it("does not apply a delayed profile response after the routed draft target changes", async () => {
+    let resolveResponse: ((value: ReturnType<typeof draftConfig>) => void) | undefined;
+    const response = new Promise<ReturnType<typeof draftConfig>>((resolve) => {
+      resolveResponse = resolve;
+    });
+    const oldRequest = { generation: 2, target: "project-a\0/worktree-a" };
+    let currentGeneration = 2;
+    let currentTarget: string | null = oldRequest.target;
+    const applied: string[] = [];
+    const request = response.then((config) => {
+      if (isCurrentDraftConfigRequest(oldRequest, currentGeneration, currentTarget)) {
+        applied.push(config.mainAgent.selection.id);
+      }
+    });
+
+    currentGeneration = 3;
+    currentTarget = "project-b\0/worktree-b";
+    resolveResponse?.(draftConfig("late-agent", 1));
+    await request;
+
+    expect(applied).toEqual([]);
+  });
+
+  it("orchestrates exactly one stale-extension reload without losing user-owned choices", async () => {
+    const current = {
+      ...draftConfig("agent-a", 1),
+      thinkingLevel: "high" as const,
+    };
+    const refreshed = {
+      ...draftConfig("agent-a", 1),
+      extensions: { ...draftConfig("agent-a", 1).extensions, extensionSetGeneration: "extensions-new" },
+    };
+    const load = vi.fn(async () => refreshed);
+
+    await expect(refreshMainAgentDraftConfig(current, load)).resolves.toMatchObject({
+      thinkingLevel: "high",
+      extensions: { extensionSetGeneration: "extensions-new" },
+    });
+    expect(load).toHaveBeenCalledOnce();
+  });
+
+  it("preserves model, thinking, and plugin choices across main-agent draft resolution", () => {
+    const base = draftConfig("agent-a", 1);
+    const current = {
+      ...base,
+      thinkingLevel: "high" as const,
+      extensions: { ...base.extensions, enabledPluginIds: ["plugin-a"] },
+    };
+
+    expect(mergeMainAgentDraftConfig(current, draftConfig("agent-b", 2))).toMatchObject({
+      model: current.model,
+      thinkingLevel: "high",
+      mainAgent: { selection: { id: "agent-b", revision: 2 } },
+      extensions: { enabledPluginIds: ["plugin-a"] },
+      readiness: { state: "ready" },
+    });
+  });
+
+  it("omits mainAgent when a manual child inherits the parent snapshot", async () => {
+    const harness = createHarness();
+    const { mainAgent: _mainAgent, ...inheritedInput } = input();
+
+    await materializeDraftSession(inheritedInput, harness.dependencies);
+
+    expect(harness.create).toHaveBeenCalledWith(expect.not.objectContaining({ mainAgent: expect.anything() }));
   });
 
   it("attach 失败时 retire cache 并删除未提交 session", async () => {
@@ -78,8 +155,55 @@ function input() {
     model: { provider: "provider", id: "model" },
     thinkingLevel: "off" as const,
     extensionSetGeneration: "extensions-generation",
+    mainAgent: { id: "agent-a", revision: 3 },
     text: "hello",
     images: [],
+  };
+}
+
+function draftConfig(id: string, revision: number) {
+  return {
+    models: [
+      {
+        provider: "provider",
+        id: "model",
+        name: "Model",
+        contextWindow: 100_000,
+        thinking: true,
+        thinkingLevels: ["off", "high"] as const,
+      },
+    ],
+    commands: [],
+    model: { provider: "provider", id: "model", name: "Model" },
+    thinkingLevel: "off" as const,
+    thinkingLevels: ["off", "high"] as const,
+    readiness: { state: "ready" as const },
+    extensions: { extensionSetGeneration: "extensions-generation", diagnostics: [] },
+    mainAgent: {
+      selection: { id, revision },
+      profiles: [{ id, revision, name: id, description: "", builtin: false }],
+      snapshot: {
+        version: 1 as const,
+        profileId: id,
+        profileRevision: revision,
+        profileName: id,
+        createdAt: 1,
+        configuration: {
+          prompt: {
+            mode: "default" as const,
+            text: "",
+            includeGlobalRules: true,
+            includeProjectRules: true,
+            includeSkills: true,
+          },
+          tools: null,
+          builtinPluginIds: null,
+        },
+      },
+      tools: [],
+      builtinPlugins: [],
+      promptSources: [],
+    },
   };
 }
 

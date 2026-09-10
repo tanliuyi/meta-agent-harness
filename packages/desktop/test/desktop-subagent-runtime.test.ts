@@ -124,10 +124,11 @@ describe("DesktopSubagentRuntime", () => {
       source: "builtin",
       filePath: "worker.md",
       completionGuard: false,
+      memory: { scope: "user", path: "main-agent-memory-ceiling-test" },
     };
 
     const result = await runSync(process.cwd(), [agent], "worker", "Summarize the project", {
-      childSessionFactory: createDesktopChildSessionFactory(fakeRuntime),
+      childSessionFactory: createDesktopChildSessionFactory(fakeRuntime, false),
       runId: "run-programmatic",
       sessionFile: "child.jsonl",
       acceptance: false,
@@ -142,9 +143,11 @@ describe("DesktopSubagentRuntime", () => {
         lineage: [],
         agent: "worker",
         task: "Task: Summarize the project",
-        extensionProfile: ["provider", "memory", "runtime"],
+        extensionProfile: ["provider", "runtime"],
       }),
     );
+    expect(captured?.systemPrompt).toContain("Do the assigned work.");
+    expect(captured?.systemPrompt).not.toContain("Persistent agent memory");
     expect(result).toMatchObject({
       exitCode: 0,
       finalOutput: "programmatic result",

@@ -3,6 +3,7 @@ import { safeStorage } from "electron";
 import type {
   BrowserCloseTabRequest,
   BrowserCreateTabRequest,
+  BrowserSessionIdentity,
   BrowserStateEvent,
 } from "../../shared/browser-contracts.ts";
 import type { BrowserPasswordOffer } from "../../shared/browser-data-contracts.ts";
@@ -25,6 +26,11 @@ export interface BrowserServices {
 export interface BrowserServicesOptions {
   readonly context: DesktopRuntimeContext;
   readonly capability: BrowserCapabilityPort;
+  readonly desktopRuntime?: (
+    params: unknown,
+    signal: AbortSignal,
+    identity: BrowserSessionIdentity,
+  ) => Promise<unknown>;
   readonly rendererUrl?: string;
   readonly publishState: (event: BrowserStateEvent) => void;
   readonly publishCreateTab: (request: BrowserCreateTabRequest) => void;
@@ -58,6 +64,7 @@ export async function createBrowserServices(options: BrowserServicesOptions): Pr
   let hostServer: BrowserHostServer;
   try {
     hostServer = await createBrowserHostServer(manager, {
+      ...(options.desktopRuntime ? { desktopRuntime: options.desktopRuntime } : {}),
       log: (text) => context.sidecarLog.write("browser-host", text),
     });
   } catch (error) {

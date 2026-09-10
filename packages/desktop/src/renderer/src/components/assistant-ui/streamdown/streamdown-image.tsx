@@ -2,6 +2,7 @@ import { AttachmentPreview } from "@renderer/components/assistant-ui/attachment/
 import { TooltipIconButton } from "@renderer/components/assistant-ui/tooltip-icon-button";
 import Check from "lucide-react/dist/esm/icons/check.mjs";
 import CircleAlert from "lucide-react/dist/esm/icons/circle-alert.mjs";
+import Copy from "lucide-react/dist/esm/icons/copy.mjs";
 import Download from "lucide-react/dist/esm/icons/download.mjs";
 import LoaderCircle from "lucide-react/dist/esm/icons/loader-circle.mjs";
 import Maximize from "lucide-react/dist/esm/icons/maximize.mjs";
@@ -10,36 +11,45 @@ import { type ComponentPropsWithoutRef, useEffect, useRef, useState } from "reac
 import {
   markdownImageFilename,
   markdownImageReference,
+  markdownImageSourceForLoading,
   markdownImageSourceToUrl,
 } from "../../../../../shared/markdown-image-contracts.ts";
 import { useMarkdownImageReference } from "./streamdown-image-reference.tsx";
 
 type MarkdownImageProps = ComponentPropsWithoutRef<"img"> & { node?: unknown };
-type DownloadState = "idle" | "downloading" | "downloaded" | "error";
+type ActionState = "idle" | "working" | "succeeded" | "error";
 
 export function MarkdownImage({ src, alt = "", className, node: _node, ...props }: MarkdownImageProps) {
   const referenceImage = useMarkdownImageReference();
-  const resetTimer = useRef<number | undefined>(undefined);
-  const [downloadState, setDownloadState] = useState<DownloadState>("idle");
+  const resetTimers = useRef(new Set<number>());
+  const [downloadState, setDownloadState] = useState<ActionState>("idle");
+  const [copyState, setCopyState] = useState<ActionState>("idle");
   const [referenced, setReferenced] = useState(false);
   const resolvedSrc = src ? markdownImageSourceToUrl(src) : undefined;
   const imageClassName = className ? `markdown-image ${className}` : "markdown-image";
   const description = alt || "Markdown 图片";
 
-  useEffect(() => () => window.clearTimeout(resetTimer.current), []);
+  useEffect(
+    () => () => {
+      for (const timer of resetTimers.current) window.clearTimeout(timer);
+    },
+    [],
+  );
 
   const resetFeedbackAfterDelay = (callback: () => void) => {
-    window.clearTimeout(resetTimer.current);
-    resetTimer.current = window.setTimeout(callback, 2_000);
+    const timer = window.setTimeout(() => {
+      resetTimers.current.delete(timer);
+      callback();
+    }, 2_000);
+    resetTimers.current.add(timer);
   };
 
   const downloadImage = async () => {
-    if (!resolvedSrc || downloadState === "downloading") return;
-    setDownloadState("downloading");
+    if (!src || downloadState === "working") return;
+    setDownloadState("working");
     try {
-      const response = await fetch(resolvedSrc);
-      if (!response.ok) throw new Error(`Unable to download image: ${response.status}`);
-      const objectUrl = URL.createObjectURL(await response.blob());
+      const data = await window.desktop.markdownImages.read(markdownImageSourceForLoading(src));
+      const objectUrl = URL.createObjectURL(new Blob([data.bytes], { type: data.contentType }));
       const anchor = document.createElement("a");
       anchor.href = objectUrl;
       anchor.download = markdownImageFilename(src ?? "", alt);
@@ -47,11 +57,36 @@ export function MarkdownImage({ src, alt = "", className, node: _node, ...props 
       anchor.click();
       anchor.remove();
       URL.revokeObjectURL(objectUrl);
-      setDownloadState("downloaded");
+      setDownloadState("succeeded");
       resetFeedbackAfterDelay(() => setDownloadState("idle"));
     } catch {
       setDownloadState("error");
       resetFeedbackAfterDelay(() => setDownloadState("idle"));
+    }
+  };
+
+  const copyImage = async () => {
+    if (!src || copyState === "working") return;
+    setCopyState("working");
+    try {
+      // Decode validated bytes at natural size, independent of viewport clipping and CORS.
+      const data = await window.desktop.markdownImages.read(markdownImageSourceForLoading(src));
+      const image = await createImageBitmap(new Blob([data.bytes], { type: data.contentType }));
+      try {
+        const canvas = new OffscreenCanvas(image.width, image.height);
+        const context = canvas.getContext("2d");
+        if (!context) throw new Error("Image conversion is unavailable");
+        context.drawImage(image, 0, 0);
+        const png = await canvas.convertToBlob({ type: "image/png" });
+        await window.desktop.markdownImages.copy(new Uint8Array(await png.arrayBuffer()));
+      } finally {
+        image.close();
+      }
+      setCopyState("succeeded");
+      resetFeedbackAfterDelay(() => setCopyState("idle"));
+    } catch {
+      setCopyState("error");
+      resetFeedbackAfterDelay(() => setCopyState("idle"));
     }
   };
 
@@ -84,22 +119,42 @@ export function MarkdownImage({ src, alt = "", className, node: _node, ...props 
           </TooltipIconButton>
           <TooltipIconButton
             className="markdown-image-action"
-            tooltip={downloadState === "downloaded" ? "已下载" : downloadState === "error" ? "下载失败" : "下载图片"}
+            tooltip={downloadState === "succeeded" ? "已下载" : downloadState === "error" ? "下载失败" : "下载图片"}
             side="top"
-            disabled={downloadState === "downloading"}
+            disabled={downloadState === "working"}
             onClick={(event) => {
               event.stopPropagation();
               void downloadImage();
             }}
           >
-            {downloadState === "downloading" ? (
+            {downloadState === "working" ? (
               <LoaderCircle className="animate-spin" aria-hidden="true" />
-            ) : downloadState === "downloaded" ? (
+            ) : downloadState === "succeeded" ? (
               <Check aria-hidden="true" />
             ) : downloadState === "error" ? (
               <CircleAlert aria-hidden="true" />
             ) : (
               <Download aria-hidden="true" />
+            )}
+          </TooltipIconButton>
+          <TooltipIconButton
+            className="markdown-image-action"
+            tooltip={copyState === "succeeded" ? "已复制" : copyState === "error" ? "复制失败" : "复制图片"}
+            side="top"
+            disabled={copyState === "working"}
+            onClick={(event) => {
+              event.stopPropagation();
+              void copyImage();
+            }}
+          >
+            {copyState === "working" ? (
+              <LoaderCircle className="animate-spin" aria-hidden="true" />
+            ) : copyState === "succeeded" ? (
+              <Check aria-hidden="true" />
+            ) : copyState === "error" ? (
+              <CircleAlert aria-hidden="true" />
+            ) : (
+              <Copy aria-hidden="true" />
             )}
           </TooltipIconButton>
           {referenceImage ? (

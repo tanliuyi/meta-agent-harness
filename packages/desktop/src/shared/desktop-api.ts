@@ -95,6 +95,14 @@ import type {
   SessionPluginOptions,
 } from "./desktop-extension-contracts.ts";
 import type {
+  MainAgentCatalog,
+  MainAgentDraftSelection,
+  MainAgentMutationInput,
+  MainAgentMutationResult,
+  MainAgentStoreSnapshot,
+} from "./main-agent-contracts.ts";
+import type { MarkdownImageData } from "./markdown-image-contracts.ts";
+import type {
   MemoryMaintenanceResult,
   MemoryMutationResult,
   MemorySettingsSnapshot,
@@ -190,6 +198,11 @@ export interface DesktopApi {
   links: {
     open(projectId: string, url: string): Promise<OpenLinkResult>;
   };
+  markdownImages: {
+    read(source: string): Promise<MarkdownImageData>;
+    /** Writes decoded PNG bytes to the system image clipboard; rejects empty/invalid images. */
+    copy(png: Uint8Array): Promise<void>;
+  };
   models: {
     getConfig(): Promise<ModelsConfigSnapshot>;
     getConfigRevision(): Promise<string>;
@@ -217,6 +230,7 @@ export interface DesktopApi {
   settings: {
     getConfig(): Promise<SettingsConfigSnapshot>;
     saveConfig(input: SaveSettingsConfigInput): Promise<SaveSettingsConfigResult>;
+    onChanged(listener: () => void): () => void;
     chooseUserAvatar(): Promise<string | null>;
   };
   preferences: {
@@ -235,6 +249,12 @@ export interface DesktopApi {
     getSnapshot(): Promise<AutoTitleSettingsSnapshot>;
     saveConfig(input: SaveAutoTitleSettingsInput): Promise<SaveAutoTitleSettingsResult>;
     getModelOptions(): Promise<AutoTitleModelOption[]>;
+    setEditorDirty(dirty: boolean): boolean;
+  };
+  mainAgents: {
+    getSnapshot(): Promise<MainAgentStoreSnapshot>;
+    getCatalog(): Promise<MainAgentCatalog>;
+    mutate(input: MainAgentMutationInput): Promise<MainAgentMutationResult>;
     setEditorDirty(dirty: boolean): boolean;
   };
   extensions: {
@@ -289,7 +309,11 @@ export interface DesktopApi {
     /** 保留 session.jsonl 绝对路径的会话列表（@ 提及会话引用用）。 */
     listWithPaths(projectId: string): Promise<SessionMentionCandidate[]>;
     onCatalogChanged(listener: (thread: Thread) => void): () => void;
-    getDraftConfig(projectId: string, worktreePath?: string): Promise<DraftSessionConfig>;
+    getDraftConfig(
+      projectId: string,
+      worktreePath?: string,
+      mainAgent?: MainAgentDraftSelection,
+    ): Promise<DraftSessionConfig>;
     create(input: SessionCreateInput): Promise<SessionBootstrap>;
     attach(input: SessionAttachInput, listener: (update: SessionPushPayload) => void): Promise<SessionAttachment>;
     flush(attachmentId: string): SessionFlushResult;

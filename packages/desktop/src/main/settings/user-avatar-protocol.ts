@@ -39,16 +39,22 @@ export function handleLocalImageRequests(): void {
   });
 }
 
-async function serveMarkdownImage(source: string | null): Promise<Response> {
+export async function serveMarkdownImage(source: string | null): Promise<Response> {
   const localPath = localPathFromSource(source);
   if (localPath) return serveLocalImage(localPath, MARKDOWN_IMAGE_EXTENSIONS);
   if (!source) return notFound();
 
   try {
     const url = new URL(source);
-    if (url.protocol !== "http:" && url.protocol !== "https:") return notFound();
-    const response = await net.fetch(url.href);
-    if (!response.ok || !response.headers.get("content-type")?.toLowerCase().startsWith("image/")) return notFound();
+    const response =
+      url.protocol === "data:"
+        ? await fetch(url)
+        : url.protocol === "http:" || url.protocol === "https:"
+          ? await net.fetch(url.href)
+          : undefined;
+    if (!response?.ok || !response.headers.get("content-type")?.toLowerCase().startsWith("image/")) {
+      return notFound();
+    }
     return responseWithCors(response);
   } catch {
     return notFound();

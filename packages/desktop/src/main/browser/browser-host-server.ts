@@ -42,13 +42,16 @@ interface RpcRequest {
 
 export function createBrowserHostServer(
   manager: BrowserManager,
-  options: { log?: (text: string) => void } = {},
+  options: {
+    log?: (text: string) => void;
+    desktopRuntime?: (params: unknown, signal: AbortSignal, identity: BrowserSessionIdentity) => Promise<unknown>;
+  } = {},
 ): Promise<BrowserHostServer> {
   const token = randomBytes(32).toString("hex");
   let port = 0;
 
   const server = createServer((request, response) => {
-    void handleRequest(request, response, manager, token, options.log);
+    void handleRequest(request, response, manager, token, options.log, options.desktopRuntime);
   });
 
   return new Promise<BrowserHostServer>((resolve, reject) => {
@@ -75,6 +78,9 @@ async function handleRequest(
   manager: BrowserManager,
   token: string,
   log: ((text: string) => void) | undefined,
+  desktopRuntime:
+    | ((params: unknown, signal: AbortSignal, identity: BrowserSessionIdentity) => Promise<unknown>)
+    | undefined,
 ): Promise<void> {
   try {
     const url = request.url ?? "";
@@ -129,7 +135,12 @@ async function handleRequest(
     response.once("close", onClose);
     let result: unknown;
     try {
-      result = await dispatch(rpc, manager, identity, controller.signal);
+      if (rpc.method === "desktopRuntime") {
+        if (!desktopRuntime) throw new Error("Desktop runtime is unavailable");
+        result = { ok: true, data: await desktopRuntime(rpc.params, controller.signal, identity) };
+      } else {
+        result = await dispatch(rpc, manager, identity, controller.signal);
+      }
     } finally {
       request.off("aborted", onClose);
       response.off("close", onClose);

@@ -9,6 +9,7 @@ import { CHANNELS } from "../shared/channels.ts";
 import type { TerminalEvent, Thread } from "../shared/contracts.ts";
 import type { ShellRuntimeProgress, ShellRuntimeStatus } from "../shared/desktop-api.ts";
 import { BROWSER_IPC_CHANNELS, type BrowserIpcDependencies, registerBrowserIpc } from "./ipc/browser-ipc.ts";
+import { MARKDOWN_IMAGE_IPC_CHANNELS, registerMarkdownImageIpc } from "./ipc/markdown-image-ipc.ts";
 import { PLUGIN_IPC_CHANNELS, type PluginIpcDependencies, registerPluginIpc } from "./ipc/plugin-ipc.ts";
 import { registerSessionIpc, SESSION_IPC_CHANNELS, type SessionIpcDependencies } from "./ipc/session-ipc.ts";
 import { registerSettingsIpc, SETTINGS_IPC_CHANNELS, type SettingsIpcDependencies } from "./ipc/settings-ipc.ts";
@@ -90,6 +91,7 @@ export function registerIpc(dependencies: ApplicationIpcDependencies): IpcRegist
     );
     registerDomain(PLUGIN_IPC_CHANNELS, () => registerPluginIpc(dependencies));
     registerDomain(BROWSER_IPC_CHANNELS, () => registerBrowserIpc(dependencies));
+    registerDomain(MARKDOWN_IMAGE_IPC_CHANNELS, registerMarkdownImageIpc);
     registerRuntimeIpc(dependencies, registeredChannels, subscriptions);
   } catch (error) {
     try {

@@ -26,6 +26,10 @@ export function copyDesktopSidecarAssets(outputRoot = defaultOutputRoot) {
   mkdirSync(browserSkillsOutputRoot, { recursive: true });
   cpSync(browserSkillsSourceRoot, browserSkillsOutputRoot, { recursive: true });
 
+  const runtimeSkillsOutputRoot = join(outputRoot, "main", "pi", "extensions", "desktop", "skills");
+  mkdirSync(runtimeSkillsOutputRoot, { recursive: true });
+  cpSync(join(desktopSourceRoot, "extensions", "desktop", "skills"), runtimeSkillsOutputRoot, { recursive: true });
+
   cpSync(join(desktopSourceRoot, "skills"), join(outputRoot, "main", "pi", "skills"), { recursive: true });
 }
 

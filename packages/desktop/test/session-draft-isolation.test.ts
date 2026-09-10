@@ -96,6 +96,31 @@ describe("workbench new-session draft isolation per main session", () => {
     expect(requestIdB).not.toBe(requestIdA);
   });
 
+  it("changing the manual-child profile invalidates only its uncommitted create identity", () => {
+    const draft = new SessionDraft("p\u0000session-a", { projectId: "p", threadId: "session-a" });
+    const requestId = ensureDraftCreateRequestId(draft.createRequestIds, "p");
+
+    draft.setMainAgentSource("profile");
+
+    expect(requestId).toBeTruthy();
+    expect(draft.mainAgentSource).toBe("profile");
+    expect(draft.createRequestIds).toHaveLength(0);
+    draft.clear();
+    expect(draft.mainAgentSource).toBe("inherit-parent");
+  });
+
+  it("rejects superseded sidebar configuration responses", () => {
+    const draft = new SessionDraft("p\u0000session-a", { projectId: "p", threadId: "session-a" });
+
+    const first = draft.beginConfigRequest();
+    const second = draft.beginConfigRequest();
+
+    expect(draft.isCurrentConfigRequest(first)).toBe(false);
+    expect(draft.isCurrentConfigRequest(second)).toBe(true);
+    draft.clear();
+    expect(draft.isCurrentConfigRequest(second)).toBe(false);
+  });
+
   it("A 提交成功后的清理不影响 B 的草稿", () => {
     const draftA = new SessionDraft("p\u0000session-a", { projectId: "p", threadId: "session-a" });
     const draftB = new SessionDraft("p\u0000session-b", { projectId: "p", threadId: "session-b" });

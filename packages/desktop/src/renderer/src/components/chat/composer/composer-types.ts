@@ -7,6 +7,7 @@ import type {
   SessionControlState,
 } from "../../../../../shared/contracts.ts";
 import type { DraftSelectablePlugin } from "../../../../../shared/desktop-extension-contracts.ts";
+import type { MainAgentSelection, MainAgentSessionSnapshot } from "../../../../../shared/main-agent-contracts.ts";
 
 export type ComposerProps =
   | {
@@ -21,10 +22,15 @@ export type ComposerProps =
       worktreePath?: string | null;
       /** 固定项目（如侧边栏草稿），隐藏项目选择器。 */
       fixedProject?: boolean;
+      inheritedMainAgent?: boolean;
+      inheritedMainAgentProfile?: MainAgentSessionSnapshot | null;
       onProjectChange(projectId: string): Promise<void>;
       onWorktreeChange?(path: string): void;
       onModelChange(provider: string, modelId: string): void;
       onThinkingChange(level: SessionControlState["thinkingLevel"]): void;
+      onMainAgentChange?(selection: MainAgentSelection): void;
+      onInheritMainAgent?(): void;
+
       onPluginsChange(enabledPluginIds: string[] | null): void;
       onSubmit(): Promise<void>;
     }

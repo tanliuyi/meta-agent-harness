@@ -1,7 +1,7 @@
 import { AssistantRuntimeProvider } from "@assistant-ui/react";
 import { useEffect } from "react";
 import { useStore } from "zustand";
-import type { ThinkingLevel } from "../../../../../shared/contracts.ts";
+import type { DraftSessionConfig, ThinkingLevel } from "../../../../../shared/contracts.ts";
 import { toPiPromptAttachments } from "../../../runtime/attachments.ts";
 import { sessionRecordKey } from "../../../runtime/pi-session-store.ts";
 import { useDesktopActions } from "../../../state/desktop-context.tsx";
@@ -10,7 +10,10 @@ import { useDesktopStore } from "../../../state/desktop-store-context.tsx";
 import {
   draftCreateRequestKey,
   isStaleExtensionSetError,
+  isStaleMainAgentError,
   materializeDraftSession,
+  mergeMainAgentDraftConfig,
+  refreshMainAgentDraftConfig,
   selectDraftModel,
   selectDraftThinkingLevel,
 } from "../../../state/draft-creation.ts";
@@ -48,26 +51,39 @@ export function NewSessionDraft() {
 
   // 加载主 session 所在项目的草稿配置；主 session 变化（换 record）时重新加载。
   useEffect(() => {
-    if (!draft) return;
+    if (!draft || draft.submitInFlight) return;
+    const current = draft.retainedConfig;
+    const source = draft.mainAgentSource;
+    const selection =
+      source === "profile" && draft.mainAgentSelection
+        ? draft.mainAgentSelection
+        : { kind: "inherit-parent" as const, parentThreadId: draft.parent.threadId };
     draft.setConfig(null);
     draft.setLoadError(null);
     draft.setPhase("editing");
+    const requestGeneration = draft.beginConfigRequest();
     if (!parentCwd) return;
     const projectId = draft.parent.projectId;
     writeStoredDraftProject(projectId);
     let active = true;
     void window.desktop.sessions
-      .getDraftConfig(projectId, worktreePath)
+      .getDraftConfig(projectId, worktreePath, selection)
       .then((next) => {
-        if (!active) return;
-        draft.setConfig(applyStoredDraftSelection(next, projectId));
+        if (!active || !draft.isCurrentConfigRequest(requestGeneration)) return;
+        if (source === "inherit-parent" && next.mainAgent) draft.setInheritedMainAgent(next.mainAgent.snapshot);
+        draft.setConfig(
+          current ? mergeMainAgentDraftConfig(current, next) : applyStoredDraftSelection(next, projectId),
+        );
         draft.setLoadError(null);
       })
       .catch((reason: unknown) => {
-        if (active) draft.setLoadError(reason instanceof Error ? reason.message : String(reason));
+        if (active && draft.isCurrentConfigRequest(requestGeneration)) {
+          draft.setLoadError(reason instanceof Error ? reason.message : String(reason));
+        }
       });
     return () => {
       active = false;
+      draft.beginConfigRequest();
     };
   }, [draft, parentCwd, worktreePath]);
 
@@ -87,6 +103,40 @@ export function NewSessionDraft() {
     draft.setConfig(next);
   };
 
+  const selectMainAgent = async (
+    selection: NonNullable<DraftSessionConfig["mainAgent"]>["selection"] | null,
+  ): Promise<void> => {
+    if (!draft.config || draft.submitInFlight) return;
+    const current = draft.config;
+    const previousSource = draft.mainAgentSource;
+    const previousSelection = draft.mainAgentSelection;
+    draft.mainAgentSelection = selection;
+    draft.setMainAgentSource(selection ? "profile" : "inherit-parent");
+    const requestGeneration = draft.beginConfigRequest();
+    draft.createRequestIds.clear();
+    draft.setConfig(null);
+    draft.setLoadError(null);
+    try {
+      const next = await window.desktop.sessions.getDraftConfig(
+        draft.parent.projectId,
+        worktreePath,
+        selection ?? {
+          kind: "inherit-parent",
+          parentThreadId: draft.parent.threadId,
+        },
+      );
+      if (!draft.isCurrentConfigRequest(requestGeneration)) return;
+      if (!selection && next.mainAgent) draft.setInheritedMainAgent(next.mainAgent.snapshot);
+      draft.setConfig(mergeMainAgentDraftConfig(current, next));
+    } catch (reason) {
+      if (!draft.isCurrentConfigRequest(requestGeneration)) return;
+      draft.mainAgentSelection = previousSelection;
+      draft.setMainAgentSource(previousSource);
+      draft.setConfig(current);
+      draft.setLoadError(reason instanceof Error ? reason.message : String(reason));
+    }
+  };
+
   const selectPlugins = (enabledPluginIds: string[] | null): void => {
     if (!draft.config) return;
     draft.setConfig({ ...draft.config, extensions: { ...draft.config.extensions, enabledPluginIds } });
@@ -94,10 +144,14 @@ export function NewSessionDraft() {
 
   const submit = async (): Promise<void> => {
     if (draft.submitInFlight || !parentCwd) return;
-    if (!draft.config?.model || draft.config.readiness.state !== "ready") return;
+    const config = draft.config;
+    if (!config?.model || !config.mainAgent || config.readiness.state !== "ready") return;
+    const mainAgent = config.mainAgent;
+    const mainAgentSource = draft.mainAgentSource;
     const composer = runtime.thread.composer;
     const state = composer.getState();
     if (state.isEmpty) return;
+    const submissionGeneration = draft.beginConfigRequest();
     draft.setSubmitInFlight(true);
     sessionCache.setDraftMaterializing(true);
     draft.setPhase("materializing");
@@ -108,12 +162,11 @@ export function NewSessionDraft() {
           projectId: draft.parent.projectId,
           ...(worktreePath ? { worktreePath } : {}),
           parentThreadId: draft.parent.threadId,
-          model: { provider: draft.config.model.provider, id: draft.config.model.id },
-          thinkingLevel: draft.config.thinkingLevel,
-          extensionSetGeneration: draft.config.extensions.extensionSetGeneration,
-          ...(draft.config.extensions.enabledPluginIds
-            ? { enabledPluginIds: draft.config.extensions.enabledPluginIds }
-            : {}),
+          model: { provider: config.model.provider, id: config.model.id },
+          thinkingLevel: config.thinkingLevel,
+          ...(mainAgentSource === "profile" ? { mainAgent: mainAgent.selection } : {}),
+          extensionSetGeneration: config.extensions.extensionSetGeneration,
+          ...(config.extensions.enabledPluginIds ? { enabledPluginIds: config.extensions.enabledPluginIds } : {}),
           text: attachments.text,
           images: attachments.images,
         },
@@ -141,9 +194,40 @@ export function NewSessionDraft() {
       draft.clear();
     } catch (reason) {
       draft.setPhase("editing");
-      if (isStaleExtensionSetError(reason)) {
+      if (!draft.isCurrentConfigRequest(submissionGeneration)) throw reason;
+      if (isStaleExtensionSetError(reason) || isStaleMainAgentError(reason)) {
         draft.createRequestIds.delete(draftCreateRequestKey(draft.parent.projectId, worktreePath));
+        const current = config;
+        const requestGeneration = draft.beginConfigRequest();
         draft.setConfig(null);
+        try {
+          let source =
+            draft.mainAgentSource === "inherit-parent"
+              ? ({ kind: "inherit-parent", parentThreadId: draft.parent.threadId } as const)
+              : mainAgent.selection;
+          let nextSource = draft.mainAgentSource;
+          if (isStaleMainAgentError(reason) && draft.mainAgentSource === "profile") {
+            const store = await window.desktop.mainAgents.getSnapshot();
+            const profile = store.profiles.find(({ id }) => id === current.mainAgent?.selection.id);
+            source = profile
+              ? { id: profile.id, revision: profile.revision }
+              : { kind: "inherit-parent", parentThreadId: draft.parent.threadId };
+            nextSource = profile ? "profile" : "inherit-parent";
+          }
+          const next = await refreshMainAgentDraftConfig(current, () =>
+            window.desktop.sessions.getDraftConfig(draft.parent.projectId, worktreePath, source),
+          );
+          if (!draft.isCurrentConfigRequest(requestGeneration)) return;
+          draft.setMainAgentSource(nextSource);
+          if (nextSource === "inherit-parent" && next.mainAgent) {
+            draft.setInheritedMainAgent(next.mainAgent.snapshot);
+          }
+          draft.setConfig(next);
+        } catch (refreshError) {
+          if (!draft.isCurrentConfigRequest(requestGeneration)) return;
+          draft.setConfig(current);
+          draft.setLoadError(refreshError instanceof Error ? refreshError.message : String(refreshError));
+        }
       }
       throw reason;
     } finally {
@@ -168,6 +252,10 @@ export function NewSessionDraft() {
           onProjectChange={async () => undefined}
           onModelChange={selectModel}
           onThinkingChange={selectThinking}
+          inheritedMainAgent={draft.mainAgentSource === "inherit-parent"}
+          inheritedMainAgentProfile={draft.inheritedMainAgent}
+          onMainAgentChange={(selection) => void selectMainAgent(selection)}
+          onInheritMainAgent={() => void selectMainAgent(null)}
           onPluginsChange={selectPlugins}
           onSubmit={submit}
         />

@@ -59,6 +59,8 @@ export interface ChildSessionLaunch {
 	 * `pi` process would. False loads only `extensionPaths` and `hooks`.
 	 */
 	ambientExtensions: boolean;
+	/** Inherit host-approved child extensions unless the agent explicitly overrides extensions. */
+	inheritRegisteredExtensions?: boolean;
 	hooks: ChildHookExtension[];
 	noSkills: boolean;
 	noContextFiles: boolean;
@@ -96,6 +98,8 @@ export interface ChildSession {
 }
 
 export interface ChildSessionFactory {
+	/** Native role-memory prompt injection ceiling inherited from the owning main agent. */
+	readonly allowMemory?: boolean;
 	create(launch: ChildSessionLaunch): Promise<ChildSession>;
 	/** Abort and dispose every live attached child; detached children keep running and hold the shared runtime. */
 	dispose(): Promise<void>;
@@ -110,6 +114,8 @@ export interface DefaultChildSessionFactoryOptions {
 	 * installed package by absolute path.
 	 */
 	loadPiCodingAgent?: () => Promise<PiCodingAgentModule>;
+	/** Whether native role-memory prompt injection is allowed for this factory. */
+	allowMemory?: boolean;
 	/** Upper bound on a disposed child's `session_shutdown` handlers before the session is dropped anyway. */
 	shutdownTimeoutMs?: number;
 }
@@ -191,6 +197,7 @@ export function createDefaultChildSessionFactory(options: DefaultChildSessionFac
 		return runtime;
 	};
 	return {
+		allowMemory: options.allowMemory ?? true,
 		async create(launch) {
 			const pi = await loadPiCodingAgent();
 			const modelRuntime = await sharedRuntime(pi);
@@ -321,6 +328,10 @@ let activeFactoryModule: string | undefined;
 export function childSessionFactory(): ChildSessionFactory {
 	activeFactory ??= createDefaultChildSessionFactory();
 	return activeFactory;
+}
+
+export function childMemoryAllowed(factory = childSessionFactory()): boolean {
+	return factory.allowMemory !== false;
 }
 
 /**

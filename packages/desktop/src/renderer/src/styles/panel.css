@@ -250,10 +250,10 @@ body.is-resizing-column .workbench-panel {
   background: hsl(var(--ring));
 }
 .resize-handle-file-tree {
-  right: -8px;
+  right: 0;
 }
 .resize-handle-file-tree::after {
-  left: 0;
+  right: 0;
 }
 .resize-handle-terminal {
   /* 终端与上方会话区之间 row-gap 4px，4px 高的拖拽条 top: -4px 恰好覆盖整个 gap 并居中；

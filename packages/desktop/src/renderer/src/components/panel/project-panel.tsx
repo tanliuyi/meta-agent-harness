@@ -9,7 +9,6 @@ import {
   type DragEvent as ReactDragEvent,
   type KeyboardEvent as ReactKeyboardEvent,
   type ReactNode,
-  type WheelEvent as ReactWheelEvent,
   useCallback,
   useEffect,
   useId,
@@ -20,6 +19,7 @@ import {
 
 import type { WorkbenchState } from "../../../../shared/contracts.ts";
 
+import { useNonPassiveWheel } from "../../shared/hooks/use-non-passive-wheel.ts";
 import { useSessionScope, useSessionWorkbenchSelector } from "../session-context.tsx";
 import { FilePanel } from "./files/file-panel.tsx";
 import { FileWorkspaceLayout } from "./files/file-workspace-layout.tsx";
@@ -119,6 +119,7 @@ function ProjectEditorGroup({
   children,
 }: ProjectEditorGroupProps) {
   const tabElements = useRef(new Map<string, HTMLButtonElement>());
+  const tabsElement = useRef<HTMLDivElement>(null);
   const contentElement = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -190,8 +191,9 @@ function ProjectEditorGroup({
     };
   }, [onOpenFile]);
 
-  const scrollTabs = (event: ReactWheelEvent<HTMLDivElement>) => {
-    const tabs = event.currentTarget;
+  useNonPassiveWheel(tabsElement, (event) => {
+    const tabs = tabsElement.current;
+    if (!tabs) return;
     const delta = Math.abs(event.deltaY) >= Math.abs(event.deltaX) ? event.deltaY : event.deltaX;
     const maxScroll = tabs.scrollWidth - tabs.clientWidth;
     if (delta === 0 || maxScroll <= 0) return;
@@ -199,15 +201,15 @@ function ProjectEditorGroup({
     if (next === tabs.scrollLeft) return;
     tabs.scrollLeft = next;
     event.preventDefault();
-  };
+  });
 
   return (
     <section className="project-editor-group" aria-label="编辑器组">
       <div
+        ref={tabsElement}
         className="project-document-tabs"
         role="tablist"
         aria-label="打开的文件和差异"
-        onWheel={scrollTabs}
         onDragOver={(event) => {
           if (!acceptsFile(event.dataTransfer.types)) return;
           event.preventDefault();

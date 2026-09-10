@@ -89,6 +89,8 @@ export interface PiPromptAttachments {
 export interface PiFileContext {
   path: string;
   name: string;
+  /** Index in the submitted images (inline images, then restored resources). */
+  imageIndex?: number;
 }
 
 export interface ParsedPiFileContexts {
@@ -127,7 +129,14 @@ export async function toPiPromptAttachments(
   const images: ImageInput[] = [];
   const imageResources: SessionImageAttachmentRef[] = [];
   const files: PiFileContext[] = [];
+  const imageParts = completed.flatMap((attachment) => attachment.content.filter((part) => part.type === "image"));
+  const orderedImages = [
+    ...imageParts.filter((part) => !parseSessionImageResourceUrl(part.image)),
+    ...imageParts.filter((part) => parseSessionImageResourceUrl(part.image)),
+  ];
   for (const attachment of completed) {
+    const image = attachment.content.find((part) => part.type === "image");
+    const imageIndex = image ? orderedImages.indexOf(image) : undefined;
     for (const part of attachment.content) {
       if (part.type === "image") {
         const name = part.filename ?? attachment.name;
@@ -135,7 +144,11 @@ export async function toPiPromptAttachments(
         if (resource) imageResources.push({ name, ...resource });
         else images.push(parseImageDataUrl(part.image, name));
       } else if (part.type === "file") {
-        files.push({ path: part.data, name: part.filename ?? attachment.name });
+        files.push({
+          path: part.data,
+          name: part.filename ?? attachment.name,
+          ...(imageIndex !== undefined ? { imageIndex } : {}),
+        });
       }
     }
   }
@@ -243,7 +256,9 @@ function isFileContext(value: unknown): value is PiFileContext {
     typeof (value as PiFileContext).path === "string" &&
     (value as PiFileContext).path.length > 0 &&
     typeof (value as PiFileContext).name === "string" &&
-    (value as PiFileContext).name.length > 0
+    (value as PiFileContext).name.length > 0 &&
+    ((value as PiFileContext).imageIndex === undefined ||
+      (Number.isSafeInteger((value as PiFileContext).imageIndex) && (value as PiFileContext).imageIndex! >= 0))
   );
 }
 

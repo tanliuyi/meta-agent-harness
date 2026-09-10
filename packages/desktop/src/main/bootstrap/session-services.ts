@@ -29,7 +29,7 @@ export interface SessionServices {
 /** session 服务构造所需的核心服务和跨域端口。 */
 export interface SessionServicesOptions {
   readonly context: DesktopRuntimeContext;
-  readonly core: Pick<CoreServices, "projects" | "modelRuntime" | "isDesktopProviderAvailable">;
+  readonly core: Pick<CoreServices, "projects" | "modelRuntime" | "isDesktopProviderAvailable" | "mainAgents">;
   readonly plugins: Pick<PluginServices, "extensionSourcePolicy" | "generationReferences">;
   readonly workspaceMutation: WorkspaceMutationPort;
   readonly browserCapability: BrowserCapabilityPort;
@@ -74,6 +74,7 @@ export function createSessionServices(options: SessionServicesOptions): SessionS
     agentDir: context.agentDir,
     ...(context.shellPath ? { shellPath: context.shellPath } : {}),
     extensionSourcePolicy: plugins.extensionSourcePolicy,
+    mainAgents: core.mainAgents,
     generationReferences: plugins.generationReferences,
     getCwd: (projectId) => core.projects.getCwd(projectId),
     resolveSessionCwd: (projectId, cwd) => core.projects.resolveSessionCwd(projectId, cwd),

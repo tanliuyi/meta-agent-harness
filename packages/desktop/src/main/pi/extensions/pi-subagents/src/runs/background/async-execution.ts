@@ -68,7 +68,7 @@ import {
 } from "../../shared/types.ts";
 import { inheritedNestedParentAddressOf, inheritedNestedRouteOf, nestedResultsPath, nestedSummaryFromAsyncStatus, writeNestedEvent } from "../shared/nested-events.ts";
 import type { ChildRuntimeConfig } from "../shared/child-runtime-config.ts";
-import { childSessionFactoryModule } from "../shared/child-session.ts";
+import { childMemoryAllowed, childSessionFactoryModule } from "../shared/child-session.ts";
 import { inheritedChildRuntime } from "../shared/child-launch.ts";
 import { resultFilePath } from "./result-files.ts";
 import { validateToolBudgetConfig } from "../shared/tool-budget.ts";
@@ -895,7 +895,7 @@ export function buildAsyncRunnerSteps(id: string, params: AsyncRunnerStepBuildPa
 			const injection = buildSkillInjection(resolvedSkills);
 			systemPrompt = systemPrompt ? `${systemPrompt}\n\n${injection}` : injection;
 		}
-		const memoryInjection = buildAgentMemoryInjection(a, stepCwd);
+		const memoryInjection = childMemoryAllowed() ? buildAgentMemoryInjection(a, stepCwd) : "";
 		if (memoryInjection) {
 			systemPrompt = systemPrompt ? `${systemPrompt}\n\n${memoryInjection}` : memoryInjection;
 		}
@@ -1357,6 +1357,7 @@ export function executeAsyncChain(
 				...(capabilityCeiling ? { capabilityCeiling } : {}),
 				piPackageRoot,
 				childSessionFactoryModule: childSessionFactoryModule(),
+				childMemoryAllowed: childMemoryAllowed(),
 				inheritedChildRuntime: inheritedChildRuntime(ctx.childRuntime),
 				worktreeSetupHook,
 				worktreeSetupHookTimeoutMs,
@@ -1639,7 +1640,7 @@ export function executeAsyncSingle(
 		const injection = buildSkillInjection(resolvedSkills);
 		systemPrompt = systemPrompt ? `${systemPrompt}\n\n${injection}` : injection;
 	}
-	const memoryInjection = buildAgentMemoryInjection(agentConfig, runnerCwd);
+	const memoryInjection = childMemoryAllowed() ? buildAgentMemoryInjection(agentConfig, runnerCwd) : "";
 	if (memoryInjection) {
 		systemPrompt = systemPrompt ? `${systemPrompt}\n\n${memoryInjection}` : memoryInjection;
 	}
@@ -1965,6 +1966,7 @@ export function executeAsyncSingle(
 				...(capabilityCeiling ? { capabilityCeiling } : {}),
 				piPackageRoot,
 				childSessionFactoryModule: childSessionFactoryModule(),
+				childMemoryAllowed: childMemoryAllowed(),
 				inheritedChildRuntime: inheritedChildRuntime(ctx.childRuntime),
 				worktreeSetupHook,
 				worktreeSetupHookTimeoutMs,

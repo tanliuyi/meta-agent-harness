@@ -7,7 +7,6 @@ import {
   forwardRef,
   type KeyboardEvent as ReactKeyboardEvent,
   type PointerEvent as ReactPointerEvent,
-  type WheelEvent as ReactWheelEvent,
   type RefObject,
   useCallback,
   useEffect,
@@ -25,6 +24,7 @@ import type {
   TextFile,
 } from "../../../../../shared/contracts.ts";
 import type { ScmChange, ScmDiff, ScmSnapshot } from "../../../../../shared/scm-contracts.ts";
+import { useNonPassiveWheel } from "../../../shared/hooks/use-non-passive-wheel.ts";
 import { resolveTokenStyle } from "../../assistant-ui/streamdown/streamdown-code-line.tsx";
 import { SHIKI_THEMES } from "../../assistant-ui/streamdown/streamdown-config.ts";
 import { useSessionScope, useSessionWorkbenchSelector } from "../../session-context.tsx";
@@ -212,6 +212,14 @@ function ScmDiffOverview({
     return () => observer.disconnect();
   }, [rows]);
 
+  useNonPassiveWheel(overview, (event) => {
+    const scroller = scrollElement.current;
+    if (!scroller) return;
+    event.preventDefault();
+    scroller.scrollTop += event.deltaY * (event.deltaMode === 1 ? DIFF_LINE_HEIGHT : 1);
+    syncRef.current?.();
+  });
+
   const stopDragging = useCallback((target: HTMLDivElement, pointerId: number) => {
     dragOffset.current = null;
     target.removeAttribute("data-dragging");
@@ -228,13 +236,6 @@ function ScmDiffOverview({
       aria-valuemin={0}
       aria-valuemax={0}
       aria-valuenow={0}
-      onWheel={(event) => {
-        const scroller = scrollElement.current;
-        if (!scroller) return;
-        event.preventDefault();
-        scroller.scrollTop += event.deltaY * (event.deltaMode === 1 ? DIFF_LINE_HEIGHT : 1);
-        syncRef.current?.();
-      }}
       onPointerDown={(event) => {
         const indicator = viewport.current;
         if (!indicator) return;
@@ -464,7 +465,7 @@ function ScmAlignedDiffPreview({
     [updateHorizontalOffsets],
   );
   const handleCodeWheel = useCallback(
-    (event: ReactWheelEvent<HTMLPreElement>) => {
+    (event: WheelEvent) => {
       const horizontal = event.shiftKey || Math.abs(event.deltaX) > Math.abs(event.deltaY);
       if (!horizontal && event.deltaY !== 0) {
         const scroller = scrollElement.current;
@@ -488,6 +489,8 @@ function ScmAlignedDiffPreview({
     },
     [syncHorizontal],
   );
+  useNonPassiveWheel(scrollElement, handleCodeWheel);
+
   const updateSplit = useCallback(
     (clientX: number) => {
       const root = rootElement.current;
@@ -604,7 +607,6 @@ function ScmAlignedDiffPreview({
           onScroll={(event) => {
             verticalPosition.current = event.currentTarget.scrollTop;
           }}
-          onWheel={handleCodeWheel}
           style={
             {
               "--file-preview-line-number-width": `${prepared.lineNumberCharacters}ch`,

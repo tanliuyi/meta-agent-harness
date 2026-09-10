@@ -11,11 +11,13 @@ import {
   type SetStateAction,
   useCallback,
   useContext,
+  useEffect,
   useMemo,
   useRef,
   useState,
 } from "react";
 import type { DraftSessionConfig, SessionIdentity } from "../../../shared/contracts.ts";
+import type { MainAgentSelection } from "../../../shared/main-agent-contracts.ts";
 import { attachmentAdapter } from "../runtime/attachments.ts";
 
 const EMPTY_MESSAGES: readonly ThreadMessage[] = [];
@@ -53,6 +55,8 @@ interface DraftSessionContextValue {
   setLoadError: Dispatch<SetStateAction<string | null>>;
   navigationTarget: SessionIdentity | null;
   setNavigationTarget: Dispatch<SetStateAction<SessionIdentity | null>>;
+  retainedConfig: MutableValue<{ projectId: string; config: DraftSessionConfig } | null>;
+  mainAgentSelection: MutableValue<MainAgentSelection | null>;
   submitInFlight: MutableValue<boolean>;
   createRequestIds: Map<string, string>;
   projectFallbackAllowed: MutableValue<boolean>;
@@ -72,6 +76,13 @@ export function DraftSessionProvider({ children }: { children: ReactNode }) {
   const [phase, setPhase] = useState<DraftPhase>("loading");
   const [loadError, setLoadError] = useState<string | null>(null);
   const [navigationTarget, setNavigationTarget] = useState<SessionIdentity | null>(null);
+  const retainedConfig = useRef<{ projectId: string; config: DraftSessionConfig } | null>(null);
+  useEffect(() => {
+    if (config && projectId && (configProjectId === projectId || configProjectId?.startsWith(`${projectId}\0`))) {
+      retainedConfig.current = { projectId, config };
+    }
+  }, [config, configProjectId, projectId]);
+  const mainAgentSelection = useRef<MainAgentSelection | null>(null);
   const submitInFlight = useRef(false);
   const createRequestIds = useRef(new Map<string, string>()).current;
   const projectFallbackAllowed = useRef(true);
@@ -79,6 +90,8 @@ export function DraftSessionProvider({ children }: { children: ReactNode }) {
   const clear = useCallback(
     async (nextProjectId: string | null, target: SessionIdentity) => {
       await runtime.thread.composer.reset();
+      retainedConfig.current = null;
+      mainAgentSelection.current = null;
       createRequestIds.clear();
       projectFallbackAllowed.current = true;
       setProjectId(nextProjectId);
@@ -109,6 +122,8 @@ export function DraftSessionProvider({ children }: { children: ReactNode }) {
       setLoadError,
       navigationTarget,
       setNavigationTarget,
+      retainedConfig,
+      mainAgentSelection,
       submitInFlight,
       createRequestIds,
       projectFallbackAllowed,

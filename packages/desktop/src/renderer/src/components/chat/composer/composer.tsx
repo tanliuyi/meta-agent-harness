@@ -23,6 +23,7 @@ import {
 import { ComposerAddAttachment } from "../../assistant-ui/attachment/composer-add-attachment.tsx";
 import { ComposerAttachments } from "../../assistant-ui/attachment/composer-attachments.tsx";
 import { useSessionScope } from "../../session-context.tsx";
+import { MainAgentSelect } from "../main-agent-select.tsx";
 import { ModelSelect } from "../model-select.tsx";
 import { PluginSelect } from "../plugin-select.tsx";
 import { ProjectSelect } from "../project-select.tsx";
@@ -284,6 +285,15 @@ export function Composer(props: ComposerProps) {
             }}
           />
         ) : null}
+        <MainAgentSelect
+          context={props.config?.mainAgent ?? null}
+          inherited={props.inheritedMainAgent}
+          inheritedProfile={props.inheritedMainAgentProfile}
+          disabled={disabled || configLoading}
+          loading={configLoading}
+          onValueChange={(selection) => props.onMainAgentChange?.(selection)}
+          onInherit={props.onInheritMainAgent}
+        />
         <PluginSelect
           plugins={props.config?.extensions.plugins ?? null}
           value={props.config?.extensions.enabledPluginIds ?? null}

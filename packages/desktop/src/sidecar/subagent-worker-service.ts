@@ -34,6 +34,7 @@ import {
   SUBAGENT_SUPERVISOR_CHANNEL_DIR_ENV,
 } from "../main/pi/extensions/pi-subagents/src/runs/shared/env-constants.ts";
 import { PiThreadProjector } from "../main/pi/pi-thread-projector.ts";
+import { permittedChildExtensions } from "../main/pi/subagents/child-extension-policy.ts";
 import { createDesktopChildSessionFactory } from "../main/pi/subagents/desktop-child-session-factory.ts";
 import { DesktopSubagentRuntime } from "../main/pi/subagents/desktop-subagent-runtime.ts";
 import { PROTOCOL_VERSION, type SessionBootstrap, type SessionControlState } from "../shared/contracts.ts";
@@ -215,26 +216,35 @@ export class SubagentWorkerService implements SidecarService {
       delete process.env.PI_SUBAGENT_INTERCOM_SESSION_NAME;
     }
     const childRuntime = createChildRuntimeConfig(request, this.context, supervisorChannel?.channelDir);
+    const childExtensions = permittedChildExtensions(
+      validateChildExtensions(request.childExtensions),
+      request.excludeTools,
+      childRuntime.capabilityCeiling,
+    );
+    const activeExtensionPaths = new Set(childExtensions.map((extension) => extension.path));
+    const unavailableExtensionTools = new Set(
+      (request.childExtensions ?? [])
+        .filter((extension) => !activeExtensionPaths.has(extension.path))
+        .flatMap((extension) => extension.tools),
+    );
     if (childRuntime.fanoutChild) {
       this.nestedRuntime = new DesktopSubagentRuntime({
         projectId: request.projectId,
         parentThreadId: request.parentThreadId,
         parentWorker: request,
-        childExtensions: request.childExtensions,
+        childExtensions,
         requestHost: (hostRequest, onEvent) => this.context.requestHost(hostRequest, onEvent),
       });
-      setChildSessionFactory(createDesktopChildSessionFactory(this.nestedRuntime));
+      setChildSessionFactory(
+        createDesktopChildSessionFactory(this.nestedRuntime, request.extensionProfile.includes("memory")),
+      );
     }
     const extensionFactories = [
       ...DesktopBuiltinProviderRegistry.getSubagentExtensionFactories(request.extensionProfile),
       ...createChildHooks(childRuntime),
       ...(this.dependencies.extensionFactories ?? []),
     ];
-    const extensionSet = childExtensionSet(
-      request,
-      extensionFactories,
-      validateChildExtensions(request.childExtensions),
-    );
+    const extensionSet = childExtensionSet(request, extensionFactories, childExtensions);
     const settingsManager = SettingsManager.create(request.cwd, this.binding.agentDir);
     if (this.binding.shellPath && !settingsManager.getShellPath()) {
       settingsManager.applyOverrides({ shellPath: this.binding.shellPath });
@@ -288,7 +298,13 @@ export class SubagentWorkerService implements SidecarService {
           : {}),
       ...(request.tools
         ? {
-            tools: [...new Set([...request.tools, ...(request.structuredOutput ? ["structured_output"] : [])])],
+            tools: [
+              ...new Set([
+                ...request.tools.filter((tool) => !unavailableExtensionTools.has(tool)),
+                ...childExtensions.flatMap((extension) => extension.tools),
+                ...(request.structuredOutput ? ["structured_output"] : []),
+              ]),
+            ],
           }
         : {}),
       ...(request.excludeTools?.length ? { excludeTools: request.excludeTools } : {}),

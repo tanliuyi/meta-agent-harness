@@ -143,6 +143,54 @@ describe("DesktopSessionTabs interactions", () => {
     expect(testState.openSession).toHaveBeenCalledWith("project-a", "thread-a");
   });
 
+  it("routes a grouped child session tab back to its root session", async () => {
+    const child = createSessionRecord({ projectId: "project-a", threadId: "child-thread" });
+    testState.records.push(child);
+    const parent = testState.desktop.threadCatalogs["project-a"]![0]!;
+    testState.desktop.threadCatalogs["project-a"]!.push({
+      ...parent,
+      id: "child-thread",
+      title: "Child session",
+      parentThreadId: parent.id,
+    });
+    testState.activeKey = child.key;
+    testState.routeSession = { projectId: "project-a", threadId: "child-thread" };
+    await act(async () => root.render(<DesktopSessionTabs />));
+
+    expect(container.querySelectorAll('[role="tab"]')).toHaveLength(2);
+    expect(container.querySelector('button[title="Child session"]')).toBeNull();
+    const groupedTab = container.querySelector<HTMLButtonElement>('button[aria-selected="true"]');
+    expect(groupedTab?.title).toContain("包含 1 个子会话");
+
+    act(() => groupedTab?.dispatchEvent(new MouseEvent("click", { bubbles: true })));
+
+    expect(testState.openSession).toHaveBeenCalledWith("project-a", "thread-a");
+    expect(testState.openSession).not.toHaveBeenCalledWith("project-a", "child-thread");
+  });
+
+  it("closes every cached member of a session group", async () => {
+    const child = createSessionRecord({ projectId: "project-b", threadId: "child-thread" });
+    testState.records.push(child);
+    const parent = testState.desktop.threadCatalogs["project-b"]![0]!;
+    testState.desktop.threadCatalogs["project-b"]!.push({
+      ...parent,
+      id: "child-thread",
+      title: "Child session",
+      parentThreadId: parent.id,
+    });
+    await act(async () => root.render(<DesktopSessionTabs />));
+
+    const closeButton = container.querySelector<HTMLButtonElement>('[aria-label="关闭 Second session"]');
+    expect(closeButton).not.toBeNull();
+    await act(async () => closeButton?.dispatchEvent(new MouseEvent("click", { bubbles: true })));
+
+    expect(testState.retire).toHaveBeenCalledTimes(2);
+    expect(testState.retire).toHaveBeenCalledWith(testState.records[1]!.key);
+    expect(testState.retire).toHaveBeenCalledWith(child.key);
+    expect(testState.close).toHaveBeenCalledWith("project-b", "thread-b");
+    expect(testState.close).toHaveBeenCalledWith("project-b", "child-thread");
+  });
+
   it("removes the tab immediately while active-session navigation is pending", async () => {
     let finishNavigation: (() => void) | undefined;
     testState.openSession.mockImplementation(

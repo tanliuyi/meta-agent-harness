@@ -7,6 +7,7 @@ import type {
   Thread,
 } from "../../shared/contracts.ts";
 import type { ResolvedExtensionEntry, ResolvedExtensionSet } from "../../shared/desktop-extension-contracts.ts";
+import type { MainAgentSessionSnapshot } from "../../shared/main-agent-contracts.ts";
 import type {
   ColdOperationLease,
   CreationReservation,
@@ -61,6 +62,7 @@ export class MetadataWorkerClient {
     cwd: string,
     extensionSet: ResolvedExtensionSet,
     allEntries: ResolvedExtensionEntry[],
+    mainAgentSnapshot: MainAgentSessionSnapshot,
   ): Promise<DraftSessionConfig> {
     return this.enqueue(async () => {
       if (this.draftExtensionGeneration !== undefined && this.draftExtensionGeneration !== extensionSet.generation) {
@@ -76,6 +78,7 @@ export class MetadataWorkerClient {
         cwd,
         extensionSet,
         allEntries,
+        mainAgentSnapshot,
       });
     });
   }

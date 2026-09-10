@@ -1,9 +1,30 @@
-import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { readMainAgentSessionSnapshot } from "../src/main/pi/main-agent-session-store.ts";
 import { GENERAL_WORKSPACE_ID } from "../src/shared/contracts.ts";
 import type { ThreadWorkerBinding } from "../src/shared/sidecar-contracts.ts";
+import { readSessionFileHeader } from "../src/sidecar/session-file-header.ts";
+
+const TEST_MAIN_AGENT_SNAPSHOT = {
+  version: 1 as const,
+  profileId: "desktop-default",
+  profileRevision: 1,
+  profileName: "Default agent",
+  createdAt: 1,
+  configuration: {
+    prompt: {
+      mode: "default" as const,
+      text: "",
+      includeGlobalRules: true,
+      includeProjectRules: true,
+      includeSkills: true,
+    },
+    tools: ["read"],
+    builtinPluginIds: [],
+  },
+};
 
 const mocks = vi.hoisted(() => ({
   createSession: vi.fn(),
@@ -64,14 +85,34 @@ describe("ThreadWorkerService", () => {
     const sessionFile = join(agentDir, "sessions", "--general--", `${sessionId}.jsonl`);
     const bootstrap = { threadId: sessionId };
     mkdirSync(cwd, { recursive: true });
-    mocks.createSession.mockReturnValue({ getSessionFile: () => sessionFile, getCwd: () => cwd });
-    mocks.runtimeCreate.mockResolvedValue({
-      id: sessionId,
-      bootstrap: vi.fn().mockReturnValue(bootstrap),
-      dispose: vi.fn(),
+    mocks.createSession.mockReturnValue({
+      getSessionFile: () => sessionFile,
+      getCwd: () => cwd,
+      isPersisted: () => true,
+      getHeader: () => ({ type: "session", id: sessionId, cwd }),
+      getEntries: () => [],
+      getLeafId: () => null,
+      resetLeaf: vi.fn(),
+      setSessionFile: vi.fn(() => {
+        expect(JSON.parse(readFileSync(`${sessionFile}.main-agent.json`, "utf8"))).toEqual(TEST_MAIN_AGENT_SNAPSHOT);
+      }),
+    });
+    // Pause runtime initialization at the publication boundary, as if the worker exited here.
+    let resumeStartup!: () => void;
+    const startup = new Promise<void>((resolve) => {
+      resumeStartup = resolve;
+    });
+    mocks.runtimeCreate.mockImplementation(async () => {
+      await startup;
+      return {
+        id: sessionId,
+        bootstrap: vi.fn().mockReturnValue(bootstrap),
+        dispose: vi.fn(),
+      };
     });
     const binding: ThreadWorkerBinding = {
       mode: "create",
+      mainAgentSnapshot: TEST_MAIN_AGENT_SNAPSHOT,
       projectId: GENERAL_WORKSPACE_ID,
       projectCwd: cwd,
       cwd,
@@ -93,15 +134,76 @@ describe("ThreadWorkerService", () => {
       },
     };
 
-    const result = await ThreadWorkerService.create(
+    const creating = ThreadWorkerService.create(
       { role: "thread", value: binding },
       { emit: () => undefined, requestHost: async () => undefined, flushEvents: async () => undefined },
     );
+    await vi.waitFor(() => expect(mocks.runtimeCreate).toHaveBeenCalledOnce());
+    // Cold recovery sees the same restricted policy even before ready/metadata publication.
+    const recovered = await readSessionFileHeader(sessionFile, GENERAL_WORKSPACE_ID, sessionId);
+    expect(recovered.cwd).toBe(cwd);
+    expect(await readMainAgentSessionSnapshot(recovered.sessionFile)).toEqual(TEST_MAIN_AGENT_SNAPSHOT);
+    resumeStartup();
+    const result = await creating;
 
     expect(mocks.createSession).toHaveBeenCalledWith(realpathSync(cwd), join(agentDir, "sessions", "--general--"), {
       id: sessionId,
     });
     expect(result.readyResult).toBe(bootstrap);
+    // A restart immediately after publication observes both the identity and its policy.
+    expect(JSON.parse(readFileSync(sessionFile, "utf8"))).toMatchObject({ id: sessionId });
+    expect(JSON.parse(readFileSync(`${sessionFile}.main-agent.json`, "utf8"))).toEqual(TEST_MAIN_AGENT_SNAPSHOT);
+  });
+
+  it("removes the eager JSONL and policy sidecar when runtime startup fails", async () => {
+    const cwd = join(root, "workspaces", "general");
+    const agentDir = join(root, "agent");
+    const sessionId = "failed-thread";
+    const sessionFile = join(agentDir, "sessions", "--general--", `${sessionId}.jsonl`);
+    mkdirSync(cwd, { recursive: true });
+    mkdirSync(join(agentDir, "sessions", "--general--"), { recursive: true });
+    mocks.createSession.mockReturnValue({
+      getSessionFile: () => sessionFile,
+      getCwd: () => cwd,
+      isPersisted: () => true,
+      getHeader: () => ({ type: "session", id: sessionId, cwd }),
+      getEntries: () => [],
+      getLeafId: () => null,
+      resetLeaf: vi.fn(),
+      setSessionFile: vi.fn(() => {
+        expect(JSON.parse(readFileSync(`${sessionFile}.main-agent.json`, "utf8"))).toEqual(TEST_MAIN_AGENT_SNAPSHOT);
+      }),
+    });
+    mocks.runtimeCreate.mockRejectedValue(new Error("startup failed"));
+    const binding: ThreadWorkerBinding = {
+      mode: "create",
+      mainAgentSnapshot: TEST_MAIN_AGENT_SNAPSHOT,
+      projectId: GENERAL_WORKSPACE_ID,
+      projectCwd: cwd,
+      cwd,
+      agentDir,
+      sessionId,
+      createInput: {
+        projectId: GENERAL_WORKSPACE_ID,
+        createRequestId: "request",
+        extensionSetGeneration: "extensions-generation",
+        model: { provider: "provider", id: "model" },
+        thinkingLevel: "off",
+      },
+      extensionSet: {
+        generation: "extensions-generation",
+        projectId: GENERAL_WORKSPACE_ID,
+        entries: [],
+        diagnostics: [],
+        resolvedAt: 0,
+      },
+    };
+
+    await expect(
+      ThreadWorkerService.create({ role: "thread", value: binding }, { emit: () => undefined }),
+    ).rejects.toThrow("startup failed");
+    expect(existsSync(sessionFile)).toBe(false);
+    expect(existsSync(`${sessionFile}.main-agent.json`)).toBe(false);
   });
 
   it("forwards getImageResource to the runtime and returns the resource", async () => {
@@ -111,7 +213,18 @@ describe("ThreadWorkerService", () => {
     const sessionFile = join(agentDir, "sessions", "--general--", `${sessionId}.jsonl`);
     const bootstrap = { threadId: sessionId };
     mkdirSync(cwd, { recursive: true });
-    mocks.createSession.mockReturnValue({ getSessionFile: () => sessionFile, getCwd: () => cwd });
+    mocks.createSession.mockReturnValue({
+      getSessionFile: () => sessionFile,
+      getCwd: () => cwd,
+      isPersisted: () => true,
+      getHeader: () => ({ type: "session", id: sessionId, cwd }),
+      getEntries: () => [],
+      getLeafId: () => null,
+      resetLeaf: vi.fn(),
+      setSessionFile: vi.fn(() => {
+        expect(JSON.parse(readFileSync(`${sessionFile}.main-agent.json`, "utf8"))).toEqual(TEST_MAIN_AGENT_SNAPSHOT);
+      }),
+    });
     const readImageResource = vi.fn().mockReturnValue({
       resourceId: "resource-1",
       mimeType: "image/png",
@@ -125,6 +238,7 @@ describe("ThreadWorkerService", () => {
     });
     const binding: ThreadWorkerBinding = {
       mode: "create",
+      mainAgentSnapshot: TEST_MAIN_AGENT_SNAPSHOT,
       projectId: GENERAL_WORKSPACE_ID,
       projectCwd: cwd,
       cwd,
@@ -165,6 +279,7 @@ describe("ThreadWorkerService", () => {
     const cwd = join(root, "missing-project");
     const binding: ThreadWorkerBinding = {
       mode: "create",
+      mainAgentSnapshot: TEST_MAIN_AGENT_SNAPSHOT,
       projectId: GENERAL_WORKSPACE_ID,
       projectCwd: cwd,
       cwd,

@@ -1,0 +1,175 @@
+.main-agent-settings {
+  max-width: 1120px;
+}
+
+.main-agent-settings .settings-page-actions > button:first-child,
+.main-agent-settings .settings-page-actions > button:last-child {
+  width: auto;
+  height: var(--control-height-button-sm);
+  padding-inline: 10px;
+}
+
+.main-agent-settings .settings-page-actions > button:last-child {
+  border-color: hsl(var(--primary));
+  background: hsl(var(--primary));
+  color: hsl(var(--primary-foreground));
+}
+
+.main-agent-settings .settings-page-actions > button:last-child:hover:not(:disabled) {
+  background: hsl(var(--primary) / 0.9);
+}
+
+.main-agent-workspace {
+  display: grid;
+  min-width: 0;
+  gap: 16px;
+}
+
+.main-agent-list {
+  flex-wrap: nowrap;
+  padding-bottom: 4px;
+}
+
+.main-agent-list-item {
+  max-width: 240px;
+  flex: 0 0 auto;
+}
+
+.main-agent-list-item strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.main-agent-editor {
+  min-width: 0;
+}
+
+.main-agent-section-heading {
+  min-height: 62px;
+  gap: 12px;
+}
+
+.main-agent-section-heading > div:first-child {
+  min-width: 0;
+}
+
+.main-agent-inline-actions,
+.main-agent-save-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.main-agent-inline-actions button {
+  width: 30px;
+  height: 30px;
+}
+
+.main-agent-field {
+  display: grid;
+  grid-template-columns: minmax(110px, 0.3fr) minmax(0, 1fr);
+  gap: 16px;
+  align-items: center;
+  min-height: 56px;
+  padding: 8px 16px;
+  border-top: 1px solid hsl(var(--border) / 0.8);
+  font-size: var(--type-size-ui);
+}
+
+.main-agent-form-block {
+  display: grid;
+  gap: 14px;
+  padding: 16px;
+  border-top: 1px solid hsl(var(--border) / 0.8);
+}
+
+.main-agent-form-block > label {
+  display: grid;
+  gap: 8px;
+  font-size: var(--type-size-control);
+  font-weight: 600;
+}
+
+.main-agent-form-block textarea {
+  min-height: 150px;
+  line-height: 1.5;
+}
+
+.main-agent-prompt-modes,
+.main-agent-form-block > .settings-segmented-control {
+  width: 100%;
+  min-width: 0;
+}
+
+.main-agent-checkboxes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 20px;
+}
+
+.main-agent-checkboxes label,
+.main-agent-option-list label {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  font-size: var(--type-size-ui);
+}
+
+.main-agent-option-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px 18px;
+}
+
+.main-agent-option-list label {
+  min-width: 0;
+  padding: 6px 0;
+}
+
+.main-agent-option-list label > span {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.main-agent-option-list strong {
+  font-size: var(--type-size-ui);
+  font-weight: 600;
+}
+
+.main-agent-option-list small {
+  color: hsl(var(--muted-foreground));
+  font-size: var(--type-size-control);
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.main-agent-option-list label[data-unavailable="true"] strong {
+  color: hsl(var(--muted-foreground));
+}
+
+.main-agent-option-list > .settings-row-description {
+  grid-column: 1 / -1;
+}
+
+.main-agent-save-actions {
+  margin-top: 16px;
+}
+
+@media (max-width: 620px) {
+  .main-agent-option-list {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .main-agent-field {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 6px;
+  }
+
+  .main-agent-prompt-modes {
+    grid-auto-flow: row;
+  }
+}

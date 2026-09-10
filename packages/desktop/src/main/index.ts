@@ -81,7 +81,12 @@ app.on("window-all-closed", () => {
 
 /** 在开发环境加载 React DevTools，生产构建不下载开发扩展。 */
 async function installReactDevTools(): Promise<void> {
-  if (app.isPackaged || process.env.PI_DISABLE_REACT_DEVTOOLS === "1") return;
+  if (
+    app.isPackaged ||
+    process.env.NODE_ENV_ELECTRON_VITE !== "development" ||
+    process.env.PI_DISABLE_REACT_DEVTOOLS === "1"
+  )
+    return;
   try {
     const extensions = await installExtension(REACT_DEVELOPER_TOOLS, {
       loadExtensionOptions: { allowFileAccess: true },

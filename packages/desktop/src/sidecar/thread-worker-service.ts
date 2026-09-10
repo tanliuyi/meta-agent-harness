@@ -1,8 +1,10 @@
-import { realpath, stat } from "node:fs/promises";
+import { realpath, rm, stat } from "node:fs/promises";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
 import { resolveGitWorktree } from "../main/git-worktrees.ts";
 import { samePath } from "../main/path-identity.ts";
 import { validateResolvedExtensionSet } from "../main/pi/desktop-extension-runtime-policy.ts";
+import { materializeDesktopSession } from "../main/pi/desktop-session-persistence.ts";
+import { removeMainAgentSessionSnapshot, writeMainAgentSessionSnapshot } from "../main/pi/main-agent-session-store.ts";
 import { SessionRuntime } from "../main/pi/session-runtime.ts";
 import { getRegisteredSubagentChildExtensions } from "../main/pi/subagents/child-extension-registry.ts";
 import { DesktopSubagentRuntime } from "../main/pi/subagents/desktop-subagent-runtime.ts";
@@ -50,6 +52,21 @@ export class ThreadWorkerService implements SidecarService {
         throw new Error(`Session identity changed before open: ${input.projectId}/${input.threadId}`);
       }
     }
+    let createdSnapshotFile: string | undefined;
+    if (input.mode === "create") {
+      const sessionFile = sessionManager.getSessionFile();
+      if (!sessionFile) throw new Error("Created session did not allocate a session file");
+      try {
+        await writeMainAgentSessionSnapshot(sessionFile, input.mainAgentSnapshot);
+        // Discovery must never observe a new session without its policy snapshot.
+        await materializeDesktopSession(sessionManager);
+      } catch (error) {
+        await rm(sessionFile, { force: true });
+        await removeMainAgentSessionSnapshot(sessionFile);
+        throw error;
+      }
+      createdSnapshotFile = sessionFile;
+    }
     const cwd = sessionManager.getCwd();
     const parentThreadId = input.mode === "create" ? input.sessionId : input.threadId;
     const approvedChildExtensionPaths = new Set(
@@ -74,13 +91,22 @@ export class ThreadWorkerService implements SidecarService {
           ? { initialUpdatedAt: input.initialUpdatedAt }
           : {}),
         createInput: input.mode === "create" ? input.createInput : undefined,
+        mainAgentSnapshot: input.mainAgentSnapshot,
         extensionSet,
         subagentRuntime,
         push: (payload) => context.emit({ type: "session-push", payload }),
         onSummaryChanged: (current) => context.emit({ type: "summary-changed", summary: current.threadSummary(false) }),
       });
     } catch (error) {
-      await subagentRuntime.dispose();
+      try {
+        if (createdSnapshotFile) {
+          // Keep the policy if removing the discoverable JSONL fails.
+          await rm(createdSnapshotFile, { force: true });
+          await removeMainAgentSessionSnapshot(createdSnapshotFile);
+        }
+      } finally {
+        await subagentRuntime.dispose();
+      }
       throw error;
     }
     if (input.mode === "create") {
@@ -124,6 +150,8 @@ export class ThreadWorkerService implements SidecarService {
         return this.runtime.edit(command.input);
       case "reload":
         return this.runtime.reload(command.input);
+      case "getPluginRuntime":
+        return this.runtime.pluginRuntime(command.pluginId);
       case "reloadResources":
         return this.runtime.reloadResources();
       case "runGoalAction":

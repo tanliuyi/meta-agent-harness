@@ -7,6 +7,7 @@ import type {
   ThinkingLevel,
 } from "../../../shared/contracts.ts";
 import type { DesktopApi } from "../../../shared/desktop-api.ts";
+import type { MainAgentSelection } from "../../../shared/main-agent-contracts.ts";
 import { sessionRecordKey } from "../runtime/pi-session-store.ts";
 import type { SessionCacheController } from "./session-cache-context.tsx";
 
@@ -38,6 +39,49 @@ export function selectDraftThinkingLevel(
   return config?.thinkingLevels.includes(thinkingLevel) ? { ...config, thinkingLevel } : config;
 }
 
+/** Preserve user-owned draft choices while replacing profile-dependent commands and capabilities. */
+export function mergeMainAgentDraftConfig(current: DraftSessionConfig, next: DraftSessionConfig): DraftSessionConfig {
+  const selectedModel = current.model
+    ? next.models.find(({ provider, id }) => provider === current.model?.provider && id === current.model.id)
+    : undefined;
+  const model = selectedModel
+    ? { provider: selectedModel.provider, id: selectedModel.id, name: selectedModel.name }
+    : next.model;
+  const thinkingLevels = selectedModel?.thinkingLevels ?? next.thinkingLevels;
+  const thinkingLevel = thinkingLevels.includes(current.thinkingLevel) ? current.thinkingLevel : next.thinkingLevel;
+  return {
+    ...next,
+    model,
+    thinkingLevel,
+    thinkingLevels,
+    readiness: selectedModel ? { state: "ready" } : next.readiness,
+    extensions: {
+      ...next.extensions,
+      enabledPluginIds: current.extensions.enabledPluginIds,
+    },
+  };
+}
+
+export async function refreshMainAgentDraftConfig(
+  current: DraftSessionConfig,
+  load: () => Promise<DraftSessionConfig>,
+): Promise<DraftSessionConfig> {
+  return mergeMainAgentDraftConfig(current, await load());
+}
+
+export interface DraftConfigRequestToken {
+  generation: number;
+  target: string | null;
+}
+
+export function isCurrentDraftConfigRequest(
+  token: DraftConfigRequestToken,
+  generation: number,
+  target: string | null,
+): boolean {
+  return token.generation === generation && token.target === target;
+}
+
 export function draftCreateRequestKey(projectId: string, worktreePath?: string): string {
   return worktreePath ? `${projectId}\0${worktreePath}` : projectId;
 }
@@ -60,6 +104,7 @@ interface DraftMaterializationInput {
   model: SessionCreateInput["model"];
   thinkingLevel: SessionCreateInput["thinkingLevel"];
   extensionSetGeneration: string;
+  mainAgent?: MainAgentSelection;
   /** 会话级激活的插件子集；缺省表示继承项目级（全部激活）。 */
   enabledPluginIds?: string[];
   /** 创建为该会话的子会话（侧边栏草稿等场景）。 */
@@ -93,6 +138,7 @@ export async function materializeDraftSession(
     extensionSetGeneration: input.extensionSetGeneration,
     model: input.model,
     thinkingLevel: input.thinkingLevel,
+    ...(input.mainAgent ? { mainAgent: input.mainAgent } : {}),
     ...(input.enabledPluginIds ? { enabledPluginIds: input.enabledPluginIds } : {}),
     ...(input.parentThreadId ? { parentThreadId: input.parentThreadId } : {}),
   });
@@ -136,6 +182,14 @@ async function cleanupMaterializedSession(
     dependencies.cache.retire(recordKey),
     dependencies.sessions.remove(target.projectId, target.threadId, "subtree"),
   ]);
+}
+
+/** 草稿提交因主智能体配置过期被拒时的判定。 */
+export function isStaleMainAgentError(reason: unknown): boolean {
+  return (
+    (reason instanceof Error && reason.message.includes("Main agent profile")) ||
+    (typeof reason === "object" && reason !== null && "code" in reason && reason.code === "STALE_MAIN_AGENT")
+  );
 }
 
 /** 草稿提交因扩展集过期被拒时的判定。 */

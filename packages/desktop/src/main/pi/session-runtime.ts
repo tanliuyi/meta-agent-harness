@@ -35,6 +35,7 @@ import type {
   DesktopWidgetViewport,
   ResolvedExtensionSet,
 } from "../../shared/desktop-extension-contracts.ts";
+import type { MainAgentSessionSnapshot } from "../../shared/main-agent-contracts.ts";
 import type { PiGoalSnapshot, SessionGoalActionInput } from "../../shared/pi-goal-contracts.ts";
 import type { SessionCheckpointDiffResult, SessionCheckpointRestoreResult } from "../../shared/pi-rewind-contracts.ts";
 import { FileCredentialStore } from "../models/credential-store.ts";
@@ -54,6 +55,7 @@ import {
   subscribeDesktopGoal,
 } from "./extensions/pi-goal/src/service.ts";
 import { getDesktopCheckpointDiff, restoreDesktopCheckpoint } from "./extensions/pi-rewind/src/index.ts";
+import { resolveMainAgentConfiguration } from "./main-agent-resolver.ts";
 import { PiCompatibilityAdapter } from "./pi-compatibility-adapter.ts";
 import { PiThreadProjector } from "./pi-thread-projector.ts";
 import { DesktopPluginRegistryBuilder } from "./run-code/plugin-method-registry.ts";
@@ -76,6 +78,7 @@ interface RuntimeOptions {
   createInput?: SessionCreateInput;
   extensionSet?: ResolvedExtensionSet;
   subagentRuntime?: SubagentRuntime;
+  mainAgentSnapshot?: MainAgentSessionSnapshot;
   push(update: SessionPushPayload): void;
   onSummaryChanged(runtime: SessionRuntime): void;
 }
@@ -104,6 +107,7 @@ export class SessionRuntime {
   private readonly push: (update: SessionPushPayload) => void;
   private readonly onSummaryChanged: (runtime: SessionRuntime) => void;
   private readonly subagentRuntime?: SubagentRuntime;
+  private readonly mainAgentSnapshot?: MainAgentSessionSnapshot;
   private readonly runCodeRegistry: RunCodeRegistryHolder;
   private readonly runCodeRegistryBuilder: DesktopPluginRegistryBuilder;
 
@@ -117,6 +121,7 @@ export class SessionRuntime {
     subagentRuntime: SubagentRuntime | undefined,
     runCodeRegistry: RunCodeRegistryHolder,
     runCodeRegistryBuilder: DesktopPluginRegistryBuilder,
+    mainAgentSnapshot: MainAgentSessionSnapshot | undefined,
     push: (update: SessionPushPayload) => void,
     onSummaryChanged: (runtime: SessionRuntime) => void,
   ) {
@@ -129,6 +134,7 @@ export class SessionRuntime {
     this.subagentRuntime = subagentRuntime;
     this.runCodeRegistry = runCodeRegistry;
     this.runCodeRegistryBuilder = runCodeRegistryBuilder;
+    this.mainAgentSnapshot = mainAgentSnapshot ? structuredClone(mainAgentSnapshot) : undefined;
     this.extensionSet = {
       ...extensionSet,
       entries: extensionSet.entries.map((entry) => ({
@@ -152,13 +158,23 @@ export class SessionRuntime {
     );
     this.compatibility = new PiCompatibilityAdapter({ session, projector: this.projector });
     this.summaryState = createSummary(session, initialUpdatedAt);
-    this.unsubscribeGoal = subscribeDesktopGoal(cwd, session.sessionId, () => this.publishControl());
+    this.unsubscribeGoal = extensionSet.entries.some((entry) => entry.id === "pi-goal")
+      ? subscribeDesktopGoal(cwd, session.sessionId, () => this.publishControl())
+      : undefined;
   }
 
   /** 创建新会话或从指定 SessionManager 恢复会话。 */
   static async create(options: RuntimeOptions): Promise<SessionRuntime> {
     const extensionSet = options.extensionSet ?? builtinOnlyExtensionSet(options.projectId);
     const agentDir = options.agentDir ?? getAgentDir();
+    const resolvedMainAgent = options.mainAgentSnapshot
+      ? resolveMainAgentConfiguration(options.mainAgentSnapshot, extensionSet, agentDir)
+      : undefined;
+    const effectiveExtensionSet = resolvedMainAgent?.extensionSet ?? extensionSet;
+    const enabledExtensionIds = new Set(
+      effectiveExtensionSet.entries.filter((entry) => entry.source === "builtin").map((entry) => entry.id),
+    );
+    const memoryEnabled = enabledExtensionIds.has("pi-hermes-memory");
     const settingsManager = SettingsManager.create(options.cwd, agentDir);
     if (options.shellPath) {
       const settingsWithDefaults = settingsManager as unknown as {
@@ -180,20 +196,28 @@ export class SessionRuntime {
       agentDir,
       settingsManager,
       modelRuntime,
-      resourceLoaderOptions: controlledResourceLoaderOptions(
-        extensionSet,
-        DesktopBuiltinProviderRegistry.getExtensionFactories({ subagentRuntime: options.subagentRuntime }),
-        {
-          pluginRegistry: registryHolder,
-          pluginRegistryBuilder: builder,
-          cwd: options.cwd,
-          agentDir,
-        },
-      ),
+      resourceLoaderOptions: {
+        ...controlledResourceLoaderOptions(
+          effectiveExtensionSet,
+          DesktopBuiltinProviderRegistry.getExtensionFactories({
+            subagentRuntime: options.subagentRuntime,
+            enabledExtensionIds,
+            allowChildMemory: memoryEnabled,
+          }),
+          {
+            pluginRegistry: registryHolder,
+            pluginRegistryBuilder: builder,
+            cwd: options.cwd,
+            agentDir,
+            allowRunCode: resolvedMainAgent?.tools === undefined || resolvedMainAgent.tools.includes("run_code"),
+          },
+        ),
+        ...(resolvedMainAgent?.resourceLoaderOptions ?? {}),
+      },
     });
     const extensionDiagnostics = [
-      ...extensionLoadDiagnostics(extensionSet, services.resourceLoader.getExtensions()),
-      ...extensionServiceDiagnostics(extensionSet, services.diagnostics),
+      ...extensionLoadDiagnostics(effectiveExtensionSet, services.resourceLoader.getExtensions()),
+      ...extensionServiceDiagnostics(effectiveExtensionSet, services.diagnostics),
     ];
     const preflightExtensionDiagnostics = extensionDiagnostics.filter(isBlockingExtensionDiagnostic);
     if (preflightExtensionDiagnostics.length > 0) {
@@ -227,6 +251,7 @@ export class SessionRuntime {
       services,
       sessionManager,
       ...(selection ? { model: selection.model, thinkingLevel: selection.thinkingLevel } : {}),
+      ...(resolvedMainAgent?.tools !== undefined ? { tools: resolvedMainAgent.tools } : {}),
       sessionStartEvent: { type: "session_start", reason: isNewSession ? "new" : "resume" },
     });
     let runtime: SessionRuntime;
@@ -236,11 +261,12 @@ export class SessionRuntime {
         options.cwd,
         result.session,
         services.modelRuntime,
-        extensionSet,
+        effectiveExtensionSet,
         options.initialUpdatedAt,
         options.subagentRuntime,
         registryHolder,
         builder,
+        options.mainAgentSnapshot,
         options.push,
         options.onSummaryChanged,
       );
@@ -328,7 +354,7 @@ export class SessionRuntime {
     } finally {
       runtime.extensionPhase = "runtime";
     }
-    const pluginSkillDiagnostics = validatePluginSkills(extensionSet, services.resourceLoader.getSkills());
+    const pluginSkillDiagnostics = validatePluginSkills(effectiveExtensionSet, services.resourceLoader.getSkills());
     extensionDiagnostics.push(...pluginSkillDiagnostics);
     runtime.extensionDiagnostics.push(
       ...pluginSkillDiagnostics.map((diagnostic) => ({
@@ -435,6 +461,8 @@ export class SessionRuntime {
 
   async runGoalAction(action: SessionGoalActionInput["action"]): Promise<PiGoalSnapshot> {
     this.assertTimelineAvailable();
+    if (!this.extensionSet.entries.some((entry) => entry.id === "pi-goal"))
+      throw new Error("Goal is disabled for this main agent");
     return runDesktopGoalAction(this.cwd, this.id, action);
   }
 
@@ -493,6 +521,22 @@ export class SessionRuntime {
     return this.projector.resolveRunCodeArtifact(toolCallId, artifactId);
   }
 
+  pluginRuntime(pluginId?: string) {
+    const loaded = this.session.resourceLoader.getExtensions();
+    return {
+      generation: this.extensionSet.generation,
+      phase: this.projector.snapshot().phase,
+      loaded: loaded.extensions.map((extension) => extension.path),
+      diagnostics: this.extensionDiagnostics,
+      lastError: this.lastError,
+      captured: this.runCodeRegistry.snapshot(pluginId),
+      nativeTools: this.session.getAllTools().map((tool) => ({ name: tool.name, description: tool.description })),
+      skills: this.session.resourceLoader
+        .getSkills()
+        .skills.map((skill) => ({ name: skill.name, filePath: skill.filePath })),
+    };
+  }
+
   async reloadResources(): Promise<SessionCommandResult> {
     this.assertTimelineAvailable();
     const phase = this.projector.snapshot().phase;
@@ -510,10 +554,12 @@ export class SessionRuntime {
       await this.session.reload();
       this.runCodeRegistry.bind(this.runCodeRegistryBuilder.finalize(), this.cwd);
       const lifecycleDiagnostics = this.extensionDiagnostics;
+      const pluginSkillDiagnostics = validatePluginSkills(this.extensionSet, this.session.resourceLoader.getSkills());
       this.extensionDiagnostics = [
         ...extensionLoadDiagnostics(this.extensionSet, this.session.resourceLoader.getExtensions()).map(
           (diagnostic) => ({ ...diagnostic, threadId: this.id }),
         ),
+        ...pluginSkillDiagnostics.map((diagnostic) => ({ ...diagnostic, threadId: this.id })),
         ...lifecycleDiagnostics,
       ];
       this.lastError = joinRuntimeDiagnostics(
@@ -650,7 +696,10 @@ export class SessionRuntime {
         reloadRequired: false,
       },
       extensionHost: this.extensionHost.hostState,
-      goal: getDesktopGoalSnapshot(this.cwd, this.id),
+      mainAgent: this.mainAgentSnapshot ? structuredClone(this.mainAgentSnapshot) : undefined,
+      goal: this.extensionSet.entries.some((entry) => entry.id === "pi-goal")
+        ? getDesktopGoalSnapshot(this.cwd, this.id)
+        : undefined,
     };
   }
 

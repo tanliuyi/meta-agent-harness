@@ -19,6 +19,7 @@ const SETTINGS_LINKS = [
   { to: "/settings/personalization", label: "个性化", icon: Palette },
   { to: "/settings/keyboard", label: "键盘快捷键", icon: Keyboard },
   { to: "/settings/models", label: "模型服务商", icon: Server },
+  { to: "/settings/agents", label: "智能体", icon: Bot },
   { to: "/settings/auto-title", label: "自动标题", icon: Sparkles },
   { to: "/settings/browser", label: "浏览器", icon: Globe },
   { to: "/settings/memory", label: "记忆", icon: Brain },

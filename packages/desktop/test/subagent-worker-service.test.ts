@@ -201,7 +201,7 @@ describe("SubagentWorkerService", () => {
     ).toBe(true);
   });
 
-  it("loads an explicitly approved child extension and rejects implicit paths", async () => {
+  it.each([false, true])("loads approved ACP tools atomically (compress excluded: %s)", async (excluded) => {
     const root = join(tmpdir(), `desktop-child-extension-${Date.now()}-${Math.random().toString(36).slice(2)}`);
     mkdirSync(root, { recursive: true });
     cleanups.push(() => rmSync(root, { recursive: true, force: true }));
@@ -209,11 +209,22 @@ describe("SubagentWorkerService", () => {
     const childExtensionPath = join(root, "child-extension.js");
     writeFileSync(
       childExtensionPath,
-      `import { writeFileSync } from "node:fs"; import { Type } from "typebox"; export default function (pi) { writeFileSync(${JSON.stringify(markerPath)}, "loaded"); pi.registerTool({ name: "child_marker", label: "Child marker", description: "test", parameters: Type.Object({}), async execute() { return { content: [{ type: "text", text: "ok" }] }; } }); }\n`,
+      `import { writeFileSync } from "node:fs"; import { Type } from "typebox"; export default function (pi) { writeFileSync(${JSON.stringify(markerPath)}, "loaded"); pi.on("session_before_compact", () => ({ cancel: true })); for (const name of ["compress", "decompress", "search_context", "acp_status"]) pi.registerTool({ name, label: name, description: "test ACP", parameters: Type.Object({}), async execute() { return { content: [{ type: "text", text: "ok" }] }; } }); }\n`,
     );
     const canonicalChildExtensionPath = realpathSync(childExtensionPath);
     const faux = registerFauxProvider({ models: [{ id: "child-model", reasoning: false }] });
-    faux.setResponses([fauxAssistantMessage("child complete")]);
+    let toolsObserved = false;
+    faux.setResponses([
+      (context) => {
+        const toolNames = context.tools?.map((tool) => tool.name) ?? [];
+        for (const name of ["compress", "decompress", "search_context", "acp_status"]) {
+          expect(toolNames.includes(name)).toBe(!excluded);
+        }
+        expect(toolNames).toContain("read");
+        toolsObserved = true;
+        return fauxAssistantMessage("child complete");
+      },
+    ]);
     cleanups.push(() => faux.unregister());
     const model = faux.getModel();
     const providerFactory = (api: ExtensionAPI): void => {
@@ -260,12 +271,16 @@ describe("SubagentWorkerService", () => {
           ...baseRequest(),
           cwd: root,
           model: `${model.provider}/${model.id}`,
-          tools: ["read", "child_marker"],
-          childExtensions: [{ path: canonicalChildExtensionPath, tools: ["child_marker"] }],
+          tools: excluded ? ["read", "compress", "decompress", "search_context", "acp_status"] : ["read"],
+          ...(excluded ? { excludeTools: ["compress"] } : {}),
+          childExtensions: [
+            { path: canonicalChildExtensionPath, tools: ["compress", "decompress", "search_context", "acp_status"] },
+          ],
         },
       }),
     ).resolves.toMatchObject({ status: "completed" });
-    expect(existsSync(markerPath)).toBe(true);
+    expect(toolsObserved).toBe(true);
+    expect(existsSync(markerPath)).toBe(!excluded);
 
     const invalid = await SubagentWorkerService.create(
       {
@@ -581,21 +596,46 @@ describe("SubagentWorkerService", () => {
     });
   }, 15_000);
 
-  it("routes nested fanout back through a second programmatic worker", async () => {
+  it("keeps memory disabled through two nested fanout workers including role-memory prompts", async () => {
     const root = join(tmpdir(), `desktop-subagent-nested-${Date.now()}-${Math.random().toString(36).slice(2)}`);
     mkdirSync(root, { recursive: true });
     cleanups.push(() => rmSync(root, { recursive: true, force: true }));
     const faux = registerFauxProvider({ models: [{ id: "nested-model", reasoning: false }] });
+    mkdirSync(join(root, ".pi", "agents"), { recursive: true });
+    writeFileSync(
+      join(root, ".pi", "agents", "memory-worker.md"),
+      [
+        "---",
+        "name: memory-worker",
+        "description: Nested memory regression",
+        "tools: subagent, read, write",
+        "inheritSkills: false",
+        "inheritProjectContext: false",
+        "memory: { scope: user, path: disabled-nested-memory }",
+        "---",
+        "Do nested work.",
+      ].join("\n"),
+    );
     faux.setResponses([
       fauxAssistantMessage(
         fauxToolCall("subagent", {
-          agent: "delegate",
+          agent: "memory-worker",
           task: "complete nested work",
           acceptance: false,
           async: false,
         }),
         { stopReason: "toolUse" },
       ),
+      fauxAssistantMessage(
+        fauxToolCall("subagent", {
+          agent: "memory-worker",
+          task: "complete second nested level",
+          acceptance: false,
+          async: false,
+        }),
+        { stopReason: "toolUse" },
+      ),
+      fauxAssistantMessage("second nested worker result"),
       fauxAssistantMessage("nested worker result"),
       fauxAssistantMessage("parent received nested result"),
     ]);
@@ -679,20 +719,25 @@ describe("SubagentWorkerService", () => {
       cwd: root,
       model: `${model.provider}/${model.id}`,
       tools: ["subagent"],
-      maxDepth: 2,
+      maxDepth: 3,
       extensionProfile: ["runtime", "fanout"],
     };
 
     await expect(created.service.command({ type: "subagentRun", request })).resolves.toMatchObject({
       status: "completed",
     });
-    expect(nestedRequests).toHaveLength(1);
+    expect(nestedRequests).toHaveLength(2);
+    for (const nested of nestedRequests) {
+      expect(nested.extensionProfile).not.toContain("memory");
+      expect(nested.systemPrompt).not.toContain("Persistent agent memory");
+    }
+    expect(nestedRequests[1]?.depth).toBe(3);
     expect(nestedRequests[0]).toMatchObject({
       projectId: "project",
       parentThreadId: "thread",
       rootRunId: "root-run",
       depth: 2,
-      maxDepth: 2,
+      maxDepth: 3,
       lineage: [{ runId: "root-run", childIndex: 0 }],
     });
     expect(
