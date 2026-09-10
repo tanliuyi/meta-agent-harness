@@ -533,6 +533,23 @@ body.is-resizing-column .sidebar {
   padding-top: 0;
 }
 
+.sidebar-plugin-icon {
+  position: relative;
+  display: inline-flex;
+  flex: 0 0 auto;
+}
+
+.sidebar-plugin-update-dot {
+  position: absolute;
+  top: -3px;
+  right: -3px;
+  width: 8px;
+  height: 8px;
+  border: 1.5px solid hsl(var(--background));
+  border-radius: 50%;
+  background: hsl(var(--destructive));
+}
+
 .sidebar-projects {
   padding: 0 8px;
 }

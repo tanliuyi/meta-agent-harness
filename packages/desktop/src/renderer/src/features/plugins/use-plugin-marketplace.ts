@@ -5,6 +5,7 @@ import type {
   MarketplacePluginScope,
   MarketplacePluginSummary,
 } from "../../../../shared/plugin-marketplace-contracts.ts";
+import { notifyMarketplacePluginsChanged } from "./plugin-update-status.tsx";
 
 export interface PluginMarketplaceController {
   page?: MarketplacePluginPage;
@@ -117,6 +118,7 @@ export function usePluginMarketplace(enabled = true, initialQuery = ""): PluginM
         if (!mounted.current) return;
         installedSnapshotEpoch.current += 1;
         setInstalled(result.status === "conflict" ? result.current : result.snapshot);
+        notifyMarketplacePluginsChanged();
         if (result.status === "conflict") setError("插件安装状态已变化，请重试");
         else if (result.status === "already-installed") setNotice("插件已在本机安装，已同步最新状态");
         else if (result.status === "installed" && result.recoveryPending) {
@@ -159,6 +161,7 @@ export function usePluginMarketplace(enabled = true, initialQuery = ""): PluginM
         if (!mounted.current) return;
         installedSnapshotEpoch.current += 1;
         setInstalled(result.status === "conflict" ? result.current : result.snapshot);
+        notifyMarketplacePluginsChanged();
         if (result.status === "conflict") setError("插件安装状态已变化，请重试");
         else if (result.status === "not-installed") setNotice("插件已不在本机，无法更新，已同步最新状态");
         else if (result.status === "same-version") setNotice("插件已是该版本，无需更新");
@@ -193,6 +196,7 @@ export function usePluginMarketplace(enabled = true, initialQuery = ""): PluginM
         if (!mounted.current) return;
         installedSnapshotEpoch.current += 1;
         setInstalled(result.status === "conflict" ? result.current : result.snapshot);
+        notifyMarketplacePluginsChanged();
         if (result.status === "conflict") setError("插件安装状态已变化，请重试");
         else if (result.status === "not-installed") setNotice("插件已被卸载，已同步最新状态");
         else if (result.status === "uninstalled" && result.recoveryPending) {
@@ -226,6 +230,7 @@ export function usePluginMarketplace(enabled = true, initialQuery = ""): PluginM
         if (!mounted.current) return;
         installedSnapshotEpoch.current += 1;
         setInstalled(result.status === "conflict" ? result.current : result.snapshot);
+        notifyMarketplacePluginsChanged();
         if (result.status === "conflict") setError("插件安装状态已变化，请重试");
         else if (result.status === "not-installed") setNotice("插件已不在本机，已同步最新状态");
         else if (result.status === "broken") setError("插件已损坏，无法启用");
@@ -259,6 +264,7 @@ export function usePluginMarketplace(enabled = true, initialQuery = ""): PluginM
         if (!mounted.current) return;
         installedSnapshotEpoch.current += 1;
         setInstalled(result.status === "conflict" ? result.current : result.snapshot);
+        notifyMarketplacePluginsChanged();
         if (result.status === "conflict") setError("插件安装状态已变化，请重试");
         else if (result.status === "not-installed") setNotice("插件已不在本机，已同步最新状态");
         else setNotice("插件作用域已更新；新会话自动生效，当前会话需运行 /reload");

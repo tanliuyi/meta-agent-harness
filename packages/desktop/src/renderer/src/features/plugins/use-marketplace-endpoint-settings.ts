@@ -4,6 +4,7 @@ import type {
   SaveMarketplaceEndpointResult,
   TestMarketplaceEndpointResult,
 } from "../../../../shared/plugin-marketplace-contracts.ts";
+import { notifyMarketplacePluginsChanged } from "./plugin-update-status.tsx";
 
 export interface MarketplaceEndpointSettingsController {
   snapshot?: MarketplaceEndpointSettingsSnapshot;
@@ -88,6 +89,7 @@ export function useMarketplaceEndpointSettings(): MarketplaceEndpointSettingsCon
         } else {
           setSnapshot(result.snapshot);
           setTestResult(undefined);
+          notifyMarketplacePluginsChanged();
         }
         return result;
       } catch (reason) {

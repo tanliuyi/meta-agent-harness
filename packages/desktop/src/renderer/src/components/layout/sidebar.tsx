@@ -7,6 +7,7 @@ import Plus from "lucide-react/dist/esm/icons/plus.mjs";
 import Settings from "lucide-react/dist/esm/icons/settings.mjs";
 import { type CSSProperties, memo, useCallback } from "react";
 import { GENERAL_WORKSPACE_ID } from "../../../../shared/contracts.ts";
+import { usePluginUpdatesAvailable } from "../../features/plugins/plugin-update-status.tsx";
 import { useDesktopActions } from "../../state/desktop-context.tsx";
 import { useDraftSession } from "../../state/draft-session-context.tsx";
 import { useLayout } from "../../state/layout.tsx";
@@ -30,6 +31,7 @@ const sidebarRowClass =
 /** Codex Desktop 风格的 Project 与 session 主导航。floating 模式用于收起后的悬停浮出预览。 */
 export const Sidebar = memo(function Sidebar({ floating = false }: { floating?: boolean }) {
   const actions = useDesktopActions();
+  const pluginUpdatesAvailable = usePluginUpdatesAvailable();
   const draftMaterializing = useSessionDraftMaterializing();
   const draft = useDraftSession();
   const { sidebarOpen, sidebarWidth, setSidebarWidth } = useLayout();
@@ -137,8 +139,12 @@ export const Sidebar = memo(function Sidebar({ floating = false }: { floating?: 
                 <nav className="sidebar-actions sidebar-secondary-actions" aria-label="辅助操作">
                   <Button asChild variant="ghost" className={sidebarRowClass}>
                     <Link to="/plugins" search={settingsSearch}>
-                      <Blocks size={16} />
+                      <span className="sidebar-plugin-icon" aria-hidden="true">
+                        <Blocks size={16} />
+                        {pluginUpdatesAvailable ? <span className="sidebar-plugin-update-dot" /> : null}
+                      </span>
                       <span className="whitespace-nowrap">插件中心</span>
+                      {pluginUpdatesAvailable ? <span className="sr-only">有插件可更新</span> : null}
                     </Link>
                   </Button>
                 </nav>

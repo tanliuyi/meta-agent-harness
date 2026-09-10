@@ -23,7 +23,7 @@ import {
   useSessionCacheActiveKey,
   useSessionCacheRecords,
 } from "../../state/session-cache-context.tsx";
-import { useSessionNavigation } from "../../state/session-navigation.ts";
+import { useSessionNavigation, useSessionRouteParams } from "../../state/session-navigation.ts";
 import { TooltipIconButton } from "../assistant-ui/tooltip-icon-button.tsx";
 
 export type DesktopSessionTabStatus = "blocked" | "running" | "error" | "completed" | "idle";
@@ -104,6 +104,9 @@ export function DesktopSessionTabs() {
   const activeKey = useSessionCacheActiveKey();
   const threadCatalogs = useDesktopSelector((state) => state.threadCatalogs);
   const { openDraft, openSession } = useSessionNavigation();
+  const routeSession = useSessionRouteParams();
+  const routeProjectId = routeSession?.projectId;
+  const routeThreadId = routeSession?.threadId;
   const { getBindings, primaryModifierPressed, registerCommandHandler } = useKeyboardShortcuts();
   const listRef = useRef<HTMLDivElement>(null);
   const tabElementsRef = useRef(new Map<string, HTMLDivElement>());
@@ -120,6 +123,7 @@ export function DesktopSessionTabs() {
   } | null>(null);
   const suppressActivationRef = useRef(false);
   const [tabOrder, setTabOrder] = useState<string[]>([]);
+  const [closingKeys, setClosingKeys] = useState<ReadonlySet<string>>(() => new Set());
   const [draggedKey, setDraggedKey] = useState<string | null>(null);
   const [dragOffsetX, setDragOffsetX] = useState(0);
   const [canScrollLeft, setCanScrollLeft] = useState(false);
@@ -134,8 +138,10 @@ export function DesktopSessionTabs() {
       return record ? [record] : [];
     });
     const orderedKeys = new Set(tabOrder);
-    return [...ordered, ...records.filter((record) => !orderedKeys.has(record.key))];
-  }, [records, tabOrder]);
+    return [...ordered, ...records.filter((record) => !orderedKeys.has(record.key))].filter(
+      (record) => !closingKeys.has(record.key),
+    );
+  }, [closingKeys, records, tabOrder]);
 
   useEffect(() => {
     const recordKeys = records.map((record) => record.key);
@@ -146,6 +152,10 @@ export function DesktopSessionTabs() {
         ...recordKeys.filter((key) => !current.includes(key)),
       ];
       return next.length === current.length && next.every((key, index) => key === current[index]) ? current : next;
+    });
+    setClosingKeys((current) => {
+      const next = new Set([...current].filter((key) => recordKeySet.has(key)));
+      return next.size === current.size ? current : next;
     });
   }, [records]);
 
@@ -188,6 +198,10 @@ export function DesktopSessionTabs() {
         threadId: record.identity.threadId,
       })),
     [orderedRecords],
+  );
+  const selectedTabKey = useMemo(
+    () => tabs.find((tab) => tab.projectId === routeProjectId && tab.threadId === routeThreadId)?.key ?? null,
+    [routeProjectId, routeThreadId, tabs],
   );
 
   useLayoutEffect(() => {
@@ -235,13 +249,15 @@ export function DesktopSessionTabs() {
   useEffect(() => {
     const activeTab = listRef.current?.querySelector<HTMLElement>('.desktop-session-tab-trigger[aria-selected="true"]');
     activeTab?.scrollIntoView({ behavior: "smooth", block: "nearest", inline: "nearest" });
-  }, [activeKey]);
+  }, [selectedTabKey]);
 
   const activate = useCallback(
     (tab: DesktopSessionTab) => {
-      if (tab.key !== activeKey) void openSession(tab.projectId, tab.threadId);
+      if (tab.projectId !== routeProjectId || tab.threadId !== routeThreadId) {
+        void openSession(tab.projectId, tab.threadId);
+      }
     },
-    [activeKey, openSession],
+    [openSession, routeProjectId, routeThreadId],
   );
 
   useEffect(() => {
@@ -249,7 +265,9 @@ export function DesktopSessionTabs() {
       registerCommandHandler(
         DESKTOP_SESSION_TAB_COMMAND_IDS[index]!,
         () => {
-          if (tab.key !== activeKey) void openSession(tab.projectId, tab.threadId);
+          if (tab.projectId !== routeProjectId || tab.threadId !== routeThreadId) {
+            void openSession(tab.projectId, tab.threadId);
+          }
         },
         tab.key,
       ),
@@ -257,7 +275,7 @@ export function DesktopSessionTabs() {
     return () => {
       for (const dispose of unregister) dispose();
     };
-  }, [activeKey, openSession, registerCommandHandler, shortcutTabs]);
+  }, [openSession, registerCommandHandler, routeProjectId, routeThreadId, shortcutTabs]);
 
   const createTask = useCallback(() => {
     const projectId = tabs.find(({ key }) => key === activeKey)?.projectId;
@@ -266,15 +284,29 @@ export function DesktopSessionTabs() {
 
   const closeTab = useCallback(
     async (tab: DesktopSessionTab, index: number) => {
-      if (tab.key === activeKey) {
-        const nextTab = nextDesktopSessionTab(tabs, index);
-        if (nextTab) await openSession(nextTab.projectId, nextTab.threadId);
-        else await openDraft(tab.projectId);
+      setClosingKeys((current) => new Set(current).add(tab.key));
+      let retired = false;
+      try {
+        if (tab.projectId === routeProjectId && tab.threadId === routeThreadId) {
+          const nextTab = nextDesktopSessionTab(tabs, index);
+          if (nextTab) await openSession(nextTab.projectId, nextTab.threadId);
+          else await openDraft(tab.projectId);
+        }
+        await cache.retire(tab.key);
+        retired = true;
+        await window.desktop.sessions.close(tab.projectId, tab.threadId);
+      } catch (error) {
+        if (!retired) {
+          setClosingKeys((current) => {
+            const next = new Set(current);
+            next.delete(tab.key);
+            return next;
+          });
+        }
+        throw error;
       }
-      await cache.retire(tab.key);
-      await window.desktop.sessions.close(tab.projectId, tab.threadId);
     },
-    [activeKey, cache, openDraft, openSession, tabs],
+    [cache, openDraft, openSession, routeProjectId, routeThreadId, tabs],
   );
 
   const handleKeyDown = (event: KeyboardEvent<HTMLButtonElement>, index: number) => {
@@ -406,7 +438,7 @@ export function DesktopSessionTabs() {
         onWheel={handleWheel}
       >
         {tabs.map((tab, index) => {
-          const active = tab.key === activeKey;
+          const selected = tab.key === selectedTabKey;
           const commandId = DESKTOP_SESSION_TAB_COMMAND_IDS[index];
           const shortcutHint =
             primaryModifierPressed && commandId ? primaryDigitShortcutHint(getBindings(commandId)) : undefined;
@@ -418,7 +450,7 @@ export function DesktopSessionTabs() {
                 else tabElementsRef.current.delete(tab.key);
               }}
               className="desktop-session-tab"
-              data-active={active || undefined}
+              data-active={selected || undefined}
               data-dragging={draggedKey === tab.key || undefined}
               data-tab-index={index}
               style={draggedKey === tab.key ? { transform: `translate3d(${dragOffsetX}px, 0, 0)` } : undefined}
@@ -428,8 +460,8 @@ export function DesktopSessionTabs() {
                 type="button"
                 className="desktop-session-tab-trigger"
                 role="tab"
-                aria-selected={active}
-                tabIndex={active || (activeKey === null && index === 0) ? 0 : -1}
+                aria-selected={selected}
+                tabIndex={selected || (selectedTabKey === null && index === 0) ? 0 : -1}
                 title={tab.title}
                 onClick={() => {
                   if (suppressActivationRef.current) return;

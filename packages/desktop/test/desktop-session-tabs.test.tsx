@@ -11,6 +11,7 @@ import { PROTOCOL_VERSION } from "../src/shared/contracts.ts";
 const testState = vi.hoisted(() => ({
   records: [] as CachedSessionRecord[],
   activeKey: null as string | null,
+  routeSession: null as { projectId: string; threadId: string } | null,
   desktop: {
     projects: [],
     activeProjectId: null,
@@ -35,6 +36,7 @@ vi.mock("../src/renderer/src/state/desktop-context.tsx", () => ({
 
 vi.mock("../src/renderer/src/state/session-navigation.ts", () => ({
   useSessionNavigation: () => ({ openDraft: testState.openDraft, openSession: testState.openSession }),
+  useSessionRouteParams: () => testState.routeSession,
 }));
 
 vi.mock("../src/renderer/src/state/layout.tsx", () => ({
@@ -109,6 +111,7 @@ function setupSessions(): void {
   });
   testState.records = [first, second];
   testState.activeKey = first.key;
+  testState.routeSession = { projectId: "project-a", threadId: "thread-a" };
   testState.desktop = {
     projects: [],
     activeProjectId: "project-a",
@@ -249,6 +252,7 @@ describe("DesktopSessionTabs", () => {
   it("shows the new-task button before a session is opened", () => {
     testState.records = [];
     testState.activeKey = null;
+    testState.routeSession = null;
     testState.desktop = { ...testState.desktop, threadCatalogs: {} };
 
     const markup = renderToStaticMarkup(<DesktopSessionTabs />);
