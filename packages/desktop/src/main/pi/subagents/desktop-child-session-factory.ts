@@ -80,7 +80,7 @@ function createRemoteChildSession(
     if (!runId || !agent || childIndex === undefined) {
       return Promise.reject(new Error("Desktop subagent launch is missing run identity"));
     }
-    const registeredExtensions = runtime.getChildExtensions?.() ?? [];
+    const registeredExtensions = [...(runtime.getChildExtensions?.() ?? [])];
     const childExtensions = childExtensionsForLaunch(registeredExtensions, launch);
     const activeExtensionPaths = new Set(childExtensions.map((extension) => extension.path));
     const unavailableExtensionTools = new Set(
