@@ -241,7 +241,7 @@ async function smokeSubagentWorker(executable, entry, compatibility, agentDir) {
       if (message.kind === "ready") {
         worker.send({
           kind: "request",
-          protocolVersion: 3,
+          protocolVersion: 4,
           workerInstanceId,
           requestId,
           command: { type: "ping" },
@@ -264,7 +264,7 @@ async function smokeSubagentWorker(executable, entry, compatibility, agentDir) {
   worker.once("spawn", () => {
     worker.send({
       kind: "initialize",
-      protocolVersion: 3,
+      protocolVersion: 4,
       workerInstanceId,
       expectedRuntime: compatibility,
       binding: {
@@ -281,7 +281,7 @@ async function smokeSubagentWorker(executable, entry, compatibility, agentDir) {
   });
   try {
     await result;
-    worker.send({ kind: "shutdown", protocolVersion: 3, workerInstanceId });
+    worker.send({ kind: "shutdown", protocolVersion: 4, workerInstanceId });
     await waitForExit(worker, 10_000);
   } finally {
     if (worker.exitCode === null && worker.signalCode === null) worker.kill("SIGKILL");
@@ -342,7 +342,7 @@ async function smokeMetadataWorker(executable, entry, compatibility, agentDir, u
   worker.once("spawn", () => {
     worker.send({
       kind: "initialize",
-      protocolVersion: 3,
+      protocolVersion: 4,
       workerInstanceId,
       expectedRuntime: compatibility,
       binding: { role: "metadata", value: { agentDir, userDataDir } },
@@ -350,7 +350,7 @@ async function smokeMetadataWorker(executable, entry, compatibility, agentDir, u
   });
   try {
     await ready;
-    worker.send({ kind: "shutdown", protocolVersion: 3, workerInstanceId });
+    worker.send({ kind: "shutdown", protocolVersion: 4, workerInstanceId });
     await waitForExit(worker, 10_000);
   } finally {
     if (worker.exitCode === null && worker.signalCode === null) worker.kill("SIGKILL");
