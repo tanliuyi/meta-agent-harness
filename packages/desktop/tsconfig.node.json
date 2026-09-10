@@ -7,6 +7,8 @@
     "module": "ESNext",
     "moduleResolution": "Bundler",
     "paths": {
+      "@earendil-works/chord": ["../chord/src/index.ts"],
+      "@earendil-works/chord/context": ["../chord/src/context/index.ts"],
       "@earendil-works/pi-ai": ["../ai/src/index.ts"],
       "@earendil-works/pi-ai/*": ["../ai/src/*"],
       "@earendil-works/pi-agent-core": ["../agent/src/index.ts"],

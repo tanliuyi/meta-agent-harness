@@ -4,6 +4,8 @@
     "noEmit": true,
     "rootDir": "..",
     "paths": {
+      "@earendil-works/chord": ["../chord/src/index.ts"],
+      "@earendil-works/chord/context": ["../chord/src/context/index.ts"],
       "@earendil-works/pi-ai": ["../ai/src/index.ts"],
       "@earendil-works/pi-ai/compat": ["../ai/src/compat.ts"],
       "@earendil-works/pi-ai/*": ["../ai/src/*.ts"],

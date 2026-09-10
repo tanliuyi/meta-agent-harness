@@ -16,7 +16,7 @@
     "generate-routes": "tsr generate",
     "generate:run-code-catalogs": "node --import tsx scripts/generate-run-code-catalogs.mjs",
     "predev": "npm run prepare:node-pty && npm run generate-routes",
-    "build:pi": "npm --prefix ../tui run build && npm --prefix ../telemetry run build && npm --prefix ../ai run build:offline && npm --prefix ../agent run build && npm --prefix ../protocol run build && npm --prefix ../client run build && npm --prefix ../coding-agent run build && npm run build:sidecar",
+    "build:pi": "npm --prefix ../chord run build && npm --prefix ../tui run build && npm --prefix ../telemetry run build && npm --prefix ../ai run build:offline && npm --prefix ../agent run build && npm --prefix ../protocol run build && npm --prefix ../client run build && npm --prefix ../coding-agent run build && npm run build:sidecar",
     "build:sidecar": "node ../../scripts/build-desktop-sidecar.mjs",
     "dev": "npm run build:pi && node ../../scripts/run-desktop-electron-vite.mjs dev",
     "prepreview": "npm run prepare:node-pty && npm run generate-routes",
@@ -32,8 +32,8 @@
     "smoke:gui": "node ../../scripts/smoke-desktop-gui.mjs"
   },
   "dependencies": {
-    "@earendil-works/pi-ai": "0.84.4",
-    "@earendil-works/pi-coding-agent": "0.84.4",
+    "@earendil-works/pi-ai": "0.85.1",
+    "@earendil-works/pi-coding-agent": "0.85.1",
     "@floating-ui/react": "0.27.20",
     "@rc-component/image": "1.10.0",
     "@tanstack/react-virtual": "3.14.9",

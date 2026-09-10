@@ -24,7 +24,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { getModelsConfigMetadata } from "../src/main/models/models-config-metadata.ts";
 import { parseModelsConfigSource } from "../src/main/models/models-config-schema.ts";
 
-describe("Pi coding-agent 0.82.1 public compatibility", () => {
+describe("Pi coding-agent 0.85.1 public compatibility", () => {
   let harness: Awaited<ReturnType<typeof createPublicHarness>>;
 
   beforeEach(async () => {

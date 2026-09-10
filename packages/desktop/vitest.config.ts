@@ -6,6 +6,18 @@ const packagesRoot = resolve("..");
 export default defineConfig({
   resolve: {
     alias: [
+      {
+        find: "@earendil-works/chord/context",
+        replacement: resolve(packagesRoot, "chord/src/context/index.ts"),
+      },
+      {
+        find: "@earendil-works/chord/delta",
+        replacement: resolve(packagesRoot, "chord/src/delta/index.ts"),
+      },
+      {
+        find: "@earendil-works/chord",
+        replacement: resolve(packagesRoot, "chord/src/index.ts"),
+      },
       { find: "@renderer", replacement: resolve("src/renderer/src") },
       {
         find: /^@earendil-works\/pi-ai\/(.+)$/,

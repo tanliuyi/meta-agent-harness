@@ -49,3 +49,4 @@ dist-skill/
 .pi/subagents/
 NUL
 .pi/images/
+packages/agent/docs/extensions/pi-server-artifact/index.md
