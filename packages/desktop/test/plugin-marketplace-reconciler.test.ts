@@ -57,6 +57,25 @@ describe("MarketplacePluginReconciler", () => {
     ]);
   });
 
+  it("marks a plugin broken when a required payload dependency is missing", async () => {
+    const harness = await createHarness();
+    const installed = await harness.registry.commitInstall(MISSING_MARKETPLACE_REGISTRY_REVISION, harness.record);
+    if (installed.status !== "saved") throw new Error("Expected registry install");
+    await writeMarketplaceProjection(harness.record);
+    await writeFile(
+      join(harness.record.rootPath, ".versions", harness.record.artifactHash, "payload", "package.json"),
+      JSON.stringify({ name: "test-plugin", private: true, dependencies: { zod: "4.3.6" } }),
+      "utf8",
+    );
+
+    await harness.reconciler.reconcile();
+
+    await expect(harness.registry.getInternalSnapshot()).resolves.toMatchObject({
+      plugins: [{ id: harness.record.id, state: "broken", enabled: false }],
+    });
+    await expect(pathExists(join(harness.record.rootPath, "index.ts"))).resolves.toBe(false);
+  });
+
   it("migrates a Desktop-owned plugin from the legacy Pi extension root", async () => {
     const harness = await createHarness();
     const installed = await harness.registry.commitInstall(MISSING_MARKETPLACE_REGISTRY_REVISION, harness.record);

@@ -88,6 +88,22 @@ describe("MarketplacePluginInstaller", () => {
     expect(repeated.status).toBe("already-installed");
   });
 
+  it("rejects an artifact whose required payload dependency is missing", async () => {
+    const harness = await createHarness({ payloadDependencies: { zod: "4.3.6" } });
+    const initial = await harness.registry.getSnapshot();
+
+    await expect(
+      harness.installer.install({
+        requestId: "install-missing-dependency",
+        expectedRevision: initial.revision,
+        pluginId: "dev.meta-agent.example-tools",
+        version: "1.0.0",
+        confirmFullTrust: true,
+      }),
+    ).rejects.toThrow("Marketplace plugin dependency is missing: dev.meta-agent.example-tools: zod");
+    await expect(harness.registry.getSnapshot()).resolves.toEqual(initial);
+  });
+
   it("omits empty runtime compatibility values from artifact requests", async () => {
     const harness = await createHarness({
       runtimeCompatibility: { ...runtime, toolchain: "" },
@@ -684,6 +700,7 @@ async function createHarness(
     artifactResponse?(archive: Uint8Array, init?: RequestInit): Response;
     artifactKey?: string;
     runtimeCompatibility?: RuntimeCompatibility;
+    payloadDependencies?: Record<string, string>;
   } = {},
 ) {
   const root = join(tmpdir(), `plugin-marketplace-installer-${Date.now()}-${Math.random().toString(36).slice(2)}`);
@@ -735,6 +752,7 @@ async function createHarness(
         "payload/index.ts": {
           mode: "0644",
         },
+        ...(options.payloadDependencies ? { "payload/package.json": { mode: "0644" as const } } : {}),
       },
     };
     const archive = Buffer.from(
@@ -742,6 +760,14 @@ async function createHarness(
         {
           "market-manifest.json": Buffer.from(JSON.stringify(manifest), "utf8"),
           "payload/index.ts": payload,
+          ...(options.payloadDependencies
+            ? {
+                "payload/package.json": Buffer.from(
+                  JSON.stringify({ name: "test-plugin", private: true, dependencies: options.payloadDependencies }),
+                  "utf8",
+                ),
+              }
+            : {}),
         },
         { level: 9 },
       ),

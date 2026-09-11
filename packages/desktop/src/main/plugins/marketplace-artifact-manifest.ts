@@ -12,6 +12,7 @@ import {
 import type { RuntimeCompatibility } from "../../shared/sidecar-contracts.ts";
 import { parsePluginApiCatalog } from "../pi/run-code/plugin-method-registry.ts";
 import type { ExtractedMarketplaceArchive } from "./marketplace-artifact-archive.ts";
+import { validateMarketplacePayloadDependencies } from "./marketplace-plugin-dependencies.ts";
 
 export interface MarketplaceArtifactTarget {
   platform: string;
@@ -127,6 +128,7 @@ export async function readMarketplaceArtifactManifest(input: {
   if (!manifest.pi.entry.startsWith("payload/") || !input.archive.files.has(manifest.pi.entry)) {
     throw new Error("Marketplace entry is not present in the payload");
   }
+  await validateMarketplacePayloadDependencies(join(input.stagingRoot, "payload"), manifest.plugin.id);
   for (const item of [...manifest.nativeModules, ...manifest.executables]) {
     if (!input.archive.files.has(item.path)) throw new Error(`Marketplace native file is missing: ${item.path}`);
   }

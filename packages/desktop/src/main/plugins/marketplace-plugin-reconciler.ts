@@ -13,6 +13,7 @@ import {
   writeMarketplaceProjection,
   writeMarketplaceUninstallTombstone,
 } from "./marketplace-installed-plugin.ts";
+import { validateMarketplacePayloadDependencies } from "./marketplace-plugin-dependencies.ts";
 import { withMarketplacePluginLock } from "./marketplace-plugin-lock.ts";
 import type { InstalledMarketplacePluginRecord, MarketplacePluginRegistry } from "./marketplace-plugin-registry.ts";
 
@@ -88,6 +89,10 @@ export class MarketplacePluginReconciler {
   private async reconcileRegistered(record: InstalledMarketplacePluginRecord): Promise<void> {
     try {
       await validateInstalledMarketplacePlugin(record, this.marketplaceRoot);
+      await validateMarketplacePayloadDependencies(
+        resolve(record.rootPath, VERSION_DIRECTORY, record.artifactHash, "payload"),
+        record.id,
+      );
     } catch (error) {
       if (error instanceof MarketplacePluginRootMismatchError) {
         try {
