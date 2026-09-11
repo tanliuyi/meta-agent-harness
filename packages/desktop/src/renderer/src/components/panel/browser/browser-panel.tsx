@@ -57,7 +57,6 @@ import { BROWSER_PANEL_KIND } from "../builtin-panel-kinds.ts";
 import { BrowserAnnotationMarker } from "./browser-annotation-marker.tsx";
 import { AnnotationModeToggle } from "./browser-annotation-mode-toggle.tsx";
 import { BrowserNetworkErrorPage, failedAddressDisplay } from "./browser-network-error-page.tsx";
-import type { SessionBrowserRuntime } from "./browser-runtime-host.ts";
 import {
   activeViewIdOf,
   activeWebviewOf,
@@ -137,7 +136,9 @@ export function BrowserPanel() {
   const { notify } = useToast();
   const { projectId: sessionProjectId, threadId: sessionThreadId } = record.identity;
   const sessionKey = browserSessionKey(record.identity);
-  const [runtime, setRuntime] = useState<SessionBrowserRuntime>(() => ensureBrowserRuntime(record.identity));
+  // Runtime registry 是唯一所有者。每次渲染重新解析，确保 Fast Refresh 保留组件
+  // state 时不会继续引用已由上一 module generation dispose 的 runtime。
+  const runtime = ensureBrowserRuntime(record.identity);
   const [runtimeVersion, setRuntimeVersion] = useState(runtime.version);
   const [addressDraft, setAddressDraft] = useState("");
   const [addressFocused, setAddressFocused] = useState(false);
@@ -184,6 +185,7 @@ export function BrowserPanel() {
     record.stores.browserUi.getSnapshot() ?? { urls: [], activeIndex: 0 },
   );
   const sessionSnapshotReadyRef = useRef(runtime.views.length > 0 || runtime.tabs.length > 0);
+  const previousRuntimeRef = useRef(runtime);
   const currentSessionSnapshot = (): SessionBrowserUiSnapshot => {
     const currentUrlByTabId = new Map(runtime.tabs.map((tab) => [tab.tabId, tab.url]));
     return browserSessionSnapshot(
@@ -195,7 +197,13 @@ export function BrowserPanel() {
       sessionSnapshotRef.current.activeIndex,
     );
   };
-  if (sessionSnapshotReadyRef.current) sessionSnapshotRef.current = currentSessionSnapshot();
+  // HMR 切换 runtime 时保留上一实例最后生成的快照，供新实例恢复；正常更新
+  // 才用当前 runtime 覆盖快照。
+  if (previousRuntimeRef.current === runtime) {
+    if (sessionSnapshotReadyRef.current) sessionSnapshotRef.current = currentSessionSnapshot();
+  } else {
+    previousRuntimeRef.current = runtime;
+  }
   const pendingActiveIndexRef = useRef<number | null>(null);
   const annotationGeneration = useRef(0);
   // 标注模式会话代号：进入/退出时递增，使退出前发出的异步 hover/拾取结果失效（不回写）。
@@ -226,7 +234,7 @@ export function BrowserPanel() {
       setRuntimeVersion((version) => version + 1);
     });
     return unsubscribe;
-  }, [sessionKey]);
+  }, [runtime, sessionKey]);
 
   const openFindBar = useCallback(() => {
     setMoreMenuOpen(false);
@@ -253,7 +261,7 @@ export function BrowserPanel() {
           return;
         }
         const restored = snapshot.settings.restoreTabsOnLaunch
-          ? readStoredSessionSnapshot(sessionKey, record.stores.browserUi.getSnapshot())
+          ? readStoredSessionSnapshot(sessionKey, sessionSnapshotRef.current)
           : { urls: [], activeIndex: 0 };
         sessionSnapshotRef.current = restored;
         sessionSnapshotReadyRef.current = true;
@@ -276,8 +284,9 @@ export function BrowserPanel() {
     return () => {
       cancelled = true;
     };
+    // runtime 必须作为依赖：Fast Refresh 后在新 generation 上恢复视图。
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sessionKey]);
+  }, [runtime, sessionKey]);
 
   // runtime 重建时，等目标 view attach 获得 tabId 后恢复之前的活跃索引。
   useEffect(() => {
@@ -367,8 +376,7 @@ export function BrowserPanel() {
       runtime.container.setAttribute("data-offscreen", "");
       runtime.container.style.pointerEvents = "none";
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [runtime]);
 
   // 设备工具栏/device 尺寸：直接作用于 webview 元素（webview 是视口直接子元素）。
   useEffect(() => {
@@ -1568,16 +1576,6 @@ export function BrowserPanel() {
               {activeTab?.loadError ? (
                 <BrowserNetworkErrorPage error={activeTab.loadError} onRetry={retryNetworkError} />
               ) : null}
-              {bottomError && (
-                <div className="browser-panel-error" role="alert">
-                  <span className="browser-panel-error-text" title={bottomError}>
-                    {bottomError}
-                  </span>
-                  <button type="button" className="browser-panel-error-retry" onClick={retryBottomError}>
-                    {panelError || runtimeError ? "重建视图" : "重试"}
-                  </button>
-                </div>
-              )}
               {browserNotice ? (
                 <div className="browser-panel-notice" role="status">
                   {browserNotice}
@@ -1585,6 +1583,16 @@ export function BrowserPanel() {
               ) : null}
             </>
           ) : null}
+          {bottomError && (
+            <div className="browser-panel-error" role="alert">
+              <span className="browser-panel-error-text" title={bottomError}>
+                {bottomError}
+              </span>
+              <button type="button" className="browser-panel-error-retry" onClick={retryBottomError}>
+                {panelError || runtimeError ? "重建视图" : "重试"}
+              </button>
+            </div>
+          )}
           {views.find((view) => view.viewId === activeViewId)?.crashed ? (
             <div className="browser-crash-overlay" role="alert">
               <strong>页面已崩溃</strong>

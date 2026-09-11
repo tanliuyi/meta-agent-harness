@@ -215,7 +215,8 @@ export function BrowserRuntimeHost(): null {
 }
 
 function ensureParkingHost(): HTMLElement {
-  if (parkingHost) return parkingHost;
+  if (parkingHost?.isConnected) return parkingHost;
+  parkingHost = null;
   const parent = runtimeOptions.parkingHostParent?.() ?? document.body;
   const host = runtimeOptions.createContainer?.() ?? document.createElement("div");
   host.className = "browser-parking-host";
@@ -326,12 +327,44 @@ async function retireOwnedBrowserSession(sessionKey: string): Promise<void> {
   }
 }
 
+/** 淘汰 DOM 已断开的缓存 runtime；保留 session ownership 与待重放请求。 */
+function discardDisconnectedRuntime(sessionKey: string, runtime: SessionBrowserRuntime): void {
+  const internals = internalsByKey.get(sessionKey);
+  if (!internals || internals.runtime !== runtime) {
+    if (runtimes.get(sessionKey) === runtime) runtimes.delete(sessionKey);
+    return;
+  }
+  internals.retiring = true;
+  runtimes.delete(sessionKey);
+  internalsByKey.delete(sessionKey);
+  for (const cleanup of internals.elementCleanups.values()) cleanup();
+  for (const timer of internals.pollTimers.values()) clearInterval(timer);
+  const webContentsIds = [...internals.webContentsIdByView.values()];
+  for (const element of internals.elementByView.values()) element.remove();
+  internals.elementCleanups.clear();
+  internals.pollTimers.clear();
+  internals.elementByView.clear();
+  internals.webContentsIdByView.clear();
+  internals.tabIdByView.clear();
+  internals.viewIdByTabId.clear();
+  runtime.views = [];
+  runtime.tabs = [];
+  runtime.activeTabId = null;
+  runtime.container.remove();
+  for (const webContentsId of webContentsIds) {
+    void window.desktop.browser.detach(runtime.identity, webContentsId).catch(() => undefined);
+  }
+}
+
 /** 创建（或复用）会话 runtime；重放未处理的建 tab 请求并应用缓冲状态。 */
 export function ensureBrowserRuntime(identity: BrowserSessionIdentity): SessionBrowserRuntime {
   ensureNativeSubscriptions();
   const sessionKey = browserSessionKey(identity);
   const existing = runtimes.get(sessionKey);
-  if (existing) return existing;
+  if (existing) {
+    if (existing.container.isConnected) return existing;
+    discardDisconnectedRuntime(sessionKey, existing);
+  }
 
   // Vite HMR 会重建模块级 registry，但旧 webview DOM 仍可能存活。新 generation
   // 接管前移除同 session 的孤儿容器，防止 guest 与 renderer 持续叠加。

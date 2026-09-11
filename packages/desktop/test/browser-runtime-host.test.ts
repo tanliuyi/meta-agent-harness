@@ -37,6 +37,10 @@ class FakeNode {
   private readonly listeners = new Map<string, Set<(event: Event) => void>>();
   private webContentsId = -1;
 
+  get isConnected(): boolean {
+    return this.parentElement !== null;
+  }
+
   setAttribute(name: string, value: string): void {
     this.attributes.set(name, value);
   }
@@ -557,6 +561,41 @@ describe("browser runtime host 会话路由", () => {
 
     expect(firstContainer.parentElement).toBeNull();
     expect(desktop.sessionRetire).not.toHaveBeenCalled();
+  });
+
+  test("DOM 失联的缓存 runtime 会被淘汰并重建宿主", async () => {
+    const staleRuntime = ensureBrowserRuntime(SESSION_A);
+    createBlankView(staleRuntime);
+    await flushAttach();
+    staleRuntime.container.remove();
+
+    const currentRuntime = ensureBrowserRuntime(SESSION_A);
+    createBlankView(currentRuntime);
+    await flushAttach();
+
+    expect(currentRuntime).not.toBe(staleRuntime);
+    expect(currentRuntime.container.isConnected).toBe(true);
+    expect(currentRuntime.views).toHaveLength(1);
+    expect(desktop.attach).toHaveBeenCalledTimes(2);
+    expect(desktop.detach).toHaveBeenCalledWith(SESSION_A, 7);
+  });
+
+  test("HMR dispose 后保留旧引用的面板可重新解析并 attach 当前 runtime", async () => {
+    const staleRuntime = ensureBrowserRuntime(SESSION_A);
+    createBlankView(staleRuntime);
+    await flushAttach();
+    const staleContainer = staleRuntime.container as unknown as FakeNode;
+
+    disposeBrowserRuntimeHostForTest();
+    const currentRuntime = ensureBrowserRuntime(SESSION_A);
+    createBlankView(currentRuntime);
+    await flushAttach();
+
+    expect(currentRuntime).not.toBe(staleRuntime);
+    expect(currentRuntime.container).not.toBe(staleRuntime.container);
+    expect(staleContainer.parentElement).toBeNull();
+    expect(currentRuntime.views).toHaveLength(1);
+    expect(desktop.attach).toHaveBeenCalledTimes(2);
   });
 
   test("HMR 后可退役未重建的后台 session owner", async () => {
