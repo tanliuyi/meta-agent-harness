@@ -17,6 +17,9 @@ export interface RunCodeLimits {
   maxOldGenerationSizeMb: number;
 }
 
+export const MAX_CONCURRENT_GENERATION_PLUGIN_CALLS = 32;
+export const RUN_CODE_CLEANUP_GRACE_MS = 350;
+
 export const DEFAULT_RUN_CODE_LIMITS: RunCodeLimits = Object.freeze({
   maxCalls: 64,
   maxConcurrentCalls: 8,

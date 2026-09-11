@@ -5,8 +5,8 @@
   "plugin": {
     "id": "pi.billion-context",
     "name": "Billion Context",
-    "version": "0.1.65-local",
-    "publisherId": "meta-agent"
+    "version": "0.1.66-local",
+    "publisherId": "admin"
   },
   "pi": {
     "entry": "index.ts",

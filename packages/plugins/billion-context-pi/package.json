@@ -1,6 +1,6 @@
 {
   "name": "billion-context-pi",
-  "version": "0.1.65",
+  "version": "0.1.66",
   "private": true,
   "description": "Fork of billion-context-pi: model-driven context management for the Pi coding agent.",
   "type": "module",
@@ -31,7 +31,7 @@
     "node": ">=20"
   },
   "scripts": {
-    "test": "node --import tsx --test tests/*.test.ts",
+    "test": "node --import tsx --test --test-concurrency=1 tests/*.test.ts",
     "typecheck": "tsc --noEmit",
     "build": "tsup && tsc --emitDeclarationOnly"
   },

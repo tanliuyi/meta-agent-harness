@@ -48,9 +48,12 @@ describe("run_code runtime", () => {
 
     const holder = new RunCodeRegistryHolder("generated-catalog");
     holder.bind(registry, "/tmp");
-    expect(holder.generatedApiInstructions()).toContain('"pluginId":"com.example.generated"');
-    expect(holder.generatedApiInstructions()).toContain('"name":"active"');
-    expect(holder.generatedApiInstructions()).toContain('"parameters":{"type":"object"');
+    const generated = holder.generatedApiInstructions();
+    expect(generated).toContain('readonly "com.example.generated": {');
+    expect(generated).toContain('readonly "active": (args: Record<string, never>)');
+    expect(generated).toContain('Promise<{\n      readonly "text": string;');
+    expect(generated).toContain("declare class PluginCallError extends Error");
+    expect(generated).not.toContain('"pluginId":"com.example.generated"');
     await holder.dispose();
   });
 
@@ -277,6 +280,177 @@ describe("run_code runtime", () => {
         process.cwd(),
       ),
     ).rejects.toMatchObject({ code: "PLUGIN_METHOD_NOT_FOUND", pluginId: "com.example.math", method: "missing" });
+  });
+
+  test("exposes stable PluginCallError values for unknown plugins", async () => {
+    await expect(
+      executePluginProgram(
+        `
+          try {
+            await plugin["com.example.unknown"].missing({});
+          } catch (error) {
+            return {
+              instanceOf: error instanceof PluginCallError,
+              name: error.name,
+              code: error.code,
+              pluginId: error.pluginId,
+              method: error.method,
+            };
+          }
+        `,
+        createMathDispatcher(),
+        "tool-unknown-plugin",
+        undefined,
+        process.cwd(),
+      ),
+    ).resolves.toEqual({
+      instanceOf: true,
+      name: "PluginCallError",
+      code: "PLUGIN_NOT_FOUND",
+      pluginId: "com.example.unknown",
+      method: "missing",
+    });
+  });
+
+  test("commits parallel responses and attachments in submission order", async () => {
+    const details = { calls: [], logs: [], attachments: [] };
+    const dispatcher = createMathDispatcher(
+      async (args, _signal, context) => {
+        await new Promise((resolve) => setTimeout(resolve, args.value === 1 ? 40 : 5));
+        context.attach({
+          type: "image",
+          data: Buffer.from(String(args.value)).toString("base64"),
+          mimeType: "image/png",
+          name: `${args.value}.png`,
+        });
+        return { doubled: args.value * 2 };
+      },
+      process.cwd(),
+      "parallel",
+    );
+    const result = await executePluginProgram(
+      `
+        const settled = await Promise.allSettled([
+          plugin["com.example.math"].double({ value: 1 }),
+          plugin["com.example.math"].double({ value: 1000 }),
+        ]);
+        return settled.map((item) => item.status === "fulfilled" ? "ok" : item.reason.code);
+      `,
+      dispatcher,
+      "tool-ordered-commit",
+      undefined,
+      process.cwd(),
+      { ...DEFAULT_RUN_CODE_LIMITS, maxCumulativeResponseBytes: 16 },
+      details,
+    );
+
+    expect(result).toEqual(["ok", "PLUGIN_RESPONSE_LIMIT_EXCEEDED"]);
+    expect(details.calls.map((call) => call.state)).toEqual(["complete", "error"]);
+    expect(details.attachments).toMatchObject([{ type: "image", name: "1.png" }]);
+  });
+
+  test("aborts queued serial calls and poisons a lane whose active method ignores cancellation", async () => {
+    const invoked: number[] = [];
+    const dispatcher = createMathDispatcher(async (args) => {
+      invoked.push(args.value);
+      if (args.value === 1) return new Promise(() => {});
+      return { doubled: args.value * 2 };
+    });
+    const details = { calls: [], logs: [], attachments: [] };
+
+    await expect(
+      executePluginProgram(
+        `
+          void plugin["com.example.math"].double({ value: 1 });
+          void plugin["com.example.math"].double({ value: 2 });
+          await new Promise((resolve) => setTimeout(resolve, 25));
+          return "done";
+        `,
+        dispatcher,
+        "tool-serial-abort",
+        undefined,
+        process.cwd(),
+        undefined,
+        details,
+      ),
+    ).resolves.toBe("done");
+    expect(invoked).toEqual([1]);
+    expect(details.calls.map((call) => call.state)).toEqual(["aborted", "aborted"]);
+
+    await new Promise((resolve) => setTimeout(resolve, 375));
+    await expect(
+      executePluginProgram(
+        'return plugin["com.example.math"].double({ value: 3 });',
+        dispatcher,
+        "tool-poisoned-lane",
+        undefined,
+        process.cwd(),
+      ),
+    ).rejects.toMatchObject({ code: "PLUGIN_GENERATION_STALE" });
+    expect(invoked).toEqual([1]);
+  });
+
+  test("poisons generation admission when a parallel method ignores cancellation", async () => {
+    const invoked: number[] = [];
+    const dispatcher = createMathDispatcher(
+      async (args) => {
+        invoked.push(args.value);
+        return new Promise(() => {});
+      },
+      process.cwd(),
+      "parallel",
+    );
+
+    await expect(
+      executePluginProgram(
+        'void plugin["com.example.math"].double({ value: 1 }); return "done";',
+        dispatcher,
+        "tool-parallel-abort",
+        undefined,
+        process.cwd(),
+      ),
+    ).resolves.toBe("done");
+    await expect(
+      executePluginProgram(
+        'return plugin["com.example.math"].double({ value: 2 });',
+        dispatcher,
+        "tool-poisoned-admission",
+        undefined,
+        process.cwd(),
+      ),
+    ).rejects.toMatchObject({ code: "PLUGIN_GENERATION_STALE" });
+    expect(invoked).toEqual([1]);
+  });
+
+  test("ignores method settlement and updates after the outer run settles", async () => {
+    const dispatcher = createMathDispatcher(async (args) => {
+      await new Promise((resolve) => setTimeout(resolve, 900));
+      return { doubled: args.value * 2 };
+    });
+    const details = { calls: [], logs: [], attachments: [] };
+    let updateCount = 0;
+
+    await expect(
+      executePluginProgram(
+        'void plugin["com.example.math"].double({ value: 4 }); return "done";',
+        dispatcher,
+        "tool-late-settlement",
+        undefined,
+        process.cwd(),
+        undefined,
+        details,
+        undefined,
+        () => {
+          updateCount += 1;
+        },
+      ),
+    ).resolves.toBe("done");
+    const settledDetails = JSON.stringify(details);
+    const settledUpdateCount = updateCount;
+
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    expect(JSON.stringify(details)).toBe(settledDetails);
+    expect(updateCount).toBe(settledUpdateCount);
   });
 
   test("distinguishes timeout, pre-abort, and invalid outer output", async () => {
@@ -641,6 +815,7 @@ type MathExecute = (
 function createMathDispatcher(
   execute: MathExecute = async (args) => ({ doubled: args.value * 2 }),
   cwd = process.cwd(),
+  concurrency: "serial" | "parallel" = "serial",
 ): PluginMethodDispatcher {
   const parameters = Type.Object({ value: Type.Number() }, { additionalProperties: false });
   const method: RegisteredDesktopPluginMethod = {
@@ -650,7 +825,7 @@ function createMathDispatcher(
     source: "development",
     name: "double",
     description: "Double a number",
-    concurrency: "serial",
+    concurrency,
     parameters,
     result: Type.Object({ doubled: Type.Number() }, { additionalProperties: false }),
     execute: (params, signal, context) => execute(params as { value: number }, signal, context),

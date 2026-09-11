@@ -97,7 +97,7 @@ Generated API context（无 primary Skill 时）
 - 在 renderer、preload 或 Electron main 中执行插件或模型生成代码；
 - 为生成代码提供权限 sandbox、文件隔离、网络隔离或 secret 隔离；
 - 靠 capability declaration 防止恶意插件或恶意生成代码访问操作系统；
-- 自动把所有 TypeBox schemas 或 generated SDK 注入 system prompt；
+- 对有 primary Skill 的插件仍自动注入完整 TypeBox schemas 或 generated SDK；
 - 在一个 live generation 内增删 methods 或热更新 skill；
 - 让 metadata worker、cold session 操作或首期 programmatic subagent 调用 thread 插件方法；
 - 把文件二进制作为 LLM content block 发送给 provider；
@@ -109,7 +109,7 @@ Generated API context（无 primary Skill 时）
 
 1. `run_code` 之外的 Pi active tool set 与本功能启用前一致。
 2. method-based 插件数量从 1 增加到 N 时，模型 tool schema 数量不随 N 增加。
-3. 有 primary Skill 时，`DesktopPluginMethodDefinition.parameters`、result、method description 和 catalog 不进入初始 system prompt；无 primary Skill 时只注入从实际捕获定义生成的 bounded method name、description、parameters 和 concurrency，不注入 handler 或 result。
+3. 有 primary Skill 时，`DesktopPluginMethodDefinition.parameters`、result、method description 和 catalog 不进入初始 system prompt；无 primary Skill 时只注入从实际捕获定义生成的 bounded TypeScript declarations，包含 method name、description、parameters、result 和 concurrency，不注入 handler。
 4. 初始 prompt 对每个 admitted Skill 只使用 Pi 现有 Skill metadata 格式。
 5. registry key 使用 Desktop 批准的 canonical plugin ID；插件代码不能自报或覆盖 plugin ID。
 6. `run_code` 是 Desktop 保留 tool name。Desktop 只向现有 Pi loader 注入一个同名 inline factory；不修改 Pi 去追踪 tool owner。若现有 Pi loader 因同名 tool 冲突返回 load error，Desktop 将其作为 blocking startup diagnostic，不覆盖、first-win 或静默替换其他 tool。
@@ -168,11 +168,11 @@ const RunCodeParameters = Type.Object(
   {
     code: Type.String({
       description:
-        "The body of an async TypeScript function. Top-level await and return are available.",
+        "Body of an async TypeScript function. Top-level await and return are available. Use erasable TypeScript syntax, call the injected plugin API, and return lossless JSON or undefined.",
       maxLength: 262_144,
     }),
     description: Type.String({
-      description: "A clear 5-10 word summary shown in the UI.",
+      description: "Short active-voice UI label, typically 5-10 words.",
       minLength: 1,
       maxLength: 160,
     }),
@@ -188,8 +188,9 @@ const RunCodeParameters = Type.Object(
   name: "run_code",
   label: "Run code",
   description:
-    "Execute an erasable TypeScript program using enabled Desktop plugin APIs. " +
-    "Read the relevant plugin skill or generated API context before use. Return only the final value needed by the model.",
+    "Execute an async TypeScript function body over enabled Desktop plugin APIs. " +
+    "Use run_code for every Desktop plugin method call; native Pi tools remain direct. " +
+    "Only the explicit return value becomes model-visible text; images are forwarded.",
   parameters: RunCodeParameters,
   executionMode: "parallel",
 }
@@ -210,7 +211,7 @@ Desktop 托管插件调用 `registerTool()` 表示声明完整原生工具能力
 
 ### 7.3 Progressive disclosure
 
-Pi 现有 `formatSkillsForPrompt()` 继续只投影每个 skill 的 name、description 和 location。Desktop 不增加静态 method catalog 或 generated SDK declaration。对于没有 primary Skill 的插件，Desktop 增加一个 bounded `<desktop_plugin_apis>` system section，其中只包含从捕获定义生成的 method name、description、parameters 和 concurrency。
+Pi 现有 `formatSkillsForPrompt()` 继续只投影每个 skill 的 name、description 和 location。Desktop 额外始终注入一个固定、短小的 `<desktop_run_code>` contract，统一说明 canonical 调用语法、native tool 边界、并发、`PluginCallError`、显式 return 和 console/audit 可见性；该 contract 也追加到 custom base prompt。对于没有 primary Skill 的插件，Desktop 再增加一个 bounded `<desktop_plugin_apis>` system section，从捕获定义确定性生成 TypeScript declarations，包含 method name、description、parameter/result type 和 concurrency metadata。存在 primary Skill 的插件不进入该 generated section，完整领域语义继续按需读取 Skill。
 
 推荐流程：
 
@@ -602,7 +603,7 @@ type PluginHostMessage =
 6. 创建 sub-call `AbortController` 和 execution context；
 7. 调用 handler；
 8. 校验 result schema 并做 detached JSON snapshot；
-9. 原子提交该 sub-call 的 attachments，记录 audit settlement；
+9. method bodies 可并行执行，但 response budget、attachments、audit settlement 和 worker reply 按 submission sequence 原子提交；
 10. 若 outer run 仍 active，向 worker resolve/reject。
 
 任何 method result 都不调用 Pi `sendMessage()`，不追加 session entry，也不触发嵌套 `tool_execution_*` event。
@@ -613,13 +614,14 @@ type PluginHostMessage =
 
 - 一个 outer run 最多 64 次 sub-call；
 - 一个 outer run 最多 8 个 executing sub-calls；
+- 一个 generation 最多 32 个 executing sub-calls，多个 outer runs 共享该公平 admission queue；
 - `concurrency: "serial"` 的 methods 在同一 plugin ID 的 FIFO lane 中互斥；
 - 不同 plugin ID 的 serial lanes 可以并行；
 - `concurrency: "parallel"` 可以在 global cap 内与同插件调用并行；
 - queue wait 计入 outer wall timeout；
 - outer run 结束后未开始的 queued calls 直接以 `PLUGIN_CALL_ABORTED` settle。
 
-程序可以用 `Promise.all()` 表达并行。结果按各 Promise 正常 settlement 返回；audit records 使用 submission sequence 保持确定性展示，不以完成顺序重排代码语义。console/log records 使用独立 monotonic sequence 保留 host 收到的顺序。
+程序可以用 `Promise.all()` 表达并行。method bodies 可以按声明重叠执行；response budget、attachments、audit settlement 和 worker reply 按 submission sequence 提交，因此资源限制和 UI 顺序不依赖完成竞态。console/log records 使用独立 monotonic sequence 保留 host 收到的顺序。
 
 同一 agent turn 中多个顶层 `run_code` 由 Pi 现有 tool execution scheduler 决定是否并行。每个 outer run 有独立 worker 和预算，但共享 session registry 的 plugin serial lanes，因而同一插件的默认 serial 约束跨 outer runs 生效。
 
@@ -659,6 +661,7 @@ Pi abort 使用 `PLUGIN_CALL_ABORTED`；wall/compute budget 使用 `PLUGIN_CALL_
 | JSON nesting depth | 64 |
 | sub-calls per outer run | 64 |
 | concurrent sub-calls per outer run | 8 |
+| concurrent sub-calls per generation | 32 |
 | one method result JSON | 16 MiB |
 | cumulative method response JSON | 64 MiB |
 | model-facing outer JSON | 1 MiB |
@@ -684,6 +687,7 @@ extension handler 与 `SessionRuntime` 位于同一 sidecar isolate，不能像 
 - outer tool 仍按 timeout/abort 结束；
 - late result、progress、attachment 和 UI request 被 generation/run guard 丢弃；
 - dispatcher 保留 rejection handler，避免 unhandled rejection；
+- active handler 在 350 ms drain deadline 后仍不 settle 时，generation admission 标记为 `PLUGIN_GENERATION_STALE`，queued 和后续调用 fail closed；serial plugin lane 同时独立标记 stale，不再排到失活 handler 后；
 - stuck synchronous handler 会阻塞整个 thread sidecar，这是全信任 extension 模型的已知限制；
 - 需要强隔离时必须采用未来的 per-plugin process，不在本规范首期范围。
 
@@ -814,7 +818,7 @@ type RunCodeErrorCode =
   | "PLUGIN_GENERATION_STALE";
 ```
 
-worker 中 method rejection 使用真实 `PluginMethodError extends Error`，带 own enumerable `code`、`pluginId`、`method`；不依赖解析 message string。
+worker 中 method rejection 使用真实 `PluginCallError extends Error`，带 own `code`、可选 `pluginId` 和 `method`；不依赖解析 message string。
 
 ### 17.2 Model-facing errors
 
@@ -831,7 +835,7 @@ abort、timeout、worker exit、invalid result 和 plugin execution failure 是�
 
 ### 17.3 Outer tool status
 
-任何 outer failure 通过现有 Pi tool throw path 形成 `isError=true` 的 tool result。它不把 assistant message本身改成 incomplete；`pi-native-assistant-ui-runtime-spec.md` 的 tool failure 投影规则保持不变。
+任何 outer failure 先通过现有 Pi tool throw path 形成 `isError=true` 的 tool result；Desktop inline extension 的同代 `tool_result` handler 再按 `toolCallId` 一次性恢复已快照的 bounded details 和稳定错误文本。它不把 assistant message本身改成 incomplete；`pi-native-assistant-ui-runtime-spec.md` 的 tool failure 投影规则保持不变。
 
 ## 18. Audit、progress 和 UI
 
@@ -1141,7 +1145,8 @@ packages/desktop/src/main/pi/run-code/
 - host-owned root controller 保留 normalized abort reason，handler observes exact child signal；
 - progress depth/JSON/per-value/cumulative limits、100 ms coalescing 和 terminal flush；
 - late result/progress/attachment ignored；
-- serial FIFO within plugin；
+- serial FIFO within plugin、queued abort 和 ignored-cancellation lane poisoning；
+- parallel bodies 的 response budget、attachment 和 reply 按 submission sequence 确定性提交；
 - cross-plugin parallel；
 - method `parallel` opt-in；
 - global concurrency and call count limits；
@@ -1223,7 +1228,7 @@ Exit：image、file、progress、error 和 replay 行为通过 integration tests
 本规范实现完成必须同时满足：
 
 1. 启用至少一个 method-based plugin 时，provider request 中只新增 `run_code` 一个 tool schema。
-2. 任意 plugin method schema、description 和 catalog 均不进入 provider tool list；有 primary Skill 时不进入初始 system prompt，无 primary Skill 时只进入 bounded generated API context。
+2. 任意 plugin method schema、description 和 catalog 均不进入 provider tool list；有 primary Skill 时不进入初始 system prompt，无 primary Skill 时 parameters/result 只进入 bounded generated TypeScript API context。
 3. 已声明 plugin Skill 的 name/description 在初始 Skill metadata 中，完整正文只在模型读取后进入上下文；未声明 Skill 的插件提供 generated API context。
 4. `run_code` 可使用真实 canonical plugin ID 调用方法，并支持 Marketplace dotted/hyphenated ID。
 5. 参数验证使用 captured ToolDefinition schema，结果/附件经过 Desktop adapter 和 lossless JSON 边界；声明 legacy catalog 时 captured definitions 是其中与当前配置对应的合法子集，未声明时直接使用经 profile 校验的 captured definitions。

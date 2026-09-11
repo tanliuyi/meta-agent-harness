@@ -2,12 +2,14 @@ import { randomUUID } from "node:crypto";
 import { stripTypeScriptTypes } from "node:module";
 import { Worker } from "node:worker_threads";
 import type { JsonValue } from "../../../shared/contracts.ts";
-import type { PluginMethodDispatcher, RunCodeExecution } from "./plugin-method-dispatcher.ts";
+import {
+  type PluginMethodDispatcher,
+  RunCodeCommitCoordinator,
+  type RunCodeExecution,
+} from "./plugin-method-dispatcher.ts";
 import { isRunCodeErrorCode, normalizePluginError, RunCodeError, type RunCodeErrorCode } from "./run-code-errors.ts";
 import { snapshotJson } from "./run-code-json.ts";
-import { DEFAULT_RUN_CODE_LIMITS, type RunCodeLimits } from "./run-code-limits.ts";
-
-const CLEANUP_GRACE_MS = 350;
+import { DEFAULT_RUN_CODE_LIMITS, RUN_CODE_CLEANUP_GRACE_MS, type RunCodeLimits } from "./run-code-limits.ts";
 
 interface ActiveRun {
   controller: AbortController;
@@ -134,12 +136,14 @@ export async function executePluginProgram(
       resolveCleanup = resolvePromise;
     });
     const queued: WorkerCallMessage[] = [];
+    const commits = new RunCodeCommitCoordinator();
 
     const finish = async (error?: RunCodeError, value?: JsonValue): Promise<void> => {
       if (settled) return;
       settled = true;
-      if (!root.signal.aborted) root.abort(error?.code ?? "PLUGIN_CALL_ABORTED");
-      details.active = false;
+      const settlementError = error ?? new RunCodeError("PLUGIN_CALL_ABORTED");
+      if (!root.signal.aborted) root.abort(settlementError.code);
+      commits.abort(settlementError);
       clearTimeout(wallTimer);
       clearInterval(computeTimer);
       signal?.removeEventListener("abort", abortFromPi);
@@ -149,21 +153,30 @@ export async function executePluginProgram(
         worker.postMessage({
           type: "abort",
           runId,
-          error: serializeError(error ?? new RunCodeError("PLUGIN_CALL_ABORTED")),
+          error: serializeError(settlementError),
         });
       } catch {
         // Worker may already have exited.
       }
       await Promise.race([
         cleanupComplete,
-        new Promise<void>((resolvePromise) => setTimeout(resolvePromise, CLEANUP_GRACE_MS)),
+        new Promise<void>((resolvePromise) => setTimeout(resolvePromise, RUN_CODE_CLEANUP_GRACE_MS)),
       ]);
       await worker.terminate();
       await Promise.race([
         Promise.allSettled(inFlightCalls),
-        new Promise<void>((resolvePromise) => setTimeout(resolvePromise, CLEANUP_GRACE_MS)),
+        new Promise<void>((resolvePromise) => setTimeout(resolvePromise, RUN_CODE_CLEANUP_GRACE_MS)),
       ]);
       await terminateDescendants(childPids);
+      const completedAt = Date.now();
+      for (const call of details.calls) {
+        if (call.state !== "queued" && call.state !== "running") continue;
+        call.state = "aborted";
+        call.errorCode = settlementError.code;
+        call.completedAt = completedAt;
+        call.durationMs = call.startedAt === undefined ? 0 : completedAt - call.startedAt;
+      }
+      details.active = false;
       unregister?.();
       onUpdate?.();
       if (error) reject(error);
@@ -194,7 +207,17 @@ export async function executePluginProgram(
         if (!message) return;
         activeCalls += 1;
         const pending = dispatcher
-          .call(message.pluginId, message.method, message.args, root.signal, toolCallId, details, limits, onUpdate)
+          .call(
+            message.pluginId,
+            message.method,
+            message.args,
+            root.signal,
+            toolCallId,
+            details,
+            limits,
+            onUpdate,
+            commits,
+          )
           .then(
             (value) => post({ type: "resolve", runId, id: message.id, value }),
             (error: unknown) =>
@@ -279,7 +302,6 @@ export async function executePluginProgram(
     worker.on("error", (error) => {
       const code: RunCodeErrorCode =
         error instanceof SyntaxError ? "PLUGIN_CODE_SYNTAX_ERROR" : "PLUGIN_CODE_EXCEPTION";
-      root.abort(code);
       void finish(new RunCodeError(code, error.message));
     });
     worker.on("exit", () => {
@@ -306,6 +328,7 @@ function workerSource(runId: string, code: string, methods: Record<string, strin
     const workerThreads = require("node:worker_threads");
     const cluster = require("node:cluster");
     const runId = ${JSON.stringify(runId)};
+    const code = ${JSON.stringify(code)};
     const methods = ${JSON.stringify(methods)};
     const calls = new Map();
     const trackedChildren = new Map();
@@ -362,27 +385,43 @@ function workerSource(runId: string, code: string, methods: Record<string, strin
       ...(typeof error?.pluginId === "string" ? { pluginId: error.pluginId } : {}),
       ...(typeof error?.method === "string" ? { method: error.method } : {}),
     });
+    class PluginCallError extends Error {
+      constructor(error) {
+        super(error?.message ?? "Plugin method failed");
+        this.name = "PluginCallError";
+        this.code = error?.code ?? "PLUGIN_METHOD_EXECUTION_FAILED";
+        if (typeof error?.pluginId === "string") this.pluginId = error.pluginId;
+        if (typeof error?.method === "string") this.method = error.method;
+      }
+    }
     const invoke = (pluginId, method, args) => {
       const id = ++nextId;
-      if (id > ${limits.maxCalls}) return Promise.reject(Object.assign(new Error("PLUGIN_CALL_LIMIT_EXCEEDED"), { code: "PLUGIN_CALL_LIMIT_EXCEEDED" }));
+      if (id > ${limits.maxCalls}) return Promise.reject(new PluginCallError({ code: "PLUGIN_CALL_LIMIT_EXCEEDED", message: "PLUGIN_CALL_LIMIT_EXCEEDED", pluginId, method }));
       send({ type: "call", id, pluginId, method, args: args === undefined ? {} : args });
       return new Promise((resolve, reject) => calls.set(id, { resolve, reject }));
     };
-    const namespace = (parts) => new Proxy(Object.create(null), {
+    const resolveInvocation = (parts) => {
+      for (let index = parts.length - 1; index > 0; index -= 1) {
+        const pluginId = parts.slice(0, index).join(".");
+        if (methods[pluginId] && parts.length === index + 1) {
+          return { pluginId, method: parts[index] };
+        }
+      }
+      return { pluginId: parts.slice(0, -1).join("."), method: parts.at(-1) ?? "" };
+    };
+    const namespace = (parts) => new Proxy(function pluginMethod() {}, {
       get(_target, property) {
         if (typeof property !== "string" || ["then", "constructor", "prototype", "__proto__"].includes(property)) return undefined;
-        const joined = [...parts, property].join(".");
-        if (methods[parts.join(".")]?.includes(property)) return (args) => invoke(parts.join("."), property, args);
-        if (methods[joined]) return namespace([joined]);
-        if (Object.keys(methods).some((id) => id.startsWith(joined + "."))) return namespace([...parts, property]);
-        if (methods[parts.join(".")]) return (args) => invoke(parts.join("."), property, args);
         return namespace([...parts, property]);
+      },
+      apply(_target, _thisArg, args) {
+        const call = resolveInvocation(parts);
+        return invoke(call.pluginId, call.method, args[0]);
       }
     });
     const plugin = new Proxy(Object.create(null), {
       get(_target, property) {
         if (typeof property !== "string" || ["then", "constructor", "prototype", "__proto__"].includes(property)) return undefined;
-        if (methods[property]) return namespace([property]);
         return namespace([property]);
       }
     });
@@ -395,10 +434,10 @@ function workerSource(runId: string, code: string, methods: Record<string, strin
         if (!pending) return;
         calls.delete(message.id);
         if (message.type === "resolve") pending.resolve(message.value);
-        else pending.reject(Object.assign(new Error(message.error?.message ?? "Plugin method failed"), message.error));
+        else pending.reject(new PluginCallError(message.error));
       }
       if (message.type === "abort") {
-        for (const pending of calls.values()) pending.reject(Object.assign(new Error(message.error?.message), message.error));
+        for (const pending of calls.values()) pending.reject(new PluginCallError(message.error));
         void cleanupChildren().finally(() => send({ type: "cleanup-complete" }));
       }
     });
@@ -410,9 +449,11 @@ function workerSource(runId: string, code: string, methods: Record<string, strin
       busyMs += next.active;
       send({ type: "heartbeat", busyMs });
     }, 100);
+    const AsyncFunction = Object.getPrototypeOf(async function() {}).constructor;
     (async () => {
       try {
-        const value = await (async function() { "use strict"; ${code}\n }).call(undefined);
+        const program = new AsyncFunction("plugin", "PluginCallError", "\\"use strict\\";\\n" + code + "\\n");
+        const value = await program(plugin, PluginCallError);
         clearInterval(heartbeat);
         send({ type: "done", value });
       } catch (error) {

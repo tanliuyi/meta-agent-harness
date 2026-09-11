@@ -1,24 +1,47 @@
 import type { AgentToolResult, ExtensionContext, InlineExtension } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { PluginMethodDispatcher, type RunCodeExecution } from "./plugin-method-dispatcher.ts";
-import { buildGeneratedApiInstructions, type PluginMethodRegistry } from "./plugin-method-registry.ts";
+import type { PluginMethodRegistry } from "./plugin-method-registry.ts";
+import { buildGeneratedApiInstructions, RUN_CODE_SYSTEM_INSTRUCTIONS } from "./plugin-sdk.ts";
 import { normalizePluginError, type RunCodeError } from "./run-code-errors.ts";
 import { executePluginProgram, RunCodeRunManager } from "./run-code-runtime.ts";
 
 export const RunCodeParameters = Type.Object(
   {
     code: Type.String({
-      description: "The body of an async TypeScript function. Top-level await and return are available.",
+      description:
+        "Body of an async TypeScript function. Top-level await and return are available. Use erasable TypeScript syntax, call the injected plugin API, and return lossless JSON or undefined.",
       maxLength: 262144,
     }),
     description: Type.String({
-      description: "A clear 5-10 word summary shown in the UI.",
+      description: "Short active-voice UI label, typically 5-10 words.",
       minLength: 1,
       maxLength: 160,
     }),
   },
   { additionalProperties: false },
 );
+
+interface RunCodeToolDetails extends RunCodeExecution {
+  kind: "run-code-details-v1";
+  description: string;
+  runId: string;
+  generation: string;
+  error?: {
+    code: string;
+    message: string;
+    pluginId?: string;
+    method?: string;
+  };
+}
+
+type PersistedRunCodeAttachment =
+  | { type: "image"; contentIndex: number; name?: string }
+  | Exclude<NonNullable<RunCodeExecution["attachments"]>[number], { type: "image" }>;
+
+interface RunCodePersistedDetails extends Omit<RunCodeToolDetails, "attachments" | "toolContext"> {
+  attachments: PersistedRunCodeAttachment[];
+}
 
 /** 保存当前 worker generation 的 run_code 方法表和运行中的 worker。 */
 export class RunCodeRegistryHolder {
@@ -87,27 +110,19 @@ export function createRunCodeExtension(holder: RunCodeRegistryHolder, cwd: strin
   return {
     name: "<inline:desktop-run-code>",
     factory: async (pi) => {
+      const pendingFailures = new Map<string, AgentToolResult<RunCodePersistedDetails>>();
       pi.registerTool({
         name: "run_code",
         label: "Run code",
         description:
-          'Run an async TypeScript program that combines enabled Desktop plugin APIs. Use `await plugin["canonical-plugin-id"].method(args)` with the plugin ID and method documented by its skill or generated API context. Combine independent calls with `Promise.all`, await dependent calls in order, and explicitly return only the result needed by the model. Direct Pi tools remain available for simple one-step operations; use run_code for multi-step, batch, conditional, or composed plugin work. The host `pi` object is not injected, so do not guess methods or write `pi.someTool(...)`.',
-        promptSnippet: 'run_code({ code: "return await plugin[\\"plugin.id\\"].method(args)", description: "..." })',
-        promptGuidelines: [
-          "Use direct native tools for one simple action; use run_code when several plugin actions belong to one decision.",
-          "Use Promise.all for independent read-only calls and await when one call depends on another.",
-          "Read the plugin skill or generated API context for the exact plugin ID, method names, and argument shape before composing calls.",
-          "Return only the data needed for the next reasoning step.",
-        ],
+          'Execute an async TypeScript function body over enabled Desktop plugin APIs. Call methods as `await plugin["canonical-plugin-id"].method(args)`. Use run_code for every Desktop plugin method call and for workflows requiring branching, loops, batching, or intermediate result reduction. Native Pi tools remain directly callable and are not members of `plugin`. Only the explicit return value becomes model-visible text; image attachments are forwarded.',
+        promptSnippet:
+          'run_code({ code, description }): execute an async TypeScript body with `plugin["plugin.id"].method(args)` and return its explicit JSON result.',
         parameters: RunCodeParameters,
         executionMode: "parallel",
         async execute(toolCallId, params, signal, onUpdate, _ctx: ExtensionContext): Promise<AgentToolResult<unknown>> {
-          const details: RunCodeExecution & {
-            kind: "run-code-details-v1";
-            description: string;
-            runId: string;
-            generation: string;
-          } = {
+          pendingFailures.delete(toolCallId);
+          const details: RunCodeToolDetails = {
             kind: "run-code-details-v1",
             description: params.description,
             runId: toolCallId,
@@ -119,11 +134,12 @@ export function createRunCodeExtension(holder: RunCodeRegistryHolder, cwd: strin
           };
           Object.defineProperty(details, "toolContext", { value: _ctx });
           let updateTimer: ReturnType<typeof setTimeout> | undefined;
+          let acceptingUpdates = true;
           const publishUpdate = () => {
-            if (!onUpdate || updateTimer) return;
+            if (!acceptingUpdates || details.active === false || !onUpdate || updateTimer) return;
             updateTimer = setTimeout(() => {
               updateTimer = undefined;
-              onUpdate({ content: [], details });
+              if (acceptingUpdates && details.active !== false) onUpdate({ content: [], details });
             }, 100);
           };
           try {
@@ -138,6 +154,7 @@ export function createRunCodeExtension(holder: RunCodeRegistryHolder, cwd: strin
               holder.getRunManager(),
               publishUpdate,
             );
+            acceptingUpdates = false;
             if (updateTimer) clearTimeout(updateTimer);
             const content: AgentToolResult<unknown>["content"] = [
               {
@@ -155,54 +172,80 @@ export function createRunCodeExtension(holder: RunCodeRegistryHolder, cwd: strin
                 content.push({ type: "image", data: attachment.data, mimeType: attachment.mimeType });
               }
             }
-            const persistedDetails = {
-              ...details,
-              attachments: (details.attachments ?? []).map((attachment) =>
-                attachment.type === "image"
-                  ? {
-                      type: "image" as const,
-                      contentIndex: content.findIndex(
-                        (part) =>
-                          part.type === "image" &&
-                          part.data === attachment.data &&
-                          part.mimeType === attachment.mimeType,
-                      ),
-                      ...(attachment.name ? { name: attachment.name } : {}),
-                    }
-                  : attachment,
-              ),
+            const result: AgentToolResult<RunCodePersistedDetails> = {
+              content,
+              details: snapshotRunCodeDetails(details, content, true),
             };
-            const result: AgentToolResult<unknown> = { content, details: persistedDetails };
             onUpdate?.(result);
             return result;
           } catch (error) {
+            acceptingUpdates = false;
             if (updateTimer) clearTimeout(updateTimer);
             const normalized = normalizePluginError(error, "PLUGIN_METHOD_EXECUTION_FAILED");
-            const result: AgentToolResult<unknown> = {
-              content: [{ type: "text", text: formatRunCodeError(normalized) }],
-              details: {
-                ...details,
-                error: {
-                  code: normalized.code,
-                  message: normalized.message,
-                  ...(normalized.pluginId ? { pluginId: normalized.pluginId } : {}),
-                  ...(normalized.method ? { method: normalized.method } : {}),
-                },
-              },
+            const failureDetails = snapshotRunCodeDetails(details, [], false);
+            failureDetails.error = {
+              code: normalized.code,
+              message: normalized.message,
+              ...(normalized.pluginId ? { pluginId: normalized.pluginId } : {}),
+              ...(normalized.method ? { method: normalized.method } : {}),
             };
+            const result: AgentToolResult<RunCodePersistedDetails> = {
+              content: [{ type: "text", text: formatRunCodeError(normalized) }],
+              details: failureDetails,
+            };
+            pendingFailures.set(toolCallId, result);
             onUpdate?.(result);
-            return result;
+            throw new Error(formatRunCodeError(normalized));
           } finally {
+            acceptingUpdates = false;
             if (updateTimer) clearTimeout(updateTimer);
           }
         },
       });
+      pi.on("tool_result", (event) => {
+        if (event.toolName !== "run_code") return;
+        const result = pendingFailures.get(event.toolCallId);
+        if (!result) return;
+        pendingFailures.delete(event.toolCallId);
+        return { ...result, isError: true };
+      });
+      pi.on("session_shutdown", () => {
+        pendingFailures.clear();
+      });
       pi.on("before_agent_start", (event) => {
         const generated = holder.generatedApiInstructions();
-        if (!generated) return;
-        return { systemPrompt: `${event.systemPrompt}\n\n${generated}` };
+        return {
+          systemPrompt: [event.systemPrompt, RUN_CODE_SYSTEM_INSTRUCTIONS, generated].filter(Boolean).join("\n\n"),
+        };
       });
     },
+  };
+}
+
+function snapshotRunCodeDetails(
+  details: RunCodeToolDetails,
+  content: AgentToolResult<unknown>["content"],
+  includeAttachments: boolean,
+): RunCodePersistedDetails {
+  return {
+    ...details,
+    calls: details.calls.map((call) => ({ ...call })),
+    logs: details.logs.map((log) => ({ ...log })),
+    attachments: includeAttachments
+      ? (details.attachments ?? []).map((attachment) =>
+          attachment.type === "image"
+            ? {
+                type: "image" as const,
+                contentIndex: content.findIndex(
+                  (part) =>
+                    part.type === "image" && part.data === attachment.data && part.mimeType === attachment.mimeType,
+                ),
+                ...(attachment.name ? { name: attachment.name } : {}),
+              }
+            : { ...attachment },
+        )
+      : [],
+    active: false,
   };
 }
 
